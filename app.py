@@ -5,7 +5,7 @@ app = Flask(__name__)
 # app.config['SECRET_KEY'] = 'my_secret_key'
 
 # Initiate a session
-# session = {}
+session = {}
 
 
 @app.route('/')
@@ -59,7 +59,7 @@ def register_post():
         return render_template('tryagain.html')
 
     # Add the new user to the database
-    with open('users.csv', 'a', newline='') as csvfile:
+    with open('users.csv', 'a', newline='', encoding='utf-8') as csvfile:
         writer = csv.writer(csvfile, delimiter=',')
 
         # Write the new user to the file
