@@ -1,5 +1,4 @@
 import csv
-import unittest
 from flask import Flask, render_template, request, session, redirect
 
 app = Flask(__name__)
@@ -28,7 +27,7 @@ def login_post():
     password = request.form['password']
 
     # Check if the username and password are valid
-    with open('users.csv', 'r') as csvfile:
+    with open('users.csv', 'r', encoding='utf-8') as csvfile:
         reader = csv.reader(csvfile, delimiter=',')
 
         for row in reader:
@@ -95,7 +94,7 @@ def cservices():
         return render_template('tryagain.html')
 
     # Get the list of users from the database
-    with open('users.csv', 'r') as csvfile:
+    with open('users.csv', 'r', encoding='utf-8') as csvfile:
         reader = csv.reader(csvfile, delimiter=',')
 
         users = []
