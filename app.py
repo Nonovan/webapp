@@ -9,6 +9,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
+from flask_sqlalchemy import SQLAlchemy
 
 # Configure logging
 logging.basicConfig(
@@ -30,6 +31,22 @@ limiter = Limiter(
     key_func=get_remote_address,
     default_limits=["200 per day", "50 per hour"]
 )
+
+# Database configuration
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
+    'DATABASE_URL',
+    'postgresql://username:password@localhost:5432/yourdb'
+)
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+
+# User model
+class User(db.Model):
+    __tablename__ = 'users'
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password = db.Column(db.String(255), nullable=False)
+    status = db.Column(db.String(20), default='approved')
 
 def validate_input(text):
     return text and len(text.strip()) > 0 and len(text) < 100
@@ -85,16 +102,12 @@ def login():
                 return render_template('login.html'), 400
 
             if username and password:
-                # Example: user = db.get_user(username)
-                # if user and check_password_hash(user.password, password):
-                with open('users.csv', 'r', encoding='utf-8') as csvfile:
-                    reader = csv.reader(csvfile, delimiter=',')
-                    for row in reader:
-                        if row[0] == username and check_password_hash(row[1], password):
-                            session.permanent = True
-                            session['username'] = username
-                            logging.info(f"Succesful login for user: {username}")
-                            return redirect('/ICS')
+                user = User.query.filter_by(username=username).first()
+                if user and check_password_hash(user.password, password):
+                    session.permanent = True
+                    session['username'] = username
+                    logging.info(f"Successful login for user: {username}")
+                    return redirect('/ICS')
 
             logging.warning(f"Failed login attempt for user: {username}")
             flash("Invalid credentials.")
@@ -146,18 +159,18 @@ def register_post():
     # Add the new user to the database
     try:
         # Check if the username already exists
-        with open('users.csv', 'r', encoding='utf-8') as csvfile:
-            reader = csv.reader(csvfile, delimiter=',')
-            for row in reader:
-                if row[0] == username:
-                    flash('Username already exists.')
-                    return render_template('register.html')
+        user_exists = User.query.filter_by(username=username).first()
+        if user_exists:
+            flash('Username already exists.')
+            return render_template('register.html')
 
-        with open('users.csv', 'a', newline='', encoding='utf-8') as csvfile:
-            writer = csv.writer(csvfile, delimiter=',')
-
-            # Write the new user to the file
-            writer.writerow([username, hashed_password, 'approved'])
+        new_user = User(
+            username=username,
+            password=generate_password_hash(password),
+            status='approved'
+        )
+        db.session.add(new_user)
+        db.session.commit()
 
         flash('Registration successful!')
         return redirect('/login')
@@ -201,6 +214,9 @@ def cservices():
 def ratelimit_handler(e):
     logging.warning(f"Rate limit exceeded for IP: {get_remote_address()}")
     return "Too many attempts. Please try again later.", 429
+
+from app import db
+db.create_all()
 
 # if __name__ == '__main__':
 #    app.run(debug=True)
