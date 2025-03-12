@@ -1,19 +1,38 @@
 import csv
 import hashlib
 import os
+import logging
 from datetime import timedelta
 from flask import Flask, render_template, request, session, redirect, flash
 from flask_wtf.csrf import CSRFProtect
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 
+# Configure logging
+logging.basicConfig(
+    filename='app.log',
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s: %(message)s'
+)
+
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.urandom(24)   # Generate a random secret key
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', os.urandom(24))
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
+app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_HTTPONLY'] = True
 csrf = CSRFProtect(app)
 
-# Initiate a session
-# session = {}
+# Initialize rate limiter
+limiter = Limiter(
+    app,
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"]
+)
+
+def validate_input(text):
+    return text and len(text.strip()) > 0 and len(text) < 100
 
 def is_logged_in():
     return 'username' in session
@@ -39,9 +58,14 @@ def login():
 
 
 @app.route('/login', methods=['POST'])
+@limiter.limit("5 per minute")
 def login_post():
-    username = request.form['username']
-    password = request.form['password']
+    username = request.form.get('username', '').strip()
+    password = request.form.get('password', '').strip()
+
+    if not validate_input(username) or not validate_input(password):
+        flash('Invalid input.')
+        return render_template('login.html'), 400
 
     # Check if the username and password are valid
     try:
@@ -49,7 +73,6 @@ def login_post():
             reader = csv.reader(csvfile, delimiter=',')
 
             for row in reader:
-                
                 if row[0] == username and check_password_hash(row[1], password):
                     session.permanent = True
                     session['username'] = username
@@ -61,9 +84,8 @@ def login_post():
     except FileNotFoundError:
         return render_template('tryagain.html', message="User database not found.")
     except Exception as e:
-        # Log the error for debugging purposes
-        print(f"An error occurred: {e}")
-        return render_template('tryagain.html', message="An error occurred during login.")
+        logging.error(f"Login error for user {username}: {str(e)}")
+        return render_template('tryagain.html', message="An error occurred during login."), 500
 
 
 @app.route('/logout')
@@ -78,10 +100,15 @@ def register():
 
 
 @app.route('/register', methods=['POST'])
+@limiter.limit("3 per hour")
 def register_post():
-    username = request.form['username']
-    password = request.form['password']
-    confirmation = request.form['confirmation']
+    username = request.form.get('username', '').strip()
+    password = request.form.get('password', '').strip()
+    confirmation = request.form.get('confirmation', '').strip()
+    
+    if not validate_input(username) or not validate_input(password):
+        flash('Invalid input.')
+        return render_template('register.html'), 400
     
     if not username or not password:
         flash('Username and password are required.')
@@ -154,6 +181,10 @@ def cservices():
 
     return render_template('cloud.html', users=users)
 
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    flash('Too many attempts. Please try again later.')
+    return render_template('tryagain.html'), 429
 
 # if __name__ == '__main__':
 #    app.run(debug=True)
