@@ -45,6 +45,17 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def validate_password(password):
+    if len(password) < 8:
+        return False
+    if not any(c.isupper() for c in password):
+        return False
+    if not any(c.islower*() for c in password):
+        return False
+    if not any(c.isdigit() for c in password):
+        return False
+    return True
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -57,36 +68,41 @@ def login():
     return render_template('login.html')
 
 
-@app.route('/login', methods=['POST'])
+@app.route('/login', methods=['GET', 'POST'])
 @limiter.limit("5 per minute")
-def login_post():
-    username = request.form.get('username', '').strip()
-    password = request.form.get('password', '').strip()
-
-    if not validate_input(username) or not validate_input(password):
-        flash('Invalid input.')
-        return render_template('login.html'), 400
-
-    # Check if the username and password are valid
-    try:
-        with open('users.csv', 'r', encoding='utf-8') as csvfile:
-            reader = csv.reader(csvfile, delimiter=',')
-
-            for row in reader:
-                if row[0] == username and check_password_hash(row[1], password):
-                    session.permanent = True
-                    session['username'] = username
-                    return redirect('/ICS')
-
-        flash('Invalid username or password.')
-        return render_template('login.html')
+def login():
+    if is_logged_in():
+        return redirect('/')
     
-    except FileNotFoundError:
-        return render_template('tryagain.html', message="User database not found.")
-    except Exception as e:
-        logging.error(f"Login error for user {username}: {str(e)}")
-        return render_template('tryagain.html', message="An error occurred during login."), 500
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
 
+        try:
+            # Check if the username and password are valid
+            if not validate_input(username) or not validate_input(password):
+                flash('Invalid input.')
+                return render_template('login.html'), 400
+
+            if username and password:
+                # Example: user = db.get_user(username)
+                # if user and check_password_hash(user.password, password):
+                with open('users.csv', 'r', encoding='utf-8') as csvfile:
+                    reader = csv.reader(csvfile, delimiter=',')
+                    for row in reader:
+                        if row[0] == username and check_password_hash(row[1], password):
+                            session.permanent = True
+                            session['username'] = username
+                            logging.info(f"Succesful login for user: {username}")
+                            return redirect('/ICS')
+
+            logging.warning(f"Failed login attempt for user: {username}")
+            flash("Invalid credentials.")
+        except Exception as e:
+            logging.error(f"Login error: {str(e)}")
+            flash('An error occurred. Please try again.')
+
+    return render_template('login.html')
 
 @app.route('/logout')
 def logout():
@@ -123,7 +139,7 @@ def register_post():
         return render_template('register.html')
         
     # Hash the password before storing
-    #    hashed_password = hashlib.sha256(password.encode('utf-8')).hexdigest()
+    # Example: hashed_password = hashlib.sha256(password.encode('utf-8')).hexdigest()
     hashed_password = generate_password_hash(password)
     
 
@@ -183,8 +199,8 @@ def cservices():
 
 @app.errorhandler(429)
 def ratelimit_handler(e):
-    flash('Too many attempts. Please try again later.')
-    return render_template('tryagain.html'), 429
+    logging.warning(f"Rate limit exceeded for IP: {get_remote_address()}")
+    return "Too many attempts. Please try again later.", 429
 
 # if __name__ == '__main__':
 #    app.run(debug=True)
