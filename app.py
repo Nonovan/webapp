@@ -67,7 +67,7 @@ def validate_password(password):
         return False
     if not any(c.isupper() for c in password):
         return False
-    if not any(c.islower*() for c in password):
+    if not any(c.islower() for c in password):
         return False
     if not any(c.isdigit() for c in password):
         return False
@@ -176,9 +176,9 @@ def register_post():
         return redirect('/login')
     
     except Exception as e:
-        # Log the error for debugging purposes
-        print(f"An error occurred: {e}")
-        return render_template('tryagain.html', message="An error occurred during registration.")
+        logging.exception("Error during registration:") # Log the exception with traceback
+        flash("An error occurred during registration.")
+        return render_template('tryagain.html')
 
 
 @app.route("/home")
@@ -201,22 +201,16 @@ def myabout():
 @login_required
 def cservices():
     # Get the list of users from the database
-    with open('users.csv', 'r', encoding='utf-8') as csvfile:
-        reader = csv.reader(csvfile, delimiter=',')
-
-        users = []
-        for row in reader:
-            users.append(row[0])
-
-    return render_template('cloud.html', users=users)
+    users = User.query.with_entities(User.username).all()
+    user_list = [user.username for user in users]
+    return render_template('cloud.html', users=user_list)
 
 @app.errorhandler(429)
 def ratelimit_handler(e):
     logging.warning(f"Rate limit exceeded for IP: {get_remote_address()}")
     return "Too many attempts. Please try again later.", 429
 
-from app import db
-db.create_all()
-
-# if __name__ == '__main__':
-#    app.run(debug=True)
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
+    app.run(debug=True)
