@@ -12,6 +12,8 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from dotenv import load_dotenv
 from config import config
+from models.user import User
+from auth.utils import validate_input, login_required, require_role
 
 # Load environment variables
 load_dotenv()
@@ -65,6 +67,12 @@ def health_check():
         'database': db.engine.execute('SELECT 1').scalar() == 1
     }
 
+# Initialize extensions
+db = SQLAlchemy()
+migrate = Migrate()
+csrf = CSRFProtect()
+limiter = Limiter(key_func=get_remote_address)
+
 def validate_environment():
     required_vars = ['SECRET_KEY', 'DATABASE_URL']
     missing = [var for var in required_vars if not os.getenv(var)]
@@ -87,7 +95,7 @@ def create_app(config_name='default'):
     app = Flask(__name__)
     app.config.from_object(config[config_name])
     
-    # Initialize extensions
+    # Initialize extensions with app
     db.init_app(app)
     migrate.init_app(app, db)
     csrf.init_app(app)
@@ -98,31 +106,25 @@ def create_app(config_name='default'):
     @app.before_request
     def before_request():
         g.request_id = request.headers.get('X-Request-ID', str(uuid.uuid4()))
-    
+        
     @app.after_request
     def add_security_headers(response):
         response.headers.update(app.config['SECURITY_HEADERS'])
         return response
-        
+
     @app.route('/health')
     def health_check():
         return {
             'status': 'healthy',
-            'version': app.config['VERSION'],
+            'version': app.config.get('VERSION', '1.0.0'),
             'database': db.engine.execute('SELECT 1').scalar() == 1
         }
     
     # Register blueprints
-    from .views import main
-    app.register_blueprint(main)
+    from views.main import main_bp
+    app.register_blueprint(main_bp)
     
     return app
-
-# Initialize extensions
-db = SQLAlchemy()
-migrate = Migrate()
-csrf = CSRFProtect()
-limiter = Limiter(key_func=get_remote_address)
 
 def init_app():
     return create_app(os.getenv('FLASK_ENV', 'development'))
@@ -287,44 +289,6 @@ def home():
 def icsdata():
     return render_template('ics.html')
 
-
 if __name__ == '__main__':
-    import click
-    
-    @click.group()
-    def cli():
-        """Flask application CLI."""
-        pass
-    
-    @cli.command()
-    @click.option('--host', default='0.0.0.0', help='Host to bind to')
-    @cli.option('--port', default=5000, help='Port to bind to')
-    @cli.option('--debug/--no-debug', default=False, help='Enable debug mode')
-    def run(host, port, debug):
-        """Run the Flask application."""
-        app = create_app()
-        with app.app_context():
-            db.create_all()
-        app.run(host=host, port=port, debug=debug)
-    
-    @cli.command()
-    def init_db():
-        """Initialize the database."""
-        app = create_app()
-        with app.app_context():
-            db.create_all()
-            click.echo('Database initialized.')
-    
-    @cli.command()
-    def check():
-        """Check application health."""
-        app = create_app()
-        with app.app_context():
-            try:
-                db.session.execute('SELECT 1')
-                click.echo('Health check passed.')
-            except Exception as e:
-                click.echo(f'Health check failed: {e}', err=True)
-                exit(1)
-    
-    cli()
+    app = create_app()
+    app.run(debug=os.getenv('FLASK_DEBUG', 'False').lower() == 'true')
