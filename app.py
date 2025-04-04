@@ -1,84 +1,19 @@
 import os
 import logging
 import uuid
-from datetime import timedelta
+from datetime import timedelta, datetime
 from typing import Optional
 
-from flask import Flask, render_template, request, session, redirect, flash, Blueprint, current_app, g
-from flask_wtf.csrf import CSRFProtect
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
-from dotenv import load_dotenv
+from flask import Flask, request, g, jsonify
 from config import config
-from models.user import User
-from auth.utils import validate_input, login_required, require_role
-
-# Load environment variables
-load_dotenv()
-required_env_vars = ['SECRET_KEY', 'DATABASE_URL']
-missing_vars = [var for var in required_env_vars if not os.getenv(var)]
-if missing_vars:
-    raise RuntimeError(f"Missing required environment variables: {', '.join(missing_vars)}")
-
-# Create blueprint
-main = Blueprint('main', __name__)
-
-# Request logging middleware
-@main.before_request
-def log_request_info():
-    current_app.logger.info('Headers: %s', request.headers)
-    current_app.logger.info('Body: %s', request.get_data())
-
-@main.route("/About")
-def about():
-    return render_template('about.html')
-
-@main.route('/cloud')
-@login_required
-@limiter.limit("30 per minute")
-def cloud_services():
-    users = User.query.with_entities(User.username).all()
-    user_list = [user.username for user in users]
-    return render_template('cloud.html', users=user_list)
-
-# Error handlers
-@main.app_errorhandler(404)
-def not_found_error(error):
-    current_app.logger.error(f'Page not found: {request.url}')
-    return render_template('404.html'), 404
-
-@main.app_errorhandler(500)
-def internal_error(error):
-    current_app.logger.error(f'Server Error: {error}')
-    db.session.rollback()
-    return render_template('500.html'), 500
-
-@main.app_errorhandler(403)
-def forbidden_error(error):
-    current_app.logger.error(f'Forbidden access: {request.url}')
-    return render_template('403.html'), 403
-
-@main.route('/health')
-def health_check():
-    return {
-        'status': 'healthy',
-        'database': db.engine.execute('SELECT 1').scalar() == 1
-    }
-
-# Initialize extensions
-db = SQLAlchemy()
-migrate = Migrate()
-csrf = CSRFProtect()
-limiter = Limiter(key_func=get_remote_address)
+from extensions import db, migrate, csrf, limiter
 
 def validate_environment():
     required_vars = ['SECRET_KEY', 'DATABASE_URL']
     missing = [var for var in required_vars if not os.getenv(var)]
     if missing:
         raise RuntimeError(f"Missing environment variables: {', '.join(missing)}")
-    
+
 def setup_logging(app):
     formatter = logging.Formatter(
         '%(asctime)s [%(request_id)s] %(levelname)s: %(message)s'
@@ -88,14 +23,24 @@ def setup_logging(app):
     app.logger.handlers = [handler]
     app.logger.setLevel(app.config['LOG_LEVEL'])
 
+def register_blueprints(app):
+    """Register Flask blueprints."""
+    from views.monitoring.routes import monitoring_bp
+    from views.auth.routes import auth_bp
+    from views.main.routes import main_bp
+    
+    app.register_blueprint(monitoring_bp)
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(main_bp)
+
 def create_app(config_name='default'):
-    load_dotenv()
     validate_environment()
     
     app = Flask(__name__)
     app.config.from_object(config[config_name])
+    app.uptime = datetime.utcnow()
     
-    # Initialize extensions with app
+    # Initialize extensions
     db.init_app(app)
     migrate.init_app(app, db)
     csrf.init_app(app)
@@ -106,12 +51,28 @@ def create_app(config_name='default'):
     @app.before_request
     def before_request():
         g.request_id = request.headers.get('X-Request-ID', str(uuid.uuid4()))
-        
+        g.start_time = datetime.utcnow()
+    
     @app.after_request
-    def add_security_headers(response):
-        response.headers.update(app.config['SECURITY_HEADERS'])
+    def after_request(response):
+        response.headers.update({
+            'X-Request-ID': g.request_id,
+            'X-Response-Time': str((datetime.utcnow() - g.start_time).total_seconds()),
+            'X-Content-Type-Options': 'nosniff',
+            'X-Frame-Options': 'DENY',
+            'X-XSS-Protection': '1; mode=block'
+        })
         return response
 
+    @app.errorhandler(404)
+    def not_found_error(error):
+        return jsonify(error="Not found"), 404
+
+    @app.errorhandler(500)
+    def internal_error(error):
+        db.session.rollback()
+        return jsonify(error="Internal server error"), 500
+        
     @app.route('/health')
     def health_check():
         return {
@@ -120,175 +81,265 @@ def create_app(config_name='default'):
             'database': db.engine.execute('SELECT 1').scalar() == 1
         }
     
-    # Register blueprints
-    from views.main import main_bp
-    app.register_blueprint(main_bp)
+    register_blueprints(app)
     
     return app
 
-def init_app():
-    return create_app(os.getenv('FLASK_ENV', 'development'))
-
-app = create_app()
-
-# User model
-class User(db.Model):
-    __tablename__ = 'users'
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    password = db.Column(db.String(255), nullable=False)
-    status = db.Column(db.String(20), default='approved')
-    created_at = db.Column(db.DateTime, server_default=db.func.now())
+def cli():
+    """Flask application CLI."""
+    import click
+    import psutil
+    from datetime import datetime
     
-    def set_password(self, password):
-        self.password = generate_password_hash(password)
-    
-    def check_password(self, password):
-        return check_password_hash(self.password, password)
+    @click.group()
+    def cli_group():
+        """Flask application management commands."""
+        pass
 
-def validate_input(text):
-    return text and len(text.strip()) > 0 and len(text) < 100
+    # Database commands
+    @cli_group.group()
+    def db():
+        """Database management commands."""
+        pass
 
-def is_logged_in():
-    return 'username' in session
+    @db.command()
+    @click.option('--env', default='development', help='Environment to initialize')
+    @click.option('--seed/--no-seed', default=False, help='Seed initial data')
+    def init(env, seed):
+        """Initialize database with progress."""
+        app = create_app(env)
+        with app.app_context():
+            steps = 5 if seed else 4
+            with click.progressbar(length=steps, label='Initializing database') as bar:
+                try:
+                    # Verify environment
+                    validate_environment()
+                    bar.update(1)
+                    
+                    # Create tables
+                    db.create_all()
+                    bar.update(1)
+                    
+                    # Verify migrations
+                    from flask_migrate import current
+                    revision = current()
+                    bar.update(1)
+                    
+                    # Verify connectivity
+                    db.session.execute('SELECT 1')
+                    bar.update(1)
+                    
+                    if seed:
+                        # Add initial data
+                        # TODO: Add seeding logic
+                        bar.update(1)
+                    
+                    click.echo('Database initialized successfully')
+                    click.echo(f'Current revision: {revision}')
+                except Exception as e:
+                    click.echo(f'Database init failed: {e}', err=True)
+                    exit(1)
 
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if not is_logged_in():
-            return redirect('/login')
-        return f(*args, **kwargs)
-    return decorated_function
+    @db.command()
+    @click.option('--env', default='development', help='Environment to migrate')
+    def migrate(env):
+        """Run database migrations."""
+        app = create_app(env)
+        with app.app_context():
+            from flask_migrate import upgrade, current
+            try:
+                current_rev = current()
+                click.echo(f'Current revision: {current_rev}')
+                
+                with click.progressbar(length=100, label='Running migrations') as bar:
+                    upgrade()
+                    bar.update(100)
+                click.echo('Migrations completed successfully')
+            except Exception as e:
+                click.echo(f'Migration failed: {e}', err=True)
+                exit(1)
 
-def validate_password(password):
-    if len(password) < 8:
-        return False
-    if not any(c.isupper() for c in password):
-        return False
-    if not any(c.islower() for c in password):
-        return False
-    if not any(c.isdigit() for c in password):
-        return False
-    return True
-
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-
-@app.route('/login')
-def login():
-    if is_logged_in():
-        return redirect('/ICS')
-    return render_template('login.html')
-
-
-@app.route('/login', methods=['GET', 'POST'])
-@limiter.limit("5 per minute")
-def login():
-    if is_logged_in():
-        return redirect('/')
-    
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-
+    @db.command()
+    @click.option('--backup-dir', default='./backups', help='Backup directory')
+    def backup(backup_dir):
+        """Backup database with compression."""
         try:
-            # Check if the username and password are valid
-            if not validate_input(username) or not validate_input(password):
-                flash('Invalid input.')
-                return render_template('login.html'), 400
-
-            if username and password:
-                user = User.query.filter_by(username=username).first()
-                if user and check_password_hash(user.password, password):
-                    session.permanent = True
-                    session['username'] = username
-                    logging.info(f"Successful login for user: {username}")
-                    return redirect('/ICS')
-
-            logging.warning(f"Failed login attempt for user: {username}")
-            flash("Invalid credentials.")
+            if not os.path.exists(backup_dir):
+                os.makedirs(backup_dir)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f'{backup_dir}/backup_{timestamp}.sql.gz'
+            click.echo(f'Creating backup: {filename}')
+            result = os.system(f'pg_dump $DATABASE_URL | gzip > {filename}')
+            if result == 0:
+                click.echo('Backup completed successfully')
+            else:
+                click.echo('Backup failed', err=True)
+                exit(1)
         except Exception as e:
-            logging.error(f"Login error: {str(e)}")
-            flash('An error occurred. Please try again.')
+            click.echo(f'Backup failed: {e}', err=True)
+            exit(1)
 
-    return render_template('login.html')
+    @db.command()
+    @click.argument('backup_file')
+    def restore(backup_file):
+        """Restore database from backup with progress."""
+        if not os.path.exists(backup_file):
+            click.echo(f'Backup file not found: {backup_file}', err=True)
+            exit(1)
+        try:
+            click.echo('Starting database restore...')
+            with click.progressbar(length=100, label='Restoring database') as bar:
+                if backup_file.endswith('.gz'):
+                    os.system(f'gunzip -c {backup_file} | psql $DATABASE_URL')
+                else:
+                    os.system(f'psql $DATABASE_URL < {backup_file}')
+                bar.update(100)
+            click.echo('Restore completed successfully')
+        except Exception as e:
+            click.echo(f'Restore failed: {e}', err=True)
+            exit(1)
 
-@app.route('/logout')
-def logout():
-    session.pop('username', None)
-    return redirect('/login')
+    # User command group
+    @cli_group.group()
+    def user():
+        """User management commands."""
+        pass
 
+    @user.command(name='create')
+    @click.option('--username', prompt=True)
+    @click.option('--password', prompt=True, hide_input=True)
+    def create_user(username, password):
+        """Create new user."""
+        app = create_app()
+        with app.app_context():
+            if User.query.filter_by(username=username).first():
+                click.echo('Error: Username already exists')
+                return
+            user = User(username=username, role='user')
+            user.set_password(password)
+            db.session.add(user)
+            db.session.commit()
+            click.echo(f'User {username} created successfully')
 
-@app.route('/register')
-def register():
-    return render_template('register.html')
+    @user.command(name='list')
+    def list_users():
+        """List all users."""
+        app = create_app()
+        with app.app_context():
+            users = User.query.all()
+            click.echo('\nUser List:')
+            for user in users:
+                click.echo(f'  {user.username} (Role: {user.role})')
 
+    # System command group
+    @cli_group.group()
+    def system():
+        """System management commands."""
+        pass
 
-@app.route('/register', methods=['POST'])
-@limiter.limit("3 per hour")
-def register_post():
-    username = request.form.get('username', '').strip()
-    password = request.form.get('password', '').strip()
-    confirmation = request.form.get('confirmation', '').strip()
-    
-    if not validate_input(username) or not validate_input(password):
-        flash('Invalid input.')
-        return render_template('register.html'), 400
-    
-    if not username or not password:
-        flash('Username and password are required.')
-        return render_template('register.html')
+    @system.command()
+    def health():
+        """Comprehensive system health check with progress."""
+        app = create_app()
+        with app.app_context():
+            with click.progressbar(length=5, label='Running health checks') as bar:
+                try:
+                    # Database connectivity
+                    db.session.execute('SELECT 1')
+                    click.echo('  Database: Connected')
+                    bar.update(1)
+                    
+                    # Migration status
+                    from flask_migrate import current
+                    revision = current()
+                    click.echo(f'  Migration: {revision}')
+                    bar.update(1)
+                    
+                    # System metrics
+                    click.echo(f'  Users: {User.query.count()}')
+                    bar.update(1)
+                    
+                    # Database size
+                    db_size = db.session.execute(
+                        "SELECT pg_size_pretty(pg_database_size(current_database()))"
+                    ).scalar()
+                    click.echo(f'  DB Size: {db_size}')
+                    bar.update(1)
+                    
+                    # Resource usage
+                    import psutil
+                    memory = psutil.Process().memory_info().rss / 1024 / 1024
+                    click.echo(f'  Memory: {memory:.1f} MB')
+                    click.echo(f'  Uptime: {datetime.utcnow() - app.uptime}')
+                    bar.update(1)
+                    
+                except Exception as e:
+                    click.echo(f'Health check failed: {e}', err=True)
+                    exit(1)
 
-    if password != confirmation:
-        flash('Passwords do not match.')
-        return render_template('register.html')
-    
-    if len(password) < 8:
-        flash('Password must be at least 8 characters long.')
-        return render_template('register.html')
-        
-    # Hash the password before storing
-    # Example: hashed_password = hashlib.sha256(password.encode('utf-8')).hexdigest()
-    hashed_password = generate_password_hash(password)
-    
+    @system.command()
+    def status():
+        """Show detailed application status."""
+        app = create_app()
+        with app.app_context():
+            click.echo('\nApplication Status:')
+            click.echo(f'  Version: {app.config.get("VERSION", "1.0.0")}')
+            click.echo(f'  Environment: {app.config.get("ENV")}')
+            click.echo(f'  Debug: {app.debug}')
+            click.echo(f'  Database: {app.config.get("SQLALCHEMY_DATABASE_URI")}')
+            click.echo(f'  Users: {User.query.count()}')
+            click.echo(f'  Uptime: {datetime.utcnow() - app.uptime}')
 
-    # Add the new user to the database
-    try:
-        # Check if the username already exists
-        user_exists = User.query.filter_by(username=username).first()
-        if user_exists:
-            flash('Username already exists.')
-            return render_template('register.html')
+    # Monitoring command group
+    @cli_group.group()
+    def monitor():
+        """Monitoring commands."""
+        pass
 
-        new_user = User(
-            username=username,
-            password=generate_password_hash(password),
-            status='approved'
-        )
-        db.session.add(new_user)
-        db.session.commit()
+    @monitor.command()
+    @click.option('--detailed/--simple', default=False, help='Show detailed metrics')
+    def metrics(detailed):
+        """Show application metrics."""
+        app = create_app()
+        with app.app_context():
+            click.echo('\nApplication Metrics:')
+            click.echo(f'\nDatabase:')
+            click.echo(f'  - Size: {db.session.execute("SELECT pg_size_pretty(pg_database_size(current_database()))").scalar()}')
+            click.echo(f'  - Tables: {len(db.metadata.tables)}')
+            click.echo(f'  - Connections: {len(db.engine.pool._channels)}')
+            
+            click.echo(f'\nUsers:')
+            click.echo(f'  - Total: {User.query.count()}')
+            click.echo(f'  - Active: {User.query.filter_by(status="active").count()}')
+            
+            if detailed:
+                click.echo(f'\nSystem:')
+                click.echo(f'  - Memory: {psutil.Process().memory_info().rss / 1024 / 1024:.1f} MB')
+                click.echo(f'  - CPU Usage: {psutil.cpu_percent()}%')
+                click.echo(f'  - Disk Usage: {psutil.disk_usage("/").percent}%')
+            
+            click.echo(f'\nApplication:')
+            click.echo(f'  - Uptime: {datetime.utcnow() - app.uptime}')
+            click.echo(f'  - Environment: {app.config.get("ENV")}')
+            click.echo(f'  - Debug: {app.debug}')
 
-        flash('Registration successful!')
-        return redirect('/login')
-    
-    except Exception as e:
-        logging.exception("Error during registration:") # Log the exception with traceback
-        flash("An error occurred during registration.")
-        return render_template('tryagain.html')
+    @monitor.command()
+    @click.option('--lines', default=100, help='Number of lines to show')
+    @click.option('--level', type=click.Choice(['DEBUG', 'INFO', 'WARNING', 'ERROR']), default='INFO')
+    def logs(lines, level):
+        """Show application logs with filtering."""
+        app = create_app()
+        with app.app_context():
+            click.echo(f'Application logs (Level: {level}, Lines: {lines}):')
+            for handler in app.logger.handlers:
+                handler.flush()
+                handler.stream.seek(0)
+                logs = handler.stream.readlines()
+                filtered_logs = [log for log in logs if level in log]
+                for log in filtered_logs[-lines:]:
+                    click.echo(log.strip())
 
-
-@app.route("/home")
-def home():
-    return render_template('home.html')
-
-
-@app.route('/ICS')
-@login_required
-def icsdata():
-    return render_template('ics.html')
+    return cli_group
 
 if __name__ == '__main__':
-    app = create_app()
-    app.run(debug=os.getenv('FLASK_DEBUG', 'False').lower() == 'true')
+    cli()
