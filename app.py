@@ -1,44 +1,133 @@
-import csv
-import hashlib
 import os
 import logging
+import uuid
 from datetime import timedelta
-from flask import Flask, render_template, request, session, redirect, flash
+from typing import Optional
+
+from flask import Flask, render_template, request, session, redirect, flash, Blueprint, current_app, g
 from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from functools import wraps
-from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate
+from dotenv import load_dotenv
+from config import config
 
-# Configure logging
-logging.basicConfig(
-    filename='app.log',
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s: %(message)s'
-)
+# Load environment variables
+load_dotenv()
+required_env_vars = ['SECRET_KEY', 'DATABASE_URL']
+missing_vars = [var for var in required_env_vars if not os.getenv(var)]
+if missing_vars:
+    raise RuntimeError(f"Missing required environment variables: {', '.join(missing_vars)}")
 
-app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', os.urandom(24))
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
-app.config['SESSION_COOKIE_SECURE'] = True
-app.config['SESSION_COOKIE_HTTPONLY'] = True
-csrf = CSRFProtect(app)
+# Create blueprint
+main = Blueprint('main', __name__)
 
-# Initialize rate limiter
-limiter = Limiter(
-    app,
-    key_func=get_remote_address,
-    default_limits=["200 per day", "50 per hour"]
-)
+# Request logging middleware
+@main.before_request
+def log_request_info():
+    current_app.logger.info('Headers: %s', request.headers)
+    current_app.logger.info('Body: %s', request.get_data())
 
-# Database configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get(
-    'DATABASE_URL',
-    'postgresql://username:password@localhost:5432/yourdb'
-)
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
+@main.route("/About")
+def about():
+    return render_template('about.html')
+
+@main.route('/cloud')
+@login_required
+@limiter.limit("30 per minute")
+def cloud_services():
+    users = User.query.with_entities(User.username).all()
+    user_list = [user.username for user in users]
+    return render_template('cloud.html', users=user_list)
+
+# Error handlers
+@main.app_errorhandler(404)
+def not_found_error(error):
+    current_app.logger.error(f'Page not found: {request.url}')
+    return render_template('404.html'), 404
+
+@main.app_errorhandler(500)
+def internal_error(error):
+    current_app.logger.error(f'Server Error: {error}')
+    db.session.rollback()
+    return render_template('500.html'), 500
+
+@main.app_errorhandler(403)
+def forbidden_error(error):
+    current_app.logger.error(f'Forbidden access: {request.url}')
+    return render_template('403.html'), 403
+
+@main.route('/health')
+def health_check():
+    return {
+        'status': 'healthy',
+        'database': db.engine.execute('SELECT 1').scalar() == 1
+    }
+
+def validate_environment():
+    required_vars = ['SECRET_KEY', 'DATABASE_URL']
+    missing = [var for var in required_vars if not os.getenv(var)]
+    if missing:
+        raise RuntimeError(f"Missing environment variables: {', '.join(missing)}")
+    
+def setup_logging(app):
+    formatter = logging.Formatter(
+        '%(asctime)s [%(request_id)s] %(levelname)s: %(message)s'
+    )
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+    app.logger.handlers = [handler]
+    app.logger.setLevel(app.config['LOG_LEVEL'])
+
+def create_app(config_name='default'):
+    load_dotenv()
+    validate_environment()
+    
+    app = Flask(__name__)
+    app.config.from_object(config[config_name])
+    
+    # Initialize extensions
+    db.init_app(app)
+    migrate.init_app(app, db)
+    csrf.init_app(app)
+    limiter.init_app(app)
+    
+    setup_logging(app)
+    
+    @app.before_request
+    def before_request():
+        g.request_id = request.headers.get('X-Request-ID', str(uuid.uuid4()))
+    
+    @app.after_request
+    def add_security_headers(response):
+        response.headers.update(app.config['SECURITY_HEADERS'])
+        return response
+        
+    @app.route('/health')
+    def health_check():
+        return {
+            'status': 'healthy',
+            'version': app.config['VERSION'],
+            'database': db.engine.execute('SELECT 1').scalar() == 1
+        }
+    
+    # Register blueprints
+    from .views import main
+    app.register_blueprint(main)
+    
+    return app
+
+# Initialize extensions
+db = SQLAlchemy()
+migrate = Migrate()
+csrf = CSRFProtect()
+limiter = Limiter(key_func=get_remote_address)
+
+def init_app():
+    return create_app(os.getenv('FLASK_ENV', 'development'))
+
+app = create_app()
 
 # User model
 class User(db.Model):
@@ -47,6 +136,13 @@ class User(db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
     status = db.Column(db.String(20), default='approved')
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    
+    def set_password(self, password):
+        self.password = generate_password_hash(password)
+    
+    def check_password(self, password):
+        return check_password_hash(self.password, password)
 
 def validate_input(text):
     return text and len(text.strip()) > 0 and len(text) < 100
@@ -192,25 +288,43 @@ def icsdata():
     return render_template('ics.html')
 
 
-@app.route("/About")
-def myabout():
-    return render_template('about.html')
-
-
-@app.route('/cloud')
-@login_required
-def cservices():
-    # Get the list of users from the database
-    users = User.query.with_entities(User.username).all()
-    user_list = [user.username for user in users]
-    return render_template('cloud.html', users=user_list)
-
-@app.errorhandler(429)
-def ratelimit_handler(e):
-    logging.warning(f"Rate limit exceeded for IP: {get_remote_address()}")
-    return "Too many attempts. Please try again later.", 429
-
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-    app.run(debug=True)
+    import click
+    
+    @click.group()
+    def cli():
+        """Flask application CLI."""
+        pass
+    
+    @cli.command()
+    @click.option('--host', default='0.0.0.0', help='Host to bind to')
+    @cli.option('--port', default=5000, help='Port to bind to')
+    @cli.option('--debug/--no-debug', default=False, help='Enable debug mode')
+    def run(host, port, debug):
+        """Run the Flask application."""
+        app = create_app()
+        with app.app_context():
+            db.create_all()
+        app.run(host=host, port=port, debug=debug)
+    
+    @cli.command()
+    def init_db():
+        """Initialize the database."""
+        app = create_app()
+        with app.app_context():
+            db.create_all()
+            click.echo('Database initialized.')
+    
+    @cli.command()
+    def check():
+        """Check application health."""
+        app = create_app()
+        with app.app_context():
+            try:
+                db.session.execute('SELECT 1')
+                click.echo('Health check passed.')
+            except Exception as e:
+                click.echo(f'Health check failed: {e}', err=True)
+                exit(1)
+    
+    cli()
