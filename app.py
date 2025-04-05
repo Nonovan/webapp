@@ -3,16 +3,21 @@ import logging
 import uuid
 from datetime import timedelta, datetime
 from typing import Optional
+from functools import wraps
 
-from flask import Flask, request, g, jsonify
+from flask import Flask, request, g, jsonify, session
 from config import config
 from extensions import db, migrate, csrf, limiter, cors, metrics
+from werkzeug.security import safe_str_cmp
 
 def validate_environment():
-    required_vars = ['SECRET_KEY', 'DATABASE_URL']
+    required_vars = [
+        'SECRET_KEY', 'DATABASE_URL', 'JWT_SECRET_KEY',
+        'CSRF_SECRET_KEY', 'SESSION_KEY'
+    ]
     missing = [var for var in required_vars if not os.getenv(var)]
     if missing:
-        raise RuntimeError(f"Missing environment variables: {', '.join(missing)}")
+        raise RuntimeError(f"Missing security variables: {', '.join(missing)}")
 
 def setup_logging(app):
     formatter = logging.Formatter(
@@ -22,6 +27,19 @@ def setup_logging(app):
     handler.setFormatter(formatter)
     app.logger.handlers = [handler]
     app.logger.setLevel(app.config['LOG_LEVEL'])
+
+def setup_security_headers(app):
+    @app.after_request
+    def add_security_headers(response):
+        response.headers.update({
+            'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+            'Content-Security-Policy': "default-src 'self'",
+            'X-Content-Type-Options': 'nosniff',
+            'X-Frame-Options': 'DENY',
+            'X-XSS-Protection': '1; mode=block',
+            'Referrer-Policy': 'strict-origin-same-origin'
+        })
+        return response
 
 def register_blueprints(app):
     """Register Flask blueprints."""
@@ -40,20 +58,38 @@ def create_app(config_name='default'):
     app.config.from_object(config[config_name])
     app.uptime = datetime.utcnow()
     
+    # Security settings
+    app.config.update(
+        SESSION_COOKIE_SECURE=True,
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE='Strict',
+        PERMANENT_SESSION_LIFETIME=timedelta(minutes=30),
+        REMEMBER_COOKIE_SECURE=True,
+        REMEMBER_COOKIE_HTTPONLY=True,
+        REMEMBER_COOKIE_SAMESITE='Strict'
+    )
+    
     # Initialize extensions
     db.init_app(app)
     migrate.init_app(app, db)
     csrf.init_app(app)
     limiter.init_app(app)
-    cors.init_app(app)
+    cors.init_app(app, resources={r"/api/*": {"origins": ["https://yourdomain.com"]}})
     metrics.init_app(app)
     
+    setup_security_headers(app)
     setup_logging(app)
     
     @app.before_request
     def before_request():
         g.request_id = request.headers.get('X-Request-ID', str(uuid.uuid4()))
         g.start_time = datetime.utcnow()
+
+    @app.before_request
+    def enforce_https():
+        if not request.is_secure and app.env == 'production':
+            url = request.url.replace('http://', 'https://', 1)
+            return redirect(url, code=301)
 
     @app.after_request
     def after_request(response):
