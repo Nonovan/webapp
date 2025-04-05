@@ -1,7 +1,6 @@
-admin,password,approved
-username,password,approved
-user3,password,approved
-user4,password4,approved
-ZAP,ZAP,approved
-ZAP,ZAP,approved
-ZAP,ZAP,approved
+user_id,username,password_hash,role,email,status,created_at,last_login,reset_token
+USR001,admin,$2b$12$LQg6Eb3ERx8FWg5QY2z1Q.aK0S9XyZ2Z3j0j0j0j0j0j0j0j0j0j,admin,admin@example.com,active,2024-02-20T10:00:00Z,2024-02-20T15:30:00Z,
+USR002,operator,$2b$12$9Eb3ERx8FWg5QY2z1Q.aK0S9XyZ2Z3j0j0j0j0j0j0j0j0j0j,operator,operator@example.com,active,2024-02-20T11:00:00Z,2024-02-20T14:45:00Z,
+USR003,user1,$2b$12$8Eb3ERx8FWg5QY2z1Q.aK0S9XyZ2Z3j0j0j0j0j0j0j0j0j0j,user,user1@example.com,active,2024-02-20T12:00:00Z,2024-02-20T13:15:00Z,
+USR004,user2,$2b$12$7Eb3ERx8FWg5QY2z1Q.aK0S9XyZ2Z3j0j0j0j0j0j0j0j0j0j,user,user2@example.com,pending,2024-02-20T13:00:00Z,,
+USR005,guest,$2b$12$6Eb3ERx8FWg5QY2z1Q.aK0S9XyZ2Z3j0j0j0j0j0j0j0j0j0j,guest,guest@example.com,active,2024-02-20T14:00:00Z,2024-02-20T14:30:00Z,

@@ -1,2 +1,49 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Python source files
+*.py text diff=python
+*.pyx text diff=python
+*.pxd text diff=python
+
+# Docker files
+Dockerfile text
+*.dockerfile text
+.dockerignore text
+
+# Database files
+*.sql text
+*.sqlite binary
+*.db binary
+
+# Documentation
+*.md text diff=markdown
+*.rst text
+*.txt text
+
+# Configuration files
+*.yml text
+*.yaml text
+*.json text
+*.toml text
+*.ini text
+.env* text
+
+# Web assets
+*.css text diff=css
+*.html text diff=html
+*.js text
+*.jsx text
+*.ts text
+*.tsx text
+
+# Images and binary files
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+
+# Exclude files from GitHub language stats
+tests/** linguist-documentation
+docs/** linguist-documentation
