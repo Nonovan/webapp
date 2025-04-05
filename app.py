@@ -6,7 +6,7 @@ from typing import Optional
 
 from flask import Flask, request, g, jsonify
 from config import config
-from extensions import db, migrate, csrf, limiter
+from extensions import db, migrate, csrf, limiter, cors, metrics
 
 def validate_environment():
     required_vars = ['SECRET_KEY', 'DATABASE_URL']
@@ -45,6 +45,8 @@ def create_app(config_name='default'):
     migrate.init_app(app, db)
     csrf.init_app(app)
     limiter.init_app(app)
+    cors.init_app(app)
+    metrics.init_app(app)
     
     setup_logging(app)
     
@@ -52,35 +54,27 @@ def create_app(config_name='default'):
     def before_request():
         g.request_id = request.headers.get('X-Request-ID', str(uuid.uuid4()))
         g.start_time = datetime.utcnow()
-    
+
     @app.after_request
     def after_request(response):
         response.headers.update({
             'X-Request-ID': g.request_id,
-            'X-Response-Time': str((datetime.utcnow() - g.start_time).total_seconds()),
+            'X-Response-Time': f'{(datetime.utcnow() - g.start_time).total_seconds():.3f}s',
             'X-Content-Type-Options': 'nosniff',
             'X-Frame-Options': 'DENY',
             'X-XSS-Protection': '1; mode=block'
         })
         return response
 
-    @app.errorhandler(404)
-    def not_found_error(error):
-        return jsonify(error="Not found"), 404
-
-    @app.errorhandler(500)
-    def internal_error(error):
-        db.session.rollback()
-        return jsonify(error="Internal server error"), 500
-        
     @app.route('/health')
     def health_check():
         return {
             'status': 'healthy',
             'version': app.config.get('VERSION', '1.0.0'),
-            'database': db.engine.execute('SELECT 1').scalar() == 1
+            'database': db.engine.execute('SELECT 1').scalar() == 1,
+            'uptime': str(datetime.utcnow() - app.uptime)
         }
-    
+
     register_blueprints(app)
     
     return app
