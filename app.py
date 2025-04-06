@@ -1,10 +1,11 @@
 import os
 import logging
 import click
-from flask import Flask
+from flask import Flask, jsonify
 from core.middleware import setup_security_headers, setup_request_context, setup_response_context
 from core.factory import create_app
 from core.metrics import track_metrics
+from extensions import db
 
 def validate_environment():
     required_vars = [
@@ -26,27 +27,46 @@ def setup_logging(app):
 
 def register_blueprints(app):
     """Register Flask blueprints."""
-    from views.monitoring.routes import monitoring_bp
-    from views.auth.routes import auth_bp
-    from views.main.routes import main_bp
+    from blueprints.monitoring.routes import monitoring_bp
+    from blueprints.auth.routes import auth_bp
+    from blueprints.main.routes import main_bp
     
     app.register_blueprint(monitoring_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
 
+# Validate environment before app creation
+validate_environment()
 app = create_app()
 
 @app.cli.command()
 def init_db():
     """Initialize database tables"""
-    db.create_all()
-    click.echo('Database initialized')
+    try:
+        db.create_all()
+        click.echo('Database initialized successfully')
+    except Exception as e:
+        click.echo(f'Database initialization failed: {e}', err=True)
+        exit(1)
 
 @app.route('/health')
 @track_metrics('health')
 def health_check():
     """Health check endpoint"""
-    return {'status': 'healthy'}
+    try:
+        # Verify database connection
+        db.session.execute('SELECT 1')
+        return jsonify({
+            'status': 'healthy',
+            'version': app.config.get('VERSION', '1.0.0'),
+            'database': 'connected'
+        })
+    except Exception as e:
+        app.logger.error(f'Health check failed: {e}')
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e)
+        }), 500
 
 def cli():
     """Flask application CLI."""
