@@ -4,12 +4,14 @@ A modern web application for managing cloud infrastructure and ICS systems.
 
 ## Features
 
-- User authentication and authorization
-- Cloud services dashboard
-- ICS application interface 
-- System monitoring and metrics
-- Environmental data tracking
-- Real-time analytics
+- User authentication and authorization with role-based access
+- Cloud services dashboard with real-time monitoring
+- ICS application interface with environmental controls
+- System monitoring and metrics visualization
+- Environmental data tracking and analytics
+- Real-time system analytics and reporting
+
+## Project Structure
 
 ## Installation
 

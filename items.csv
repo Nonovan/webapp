@@ -1,9 +1,0 @@
-item_id,name,description,category,price,unit,stock_level,last_updated
-ITEM_001,Laptop,Business laptop with 16GB RAM,electronics,999.99,piece,15,2024-02-20T10:00:00Z
-ITEM_002,Monitor,27-inch 4K display,electronics,299.99,piece,25,2024-02-20T10:00:00Z
-ITEM_003,Keyboard,Mechanical gaming keyboard,peripherals,129.99,piece,50,2024-02-20T10:00:00Z
-ITEM_004,Mouse,Wireless ergonomic mouse,peripherals,59.99,piece,75,2024-02-20T10:00:00Z
-ITEM_005,Headset,Noise-cancelling headphones,audio,199.99,piece,30,2024-02-20T10:00:00Z
-ITEM_006,USB Cable,USB-C to USB-A cable 2m,accessories,19.99,piece,100,2024-02-20T10:00:00Z
-ITEM_007,Power Bank,20000mAh portable charger,accessories,49.99,piece,45,2024-02-20T10:00:00Z
-ITEM_008,SSD Drive,1TB NVMe SSD,storage,149.99,piece,35,2024-02-20T10:00:00Z

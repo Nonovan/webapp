@@ -1,4 +1,0 @@
-admin:$2b$12$LQg6Eb3ERx8FWg5QY2z1Q.aK0S9XyZ2Z3j0j0j0j0j0j0j0j0j0j:admin:active:admin@example.com:2024-02-20T10:00:00Z:2024-02-20T15:30:00Z
-user:$2b$12$9Eb3ERx8FWg5QY2z1Q.aK0S9XyZ2Z3j0j0j0j0j0j0j0j0j0j0j0j:user:active:user@example.com:2024-02-20T11:00:00Z:2024-02-20T14:45:00Z
-operator:$2b$12$8Eb3ERx8FWg5QY2z1Q.aK0S9XyZ2Z3j0j0j0j0j0j0j0j0j0j0j:operator:active:operator@example.com:2024-02-20T12:00:00Z:2024-02-20T13:15:00Z
-guest:$2b$12$7Eb3ERx8FWg5QY2z1Q.aK0S9XyZ2Z3j0j0j0j0j0j0j0j0j0j0j:guest:active:guest@example.com:2024-02-20T13:00:00Z:2024-02-20T13:45:00Z
