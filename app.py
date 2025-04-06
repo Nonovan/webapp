@@ -1,14 +1,10 @@
 import os
 import logging
-import uuid
-from datetime import timedelta, datetime
-from typing import Optional
-from functools import wraps
-
-from flask import Flask, request, g, jsonify, session
-from config import config
-from extensions import db, migrate, csrf, limiter, cors, metrics
-from werkzeug.security import safe_str_cmp
+import click
+from flask import Flask
+from core.middleware import setup_security_headers, setup_request_context, setup_response_context
+from core.factory import create_app
+from core.metrics import track_metrics
 
 def validate_environment():
     required_vars = [
@@ -28,19 +24,6 @@ def setup_logging(app):
     app.logger.handlers = [handler]
     app.logger.setLevel(app.config['LOG_LEVEL'])
 
-def setup_security_headers(app):
-    @app.after_request
-    def add_security_headers(response):
-        response.headers.update({
-            'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
-            'Content-Security-Policy': "default-src 'self'",
-            'X-Content-Type-Options': 'nosniff',
-            'X-Frame-Options': 'DENY',
-            'X-XSS-Protection': '1; mode=block',
-            'Referrer-Policy': 'strict-origin-same-origin'
-        })
-        return response
-
 def register_blueprints(app):
     """Register Flask blueprints."""
     from views.monitoring.routes import monitoring_bp
@@ -51,69 +34,19 @@ def register_blueprints(app):
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
 
-def create_app(config_name='default'):
-    validate_environment()
-    
-    app = Flask(__name__)
-    app.config.from_object(config[config_name])
-    app.uptime = datetime.utcnow()
-    
-    # Security settings
-    app.config.update(
-        SESSION_COOKIE_SECURE=True,
-        SESSION_COOKIE_HTTPONLY=True,
-        SESSION_COOKIE_SAMESITE='Strict',
-        PERMANENT_SESSION_LIFETIME=timedelta(minutes=30),
-        REMEMBER_COOKIE_SECURE=True,
-        REMEMBER_COOKIE_HTTPONLY=True,
-        REMEMBER_COOKIE_SAMESITE='Strict'
-    )
-    
-    # Initialize extensions
-    db.init_app(app)
-    migrate.init_app(app, db)
-    csrf.init_app(app)
-    limiter.init_app(app)
-    cors.init_app(app, resources={r"/api/*": {"origins": ["https://yourdomain.com"]}})
-    metrics.init_app(app)
-    
-    setup_security_headers(app)
-    setup_logging(app)
-    
-    @app.before_request
-    def before_request():
-        g.request_id = request.headers.get('X-Request-ID', str(uuid.uuid4()))
-        g.start_time = datetime.utcnow()
+app = create_app()
 
-    @app.before_request
-    def enforce_https():
-        if not request.is_secure and app.env == 'production':
-            url = request.url.replace('http://', 'https://', 1)
-            return redirect(url, code=301)
+@app.cli.command()
+def init_db():
+    """Initialize database tables"""
+    db.create_all()
+    click.echo('Database initialized')
 
-    @app.after_request
-    def after_request(response):
-        response.headers.update({
-            'X-Request-ID': g.request_id,
-            'X-Response-Time': f'{(datetime.utcnow() - g.start_time).total_seconds():.3f}s',
-            'X-Content-Type-Options': 'nosniff',
-            'X-Frame-Options': 'DENY',
-            'X-XSS-Protection': '1; mode=block'
-        })
-        return response
-
-    @app.route('/health')
-    def health_check():
-        return {
-            'status': 'healthy',
-            'version': app.config.get('VERSION', '1.0.0'),
-            'database': db.engine.execute('SELECT 1').scalar() == 1,
-            'uptime': str(datetime.utcnow() - app.uptime)
-        }
-
-    register_blueprints(app)
-    
-    return app
+@app.route('/health')
+@track_metrics('health')
+def health_check():
+    """Health check endpoint"""
+    return {'status': 'healthy'}
 
 def cli():
     """Flask application CLI."""
