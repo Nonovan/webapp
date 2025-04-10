@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}Welcome - Cloud Services{% endblock %}
+
+{% block content %}
+<!-- Hero Section -->
+<div class="bg-primary text-white py-5">
+    <div class="container">
+        <div class="row mb-5">
+            <div class="col-lg-8 mx-auto text-center">
+                <h1 class="display-4 mb-4">Cloud Services Platform</h1>
+                <p class="lead mb-4">Secure and reliable cloud infrastructure for your business needs</p>
+                {% if not current_user.is_authenticated %}
+                    <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
+                        <a href="{{ url_for('auth.login') }}" class="btn btn-light btn-lg px-4 gap-3">Login</a>
+                        <a href="{{ url_for('auth.register') }}" class="btn btn-outline-light btn-lg px-4">Register</a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Features Section -->
+<div class="container py-5">
+    <div class="row g-4 py-5">
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body text-center">
+                    <i class="bi bi-cloud display-4 text-primary mb-3"></i>
+                    <h5 class="card-title">Cloud Platform</h5>
+                    <p class="card-text">Enterprise-grade infrastructure with 99.9% uptime guarantee.</p>
+                    <a href="{{ url_for('main.cloud') }}" class="btn btn-primary">Learn More</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body text-center">
+                    <i class="bi bi-gear display-4 text-primary mb-3"></i>
+                    <h5 class="card-title">ICS Application</h5>
+                    <p class="card-text">Industrial control systems with real-time monitoring.</p>
+                    <a href="{{ url_for('main.ics') }}" class="btn btn-primary">Learn More</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm">
+                <div class="card-body text-center">
+                    <i class="bi bi-graph-up display-4 text-primary mb-3"></i>
+                    <h5 class="card-title">System Status</h5>
+                    <p class="card-text">Real-time performance metrics and health monitoring.</p>
+                    <a href="{{ url_for('monitoring.status') }}" class="btn btn-primary">View Status</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Dashboard Preview -->
+    <div class="row my-5">
+        <div class="col-12 text-center">
+            <h2 class="mb-4">Live System Status</h2>
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <div id="statusDashboard"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Call to Action -->
+    <div class="row py-5">
+        <div class="col-12 text-center">
+            <h2>Ready to get started?</h2>
+            <p class="lead">Join thousands of businesses using our platform</p>
+            <a href="{{ url_for('auth.register') }}" class="btn btn-lg btn-primary">Start Free Trial</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script src="{{ url_for('static', filename='js/status-preview.js') }}"></script>
+{% endblock %}
