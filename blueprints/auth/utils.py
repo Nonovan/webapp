@@ -3,15 +3,16 @@ from datetime import datetime, timedelta
 from functools import wraps
 from flask import current_app, session, request, redirect, abort
 import jwt
-from extensions import limiter, cache
+from extensions import limiter, cache, metrics
 
-def validate_input(text):
+def validate_input(text: str) -> bool:
+    """Validate and sanitize general text input."""
     if not text or not isinstance(text, str):
         return False
     text = text.strip()
     return bool(re.match(r'^[\w\s-]{1,100}$', text))
 
-def validate_password(password):
+def validate_password(password: str) -> tuple[bool, str | None]:
     """Enhanced password strength validation."""
     if len(password) < 12:
         return False, "Password must be at least 12 characters"
@@ -25,21 +26,28 @@ def validate_password(password):
         return False, "Must include special character"
     return True, None
 
-def generate_token(user_id, role, expires_in=3600):
+def generate_token(user_id: int, role: str, expires_in: int = 3600) -> str:
     """Generate JWT token with role and expiration."""
-    return jwt.encode(
-        {
-            'user_id': user_id,
-            'role': role,
-            'iat': datetime.utcnow(),
-            'exp': datetime.utcnow() + timedelta(seconds=expires_in)
-        },
-        current_app.config['SECRET_KEY'],
-        algorithm='HS256'
-    )
+    try:
+        token = jwt.encode(
+            {
+                'user_id': user_id,
+                'role': role,
+                'iat': datetime.utcnow(),
+                'exp': datetime.utcnow() + timedelta(seconds=expires_in)
+            },
+            current_app.config['SECRET_KEY'],
+            algorithm='HS256'
+        )
+        metrics.increment('token_generation_total')
+        return token
+    except Exception as e:
+        current_app.logger.error(f"Token generation failed: {e}")
+        metrics.increment('token_generation_error')
+        raise
 
 @cache.memoize(timeout=300)
-def verify_token(token):
+def verify_token(token: str) -> dict | None:
     """Verify JWT token with caching."""
     try:
         payload = jwt.decode(
@@ -47,13 +55,16 @@ def verify_token(token):
             current_app.config['SECRET_KEY'],
             algorithms=['HS256']
         )
+        metrics.increment('token_verification_success')
         current_app.logger.info(f'Token verified for user {payload.get("user_id")}')
         return payload
     except jwt.ExpiredSignatureError:
-        current_app.logger.warning('Expired token used')
+        metrics.increment('token_verification_expired')
+        current_app.logger.warning('Expired token detected')
         return None
-    except jwt.InvalidTokenError:
-        current_app.logger.warning('Invalid token used')
+    except jwt.InvalidTokenError as e:
+        metrics.increment('token_verification_invalid')
+        current_app.logger.warning(f'Invalid token: {e}')
         return None
 
 def require_role(role):

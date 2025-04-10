@@ -1,5 +1,7 @@
+from datetime import datetime
+import gzip
 import uuid
-from flask import Blueprint, g, request, session
+from flask import Blueprint, g, request, session, Response, current_app
 from extensions import metrics, db
 from .routes import *
 from .errors import init_error_handlers
@@ -23,8 +25,8 @@ def before_request():
         'user_id': session.get('user_id', 'anonymous')
     })
 
-@main_bp.after_request
-def after_request(response):
+@main_bp.after_request 
+def after_request(response: Response) -> Response:
     """Add response metrics and headers."""
     if hasattr(g, 'start_time'):
         duration = (datetime.utcnow() - g.start_time).total_seconds()
@@ -33,12 +35,24 @@ def after_request(response):
             'status': response.status_code
         })
 
-    # Add security headers
-    response.headers['X-Request-ID'] = g.request_id
-    response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['X-Frame-Options'] = 'DENY'
-    response.headers['X-XSS-Protection'] = '1; mode=block'
-    
+        # Add security headers
+        response.headers.update({
+            'X-Request-ID': g.request_id,
+            'X-Response-Time': f'{duration:.3f}s',
+            'X-Content-Type-Options': 'nosniff',
+            'X-Frame-Options': 'DENY',
+            'X-XSS-Protection': '1; mode=block',
+            'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+            'Content-Security-Policy': "default-src 'self'"
+        })
+
+        # Compress large responses
+        if (response.content_length is not None and 
+            response.content_length > 1024 and
+            'gzip' in request.headers.get('Accept-Encoding', '')):
+            response.data = gzip.compress(response.data)
+            response.headers['Content-Encoding'] = 'gzip'
+
     return response
 
 @main_bp.teardown_request
@@ -50,6 +64,7 @@ def teardown_request(exc):
             'type': exc.__class__.__name__,
             'endpoint': request.endpoint
         })
+        current_app.logger.error(f"Request error: {exc}")
     db.session.remove()
 
 # Initialize error handlers

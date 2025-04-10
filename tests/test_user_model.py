@@ -1,81 +1,145 @@
+import time
 import pytest
-from app import User
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+from models import User
 
-def test_password_hashing(test_db):
-    u = User(username='test')
-    u.set_password('mypassword')
-    assert u.password != 'mypassword'
-    assert u.check_password('mypassword')
-    assert not u.check_password('wrongpass')
+class TestUser:
+    """Test suite for User model."""
+    
+    def test_password_hashing(self) -> None:
+        """Test password hashing and verification."""
+        u = User(username='test')
+        u.set_password('SecurePass123!')
+        assert u.password != 'SecurePass123!'
+        assert u.check_password('SecurePass123!')
+        assert not u.check_password('wrongpass')
 
-def test_user_creation(test_db):
-    u = User(username='test', status='approved')
-    test_db.session.add(u)
-    test_db.session.commit()
-    assert u.id is not None
-    assert u.username == 'test'
-    assert u.status == 'approved'
-
-def test_username_unique(test_db):
-    u1 = User(username='test', email='test1@example.com')
-    u2 = User(username='test', email='test2@example.com')
-    test_db.session.add(u1)
-    test_db.session.commit()
-    with pytest.raises(IntegrityError):
-        test_db.session.add(u2)
-        test_db.session.commit()
-
-def test_invalid_email(test_db):
-    u = User(username='test', email='invalid')
-    with pytest.raises(ValueError):
+    def test_user_creation(self, test_db):
+        """Test user creation with required fields."""
+        u = User(
+            username='test',
+            email='test@example.com',
+            status='active',
+            role='user'
+        )
         test_db.session.add(u)
         test_db.session.commit()
+        
+        assert u.id is not None
+        assert u.username == 'test'
+        assert u.status == 'active'
+        assert u.role == 'user'
+        assert u.created_at is not None
 
-def test_role_default(test_db):
-    """Test default role assignment."""
-    u = User(username='test')
-    test_db.session.add(u)
-    test_db.session.commit()
-    assert u.role == 'user'
+    def test_username_unique(self, test_db):
+        """Test username uniqueness constraint."""
+        u1 = User(
+            username='test', 
+            email='test1@example.com'
+        )
+        u2 = User(
+            username='test', 
+            email='test2@example.com'
+        )
+        test_db.session.add(u1)
+        test_db.session.commit()
+        
+        with pytest.raises(IntegrityError):
+            test_db.session.add(u2)
+            test_db.session.commit()
 
-def test_status_transitions(test_db):
+    def test_invalid_email(self, test_db):
+        """Test email validation."""
+        invalid_emails = [
+            'invalid',
+            'user@',
+            '@domain.com', 
+            'user@.com'
+        ]
+        for email in invalid_emails:
+            u = User(username='test', email=email)
+            with pytest.raises(ValueError, match='Invalid email format'):
+                test_db.session.add(u)
+                test_db.session.commit()
+
+    def test_role_default(self, test_db):
+        """Test default role assignment."""
+        u = User(username='test')
+        test_db.session.add(u)
+        test_db.session.commit()
+        assert u.role == 'user'
+
+def test_status_transitions():
     """Test user status state transitions."""
     u = User(username='test')
     assert u.status == User.STATUS_PENDING
-
+    
     u.activate()
     assert u.status == User.STATUS_ACTIVE
-
+    
     u.deactivate()
     assert u.status == User.STATUS_INACTIVE
-
+    
     u.suspend()
     assert u.status == User.STATUS_SUSPENDED
 
-def test_token_generation_and_verification(test_app, test_db):
-    """Test JWT token generation and verification."""
+def test_login_tracking(test_db):
+    """Test login attempt tracking."""
     u = User(username='test')
     test_db.session.add(u)
     test_db.session.commit()
+    
+    # Successful login
+    u.record_login()
+    assert u.last_login is not None
+    assert u.login_count == 1
+    assert u.failed_login_count == 0
+    
+    # Failed login
+    u.record_failed_login()
+    assert u.failed_login_count == 1
+    assert u.last_failed_login is not None
 
+def test_token_generation(test_db):
+    """Test token generation and validation."""
+    u = User(username='test', role='user')
+    test_db.session.add(u)
+    test_db.session.commit()
+    
     token = u.generate_token()
     assert token is not None
+    
+    decoded = User.verify_token(token)
+    assert decoded is not None, "Token verification failed"
+    assert decoded['user_id'] == u.id
+    assert decoded['role'] == u.role
 
-    verified_user = User.verify_token(token)
-    assert verified_user.id == u.id
-    assert verified_user.role == u.role
-
-def test_token_expiration(test_app, test_db):
+def test_token_expiration(test_db):
     """Test token expiration."""
     u = User(username='test')
     test_db.session.add(u)
     test_db.session.commit()
 
     token = u.generate_token(expires_in=1)
-    import time
     time.sleep(2)
     assert User.verify_token(token) is None
+
+def test_password_validation():
+    """Test password strength requirements."""
+    u = User(username='test')
+    
+    with pytest.raises(ValueError):
+        u.set_password('short')  # Too short
+        
+    with pytest.raises(ValueError):
+        u.set_password('nocapitals123!')  # No capitals
+        
+    with pytest.raises(ValueError):
+        u.set_password('NOCAPS123!')  # No lowercase
+        
+    with pytest.raises(ValueError):
+        u.set_password('NoSpecials123')  # No special chars
 
 def test_profile_updates(test_db):
     """Test user profile updates."""
@@ -94,7 +158,7 @@ def test_profile_updates(test_db):
     for key, value in profile_data.items():
         assert getattr(u, key) == value
 
-def test_role_management(test_db):
+def test_role_management():
     """Test role assignment and verification."""
     # Admin user
     admin = User(username='admin', role='admin')
@@ -107,7 +171,7 @@ def test_role_management(test_db):
     assert user.has_role('user')
     assert not user.has_role('admin')
 
-def test_user_search(test_db):
+def test_user_search():
     """Test user search functionality."""
     # Create test users
     users = [
@@ -123,10 +187,33 @@ def test_user_search(test_db):
     assert len(results) == 2
     assert all(u.username.startswith('test') for u in results)
 
-def test_last_login_update(test_db):
-    u = User(username='test')
+
+def test_last_login_update(test_db: Session) -> None:
+    """Test user login timestamp tracking."""
+    # Create test user
+    u = User(username='test', email='test@example.com')
     test_db.session.add(u)
     test_db.session.commit()
-    old_login = u.last_login
+
+    # Initial login should be None
+    assert u.last_login is None
+    assert u.login_count == 0
+
+    # First login
     u.update_last_login()
-    assert u.last_login > old_login
+    first_login = u.last_login
+    assert first_login is not None
+    assert u.login_count == 1
+
+    # Wait briefly to ensure timestamp changes
+    time.sleep(0.1)
+
+    # Subsequent login
+    u.update_last_login()
+    assert u.last_login > first_login
+    assert u.login_count == 2
+
+    # Verify stored in database
+    test_db.session.refresh(u)
+    assert u.last_login is not None
+    assert u.login_count == 2

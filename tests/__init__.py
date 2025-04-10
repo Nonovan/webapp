@@ -1,10 +1,12 @@
 from datetime import datetime
 import logging
 import pytest
+from sqlalchemy.orm import Session
 from app import create_app
 from extensions import db
 from models.user import User
 
+# Application Fixtures
 @pytest.fixture
 def app():
     """Create application for testing."""
@@ -36,8 +38,9 @@ def runner(app):
     """Create test CLI runner."""
     return app.test_cli_runner()
 
+# Database Fixtures
 @pytest.fixture
-def init_database(app):
+def init_database(app) -> Session:
     """Initialize test database."""
     with app.app_context():
         db.create_all()
@@ -45,8 +48,9 @@ def init_database(app):
         db.session.remove()
         db.drop_all()
 
+# User Fixtures
 @pytest.fixture
-def test_user(init_database):
+def test_user() -> User:
     """Create test user."""
     user = User(
         username='testuser',
@@ -60,7 +64,7 @@ def test_user(init_database):
     return user
 
 @pytest.fixture
-def admin_user(init_database):
+def admin_user():
     """Create admin user."""
     admin = User(
         username='admin',
@@ -74,9 +78,9 @@ def admin_user(init_database):
     return admin
 
 @pytest.fixture
-def auth_headers(test_user):
+def auth_headers(user_fixture):
     """Authentication headers for testing."""
-    token = test_user.generate_token()
+    token = user_fixture.generate_token()
     return {
         'Authorization': f'Bearer {token}',
         'Content-Type': 'application/json'

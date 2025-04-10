@@ -54,12 +54,12 @@ class BaseModel(db.Model, TimestampMixin):
         return data
 
     @classmethod
-    def get_by_id(cls: Type['BaseModel'], id: int) -> Optional['BaseModel']:
+    def get_by_id(cls: Type['BaseModel'], record_id: int) -> Optional['BaseModel']:
         """Get instance by ID with error handling."""
         try:
-            return cls.query.get(id)
+            return cls.query.get(record_id)
         except SQLAlchemyError as e:
-            current_app.logger.error(f"Error fetching {cls.__name__} {id}: {str(e)}")
+            current_app.logger.error(f"Error fetching {cls.__name__} {record_id}: {str(e)}")
             return None
 
     @classmethod
@@ -72,12 +72,12 @@ class BaseModel(db.Model, TimestampMixin):
             return []
 
     @classmethod
-    def get_or_404(cls: Type['BaseModel'], id: int) -> 'BaseModel':
+    def get_or_404(cls: Type['BaseModel'], record_id: int) -> 'BaseModel':
         """Get instance by ID or 404 with error handling."""
         try:
-            return cls.query.get_or_404(id)
+            return cls.query.get_or_404(record_id)
         except SQLAlchemyError as e:
-            current_app.logger.error(f"Error fetching {cls.__name__} {id}: {str(e)}")
+            current_app.logger.error(f"Error fetching {cls.__name__} {record_id}: {str(e)}")
             raise
 
     def __repr__(self) -> str:

@@ -1,3 +1,4 @@
+from typing import Dict, Any
 from datetime import datetime, timedelta
 import jwt
 import pytest
@@ -7,13 +8,16 @@ from models.user import User
 
 @pytest.fixture
 def test_app():
+    """Create test application instance."""
     app = create_app('testing')
     app.config.update({
         'TESTING': True,
         'SQLALCHEMY_DATABASE_URI': 'sqlite:///:memory:',
         'WTF_CSRF_ENABLED': False,
         'SERVER_NAME': 'localhost.localdomain',
-        'SECRET_KEY': 'test-secret-key'
+        'SECRET_KEY': 'test-secret-key',
+        'JWT_SECRET_KEY': 'test-jwt-key',
+        'CACHE_TYPE': 'simple'
     })
     
     with app.app_context():
@@ -23,15 +27,18 @@ def test_app():
         db.drop_all()
 
 @pytest.fixture
-def test_client(test_app):
-    return test_app.test_client()
+def test_client(app_instance):
+    """Create test client."""
+    return app_instance.test_client()
 
 @pytest.fixture
-def test_db(test_app):
+def test_db():
+    """Create test database."""
     return db
 
 @pytest.fixture
-def test_user(test_db):
+def test_user(database):
+    """Create test user."""
     user = User(
         username='testuser',
         email='test@example.com',
@@ -39,31 +46,33 @@ def test_user(test_db):
         status='active'
     )
     user.set_password('Password123!')
-    test_db.session.add(user)
-    test_db.session.commit()
+    database.session.add(user)
+    database.session.commit()
     return user
 
 @pytest.fixture
-def auth_token(test_app, test_user):
+def auth_token_with_role(app_instance, user_fixture):
+    """Generate authentication token with role."""
     token = jwt.encode(
         {
-            'user_id': test_user.id,
+            'user_id': user_fixture.id,
+            'role': user_fixture.role,
             'exp': datetime.utcnow() + timedelta(hours=1)
         },
-        test_app.config['SECRET_KEY'],
+        app_instance.config['JWT_SECRET_KEY'],
         algorithm='HS256'
     )
     return token
 
 @pytest.fixture
-def auth_headers(auth_token):
+def auth_headers_with_token(auth_token) -> dict:
     return {
         'Authorization': f'Bearer {auth_token}',
         'Content-Type': 'application/json'
     }
 
 @pytest.fixture
-def mock_data():
+def basic_mock_data() -> dict:
     return {
         'users': [
             {'username': 'user1', 'email': 'user1@example.com'},
@@ -77,7 +86,7 @@ def mock_data():
     }
 
 @pytest.fixture
-def admin_user(test_db):
+def admin_user_with_database(database) -> User:
     user = User(
         username='admin',
         email='admin@example.com',
@@ -85,12 +94,12 @@ def admin_user(test_db):
         status='active'
     )
     user.set_password('AdminPass123!')
-    test_db.session.add(user)
-    test_db.session.commit()
+    database.session.add(user)
+    database.session.commit()
     return user
 
 @pytest.fixture
-def mock_metrics():
+def mock_metrics() -> dict:
     return {
         'cpu_usage': 45.2,
         'memory_usage': 62.8,
@@ -98,33 +107,34 @@ def mock_metrics():
     }
 
 @pytest.fixture
-def api_headers(auth_token):
+def api_headers(auth_token) -> dict:
     return {
         'Authorization': f'Bearer {auth_token}',
         'Content-Type': 'application/json'
     }
     
 @pytest.fixture
-def auth_token(test_app, test_user):
+def auth_token_without_role(app_instance, user_fixture):
+    """Generate authentication token without role."""
     token = jwt.encode(
         {
-            'user_id': test_user.id,
+            'user_id': user_fixture.id,
             'exp': datetime.utcnow() + timedelta(hours=1)
         },
-        test_app.config['SECRET_KEY'],
+        app_instance.config['SECRET_KEY'],
         algorithm='HS256'
     )
     return token
 
 @pytest.fixture
-def auth_headers(auth_token):
+def auth_headers(auth_token) -> dict:
     return {
         'Authorization': f'Bearer {auth_token}',
         'Content-Type': 'application/json'
     }
 
 @pytest.fixture
-def mock_data():
+def mock_data() -> dict:
     return {
         'users': [
             {'username': 'user1', 'email': 'user1@example.com', 'role': 'user'},
@@ -157,7 +167,39 @@ def mock_data():
     }
 
 @pytest.fixture
-def admin_user(test_db):
+def mock_system_metrics() -> Dict[str, Any]:
+    """System metrics test data."""
+    return {
+        'cpu': {
+            'usage': 45.2,
+            'cores': 8,
+            'load': [2.1, 1.8, 1.6]
+        },
+        'memory': {
+            'total': 16384,
+            'used': 10240,
+            'free': 6144
+        },
+        'disk': {
+            'total': 512000,
+            'used': 402000,
+            'free': 110000
+        }
+    }
+
+@pytest.fixture
+def mock_db_metrics() -> Dict[str, Any]:
+    """Database metrics test data."""
+    return {
+        'connections': 5,
+        'active_queries': 3,
+        'slow_queries': 1,
+        'cache_hits': 95.5
+    }
+
+@pytest.fixture
+def admin_user(database) -> User:
+    """Create admin user fixture."""
     user = User(
         username='admin',
         email='admin@example.com',
@@ -165,71 +207,20 @@ def admin_user(test_db):
         status='active'
     )
     user.set_password('AdminPass123!')
-    test_db.session.add(user)
-    test_db.session.commit()
+    database.session.add(user)
+    database.session.commit()
     return user
 
 @pytest.fixture
-def operator_user(test_db):
+def operator_user(database) -> User:
     """Create operator user fixture."""
     user = User(
         username='operator',
         email='operator@example.com',
-        role='operator',
+        role='operator', 
         status='active'
     )
     user.set_password('OperatorPass123!')
-    test_db.session.add(user)
-    test_db.session.commit()
+    database.session.add(user)
+    database.session.commit()
     return user
-
-@pytest.fixture 
-def mock_metrics():
-    """Create mock metrics fixture."""
-    return {
-        'system': {
-            'cpu': {
-                'usage': 45.2,
-                'cores': 8,
-                'load': [2.1, 1.8, 1.6]
-            },
-            'memory': {
-                'total': 16384,
-                'used': 10240,
-                'free': 6144,
-                'usage': 62.8
-            },
-            'disk': {
-                'total': 512000,
-                'used': 402000,
-                'free': 110000,
-                'usage': 78.5
-            },
-            'network': {
-                'bytes_sent': 1024000,
-                'bytes_recv': 2048000,
-                'packets_sent': 1000,
-                'packets_recv': 2000
-            }
-        },
-        'database': {
-            'connections': 5,
-            'active_queries': 3,
-            'slow_queries': 2,
-            'cache_hit_ratio': 0.95,
-            'queries_per_second': 100,
-            'table_sizes': [
-                ('users', '1.2 MB'),
-                ('sessions', '4.5 MB'),
-                ('logs', '10.8 MB')
-            ]
-        },
-        'application': {
-            'response_time': 0.125,
-            'error_rate': 0.5,
-            'uptime': 3600,
-            'active_users': 25,
-            'requests_per_minute': 350
-        },
-        'timestamp': datetime.utcnow().isoformat()
-    }

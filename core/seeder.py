@@ -12,18 +12,18 @@ def seed_database():
             current_app.logger.info("Database already seeded. Skipping.")
             return False
 
-        with click.progressbar(length=2, label='Seeding database') as bar:
+        with click.progressbar(length=2, label='Seeding database') as bar_line:
             # Create admin user
             admin = User(
                 username="admin",
-                email="admin@example.com", 
+                email="admin@example.com",
                 role="admin",
                 status="active",
                 created_at=datetime.utcnow()
             )
             admin.set_password("AdminPass123!")
             db.session.add(admin)
-            bar.update(1)
+            bar_line.update(1)
 
             # Create test users
             test_users = [
@@ -38,7 +38,7 @@ def seed_database():
             for user in test_users:
                 user.set_password("UserPass123!")
             db.session.add_all(test_users)
-            bar.update(1)
+            bar_line.update(1)
 
             # Commit changes
             db.session.commit()

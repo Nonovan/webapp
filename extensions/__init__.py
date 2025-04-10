@@ -1,3 +1,4 @@
+from typing import Dict, Any
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect
@@ -9,28 +10,51 @@ from flask_mail import Mail
 from flask_session import Session
 from prometheus_flask_exporter import PrometheusMetrics
 
-# Database - Required for models
+# Database extensions
 db = SQLAlchemy()
 migrate = Migrate()
 
-# Security - Required for protection
+# Security extensions
 csrf = CSRFProtect()
-limiter = Limiter(key_func=get_remote_address)
-cors = CORS()
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"]
+)
+cors = CORS(
+    resources={r"/api/*": {"origins": "*"}},
+    supports_credentials=True
+)
 
-# Performance - Required for scaling
-cache = Cache(config={
-    'CACHE_TYPE': 'simple',
-    'CACHE_DEFAULT_TIMEOUT': 300
-})
+# Cache configuration
+CACHE_CONFIG: Dict[str, Any] = {
+    'CACHE_TYPE': 'redis',
+    'CACHE_KEY_PREFIX': 'myapp_',
+    'CACHE_DEFAULT_TIMEOUT': 300,
+    'CACHE_REDIS_URL': 'redis://localhost:6379/0'
+}
+cache = Cache(config=CACHE_CONFIG)
 
-# Email
+# Email configuration
 mail = Mail()
 
-# Session handling - Required for auth
+# Session configuration
 session = Session()
 
-# Monitoring - Required for ops
-metrics = PrometheusMetrics.for_app_factory()
+# Metrics configuration
+metrics = PrometheusMetrics.for_app_factory(
+    app_name='myapp',
+    path='/metrics',
+    group_by=['endpoint', 'http_status']
+)
 
-__all__ = ['db', 'migrate', 'csrf', 'limiter', 'cors', 'cache', 'mail', 'session', 'metrics']
+__all__ = [
+    'db',
+    'migrate', 
+    'csrf',
+    'limiter',
+    'cors',
+    'cache',
+    'mail',
+    'session',
+    'metrics'
+]

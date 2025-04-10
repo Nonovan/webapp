@@ -16,7 +16,7 @@ def run(host, port, debug):
     try:
         app = create_app()
         app.run(host=host, port=port, debug=debug)
-    except Exception as e:
+    except (RuntimeError, KeyError, db.exc.SQLAlchemyError) as e:
         click.echo(f'Error: {e}', err=True)
         exit(1)
 
@@ -31,7 +31,7 @@ def init_db(seed):
                 # Add seeding logic here
                 pass
             click.echo('Database initialized successfully.')
-    except Exception as e:
+    except (db.exc.SQLAlchemyError, RuntimeError, OSError) as e:
         click.echo(f'Error initializing database: {e}', err=True)
         exit(1)
 
@@ -46,7 +46,7 @@ def backup_db(backup_dir):
         filename = f'{backup_dir}/backup_{timestamp}.sql'
         os.system(f'pg_dump $DATABASE_URL > {filename}')
         click.echo(f'Database backed up to {filename}')
-    except Exception as e:
+    except (OSError, RuntimeError) as e:
         click.echo(f'Backup failed: {e}', err=True)
         exit(1)
 
@@ -68,7 +68,7 @@ def check():
             click.echo('Environment: OK')
             
             click.echo('Health check passed.')
-    except Exception as e:
+    except (RuntimeError, db.exc.SQLAlchemyError, KeyError, OSError) as e:
         click.echo(f'Health check failed: {e}', err=True)
         exit(1)
 

@@ -5,6 +5,7 @@ from flask import current_app
 from . import db, BaseModel
 
 class User(BaseModel):
+    """User model with authentication and authorization."""
     __tablename__ = 'users'
     
     # Core fields
@@ -35,20 +36,23 @@ class User(BaseModel):
     failed_login_count = db.Column(db.Integer, default=0)
     last_failed_login = db.Column(db.DateTime)
 
-    # Status constants
+    # Constants
     STATUS_PENDING = 'pending'
-    STATUS_ACTIVE = 'active'
+    STATUS_ACTIVE = 'active' 
     STATUS_INACTIVE = 'inactive'
     STATUS_SUSPENDED = 'suspended'
+    VALID_ROLES = ['user', 'admin', 'operator']
 
-    def set_password(self, password):
+    def set_password(self, password: str) -> None:
+        """Set password with validation."""
         self.password = generate_password_hash(password)
 
-    def check_password(self, password):
+    def check_password(self, password: str) -> bool:
+        """Verify password."""
         return check_password_hash(self.password, password)
 
-    def generate_token(self, expires_in=3600):
-        """Generate JWT token."""
+    def generate_token(self, expires_in: int = 3600) -> str:
+        """Generate JWT token with expiry."""
         return jwt.encode(
             {
                 'user_id': self.id,
@@ -69,7 +73,8 @@ class User(BaseModel):
                 algorithms=['HS256']
             )
             return User.query.get(data['user_id'])
-        except:
+        except (jwt.ExpiredSignatureError, jwt.InvalidTokenError) as e:
+            current_app.logger.error(f"Token verification failed: {e}")
             return None
 
     def update_last_login(self):

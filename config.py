@@ -7,7 +7,7 @@ class BaseConfig(CoreConfig):
     @classmethod
     def load(cls, env='development'):
         # Get base config
-        config = super().load()
+        base_configuration = super().load()
 
         # Add environment-specific overrides
         env_config = {
@@ -50,7 +50,7 @@ class BaseConfig(CoreConfig):
         }
 
         # Update base config with environment settings
-        config.update(env_config.get(env, env_config['development']))
-        return config
+        base_configuration.update(env_config.get(env, env_config['development']))
+        return base_configuration
 
 config = BaseConfig

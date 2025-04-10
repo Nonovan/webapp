@@ -49,7 +49,15 @@ def login():
         current_app.logger.warning(f"Failed login attempt for user: {username}")
         return render_template("auth/login.html"), 401
 
-    except Exception as e:
-        current_app.logger.error(f"Login error: {str(e)}")
-        flash("An error occurred. Please try again later.", "error")
+    except db.SQLAlchemyError as e:
+        current_app.logger.error(f"Database error during login: {str(e)}")
+        flash("A database error occurred. Please try again later.", "error")
+        return render_template("auth/login.html"), 500
+    except ValueError as e:
+        current_app.logger.error(f"Value error during login: {str(e)}")
+        flash("A value error occurred. Please try again later.", "error")
+        return render_template("auth/login.html"), 500
+    except RuntimeError as e:
+        current_app.logger.error(f"Runtime error during login: {str(e)}")
+        flash("A runtime error occurred. Please try again later.", "error")
         return render_template("auth/login.html"), 500

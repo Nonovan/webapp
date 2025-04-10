@@ -19,7 +19,7 @@ def health():
             'uptime': str(datetime.utcnow() - current_app.uptime),
             'timestamp': datetime.utcnow().isoformat()
         }
-    except Exception as e:
+    except (db.exc.SQLAlchemyError, AttributeError) as e:
         current_app.logger.error(f'Health check failed: {e}')
         return {'status': 'unhealthy', 'error': str(e)}, 500
 
@@ -37,7 +37,7 @@ def metrics():
             'application': ApplicationMetrics.get_app_metrics(),
             'timestamp': datetime.utcnow().isoformat()
         })
-    except Exception as e:
+    except (SystemMetrics.MetricsError, DatabaseMetrics.MetricsError, ApplicationMetrics.MetricsError) as e:
         current_app.logger.error(f'Metrics collection failed: {e}')
         return {'error': str(e)}, 500
 
@@ -49,9 +49,9 @@ def metrics():
 def db_status():
     """Database status endpoint."""
     try:
-        metrics = DatabaseMetrics.get_db_metrics()
-        metrics['timestamp'] = datetime.utcnow().isoformat()
-        return metrics
-    except Exception as e:
+        db_metrics = DatabaseMetrics.get_db_metrics()
+        db_metrics['timestamp'] = datetime.utcnow().isoformat()
+        return db_metrics
+    except db.exc.SQLAlchemyError as e:
         current_app.logger.error(f'Database status check failed: {e}')
         return {'error': str(e)}, 500

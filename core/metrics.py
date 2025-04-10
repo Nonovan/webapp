@@ -1,7 +1,6 @@
-import psutil
 from datetime import datetime
 from functools import wraps
-from flask import request, current_app
+import psutil
 from extensions import metrics, db
 
 def track_metrics(name: str):
@@ -44,4 +43,5 @@ class DatabaseMetrics:
             ).fetchall()
         }
 
-class Application
+class Application:
+    pass

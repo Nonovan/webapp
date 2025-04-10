@@ -1,8 +1,9 @@
 from datetime import datetime
-from flask import render_template, current_app, request, flash, abort, jsonify
-from auth.utils import login_required, require_role 
+from flask import render_template, current_app, request, abort, jsonify, g
+from jinja2 import TemplateNotFound
+from auth.utils import login_required, require_role
 from monitoring.metrics import SystemMetrics, DatabaseMetrics, EnvironmentalData
-from extensions import limiter, cache, metrics
+from extensions import limiter, cache, metrics, db
 from . import main_bp
 
 
@@ -20,8 +21,7 @@ def home():
     """Home page route."""
     try:
         metrics.increment('page_views_total', tags=['page:home'])
-        return render_template('main/home.html')
-    except Exception as e:
+    except (TemplateNotFound, RuntimeError) as e:  # Replace with specific exceptions
         current_app.logger.error(f"Home page error: {e}")
         metrics.increment('error_count_total', tags=['page:home'])
         abort(500)
@@ -34,7 +34,7 @@ def about():
     try:
         metrics.increment('page_views_total', tags=['page:about'])
         return render_template('main/about.html')
-    except Exception as e:
+    except (TemplateNotFound, RuntimeError) as e:  # Replace with specific exceptions
         current_app.logger.error(f"About page error: {e}")
         metrics.increment('error_count_total', tags=['page:about'])
         abort(500)
@@ -85,7 +85,7 @@ def cloud():
 
         return response
 
-    except Exception as e:
+    except (KeyError, ValueError, RuntimeError) as e:  # Replace with specific exceptions
         current_app.logger.error(f"Cloud dashboard error: {str(e)}")
         metrics.increment('error_count_total', tags=['page:cloud'])
         return jsonify({'error': 'Internal server error'}), 500
@@ -97,7 +97,7 @@ def profile():
     """User profile route."""
     try:
         return render_template('main/profile.html')
-    except Exception as e:
+    except (TemplateNotFound, RuntimeError) as e:  # Replace with specific exceptions
         current_app.logger.error(f"Profile error: {e}")
         abort(500)
 
@@ -114,7 +114,7 @@ def admin():
             db_metrics=DatabaseMetrics.get_db_metrics(),
             timestamp=datetime.utcnow().isoformat()
         )
-    except Exception as e:
+    except (TemplateNotFound, RuntimeError) as e:  # Replace with specific exceptions
         current_app.logger.error(f"Admin panel error: {e}")
         abort(500)
 
@@ -126,13 +126,13 @@ def admin():
 def ics():
     """ICS application route."""
     try:
-        metrics = SystemMetrics.get_system_metrics()
+        system_metrics = SystemMetrics.get_system_metrics()
         return render_template('main/ics.html',
-            cpu_usage=metrics['cpu_usage'],
-            memory_usage=metrics['memory_usage'],
+            cpu_usage=system_metrics['cpu_usage'],
+            memory_usage=system_metrics['memory_usage'],
             uptime=datetime.utcnow() - current_app.uptime
         )
-    except Exception as e:
+    except (KeyError, RuntimeError) as e:  # Replace with specific exceptions
         current_app.logger.error(f"ICS application error: {e}")
         abort(500)
 
@@ -146,9 +146,8 @@ def environmental_data():
     try:
         start_time = datetime.utcnow()
         
-        # Get latest reading
-        data = EnvironmentalData.query\
-            .order_by(EnvironmentalData.timestamp.desc())\
+        data = db.session.query(EnvironmentalData) \
+            .order_by(EnvironmentalData.timestamp.desc()) \
             .first()
 
         # Track request
@@ -180,7 +179,7 @@ def environmental_data():
             error="No environmental data available"
         ), 404
 
-    except Exception as e:
+    except (KeyError, RuntimeError) as e:  # Replace with specific exceptions
         # Log error and track metric
         current_app.logger.error(
             f"Environmental data error: {str(e)}",

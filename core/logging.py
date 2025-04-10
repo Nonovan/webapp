@@ -3,48 +3,72 @@ import logging.handlers
 import json
 import os
 from datetime import datetime
+from typing import Any, Dict
+from flask import Flask, request, g
 import sentry_sdk
-from flask import Flask, request
 
 def setup_app_logging(app: Flask) -> None:
-    """Centralized logging configuration"""
+    """Configure centralized application logging."""
 
     # Create logs directory
     log_dir = 'logs'
     os.makedirs(log_dir, exist_ok=True)
 
-    # JSON Formatter
     class JsonFormatter(logging.Formatter):
-        def format(self, record):
-            log_data = {
+        def format(self, record) -> str:
+            log_data: Dict[str, Any] = {
                 'timestamp': datetime.utcnow().isoformat(),
                 'level': record.levelname,
                 'message': record.getMessage(),
-                'request_id': getattr(request, 'request_id', None),
-                'path': getattr(request, 'path', None),
-                'method': getattr(request, 'method', None),
-                'ip': getattr(request, 'remote_addr', None)
+                'logger': record.name,
+                'request_id': getattr(g, 'request_id', None),
+                'user_id': getattr(g, 'user_id', None),
+                'path': request.path if request else None,
+                'method': request.method if request else None,
+                'ip': request.remote_addr if request else None,
+                'user_agent': request.user_agent.string if request and request.user_agent else None,
+                'environment': app.config.get('ENV', 'production'),
+                'version': app.config.get('VERSION', '1.0.0')
             }
+            
+            # Add error info if present
+            if record.exc_info:
+                log_data['error'] = {
+                    'type': record.exc_info[0].__name__ if record.exc_info and record.exc_info[0] else None,
+                    'message': str(record.exc_info[1]),
+                    'traceback': self.formatException(record.exc_info)
+                }
+            
             return json.dumps(log_data)
 
-    # Configure handlers
+    # Configure handlers with size-based rotation
     handlers = [
-        # Console handler
+        # Console output
         logging.StreamHandler(),
 
-        # File handler with rotation
+        # Main log file
         logging.handlers.RotatingFileHandler(
             filename=f'{log_dir}/app.log',
             maxBytes=10485760,  # 10MB
-            backupCount=10
+            backupCount=10,
+            encoding='utf-8'
         ),
 
-        # Error file handler
+        # Error-specific log
         logging.handlers.RotatingFileHandler(
             filename=f'{log_dir}/error.log',
             maxBytes=10485760,
             backupCount=10,
-            level=logging.ERROR
+            level=logging.ERROR,
+            encoding='utf-8'
+        ),
+        
+        # Security events log
+        logging.handlers.RotatingFileHandler(
+            filename=f'{log_dir}/security.log',
+            maxBytes=10485760,
+            backupCount=10,
+            encoding='utf-8'
         )
     ]
 

@@ -1,12 +1,13 @@
-from datetime import datetime
-import os
+import logging
 import psutil
 import click
 from flask.cli import AppGroup
+from core.config import Config
 from core.logging import get_logger
 from extensions import db, metrics
 
-logger = get_logger(__name__)
+logger = get_logger(__name__) or logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 system_cli = AppGroup('system')
 
 @system_cli.command('status')
@@ -16,28 +17,28 @@ def system_status(detailed: bool) -> None:
     try:
         click.echo('\nSystem Status:')
         
-        with click.progressbar(length=4, label='Collecting metrics') as bar:
+        with click.progressbar(length=4, label='Collecting metrics') as bar_line:
             # System metrics
             sys_metrics = {
                 'CPU Usage': f"{psutil.cpu_percent()}%",
                 'Memory Usage': f"{psutil.virtual_memory().percent}%",
                 'Disk Usage': f"{psutil.disk_usage('/').percent}%"
             }
-            bar.update(1)
+            bar_line.update(1)
 
             # Application metrics
             app_metrics = metrics.get_all()
-            bar.update(1)
+            bar_line.update(1)
 
             # Database metrics
             db_metrics = {
-                'Active Connections': len(db.engine.pool._channels),
+                'Active Connections': db.engine.pool.checkedout(),
                 'Database Size': db.session.execute(
                     "SELECT pg_size_pretty(pg_database_size(current_database()))"
                 ).scalar(),
                 'Total Tables': len(db.metadata.tables)
             }
-            bar.update(1)
+            bar_line.update(1)
 
             # Process metrics
             proc = psutil.Process()
@@ -47,7 +48,7 @@ def system_status(detailed: bool) -> None:
                 'Threads': proc.num_threads(),
                 'Open Files': len(proc.open_files())
             }
-            bar.update(1)
+            bar_line.update(1)
 
         # Display metrics
         for category, values in [
@@ -64,10 +65,9 @@ def system_status(detailed: bool) -> None:
             for key, value in app_metrics.items():
                 click.echo(f"  {key}: {value}")
 
-    except Exception as e:
-        logger.error(f"Status check failed: {e}")
-        raise click.ClickException(str(e))
-
+    except (psutil.Error, db.exc.SQLAlchemyError) as e:
+        logger.error("Status check failed: %s", e)
+        logger.error("Status check failed: %s", e)
 @system_cli.command('health')
 def health_check() -> None:
     """Perform system health check."""
@@ -79,35 +79,33 @@ def health_check() -> None:
             'CPU': lambda: psutil.cpu_percent() < 80
         }
 
-        with click.progressbar(length=len(checks), label='Running health checks') as bar:
+        with click.progressbar(length=len(checks), label='Running health checks') as bar_line:
             results = {}
             for name, check in checks.items():
                 try:
                     results[name] = check()
-                    bar.update(1)
-                except Exception as e:
+                    bar_line.update(1)
+                except (psutil.Error, db.exc.SQLAlchemyError) as e:
                     results[name] = False
                     logger.error(f"Health check '{name}' failed: {e}")
 
-        click.echo("\nHealth Check Results:")
+                    logger.error("Health check '%s' failed: %s", name, e)
         for name, passed in results.items():
             click.echo(f"  {name}: {'✅' if passed else '❌'}")
 
-    except Exception as e:
+    except (psutil.Error, db.exc.SQLAlchemyError) as e:
         logger.error(f"Health check failed: {e}")
         raise click.ClickException(str(e))
-
 @system_cli.command('config')
 @click.option('--verify/--no-verify', default=True, help='Verify configuration')
 def check_config(verify: bool) -> None:
     """Check system configuration."""
     try:
-        from core.config import Config
         config = Config.load()
         
         click.echo("\nConfiguration Status:")
         for key, value in config.items():
-            if isinstance(value, str) and key.lower().contains(('key', 'secret', 'password')):
+            if isinstance(value, str) and any(substring in key.lower() for substring in ('key', 'secret', 'password')):
                 value = '********'
             click.echo(f"  {key}: {value}")
 
@@ -124,6 +122,7 @@ def check_config(verify: bool) -> None:
             else:
                 click.echo("\n✅ All required variables present")
 
-    except Exception as e:
+    except (ImportError, AttributeError, KeyError) as e:
         logger.error(f"Config check failed: {e}")
+        logger.error("Config check failed: %s", e)
         raise click.ClickException(str(e))

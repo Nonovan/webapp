@@ -5,7 +5,9 @@ from core.logging import get_logger
 from extensions import db
 from models import User
 
-logger = get_logger(__name__)
+logger = get_logger(__name__) or click.get_current_context().obj.get('logger', None)
+if logger is None:
+    raise RuntimeError("Logger initialization failed. Ensure get_logger is configured correctly or provide a fallback logger.")
 user_cli = AppGroup('user')
 
 @user_cli.command('create')
@@ -64,7 +66,6 @@ def reset_password(username: str, password: str) -> None:
         user = User.query.filter_by(username=username).first()
         if not user:
             raise click.ClickException(f"User {username} not found")
-            
         user.set_password(password)
         db.session.commit()
         logger.info(f"Reset password for user: {username}")
@@ -82,8 +83,7 @@ def change_role(username: str, new_role: str) -> None:
     try:
         user = User.query.filter_by(username=username).first()
         if not user:
-            raise click.ClickException(f"User {username} not found")
-            
+            raise click.ClickException(f"User {username} not found")        
         old_role = user.role
         user.role = new_role
         db.session.commit()
