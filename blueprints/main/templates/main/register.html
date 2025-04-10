@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+
+{% block title %}Register{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="card-title text-center mb-4">Register</h2>
+                    
+                    {% with messages = get_flashed_messages(with_categories=true) %}
+                        {% if messages %}
+                            {% for category, message in messages %}
+                                <div class="alert alert-{{ category }}" role="alert">{{ message }}</div>
+                            {% endfor %}
+                        {% endif %}
+                    {% endwith %}
+
+                    <form method="post" class="needs-validation" novalidate>
+                        {{ form.csrf_token }}
+                        
+                        <!-- Username -->
+                        <div class="mb-3">
+                            <label for="username" class="form-label">Username</label>
+                            <div class="input-group">
+                                <span class="input-group-text">
+                                    <i class="bi bi-person"></i>
+                                </span>
+                                <input type="text" 
+                                       class="form-control {% if form.username.errors %}is-invalid{% endif %}"
+                                       id="username" 
+                                       name="username"
+                                       pattern="[a-zA-Z0-9_-]{3,20}"
+                                       title="3-20 characters, letters, numbers, underscore or dash only"
+                                       required
+                                       autocomplete="username"
+                                       spellcheck="false"
+                                       aria-describedby="usernameHelp">
+                                <div class="valid-feedback">Looks good!</div>
+                                {% if form.username.errors %}
+                                    <div class="invalid-feedback">{{ form.username.errors[0] }}</div>
+                                {% endif %}
+                            </div>
+                            <div id="usernameHelp" class="form-text">3-20 characters, letters and numbers only</div>
+                        </div>
+
+                        <!-- Email -->
+                        <div class="mb-3">
+                            <label for="email" class="form-label">Email</label>
+                            <div class="input-group">
+                                <span class="input-group-text">
+                                    <i class="bi bi-envelope"></i>
+                                </span>
+                                <input type="email" 
+                                       class="form-control {% if form.email.errors %}is-invalid{% endif %}"
+                                       id="email"
+                                       name="email" 
+                                       required
+                                       pattern="[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$"
+                                       autocomplete="email"
+                                       aria-describedby="emailHelp">
+                                <div class="valid-feedback">Valid email!</div>
+                                {% if form.email.errors %}
+                                    <div class="invalid-feedback">{{ form.email.errors[0] }}</div>
+                                {% endif %}
+                            </div>
+                        </div>
+  
+                        <div class="mb-3">
+                            <label for="password" class="form-label">Password</label>
+                            <div class="input-group">
+                                <input type="password" 
+                                       class="form-control {% if form.password.errors %}is-invalid{% endif %}"
+                                       id="password"
+                                       name="password"
+                                       required
+                                       pattern="^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{8,}$"
+                                       aria-describedby="passwordHelp">
+                                <button class="btn btn-outline-secondary" type="button" id="togglePassword">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                            </div>
+                            <div id="passwordStrength" class="progress mt-2" style="height: 5px;">
+                                <div class="progress-bar" role="progressbar"></div>
+                            </div>
+                            <div id="passwordHelp" class="form-text">
+                                Minimum 8 characters, at least 1 letter and 1 number
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="confirm" class="form-label">Confirm Password</label>
+                            <input type="password" class="form-control" 
+                                   id="confirm"
+                                   name="confirm"
+                                   required>
+                            <div class="invalid-feedback">Passwords do not match</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input type="checkbox" class="form-check-input" id="terms" required>
+                                <label class="form-check-label" for="terms">
+                                    I accept the <a href="#" data-bs-toggle="modal" data-bs-target="#termsModal">Terms and Conditions</a>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="g-recaptcha mb-3" data-sitekey="{{ recaptcha_site_key }}"></div>
+
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary">Register</button>
+                            <hr>
+                            <a href="{{ url_for('auth.google_register') }}" class="btn btn-danger">
+                                <i class="bi bi-google"></i> Register with Google
+                            </a>
+                            <a href="{{ url_for('auth.github_register') }}" class="btn btn-dark">
+                                <i class="bi bi-github"></i> Register with GitHub
+                            </a>
+                        </div>
+                    </form>
+                    
+                    <p class="text-center mt-3">
+                        Already have an account? <a href="{{ url_for('auth.login') }}">Login here</a>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% block scripts %}
+<script src="https://www.google.com/recaptcha/api.js" async defer></script>
+<script>
+document.getElementById('togglePassword').addEventListener('click', function() {
+    const password = document.getElementById('password');
+    const type = password.getAttribute('type') === 'password' ? 'text' : 'password';
+    password.setAttribute('type', type);
+    this.querySelector('i').classList.toggle('bi-eye');
+    this.querySelector('i').classList.toggle('bi-eye-slash');
+});
+
+document.getElementById('password').addEventListener('input', function() {
+    const strength = checkPasswordStrength(this.value);
+    const progressBar = document.querySelector('#passwordStrength .progress-bar');
+    progressBar.style.width = `${strength * 25}%`;
+    progressBar.className = `progress-bar bg-${getStrengthColor(strength)}`;
+});
+
+function checkPasswordStrength(password) {
+    let strength = 0;
+    if (password.length >= 8) strength++;
+    if (password.match(/[a-z]/)) strength++;
+    if (password.match(/[A-Z]/)) strength++;
+    if (password.match(/[0-9]/)) strength++;
+    return strength;
+}
+
+function getStrengthColor(strength) {
+    return ['danger', 'warning', 'info', 'success'][strength - 1] || 'danger';
+}
+
+(function () {
+    'use strict'
+    
+    // Password strength checker
+    const passwordInput = document.getElementById('password');
+    const strengthMeter = document.querySelector('.password-strength');
+    
+    passwordInput.addEventListener('input', function() {
+        const strength = checkPasswordStrength(this.value);
+        strengthMeter.innerHTML = `Password strength: ${strength}`;
+    });
+
+    // Password match validation
+    const confirmInput = document.getElementById('confirm');
+    confirmInput.addEventListener('input', function() {
+        if (this.value !== passwordInput.value) {
+            this.setCustomValidity('Passwords do not match');
+        } else {
+            this.setCustomValidity('');
+        }
+    });
+
+    // Form validation
+    const forms = document.querySelectorAll('.needs-validation');
+    Array.prototype.slice.call(forms).forEach(function (form) {
+        form.addEventListener('submit', function (event) {
+            if (!form.checkValidity()) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            form.classList.add('was-validated');
+        }, false);
+    });
+})();
+
+document.querySelector('form').addEventListener('submit', function(e) {
+    if (!this.checkValidity()) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    this.classList.add('was-validated');
+});
+</script>
+{% endblock %}

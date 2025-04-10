@@ -1,0 +1,18 @@
+[2024-02-20 10:00:00.123] [INFO] [APP] Starting application v1.0.0
+[2024-02-20 10:00:00.124] [INFO] [CONFIG] Loading configuration: development
+[2024-02-20 10:00:00.125] [INFO] [SYSTEM] Python 3.13.2, Flask 2.3.0
+[2024-02-20 10:00:00.126] [INFO] [HEALTH] System check: CPU=15%, Memory=45%, Disk=62%
+[2024-02-20 10:00:00.127] [INFO] [DB] Connection pool: active=2, idle=3, max=10
+[2024-02-20 10:00:00.128] [INFO] [CACHE] Redis status: connected, hit_rate=98.5%
+[2024-02-20 10:00:00.129] [INFO] [SECURITY] Active sessions: 12, Failed logins: 0
+[2024-02-20 10:00:00.130] [INFO] [METRICS] Response time avg: 45ms, 99th: 120ms
+[2024-02-20 10:00:00.131] [INFO] [REQUEST] GET /api/health 200 45ms
+[2024-02-20 10:00:00.132] [WARN] [AUTH] Failed login attempt: user=test_user ip=192.168.1.100
+[2024-02-20 10:00:00.133] [ERROR] [DB] Query timeout: SELECT * FROM users LIMIT 100
+[2024-02-20 10:00:00.134] [INFO] [CACHE] Cache invalidated: user_profile_123
+[2024-02-20 10:00:00.135] [INFO] [TASK] Background job completed: email_digest
+[2024-02-20 10:00:00.136] [INFO] [SYSTEM] Memory cleanup: freed 234MB
+[2024-02-20 10:00:00.137] [INFO] [DB] Slow query detected (2.5s): /api/users/search
+[2024-02-20 10:00:00.138] [INFO] [SECURITY] Rate limit exceeded: ip=192.168.1.101
+[2024-02-20 10:00:00.139] [INFO] [APP] Graceful shutdown initiated
+[2024-02-20 10:00:00.140] [INFO] [APP] Application stopped
