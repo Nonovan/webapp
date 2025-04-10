@@ -30,7 +30,7 @@ def setup_app_logging(app: Flask) -> None:
                 'environment': app.config.get('ENV', 'production'),
                 'version': app.config.get('VERSION', '1.0.0')
             }
-            
+
             # Add error info if present
             if record.exc_info:
                 log_data['error'] = {
@@ -38,7 +38,7 @@ def setup_app_logging(app: Flask) -> None:
                     'message': str(record.exc_info[1]),
                     'traceback': self.formatException(record.exc_info)
                 }
-            
+
             return json.dumps(log_data)
 
     # Configure handlers with size-based rotation
@@ -62,7 +62,7 @@ def setup_app_logging(app: Flask) -> None:
             level=logging.ERROR,
             encoding='utf-8'
         ),
-        
+
         # Security events log
         logging.handlers.RotatingFileHandler(
             filename=f'{log_dir}/security.log',
@@ -101,5 +101,5 @@ def setup_app_logging(app: Flask) -> None:
 def get_logger(app: Flask)  -> None:
     return app.logger
 
-def get_sentry_client():
+def get_sentry_client() -> sentry_sdk.Client:
     return sentry_sdk.Hub.current.client

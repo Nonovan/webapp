@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, g, session, render_template, current_app
 from extensions import db, metrics
 
-def log_error(error, level='error', context=None):
+def log_error(error, level='error', context=None) -> None:
     log_message = f'Error {error.code}: {request.url} - {error}'
     if context:
         log_message += f' | Context: {context}'
@@ -10,7 +10,7 @@ def log_error(error, level='error', context=None):
 
 def init_error_handlers(blueprint: Blueprint) -> None:
     """Initialize error handlers and monitoring."""
-    
+
     # Register error metrics
     metrics.register_default(
         metrics.counter(
@@ -24,7 +24,7 @@ def init_error_handlers(blueprint: Blueprint) -> None:
             }
         )
     )
-    
+
     metrics.register_default(
         metrics.histogram(
             'flask_error_response_time_seconds',
@@ -37,35 +37,35 @@ def init_error_handlers(blueprint: Blueprint) -> None:
     )
 
     @blueprint.errorhandler(400)
-    def bad_request_error(error):
+    def bad_request_error(error) -> tuple:
         log_error(error, 'warning')
         if request.is_json:
             return jsonify(error="Bad request"), 400
         return render_template('errors/400.html'), 400
 
     @blueprint.errorhandler(401)
-    def unauthorized_error(error):
+    def unauthorized_error(error) -> tuple:
         log_error(error, 'warning')
         if request.is_json:
             return jsonify(error="Unauthorized"), 401
         return render_template('errors/401.html'), 401
 
     @blueprint.errorhandler(403)
-    def forbidden_error(error):
+    def forbidden_error(error) -> tuple:
         log_error(error, 'warning')
         if request.is_json:
             return jsonify(error="Forbidden"), 403
         return render_template('errors/403.html'), 403
 
     @blueprint.errorhandler(404)
-    def not_found_error(error):
+    def not_found_error(error) -> tuple:
         log_error(error, 'warning')
         if request.is_json:
             return jsonify(error="Not found"), 404
         return render_template('errors/404.html'), 404
 
     @blueprint.errorhandler(500)
-    def internal_error(error):
+    def internal_error(error) -> tuple:
         log_error(error, 'error')
         db.session.rollback()
         if request.is_json:
@@ -73,7 +73,7 @@ def init_error_handlers(blueprint: Blueprint) -> None:
         return render_template('errors/500.html'), 500
 
     @blueprint.errorhandler(503)
-    def service_unavailable_error(error):
+    def service_unavailable_error(error) -> tuple:
         log_error(error, 'error')
         if request.is_json:
             return jsonify(error="Service unavailable"), 503
@@ -81,14 +81,14 @@ def init_error_handlers(blueprint: Blueprint) -> None:
 
     return blueprint
 
-def handle_database_error(error):
+def handle_database_error(error) -> tuple:
     """Handle database connection/timeout errors."""
     log_error(error, level='error', context={
         'transaction_id': g.get('transaction_id'),
         'query': getattr(error, 'statement', None)
     })
     db.session.rollback()
-    
+
     if request.is_json:
         return jsonify({
             'error': 'Database error',
@@ -97,13 +97,13 @@ def handle_database_error(error):
         }), 503
     return render_template('errors/db_error.html', retry=30), 503
 
-def handle_network_error(error):
+def handle_network_error(error) -> tuple:
     """Handle network timeouts and connection errors."""
     log_error(error, level='error', context={
         'remote_addr': request.remote_addr,
         'endpoint': request.endpoint
     })
-    
+
     if request.is_json:
         return jsonify({
             'error': 'Network error',

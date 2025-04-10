@@ -7,27 +7,27 @@ from . import db, BaseModel
 class User(BaseModel):
     """User model with authentication and authorization."""
     __tablename__ = 'users'
-    
+
     # Core fields
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
-    
+
     # Role and status
     role = db.Column(db.String(20), default='user')
     status = db.Column(db.String(20), default='pending')
-    
+
     # Profile fields
     first_name = db.Column(db.String(50))
     last_name = db.Column(db.String(50))
     bio = db.Column(db.Text)
     avatar_url = db.Column(db.String(255))
-    
+
     # Security
     two_factor_enabled = db.Column(db.Boolean, default=False)
     two_factor_secret = db.Column(db.String(32))
-    
+
     # Activity tracking
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     updated_at = db.Column(db.DateTime, onupdate=db.func.now())
@@ -38,7 +38,7 @@ class User(BaseModel):
 
     # Constants
     STATUS_PENDING = 'pending'
-    STATUS_ACTIVE = 'active' 
+    STATUS_ACTIVE = 'active'
     STATUS_INACTIVE = 'inactive'
     STATUS_SUSPENDED = 'suspended'
     VALID_ROLES = ['user', 'admin', 'operator']
@@ -94,5 +94,5 @@ class User(BaseModel):
         """Check if user is admin."""
         return self.role == 'admin'
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f'<User {self.username}>'

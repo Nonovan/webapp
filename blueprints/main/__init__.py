@@ -14,18 +14,18 @@ main_bp = Blueprint(
 )
 
 @main_bp.before_request
-def before_request():
+def before_request() -> None:
     """Track request metrics and validate access."""
     g.start_time = datetime.utcnow()
     g.request_id = request.headers.get('X-Request-ID', str(uuid.uuid4()))
-    
+
     metrics.increment('main_requests_total', {
         'method': request.method,
         'endpoint': request.endpoint,
         'user_id': session.get('user_id', 'anonymous')
     })
 
-@main_bp.after_request 
+@main_bp.after_request
 def after_request(response: Response) -> Response:
     """Add response metrics and headers."""
     if hasattr(g, 'start_time'):
@@ -47,7 +47,7 @@ def after_request(response: Response) -> Response:
         })
 
         # Compress large responses
-        if (response.content_length is not None and 
+        if (response.content_length is not None and
             response.content_length > 1024 and
             'gzip' in request.headers.get('Accept-Encoding', '')):
             response.data = gzip.compress(response.data)
@@ -56,7 +56,7 @@ def after_request(response: Response) -> Response:
     return response
 
 @main_bp.teardown_request
-def teardown_request(exc):
+def teardown_request(exc) -> None:
     """Cleanup after request."""
     if exc is not None:
         db.session.rollback()

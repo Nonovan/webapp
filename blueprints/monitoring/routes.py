@@ -9,7 +9,7 @@ monitoring_bp = Blueprint('monitoring', __name__, url_prefix='/monitoring')
 @monitoring_bp.route('/health')
 @limiter.limit("60/minute")
 @cache.cached(timeout=30)
-def health():
+def health() -> dict | tuple[dict, int]:
     """Health check endpoint."""
     try:
         return {
@@ -28,7 +28,7 @@ def health():
 @require_role('admin')
 @limiter.limit("30/minute")
 @cache.cached(timeout=60)
-def metrics():
+def metrics() -> dict | tuple[dict, int]:
     """System metrics endpoint."""
     try:
         return jsonify({
@@ -46,7 +46,7 @@ def metrics():
 @require_role('admin')
 @limiter.limit("30/minute")
 @cache.cached(timeout=60)
-def db_status():
+def db_status() -> dict | tuple[dict, int]:
     """Database status endpoint."""
     try:
         db_metrics = DatabaseMetrics.get_db_metrics()

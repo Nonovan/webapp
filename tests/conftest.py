@@ -7,7 +7,7 @@ from extensions import db
 from models.user import User
 
 @pytest.fixture
-def test_app():
+def test_app() -> Any:
     """Create test application instance."""
     app = create_app('testing')
     app.config.update({
@@ -19,7 +19,7 @@ def test_app():
         'JWT_SECRET_KEY': 'test-jwt-key',
         'CACHE_TYPE': 'simple'
     })
-    
+
     with app.app_context():
         db.create_all()
         yield app
@@ -27,17 +27,17 @@ def test_app():
         db.drop_all()
 
 @pytest.fixture
-def test_client(app_instance):
+def test_client(app_instance) -> Any:
     """Create test client."""
     return app_instance.test_client()
 
 @pytest.fixture
-def test_db():
+def test_db() -> Any:
     """Create test database."""
     return db
 
 @pytest.fixture
-def test_user(database):
+def test_user(database) -> Any:
     """Create test user."""
     user = User(
         username='testuser',
@@ -51,7 +51,7 @@ def test_user(database):
     return user
 
 @pytest.fixture
-def auth_token_with_role(app_instance, user_fixture):
+def auth_token_with_role(app_instance, user_fixture) -> Any:
     """Generate authentication token with role."""
     token = jwt.encode(
         {
@@ -112,9 +112,9 @@ def api_headers(auth_token) -> dict:
         'Authorization': f'Bearer {auth_token}',
         'Content-Type': 'application/json'
     }
-    
+
 @pytest.fixture
-def auth_token_without_role(app_instance, user_fixture):
+def auth_token_without_role(app_instance, user_fixture) -> Any:
     """Generate authentication token without role."""
     token = jwt.encode(
         {
@@ -217,7 +217,7 @@ def operator_user(database) -> User:
     user = User(
         username='operator',
         email='operator@example.com',
-        role='operator', 
+        role='operator',
         status='active'
     )
     user.set_password('OperatorPass123!')

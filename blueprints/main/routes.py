@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Union
 from flask import render_template, current_app, request, abort, jsonify, g
 from jinja2 import TemplateNotFound
 from auth.utils import login_required, require_role
@@ -6,9 +7,8 @@ from monitoring.metrics import SystemMetrics, DatabaseMetrics, EnvironmentalData
 from extensions import limiter, cache, metrics, db
 from . import main_bp
 
-
 @main_bp.before_request
-def log_request():
+def log_request() -> None:
     """Log and track incoming requests."""
     request_id = request.headers.get('X-Request-ID', 'unknown')
     current_app.logger.info(f"Request {request_id}: {request.method} {request.path}")
@@ -17,19 +17,21 @@ def log_request():
 @main_bp.route('/')
 @limiter.limit("60/minute")
 @cache.cached(timeout=300)
-def home():
+def home() -> str | tuple:
     """Home page route."""
     try:
         metrics.increment('page_views_total', tags=['page:home'])
+        return render_template('main/home.html')  # Ensure a valid return value
     except (TemplateNotFound, RuntimeError) as e:  # Replace with specific exceptions
         current_app.logger.error(f"Home page error: {e}")
         metrics.increment('error_count_total', tags=['page:home'])
         abort(500)
+        return jsonify({'error': 'Internal server error'}), 500  # Fallback return value
 
 @main_bp.route('/about')
 @limiter.limit("30/minute")
 @cache.cached(timeout=3600)
-def about():
+def about() -> str:
     """About page route."""
     try:
         metrics.increment('page_views_total', tags=['page:about'])
@@ -38,17 +40,18 @@ def about():
         current_app.logger.error(f"About page error: {e}")
         metrics.increment('error_count_total', tags=['page:about'])
         abort(500)
+        return "Error: Unable to load about page"  # Fallback return value
 
 @main_bp.route('/cloud')
 @login_required
 @require_role('admin')
 @limiter.limit("30/minute")
 @cache.cached(timeout=60)
-def cloud():
+def cloud() -> str | tuple:
     """Cloud services dashboard route."""
     try:
         start_time = datetime.utcnow()
-        
+
         # Collect metrics
         system_metrics = SystemMetrics.get_system_metrics()
         db_metrics = DatabaseMetrics.get_db_metrics()
@@ -56,13 +59,13 @@ def cloud():
 
         # Log access
         current_app.logger.info(
-            "Cloud dashboard accessed", 
+            "Cloud dashboard accessed",
             extra={
                 'user_id': g.user.id,
                 'ip': request.remote_addr
             }
         )
-        
+
         # Track view
         metrics.increment('cloud_dashboard_views_total', tags=[f'user:{g.user.id}'])
 
@@ -79,7 +82,7 @@ def cloud():
 
         # Track performance
         metrics.observe(
-            'cloud_dashboard_load_time', 
+            'cloud_dashboard_load_time',
             (datetime.utcnow() - start_time).total_seconds()
         )
 
@@ -92,21 +95,21 @@ def cloud():
 
 @main_bp.route('/profile')
 @login_required
-@limiter.limit("30/minute")
-def profile():
+@limiter.limit("30/minute") 
+def profile() -> Union[str, tuple[dict, int]]:
     """User profile route."""
     try:
         return render_template('main/profile.html')
-    except (TemplateNotFound, RuntimeError) as e:  # Replace with specific exceptions
+    except (TemplateNotFound, RuntimeError) as e:
         current_app.logger.error(f"Profile error: {e}")
-        abort(500)
+        return jsonify({'error': 'Internal server error'}), 500
 
 @main_bp.route('/admin')
 @login_required
 @require_role('admin')
 @limiter.limit("30/minute")
 @cache.cached(timeout=60)
-def admin():
+def admin() -> Union[str, tuple[dict, int]]:
     """Admin panel route."""
     try:
         return render_template('main/admin.html',
@@ -114,9 +117,9 @@ def admin():
             db_metrics=DatabaseMetrics.get_db_metrics(),
             timestamp=datetime.utcnow().isoformat()
         )
-    except (TemplateNotFound, RuntimeError) as e:  # Replace with specific exceptions
+    except (TemplateNotFound, RuntimeError) as e:
         current_app.logger.error(f"Admin panel error: {e}")
-        abort(500)
+        return jsonify({'error': 'Internal server error'}), 500
 
 @main_bp.route('/ics')
 @login_required
@@ -141,17 +144,17 @@ def ics():
 @require_role('operator')
 @limiter.limit("30/minute")
 @cache.cached(timeout=60)
-def environmental_data():
+def environmental_data() -> str | tuple:
     """Get latest environmental data for ICS systems."""
     try:
         start_time = datetime.utcnow()
-        
+
         data = db.session.query(EnvironmentalData) \
             .order_by(EnvironmentalData.timestamp.desc()) \
             .first()
 
         # Track request
-        metrics.increment('ics_environmental_requests_total', 
+        metrics.increment('ics_environmental_requests_total',
                         tags=[f'user:{g.user.id}'])
 
         if data:
@@ -163,7 +166,7 @@ def environmental_data():
                     'timestamp': data.timestamp
                 }
             )
-            
+
             return render_template(
                 "monitoring/environmental_data.html",
                 temperature=data.temperature,
@@ -175,7 +178,7 @@ def environmental_data():
         # Handle no data case
         metrics.increment('ics_environmental_no_data_total')
         return render_template(
-            "monitoring/environmental_data.html", 
+            "monitoring/environmental_data.html",
             error="No environmental data available"
         ), 404
 
@@ -186,7 +189,7 @@ def environmental_data():
             extra={'user_id': g.user.id}
         )
         metrics.increment('ics_environmental_errors_total')
-        
+
         return render_template(
             "monitoring/environmental_data.html",
             error="Error retrieving environmental data"

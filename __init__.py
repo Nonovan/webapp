@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 from flask import Flask
 from core.factory import create_app as core_create_app
 from views import register_blueprints

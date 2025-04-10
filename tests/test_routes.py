@@ -36,7 +36,7 @@ class TestAuthRoutes:
     def test_protected_route_access(self, test_client) -> None:
         """Test protected route redirection."""
         response = test_client.get('/cloud')
-        assert response.status_code == 302  
+        assert response.status_code == 302
         assert '/auth/login' in response.location
 
     def test_logout(self, test_client, auth_token) -> None:
@@ -56,7 +56,7 @@ class TestAuthRoutes:
         """Test registration with validation."""
         response = test_client.post('/auth/register', data={
             'username': 'newuser',
-            'email': 'new@example.com', 
+            'email': 'new@example.com',
             'password': 'NewPass123!',
             'confirm': 'NewPass123!'
         }, follow_redirects=True)
@@ -74,13 +74,13 @@ class TestAuthRoutes:
         assert response.status_code == 400
         assert b'Username already exists' in response.data
 
-def test_rate_limit(test_client, test_user):
+def test_rate_limit(test_client, test_user) -> None:
     """Test rate limiting with authentication."""
     endpoints = ['/cloud', '/api/users', '/admin']
     headers = {'Authorization': f'Bearer {test_user.generate_token()}'}
 
     for endpoint in endpoints:
-        # Reset counter 
+        # Reset counter
         test_client.get('/reset-ratelimit')
 
         # Test authenticated requests
@@ -92,7 +92,7 @@ def test_rate_limit(test_client, test_user):
                 assert response.status_code == 429
                 assert b'Too Many Requests' in response.data
 
-def test_csrf_protection(test_client, test_user):
+def test_csrf_protection(test_client, test_user) -> None:
     """Test CSRF protection with token validation."""
     forms = [
         ('/auth/login', {'username': 'test', 'password': 'test'}),
@@ -109,7 +109,7 @@ def test_csrf_protection(test_client, test_user):
         assert response.status_code == 400
         assert b'CSRF validation failed' in response.data
 
-def test_input_validation(test_client):
+def test_input_validation(test_client) -> None:
     """Test input sanitization and validation."""
     invalid_inputs = [
         {'username': '<script>alert("xss")</script>'},
@@ -123,7 +123,7 @@ def test_input_validation(test_client):
         assert response.status_code == 400
         assert b'Invalid input' in response.data
 
-def test_admin_authorization(test_client, admin_token, user_token):
+def test_admin_authorization(test_client, admin_token, user_token) -> None:
     """Test admin access control."""
     admin_endpoints = [
         '/admin/users',
@@ -141,7 +141,7 @@ def test_admin_authorization(test_client, admin_token, user_token):
         response = test_client.get(endpoint, headers={'Authorization': f'Bearer {user_token}'})
         assert response.status_code == 403
 
-def test_password_reset_flow(test_client):
+def test_password_reset_flow(test_client) -> None:
     """Test complete password reset flow."""
     # Request reset
     response = test_client.post('/auth/reset-password', data={
@@ -165,7 +165,7 @@ def test_password_reset_flow(test_client):
     assert response.status_code == 200
     assert b'Password updated' in response.data
 
-def test_api_security(test_client, auth_headers):
+def test_api_security(test_client, auth_headers) -> None:
     """Test API security measures."""
     endpoints = ['/api/users', '/api/metrics', '/api/settings']
 

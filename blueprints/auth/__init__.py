@@ -10,7 +10,7 @@ auth_bp = Blueprint(
 )
 
 @auth_bp.before_request
-def before_request():
+def before_request() -> None:
     """Setup request context and tracking."""
     g.start_time = datetime.utcnow()
     metrics.increment('auth_requests_total', {
@@ -20,7 +20,7 @@ def before_request():
     })
 
 @auth_bp.app_errorhandler(401)
-def unauthorized_error(_error):
+def unauthorized_error(_error) -> tuple[dict[str, str], int]:
     """Handle unauthorized access attempts."""
     current_app.logger.warning(
         'Unauthorized access',
@@ -34,7 +34,7 @@ def unauthorized_error(_error):
     return {'error': 'Unauthorized access'}, 401
 
 @auth_bp.app_errorhandler(403)
-def forbidden_error():
+def forbidden_error() -> tuple[dict[str, str], int]:
     """Handle forbidden access attempts."""
     current_app.logger.warning(
         'Forbidden access',
@@ -48,7 +48,7 @@ def forbidden_error():
     return {'error': 'Forbidden access'}, 403
 
 @auth_bp.teardown_request
-def teardown_request(exc):
+def teardown_request(exc) -> None:
     """Cleanup after request."""
     if exc:
         db.session.rollback()
@@ -56,4 +56,3 @@ def teardown_request(exc):
             'type': exc.__class__.__name__
         })
     db.session.remove()
-    

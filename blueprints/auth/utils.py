@@ -1,6 +1,7 @@
 import re
 from datetime import datetime, timedelta
 from functools import wraps
+from typing import Callable
 from flask import current_app, session, request, redirect, abort
 import jwt
 from extensions import limiter, cache, metrics
@@ -19,7 +20,7 @@ def validate_password(password: str) -> tuple[bool, str | None]:
     if not re.search("[a-z]", password):
         return False, "Must include lowercase letter"
     if not re.search("[A-Z]", password):
-        return False, "Must include uppercase letter" 
+        return False, "Must include uppercase letter"
     if not re.search("[0-9]", password):
         return False, "Must include number"
     if not re.search("[^A-Za-z0-9]", password):
@@ -67,7 +68,8 @@ def verify_token(token: str) -> dict | None:
         current_app.logger.warning(f'Invalid token: {e}')
         return None
 
-def require_role(role):
+
+def require_role(role) -> Callable:
     """Require specific role for access."""
     def decorator(f):
         @wraps(f)
@@ -80,7 +82,7 @@ def require_role(role):
         return decorated_function
     return decorator
 
-def login_required(f):
+def login_required(f) -> Callable:
     """Enhanced login requirement check."""
     @wraps(f)
     @limiter.limit("60/minute")
@@ -96,11 +98,11 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-def rate_limit(limit="5/minute"):
+def rate_limit(limit="5/minute") -> Callable:
     """Apply rate limiting to routes."""
     return limiter.limit(limit)
 
-def sanitize_input(text):
+def sanitize_input(text) -> str:
     """Sanitize user input."""
     if not text or not isinstance(text, str):
         return ""

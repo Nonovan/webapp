@@ -1,5 +1,6 @@
 from datetime import datetime
-from flask import Blueprint, request, render_template, flash, redirect, url_for, session, current_app
+from typing import Union
+from flask import Blueprint, Response, request, render_template, flash, redirect, url_for, session, current_app
 from models import User
 from extensions import db, limiter
 
@@ -7,7 +8,7 @@ auth_bp = Blueprint('auth', __name__)
 
 @auth_bp.route("/login", methods=['GET', 'POST'])
 @limiter.limit("5/minute")
-def login():
+def login() -> Union[str, Response]:
     """Handle user login with enhanced security."""
     if request.method == 'GET':
         return render_template("auth/login.html")

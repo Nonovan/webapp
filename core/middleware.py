@@ -19,7 +19,7 @@ def setup_security_headers(response):
     })
     return response
 
-def setup_request_context():
+def setup_request_context() -> None:
     """Centralized request context setup."""
     g.request_id = request.headers.get('X-Request-ID', str(uuid.uuid4()))
     g.start_time = datetime.utcnow()

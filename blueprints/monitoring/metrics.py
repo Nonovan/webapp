@@ -10,7 +10,7 @@ from models.user import User
 class SystemMetrics:
     class MetricsError(Exception):
         """System metrics specific errors."""
-        def __init__(self, message: str):
+        def __init__(self, message: str) -> None:
             self.message = message
             self.error_code = 'SYSTEM_METRICS_ERROR'
             super().__init__(self.message)
@@ -53,7 +53,7 @@ class SystemMetrics:
 class DatabaseMetrics:
     class MetricsError(Exception):
         """Database metrics specific errors."""
-        def __init__(self, message: str):
+        def __init__(self, message: str) -> None:
             self.message = message
             self.error_code = 'DATABASE_METRICS_ERROR'
             super().__init__(self.message)
@@ -83,7 +83,7 @@ class DatabaseMetrics:
 class ApplicationMetrics:
     class MetricsError(Exception):
         """Application metrics specific errors."""
-        def __init__(self, message: str):
+        def __init__(self, message: str) -> None:
             self.message = message
             self.error_code = 'APPLICATION_METRICS_ERROR'
             super().__init__(self.message)
@@ -109,7 +109,7 @@ class ApplicationMetrics:
 class EnvironmentalData:
     class MetricsError(Exception):
         """Environmental metrics specific errors."""
-        def __init__(self, message: str):
+        def __init__(self, message: str) -> None:
             self.message = message
             self.error_code = 'ENVIRONMENTAL_METRICS_ERROR'
             super().__init__(self.message)
@@ -128,7 +128,7 @@ class EnvironmentalData:
             }
         except Exception as e:
             raise EnvironmentalData.MetricsError(f"Environmental metrics error: {e}") from e
-    
+
     timestamp = db.Column(db.DateTime, nullable=False)  # Add the timestamp attribute
 
 
@@ -147,7 +147,7 @@ def get_all_metrics() -> Dict[str, Any]:
         metrics.increment('metrics_collection_success')
         return metrics_data
 
-    except (SystemMetrics.MetricsError, DatabaseMetrics.MetricsError, 
+    except (SystemMetrics.MetricsError, DatabaseMetrics.MetricsError,
             EnvironmentalData.MetricsError, ApplicationMetrics.MetricsError) as e:
         current_app.logger.error(f"Metrics collection error: {e}")
         metrics.increment('metrics_collection_error', {'type': e.error_code})

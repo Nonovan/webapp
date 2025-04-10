@@ -16,7 +16,7 @@ def track_metrics(name: str):
 
 class SystemMetrics:
     @staticmethod
-    def get_system_metrics():
+    def get_system_metrics() -> dict:
         """Collect system metrics"""
         return {
             'cpu_usage': psutil.cpu_percent(),
@@ -31,7 +31,7 @@ class SystemMetrics:
 
 class DatabaseMetrics:
     @staticmethod
-    def get_db_metrics():
+    def get_db_metrics() -> dict:
         """Collect database metrics"""
         return {
             'active_connections': len(db.engine.pool._channels),

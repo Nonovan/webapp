@@ -1,5 +1,6 @@
 from datetime import datetime
 import logging
+from typing import Any, Dict
 import pytest
 from sqlalchemy.orm import Session
 from app import create_app
@@ -8,7 +9,7 @@ from models.user import User
 
 # Application Fixtures
 @pytest.fixture
-def app():
+def app() -> Any:
     """Create application for testing."""
     test_app = create_app('testing')
     test_app.config.update({
@@ -29,12 +30,12 @@ def app():
     return test_app
 
 @pytest.fixture
-def client(app):
+def client(app) -> Any:
     """Create test client."""
     return app.test_client()
 
 @pytest.fixture
-def runner(app):
+def runner(app) -> Any:
     """Create test CLI runner."""
     return app.test_cli_runner()
 
@@ -64,7 +65,7 @@ def test_user() -> User:
     return user
 
 @pytest.fixture
-def admin_user():
+def admin_user() -> User:
     """Create admin user."""
     admin = User(
         username='admin',
@@ -78,7 +79,7 @@ def admin_user():
     return admin
 
 @pytest.fixture
-def auth_headers(user_fixture):
+def auth_headers(user_fixture) -> Dict[str, str]:
     """Authentication headers for testing."""
     token = user_fixture.generate_token()
     return {
@@ -87,7 +88,7 @@ def auth_headers(user_fixture):
     }
 
 @pytest.fixture
-def mock_data():
+def mock_data() -> Dict[str, Any]:
     """Mock data for testing."""
     return {
         'metrics': {
@@ -99,14 +100,14 @@ def mock_data():
     }
 
 @pytest.fixture
-def mock_db_session(mocker):
+def mock_db_session(mocker) -> Any:
     """Mock database session."""
     session = mocker.MagicMock()
     mocker.patch('extensions.db.session', session)
     return session
 
 @pytest.fixture
-def mock_cache(mocker):
+def mock_cache(mocker) -> Any:
     """Mock cache."""
     cache = mocker.MagicMock()
     mocker.patch('extensions.cache', cache)

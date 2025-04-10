@@ -11,7 +11,7 @@ cli = FlaskGroup(create_app=create_app)
 @click.option('--host', default='127.0.0.1', help='Host to bind to')
 @click.option('--port', default=5000, help='Port to bind to')
 @click.option('--debug/--no-debug', default=False, help='Enable debug mode')
-def run(host, port, debug):
+def run(host: str, port: int, debug: bool) -> None:
     """Run the application server."""
     try:
         app = create_app()
@@ -22,7 +22,7 @@ def run(host, port, debug):
 
 @cli.command()
 @click.option('--seed/--no-seed', default=False, help='Seed initial data')
-def init_db(seed):
+def init_db(seed: bool) -> None:
     """Initialize the database."""
     try:
         with create_app().app_context():
@@ -37,7 +37,7 @@ def init_db(seed):
 
 @cli.command()
 @click.option('--backup-dir', default='./backups', help='Backup directory')
-def backup_db(backup_dir):
+def backup_db(backup_dir: str) -> None:
     """Backup database."""
     try:
         if not os.path.exists(backup_dir):
@@ -51,7 +51,7 @@ def backup_db(backup_dir):
         exit(1)
 
 @cli.command()
-def check():
+def check() -> None:
     """Check application health."""
     try:
         app = create_app()
@@ -59,14 +59,14 @@ def check():
             # Check database
             db.session.execute('SELECT 1')
             click.echo('Database: OK')
-            
+
             # Check environment
             required_vars = ['SECRET_KEY', 'DATABASE_URL']
             missing = [var for var in required_vars if not os.getenv(var)]
             if missing:
                 raise RuntimeError(f"Missing environment variables: {', '.join(missing)}")
             click.echo('Environment: OK')
-            
+
             click.echo('Health check passed.')
     except (RuntimeError, db.exc.SQLAlchemyError, KeyError, OSError) as e:
         click.echo(f'Health check failed: {e}', err=True)

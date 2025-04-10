@@ -4,7 +4,7 @@ from flask import current_app
 from models import db, User
 from extensions import metrics
 
-def seed_database():
+def seed_database() -> bool:
     """Seeds the database with initial data."""
     try:
         # Check if already seeded
@@ -30,7 +30,7 @@ def seed_database():
                 User(
                     username=f"user{i}",
                     email=f"user{i}@example.com",
-                    role="user", 
+                    role="user",
                     status="active",
                     created_at=datetime.utcnow() - timedelta(days=i)
                 ) for i in range(1, 4)
