@@ -1,0 +1,115 @@
+# Created by venv; see https://docs.python.org/3/library/venv.html
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.manifest
+*.spec
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.env
+.venv
+.env.*
+!.env.example
+pyvenv.cfg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# Project
+instance/
+logs/
+*.log
+uploads/
+media/
+static/
+.webassets-cache/
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+.nox/
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# Database
+*.db 
+*.sqlite
+*.sqlite3
+*.psql
+*.dump
+
+# Dependencies
+node_modules/
+bower_components/
+*.min.js
+*.min.css
+
+# Secrets
+*.pem
+*.key
+*.crt
+*.cert
+.env.local
+.secrets.*
+
+# AWS 
+.aws/
+.elasticbeanstalk/
+.ebextensions/
+.ebignore
+.aws-sam/
+
+# Build/Deploy
+*.pyc
+.Python
+build/
+.build/
+dist/
+*.mo
+*.pot
+
+# Documentation
+docs/_build/
+site/
+
+# Temp files
+*.bak
+*.swp
+*.swo
+*~
+# .DS_Store
+Thumbs.db

@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}About Us - Cloud Services{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <!-- Hero Section -->
+    <div class="row mb-5">
+        <div class="col-lg-8">
+            <h1 class="display-4 mb-4">About Our Service</h1>
+            <p class="lead">Empowering businesses since 2020. Please enjoy this app!</p>
+        </div>
+    </div>
+
+    <!-- Company Overview -->
+    <div class="row mb-5">
+        <div class="col-md-6">
+            <h2>Our Mission</h2>
+            <p>Our team is dedicated to delivering reliable and secure cloud infrastructure.</p>
+            <p>Join the community today and gain access to resources to help you grow professionally!</p>
+            <p>Thanks for using the app!</p>
+            <div class="mt-4">
+                <h4>Key Statistics</h4>
+                <div class="row g-4 mt-2">
+                    <div class="col-6">
+                        <div class="border rounded p-3 text-center">
+                            <h3 class="text-primary">99.9%</h3>
+                            <p class="mb-0">Uptime</p>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="border rounded p-3 text-center">
+                            <h3 class="text-primary">1000+</h3>
+                            <p class="mb-0">Clients</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <img src="{{ url_for('static', filename='images/office.jpg') }}" class="img-fluid rounded" alt="Our Office">
+        </div>
+    </div>
+
+    <!-- Contact Section -->
+    <div class="row mt-5">
+        <div class="col-md-6">
+            <h3>Contact Us</h3>
+            <form id="contactForm" class="needs-validation" novalidate>
+                <div class="mb-3">
+                    <label for="name" class="form-label">Name</label>
+                    <input type="text" class="form-control" id="name" required>
+                </div>
+                <div class="mb-3">
+                    <label for="email" class="form-label">Email</label>
+                    <input type="email" class="form-control" id="email" required>
+                </div>
+                <div class="mb-3">
+                    <label for="message" class="form-label">Message</label>
+                    <textarea class="form-control" id="message" rows="4" required></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary">Send Message</button>
+            </form>
+        </div>
+        <div class="col-md-6">
+            <h3>Find Us</h3>
+            <div class="ratio ratio-16x9">
+                <iframe src="https://www.google.com/maps/embed?pb=..." allowfullscreen></iframe>
+            </div>
+            <div class="mt-3">
+                <p><i class="bi bi-geo-alt"></i> 123 Tech Street, Silicon Valley, CA</p>
+                <p><i class="bi bi-envelope"></i> support@example.com</p>
+                <p><i class="bi bi-telephone"></i> (555) 123-4567</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('contactForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    // Add form submission logic here
+});
+</script>
+{% endblock %}

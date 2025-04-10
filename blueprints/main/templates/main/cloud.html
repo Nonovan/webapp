@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+
+{% block title %}Cloud Services Dashboard{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <!-- Status Overview -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <h1>Cloud Services Dashboard</h1>
+        </div>
+        <div class="col-md-6 text-end">
+            <button class="btn btn-primary" id="refreshData">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+            <span class="ms-3">Last updated: <span id="lastUpdate"></span></span>
+        </div>
+    </div>
+
+    <!-- System Metrics -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h5 class="card-title">CPU Usage</h5>
+                    <div class="gauge-container" id="cpuGauge"></div>
+                    <h3 id="cpuValue">{{ cpu_usage }}%</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h5 class="card-title">Memory Usage</h5>
+                    <div class="gauge-container" id="memoryGauge"></div>
+                    <h3 id="memoryValue">{{ memory_usage }}%</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h5 class="card-title">Storage</h5>
+                    <div class="gauge-container" id="storageGauge"></div>
+                    <h3 id="storageValue">{{ storage_usage }}%</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h5 class="card-title">Network</h5>
+                    <div id="networkChart"></div>
+                    <div id="networkStats"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Users and Alerts -->
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Active Users</h5>
+                    <span class="badge bg-primary" id="userCount">{{ users|length }}</span>
+                </div>
+                <div class="card-body">
+                    <div class="list-group" id="userList">
+                        {% for user in users %}
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                {{ user.username }}
+                                <span class="text-muted">Last active: {{ user.last_active }}</span>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">System Alerts</h5>
+                </div>
+                <div class="card-body{% extends "base.html" %}
+
+{% block title %}Cloud Services Dashboard{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <!-- Status Overview -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <h1>Cloud Services Dashboard</h1>
+        </div>
+        <div class="col-md-6 text-end">
+            <button class="btn btn-primary" id="refreshData">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+            <span class="ms-3">Last updated: <span id="lastUpdate"></span></span>
+        </div>
+    </div>
+
+    <!-- System Metrics -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h5 class="card-title">CPU Usage</h5>
+                    <div class="gauge-container" id="cpuGauge"></div>
+                    <h3 id="cpuValue">{{ cpu_usage }}%</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h5 class="card-title">Memory Usage</h5>
+                    <div class="gauge-container" id="memoryGauge"></div>
+                    <h3 id="memoryValue">{{ memory_usage }}%</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h5 class="card-title">Storage</h5>
+                    <div class="gauge-container" id="storageGauge"></div>
+                    <h3 id="storageValue">{{ storage_usage }}%</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h5 class="card-title">Network</h5>
+                    <div id="networkChart"></div>
+                    <div id="networkStats"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Users and Alerts -->
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Active Users</h5>
+                    <span class="badge bg-primary" id="userCount">{{ users|length }}</span>
+                </div>
+                <div class="card-body">
+                    <div class="list-group" id="userList">
+                        {% for user in users %}
+                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                {{ user.username }}
+                                <span class="text-muted">Last active: {{ user.last_active }}</span>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">System Alerts</h5>
+                </div>
+                <div class="card-body
+
+    <!-- User List Card -->
+    <div class="list-group" id="userList">
+        {% for user in users %}
+            <div class="list-group-item d-flex justify-content-between align-items-center">
+                {{ user.username }}
+                <span class="text-muted">Last active: {{ user.last_active }}</span>
+            </div>
+        {% endfor %}
+    </div>
+    
+    <!-- System Alerts Card -->
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">System Alerts</h5>
+            <span class="badge bg-warning" id="alertCount">{{ alerts|length }}</span>
+        </div>
+        <div class="card-body">
+            <div class="list-group" id="alertList">
+                {% for alert in alerts %}
+                    <div class="list-group-item list-group-item-{{ alert.severity }}">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">{{ alert.title }}</h6>
+                            <small>{{ alert.timestamp }}</small>
+                        </div>
+                        <p class="mb-1">{{ alert.message }}</p>
+                    </div>
+                {% else %}
+                    <div class="text-center text-muted">No active alerts</div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+                
+{% block scripts %}
+<script>
+function updateDashboard(data) {
+    // Update gauges
+    updateGauge('cpuGauge', data.cpu_usage);
+    updateGauge('memoryGauge', data.memory_usage);
+    updateGauge('storageGauge', data.storage_usage);
+    
+    // Update values
+    document.getElementById('cpuValue').textContent = `${data.cpu_usage}%`;
+    document.getElementById('memoryValue').textContent = `${data.memory_usage}%`;
+    document.getElementById('storageValue').textContent = `${data.storage_usage}%`;
+    
+    // Update network chart
+    updateNetworkChart(data.network);
+    
+    // Update user list
+    updateUserList(data.users);
+    
+    // Update alerts
+    updateAlertList(data.alerts);
+}
+
+// Refresh functionality
+document.getElementById('refreshData').addEventListener('click', async () => {
+    const button = document.getElementById('refreshData');
+    const icon = button.querySelector('i');
+    const spinner = button.querySelector('.spinner-border');
+    
+    button.disabled = true;
+    icon.classList.add('bi-arrow-clockwise-spin');
+    if (spinner) spinner.classList.remove('d-none');
+    
+    try {
+        const response = await fetch('/api/cloud/metrics', {
+            headers: {
+                'X-CSRFToken': '{{ csrf_token() }}'
+            }
+        });
+        if (!response.ok) throw new Error('Failed to fetch metrics');
+        const data = await response.json();
+        updateDashboard(data);
+        document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+    } catch (error) {
+        console.error('Error:', error);
+        showToast('Failed to refresh data', 'danger');
+    } finally {
+        button.disabled = false;
+        icon.classList.remove('bi-arrow-clockwise-spin');
+        if (spinner) spinner.classList.add('d-none');
+    }
+});
+
+function showToast(message, type) {
+    const toast = document.createElement('div');
+    toast.classList.add('toast', 'show');
+    toast.innerHTML = `
+        <div class="toast-header bg-${type}">
+            <strong class="me-auto">Notification</strong>
+            <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+        </div>
+        <div class="toast-body">${message}</div>
+    `;
+    document.querySelector('.toast-container').appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+}
+</script>
+{% endblock %}

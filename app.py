@@ -1,108 +1,75 @@
-import csv
-from flask import Flask, render_template, request, session, redirect
+import logging
+import os
+from flask import Flask
+import click
+from sqlalchemy.exc import SQLAlchemyError
 
-app = Flask(__name__)
-# app.config['SECRET_KEY'] = 'my_secret_key'
+from core.factory import create_app
+from blueprints.monitoring.routes import monitoring_bp
+from blueprints.auth.routes import auth_bp
+from blueprints.main.routes import main_bp
+from extensions import db
 
-# Initiate a session
-session = {}
+# Security constants
+REQUIRED_ENV_VARS = [
+    'SECRET_KEY',
+    'DATABASE_URL', 
+    'JWT_SECRET_KEY',
+    'CSRF_SECRET_KEY',
+    'SESSION_KEY'
+]
 
+def validate_environment() -> None:
+    """
+    Validate required environment variables are set.
+    Raises RuntimeError if any required variables are missing.
+    """
+    missing = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
+    if missing:
+        raise RuntimeError(f"Missing security variables: {', '.join(missing)}")
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+def setup_logging(flask_app: Flask) -> None:
+    """
+    Configure application logging with formatting and handlers.
+    Args:
+        flask_app: Flask application instance
+    """
+    formatter = logging.Formatter(
+        '%(asctime)s [%(request_id)s] %(levelname)s: %(message)s'
+    )
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+    flask_app.logger.handlers = [handler]
+    flask_app.logger.setLevel(flask_app.config['LOG_LEVEL'])
 
+def register_blueprints(flask_app: Flask) -> None:
+    """
+    Register Flask blueprints for application routes.
+    Args:
+        flask_app: Flask application instance
+    """
+    flask_app.register_blueprint(monitoring_bp)
+    flask_app.register_blueprint(auth_bp)
+    flask_app.register_blueprint(main_bp)
 
-@app.route('/login')
-def login():
-    if 'username' in session:
-        return redirect('/ICS')
+# Initialize application
+try:
+    validate_environment()
+    app = create_app()
+except SQLAlchemyError as e:
+    logging.critical("Application initialization failed: %s", e)
+    raise
 
-    return render_template('login.html')
+@app.cli.command()
+def init_db() -> None:
+    """Initialize database tables and indexes."""
+    try:
+        db.create_all()
+        click.echo('Database initialized successfully')
+    except SQLAlchemyError as e:
+        app.logger.error(f"Database initialization failed: {e}")
+        click.echo(f'Database initialization failed: {e}', err=True)
+        exit(1)
 
-
-@app.route('/login', methods=['POST'])
-def login_post():
-    username = request.form['username']
-    password = request.form['password']
-
-    # Check if the username and password are valid
-    with open('users.csv', 'r', encoding='utf-8') as csvfile:
-        reader = csv.reader(csvfile, delimiter=',')
-
-        for row in reader:
-            if row[0] == username and row[1] == password:
-                session['username'] = username
-                return redirect('/ICS')
-
-    return render_template('tryagain.html')
-
-
-@app.route('/logout')
-def logout():
-    session.pop('username', None)
-    return redirect('/login')
-
-
-@app.route('/register')
-def register():
-    return render_template('register.html')
-
-
-@app.route('/register', methods=['POST'])
-def register_post():
-    username = request.form['username']
-    password = request.form['password']
-    confirmation = request.form['confirmation']
-
-    if password != confirmation:
-        return render_template('tryagain.html')
-
-    # Add the new user to the database
-    with open('users.csv', 'a', newline='', encoding='utf-8') as csvfile:
-        writer = csv.writer(csvfile, delimiter=',')
-
-        # Write the new user to the file
-        writer.writerow([username, password, 'approved'])
-
-    return redirect('/login')
-
-
-@app.route("/home")
-def home():
-    return render_template('home.html')
-
-
-@app.route("/ICS")
-def icsdata():
-    # Check if the user is logged in
-    if 'username' not in session:
-        return render_template('tryagain.html')
-
-    return render_template('ics.html')
-
-
-@app.route("/About")
-def myabout():
-    return render_template('about.html')
-
-
-@app.route('/cloud')
-def cservices():
-    # Check if the user is logged in
-    if 'username' not in session:
-        return render_template('tryagain.html')
-
-    # Get the list of users from the database
-    with open('users.csv', 'r', encoding='utf-8') as csvfile:
-        reader = csv.reader(csvfile, delimiter=',')
-
-        users = []
-        for row in reader:
-            users.append(row[0])
-
-    return render_template('cloud.html', users=users)
-
-
-# if __name__ == '__main__':
-#    app.run(debug=True)
+if __name__ == '__main__':
+    app.run()
