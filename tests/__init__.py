@@ -10,8 +10,8 @@ from models.user import User
 @pytest.fixture
 def app():
     """Create application for testing."""
-    app = create_app('testing')
-    app.config.update({
+    test_app = create_app('testing')
+    test_app.config.update({
         'TESTING': True,
         'SQLALCHEMY_DATABASE_URI': 'sqlite:///:memory:',
         'WTF_CSRF_ENABLED': False,
@@ -23,10 +23,10 @@ def app():
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     handler = logging.StreamHandler()
     handler.setFormatter(formatter)
-    app.logger.handlers = [handler]
-    app.logger.setLevel(logging.DEBUG)
+    test_app.logger.handlers = [handler]
+    test_app.logger.setLevel(logging.DEBUG)
 
-    return app
+    return test_app
 
 @pytest.fixture
 def client(app):
