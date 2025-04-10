@@ -1,11 +1,11 @@
-import os
 import logging
+import os
 import click
-from flask import Flask, jsonify
-from core.middleware import setup_security_headers, setup_request_context, setup_response_context
+from flask import jsonify
 from core.factory import create_app
 from core.metrics import track_metrics
 from extensions import db
+from models import User
 
 def validate_environment():
     required_vars = [
@@ -30,7 +30,7 @@ def register_blueprints(app):
     from blueprints.monitoring.routes import monitoring_bp
     from blueprints.auth.routes import auth_bp
     from blueprints.main.routes import main_bp
-    
+
     app.register_blueprint(monitoring_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
@@ -73,7 +73,7 @@ def cli():
     import click
     import psutil
     from datetime import datetime
-    
+
     @click.group()
     def cli_group():
         """Flask application management commands."""
@@ -98,25 +98,25 @@ def cli():
                     # Verify environment
                     validate_environment()
                     bar.update(1)
-                    
+
                     # Create tables
                     db.create_all()
                     bar.update(1)
-                    
+
                     # Verify migrations
                     from flask_migrate import current
                     revision = current()
                     bar.update(1)
-                    
+
                     # Verify connectivity
                     db.session.execute('SELECT 1')
                     bar.update(1)
-                    
+
                     if seed:
                         # Add initial data
                         # TODO: Add seeding logic
                         bar.update(1)
-                    
+
                     click.echo('Database initialized successfully')
                     click.echo(f'Current revision: {revision}')
                 except Exception as e:
@@ -133,7 +133,7 @@ def cli():
             try:
                 current_rev = current()
                 click.echo(f'Current revision: {current_rev}')
-                
+
                 with click.progressbar(length=100, label='Running migrations') as bar:
                     upgrade()
                     bar.update(100)
@@ -231,31 +231,31 @@ def cli():
                     db.session.execute('SELECT 1')
                     click.echo('  Database: Connected')
                     bar.update(1)
-                    
+
                     # Migration status
                     from flask_migrate import current
                     revision = current()
                     click.echo(f'  Migration: {revision}')
                     bar.update(1)
-                    
+
                     # System metrics
                     click.echo(f'  Users: {User.query.count()}')
                     bar.update(1)
-                    
+
                     # Database size
                     db_size = db.session.execute(
                         "SELECT pg_size_pretty(pg_database_size(current_database()))"
                     ).scalar()
                     click.echo(f'  DB Size: {db_size}')
                     bar.update(1)
-                    
+
                     # Resource usage
                     import psutil
                     memory = psutil.Process().memory_info().rss / 1024 / 1024
                     click.echo(f'  Memory: {memory:.1f} MB')
                     click.echo(f'  Uptime: {datetime.utcnow() - app.uptime}')
                     bar.update(1)
-                    
+
                 except Exception as e:
                     click.echo(f'Health check failed: {e}', err=True)
                     exit(1)
@@ -290,17 +290,17 @@ def cli():
             click.echo(f'  - Size: {db.session.execute("SELECT pg_size_pretty(pg_database_size(current_database()))").scalar()}')
             click.echo(f'  - Tables: {len(db.metadata.tables)}')
             click.echo(f'  - Connections: {len(db.engine.pool._channels)}')
-            
+
             click.echo(f'\nUsers:')
             click.echo(f'  - Total: {User.query.count()}')
             click.echo(f'  - Active: {User.query.filter_by(status="active").count()}')
-            
+
             if detailed:
                 click.echo(f'\nSystem:')
                 click.echo(f'  - Memory: {psutil.Process().memory_info().rss / 1024 / 1024:.1f} MB')
                 click.echo(f'  - CPU Usage: {psutil.cpu_percent()}%')
                 click.echo(f'  - Disk Usage: {psutil.disk_usage("/").percent}%')
-            
+
             click.echo(f'\nApplication:')
             click.echo(f'  - Uptime: {datetime.utcnow() - app.uptime}')
             click.echo(f'  - Environment: {app.config.get("ENV")}')
