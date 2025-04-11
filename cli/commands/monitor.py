@@ -1,3 +1,14 @@
+"""
+Monitoring commands for the myproject CLI.
+
+This module provides command-line utilities for system monitoring, metrics collection,
+log viewing, and health diagnostics. These commands help administrators observe the
+application's operational health, collect performance data, and troubleshoot issues.
+
+The monitoring commands support both interactive use for immediate diagnostics and
+scriptable operation for automated monitoring and alerting workflows.
+"""
+
 import logging
 from datetime import datetime
 from typing import Dict, Any
@@ -20,7 +31,19 @@ if logger is None:
 monitor_cli = AppGroup('monitor')
 
 def collect_system_metrics() -> Dict[str, str]:
-    """Collect system-level metrics."""
+    """
+    Collect system-level metrics.
+
+    Gathers key metrics about the host system including CPU usage,
+    memory utilization, and disk usage. These metrics provide a snapshot
+    of system resource utilization.
+
+    Returns:
+        Dict[str, str]: Dictionary of metrics with formatted values
+
+    Example:
+        {'CPU Usage': '45%', 'Memory Usage': '68%', 'Disk Usage': '72%'}
+    """
     return {
         'CPU Usage': f"{psutil.cpu_percent()}%",
         'Memory Usage': f"{psutil.virtual_memory().percent}%",
@@ -31,9 +54,16 @@ def collect_db_metrics() -> Dict[str, Any]:
     """
     Collect database metrics.
 
+    Gathers key metrics about the database including active connections,
+    total tables, and connection pool size. These metrics help monitor
+    database health and resource utilization.
+
     Returns:
         Dict[str, Any]: A dictionary containing database metrics including
         active connections, total tables, and connection pool size.
+
+    Example:
+        {'Active Connections': 5, 'Total Tables': 12, 'Pool Size': 10}
     """
     try:
         # Handle pool status safely by checking for the existence of attributes
@@ -71,7 +101,22 @@ def collect_db_metrics() -> Dict[str, Any]:
         }
 
 def collect_perf_metrics(app_metrics: Dict[str, Any]) -> Dict[str, str]:
-    """Collect performance metrics."""
+    """
+    Collect performance metrics.
+
+    Formats application performance metrics for display, including response time,
+    error rate, and cache hit rate. These metrics help identify performance
+    bottlenecks and service degradation.
+
+    Args:
+        app_metrics: Dictionary containing raw application metrics
+
+    Returns:
+        Dict[str, str]: Formatted performance metrics with units
+
+    Example:
+        {'Response Time': '45ms', 'Error Rate': '0.5%', 'Cache Hit Rate': '95%'}
+    """
     return {
         'Response Time': f"{app_metrics.get('response_time_avg', 0)}ms",
         'Error Rate': f"{app_metrics.get('error_rate', 0)}%",
@@ -85,10 +130,21 @@ def system_status(detailed: bool) -> None:
     Show system status and metrics.
 
     Collects and displays various system metrics including system resources,
-    database status, and application performance indicators.
+    database status, and application performance indicators. This command
+    provides a quick overview of system health.
+
+    In detailed mode, additional application metrics are displayed, including
+    internal counters and gauges that can help with deeper analysis.
 
     Args:
-        detailed (bool): Whether to show detailed application metrics
+        detailed: Whether to show detailed application metrics
+
+    Examples:
+        # Show basic system status
+        $ flask monitor status
+
+        # Show detailed metrics
+        $ flask monitor status --detailed
     """
     try:
         click.echo('\nSystem Status:')
@@ -120,8 +176,20 @@ def _collect_all_metrics() -> Dict[str, Dict[str, Any]]:
     """
     Helper function to collect all metrics with progress bar.
 
+    Gathers metrics from various sources including system resources,
+    database status, and application performance counters. Uses a progress
+    bar to indicate collection status.
+
     Returns:
         Dict containing categorized metrics
+
+    Example:
+        {
+            'system': {'CPU Usage': '45%', ...},
+            'database': {'Active Connections': 5, ...},
+            'application': {'requests_total': 1240, ...},
+            'performance': {'Response Time': '45ms', ...}
+        }
     """
     metrics_data: Dict[str, Dict[str, Any]] = {
         'system': {},
@@ -166,8 +234,14 @@ def _collect_prometheus_metrics(app_metrics: Dict[str, Any]) -> None:
     """
     Safely collect metrics from Prometheus registry.
 
+    Extracts metrics from the Prometheus registry if available and adds them
+    to the application metrics dictionary. Handles missing registry gracefully.
+
     Args:
         app_metrics: Dictionary to store collected metrics
+
+    Raises:
+        AttributeError: If metrics registry is not accessible
     """
     if not hasattr(metrics, 'registry') or not metrics.registry:
         return
@@ -190,10 +264,18 @@ def _update_metric_safely(metrics_dict: Dict[str, Any], key: str, value: Any) ->
     """
     Update a metric while preserving its type.
 
+    Ensures metrics are stored with the appropriate type to prevent errors when
+    displaying or processing metrics data. Handles type conversion gracefully.
+
     Args:
         metrics_dict: Dictionary containing metrics
         key: Metric name
         value: New value to store
+
+    Example:
+        # If metrics_dict['requests'] is an integer:
+        _update_metric_safely(metrics_dict, 'requests', 42.0)
+        # metrics_dict['requests'] will be updated to 42 (int)
     """
     existing_value = metrics_dict[key]
 
@@ -220,12 +302,23 @@ def view_logs(lines: int, level: str) -> None:
     """
     View application logs with filtering.
 
-    Args:
-        lines (int): Number of log lines to show
-        level (str): Log level to filter by (DEBUG, INFO, WARNING, ERROR)
+    Displays the most recent log entries from the application log file,
+    filtered by the specified log level. This command is useful for quickly
+    checking recent application activity and troubleshooting issues.
 
-    Raises:
-        click.ClickException: If log file not found or other errors occur
+    Args:
+        lines: Number of log lines to display
+        level: Minimum log level to display (DEBUG, INFO, WARNING, ERROR)
+
+    Examples:
+        # Show last 100 INFO or higher level logs
+        $ flask monitor logs
+
+        # Show last 500 ERROR logs
+        $ flask monitor logs --lines=500 --level=ERROR
+
+        # Show detailed debug logs
+        $ flask monitor logs --level=DEBUG
     """
     try:
         log_file = 'logs/app.log'
@@ -250,15 +343,22 @@ def export_metrics(export: str | None = None) -> None:
     """
     Export system metrics to JSON.
 
-    Collects and exports comprehensive system metrics including CPU, memory,
-    disk usage, network stats, and application/database information.
+    Collects comprehensive system metrics including CPU, memory, disk usage,
+    network stats, and application/database information, and exports them to
+    JSON format. Data can be displayed to the console or saved to a file.
+
+    This command is useful for creating snapshots of system performance for
+    analysis or historical comparison.
 
     Args:
-        export (str, optional): Filename to export metrics to. If not provided,
-                               metrics will be printed to the console.
+        export: Filename to export metrics to (if omitted, prints to console)
 
-    Raises:
-        click.ClickException: If metrics collection or export fails
+    Examples:
+        # Display metrics on console
+        $ flask monitor metrics
+
+        # Export metrics to file
+        $ flask monitor metrics --export=metrics_2023-10-15.json
     """
     try:
         # Collect all metrics in separate functions to reduce complexity
@@ -288,7 +388,22 @@ def export_metrics(export: str | None = None) -> None:
 
 
 def _collect_application_metrics() -> Dict[str, Any]:
-    """Collect application metrics from Prometheus registry."""
+    """
+    Collect application metrics from Prometheus registry.
+
+    Gathers application-specific metrics including request counts, response times,
+    error rates, and custom business metrics from the Prometheus registry.
+
+    Returns:
+        Dict[str, Any]: Dictionary of application metrics
+
+    Example:
+        {
+            'http_requests_total': 1240,
+            'http_request_duration_seconds_avg': 0.056,
+            'error_count': 23
+        }
+    """
     app_metrics = {}
     try:
         # Collect metrics from Prometheus registry
@@ -304,7 +419,22 @@ def _collect_application_metrics() -> Dict[str, Any]:
 
 
 def _collect_database_metrics() -> Dict[str, Any]:
-    """Collect database metrics safely."""
+    """
+    Collect database metrics safely.
+
+    Gathers database performance metrics including connection pool status,
+    table counts, and database size. Handles missing attributes gracefully.
+
+    Returns:
+        Dict[str, Any]: Dictionary of database metrics
+
+    Example:
+        {
+            'connections': 5,
+            'tables': 12,
+            'pool_size': 10
+        }
+    """
     db_metrics = {}
     try:
         pool_status = {}
@@ -326,7 +456,23 @@ def _collect_database_metrics() -> Dict[str, Any]:
 
 
 def _collect_system_metrics() -> Dict[str, Any]:
-    """Collect system metrics with error handling."""
+    """
+    Collect system metrics with error handling.
+
+    Gathers system-level metrics including CPU usage, memory utilization,
+    disk usage, and network I/O statistics. Handles exceptions gracefully.
+
+    Returns:
+        Dict[str, Any]: Dictionary of system metrics
+
+    Example:
+        {
+            'cpu': 45.2,
+            'memory': {'total': 16384, 'used': 8192, 'free': 8192},
+            'disk': {'total': 512000, 'used': 256000, 'free': 256000},
+            'network': {'bytes_sent': 123456, 'bytes_recv': 654321}
+        }
+    """
     sys_metrics = {}
     try:
         sys_metrics = {
@@ -352,12 +498,25 @@ def health_check(threshold: int, export: str | None = None) -> None:
     cache availability, and external API health. Reports results and
     optionally exports the data to a file.
 
+    This command is designed for both interactive diagnostics and
+    automated monitoring in scripts or CI/CD pipelines.
+
     Args:
-        threshold (int): Warning threshold percentage for resource usage
-        export (str, optional): Filename to export results to
+        threshold: Warning threshold percentage for resource usage
+        export: Filename to export results to (optional)
+
+    Examples:
+        # Run health check with default thresholds
+        $ flask monitor health
+
+        # Run health check with custom threshold
+        $ flask monitor health --threshold=80
+
+        # Export health check results to file
+        $ flask monitor health --export=health_2023-10-15.json
 
     Raises:
-        click.ClickException: If any health check fails or if there's an error running checks
+        click.ClickException: If any health check fails
     """
     try:
         # Define health checks with proper error handling
@@ -420,9 +579,15 @@ def _check_redis_connection() -> bool:
     Helper to safely check Redis connection.
 
     Attempts to verify Redis connectivity by setting and retrieving a test value.
+    This validates both connection status and read/write functionality.
 
     Returns:
         bool: True if Redis connection is working, False otherwise
+
+    Example:
+        if _check_redis_connection():
+            # Redis is available
+            cache.set('key', 'value')
     """
     try:
         # First try to set a test value
@@ -440,7 +605,21 @@ def _check_redis_connection() -> bool:
 
 
 def _check_api_health() -> bool:
-    """Helper to safely check API health."""
+    """
+    Helper to safely check API health.
+
+    Verifies the health of external API dependencies by making a request
+    to their health endpoint. This ensures the application can communicate
+    with external services.
+
+    Returns:
+        bool: True if API is healthy, False otherwise
+
+    Example:
+        if _check_api_health():
+            # External API is available
+            response = requests.get(f"{API_URL}/data")
+    """
     try:
         if not current_app.config.get('API_URL'):
             return True

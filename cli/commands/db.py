@@ -1,3 +1,16 @@
+"""
+Database management commands for the myproject CLI.
+
+This module provides command-line utilities for database operations including
+initialization, migration, backup, and restoration. These commands enable
+database administration without requiring direct database access, allowing
+for safer and more controlled operations through the application's ORM layer.
+
+Commands in this module handle critical database operations that should be
+performed with proper authorization and understanding of their effects on
+application data.
+"""
+
 from datetime import datetime
 import os
 import click
@@ -16,11 +29,26 @@ logger = get_logger(app=None)  # type: ignore
 @click.option('--seed/--no-seed', default=False, help='Seed initial data')
 @click.option('--env', default='development', help='Environment to initialize')
 def init_db(seed: bool, env: str) -> None:
-    """Initialize database tables and optionally seed data.
+    """
+    Initialize database tables and optionally seed data.
+
+    Creates all database tables defined in the application models based on
+    SQLAlchemy models. If the --seed option is specified, populates the database
+    with initial data required for application functionality.
+
+    This command should typically be run once when setting up a new environment
+    or after a schema reset. For incremental schema changes, use migrations instead.
 
     Args:
-        seed: Whether to seed initial data
-        env: Environment to initialize
+        seed: Whether to seed initial data after table creation
+        env: Environment to initialize (affects configuration selection)
+
+    Examples:
+        # Initialize tables only
+        $ flask db init
+
+        # Initialize and seed development data
+        $ flask db init --seed --env=development
     """
     try:
         with click.progressbar(length=3, label='Initializing database') as bar_line:
@@ -48,7 +76,29 @@ def init_db(seed: bool, env: str) -> None:
 @click.option('--dir', default='./backups', help='Backup directory')
 @click.option('--compress/--no-compress', default=True, help='Use compression')
 def backup_db(backup_dir: str, compress: bool) -> None:
-    """Create database backup."""
+    """
+    Create database backup.
+
+    Generates a SQL dump of the current database state and saves it to the
+    specified directory with a timestamp. The backup can optionally be compressed
+    to save disk space. This command requires appropriate database credentials
+    to be available in the environment.
+
+    The backup process validates write permissions, available space, and backup
+    success. If any step fails, the operation is aborted and any partial backup
+    files are cleaned up.
+
+    Args:
+        backup_dir: Directory where backup files will be stored
+        compress: Whether to compress the backup using gzip
+
+    Examples:
+        # Create a compressed backup in default directory
+        $ flask db backup
+
+        # Create an uncompressed backup in custom directory
+        $ flask db backup --dir=/path/to/backups --no-compress
+    """
     # Initialize filename to avoid unbound variable error
     filename = None
     try:
@@ -106,7 +156,28 @@ def backup_db(backup_dir: str, compress: bool) -> None:
 @click.argument('backup_file')
 @click.option('--force/--no-force', default=False, help='Force restore without confirmation')
 def restore_db(backup_file: str, force: bool) -> None:
-    """Restore database from backup."""
+    """
+    Restore database from backup.
+
+    Restores a database from a previously created backup file. This command
+    will overwrite all current data in the database with the data from the backup,
+    so it should be used with caution.
+
+    The command supports both compressed (.gz) and uncompressed backup files.
+    It performs validation checks before and after restoration to ensure data
+    integrity.
+
+    Args:
+        backup_file: Path to the backup file to restore from
+        force: Skip confirmation prompt if true
+
+    Examples:
+        # Restore with confirmation prompt
+        $ flask db restore ./backups/backup_20231015_123045.sql.gz
+
+        # Force restore without confirmation
+        $ flask db restore ./backups/backup_20231015_123045.sql --force
+    """
     backup_file = os.path.abspath(backup_file)
 
     if not os.path.exists(backup_file):

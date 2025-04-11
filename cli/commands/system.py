@@ -1,3 +1,15 @@
+"""
+System management commands for the myproject CLI.
+
+This module provides command-line utilities for system administration, health checks,
+and configuration management. These commands help administrators monitor the system's
+operational status, validate configuration settings, and diagnose problems.
+
+The system commands provide visibility into the application's runtime environment
+and dependencies, making them essential tools for deployment validation and
+operational troubleshooting.
+"""
+
 import logging
 import psutil
 import click
@@ -16,7 +28,27 @@ system_cli = AppGroup('system')
 @system_cli.command('status')
 @click.option('--detailed/--simple', default=False, help='Show detailed metrics')
 def system_status(detailed: bool) -> None:
-    """Show system status and metrics."""
+    """
+    Show system status and metrics.
+
+    Displays current system health information including CPU, memory, disk usage,
+    database connection status, and application metrics. This command is useful for
+    operational monitoring and diagnostics.
+
+    In detailed mode, additional metrics are displayed including application-specific
+    counters and performance indicators, which can help identify performance bottlenecks
+    and resource constraints.
+
+    Args:
+        detailed: Whether to show additional detailed metrics
+
+    Examples:
+        # Show basic system status
+        $ flask system status
+
+        # Show detailed system metrics
+        $ flask system status --detailed
+    """
     try:
         click.echo('\nSystem Status:')
 
@@ -92,9 +124,23 @@ def system_status(detailed: bool) -> None:
 
     except (psutil.Error, db.exc.SQLAlchemyError) as e:
         logger.error("Status check failed: %s", e)
+
 @system_cli.command('health')
 def health_check() -> None:
-    """Perform system health check."""
+    """
+    Perform system health check.
+
+    Runs a series of validation checks to verify that all system components
+    are functioning correctly. Tests include database connectivity, disk space
+    availability, memory usage, and CPU utilization.
+
+    This command is useful for automated monitoring and deployment verification.
+    It exits with a non-zero status if any check fails, making it suitable for
+    use in scripts and CI/CD pipelines.
+
+    Example:
+        $ flask system health
+    """
     try:
         checks = {
             'Database': lambda: bool(db.session.execute('SELECT 1').scalar()),
@@ -120,10 +166,30 @@ def health_check() -> None:
     except (psutil.Error, db.exc.SQLAlchemyError) as e:
         logger.error("Health check failed: %s", e)
         raise click.ClickException(str(e))
+
 @system_cli.command('config')
 @click.option('--verify/--no-verify', default=True, help='Verify configuration')
 def check_config(verify: bool) -> None:
-    """Check system configuration."""
+    """
+    Check system configuration.
+
+    Displays the current application configuration settings and optionally
+    verifies that all required variables are present. This command helps
+    diagnose configuration-related issues and ensures the application
+    environment is properly set up.
+
+    Sensitive values like passwords and keys are masked in the output for security.
+
+    Args:
+        verify: Whether to verify required configuration variables
+
+    Examples:
+        # Show configuration with verification
+        $ flask system config
+
+        # Show configuration without verification
+        $ flask system config --no-verify
+    """
     try:
         config = Config.load()
 
