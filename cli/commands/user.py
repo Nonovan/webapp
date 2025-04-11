@@ -1,7 +1,7 @@
 import os
 import click
 from flask.cli import AppGroup
-from core.logging import get_logger
+from core.loggings import get_logger
 from extensions import db
 from models import User
 

@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta
+from typing import Optional
+import uuid
 import jwt
-from werkzeug.security import generate_password_hash, check_password_hash
 from flask import current_app
-from . import db, BaseModel
+from werkzeug.security import generate_password_hash, check_password_hash
+from extensions import db
 
-class User(BaseModel):
+class User(db.Model):
     """User model with authentication and authorization."""
     __tablename__ = 'users'
 
@@ -52,19 +54,45 @@ class User(BaseModel):
         return check_password_hash(self.password, password)
 
     def generate_token(self, expires_in: int = 3600) -> str:
-        """Generate JWT token with expiry."""
-        return jwt.encode(
-            {
-                'user_id': self.id,
-                'role': self.role,
-                'exp': datetime.utcnow() + timedelta(seconds=expires_in)
-            },
-            current_app.config['SECRET_KEY'],
-            algorithm='HS256'
-        )
+        """Generate JWT token with expiry.
 
-    @staticmethod
-    def verify_token(token):
+        Args:
+            expires_in: Token expiration time in seconds (default: 1 hour)
+
+        Returns:
+            str: Encoded JWT token
+
+        Raises:
+            ValueError: If expires_in is invalid
+            RuntimeError: If token generation fails
+        """
+        try:
+            # Validate expiration time
+            if expires_in < 1 or expires_in > 86400:  # Max 24 hours
+                raise ValueError("Token expiration must be between 1 second and 24 hours")
+
+            token = jwt.encode(
+                {
+                    'user_id': self.id,
+                    'role': self.role,
+                    'exp': datetime.utcnow() + timedelta(seconds=expires_in),
+                    'iat': datetime.utcnow(),
+                    'jti': str(uuid.uuid4())
+                },
+                current_app.config['SECRET_KEY'],
+                algorithm='HS256'
+            )
+
+            current_app.logger.info(f"Generated token for user {self.id}")
+
+            return token
+
+        except Exception as e:
+            current_app.logger.error(f"Token generation failed: {e}")
+            raise RuntimeError(f"Failed to generate token: {e}") from e
+
+    @classmethod
+    def verify_token(cls, token) -> Optional['User']:
         """Verify JWT token."""
         try:
             data = jwt.decode(
@@ -72,25 +100,25 @@ class User(BaseModel):
                 current_app.config['SECRET_KEY'],
                 algorithms=['HS256']
             )
-            return User.query.get(data['user_id'])
+            return cls.query.get(data['user_id'])
         except (jwt.ExpiredSignatureError, jwt.InvalidTokenError) as e:
             current_app.logger.error(f"Token verification failed: {e}")
             return None
 
-    def update_last_login(self):
+    def update_last_login(self) -> None:
         """Update login tracking."""
         self.last_login = datetime.utcnow()
         self.login_count += 1
         db.session.commit()
 
-    def record_failed_login(self):
+    def record_failed_login(self) -> None:
         """Record failed login attempt."""
         self.failed_login_count += 1
         self.last_failed_login = datetime.utcnow()
         db.session.commit()
 
     @property
-    def is_admin(self):
+    def is_admin(self) -> bool:
         """Check if user is admin."""
         return self.role == 'admin'
 

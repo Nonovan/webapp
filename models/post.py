@@ -11,28 +11,28 @@ class Post(BaseModel):
     title = db.Column(db.String(200), nullable=False)
     content = db.Column(db.Text, nullable=False)
     slug = db.Column(db.String(200), unique=True)
-    
+
     # Metadata
     status = db.Column(db.String(20), default='draft')
     post_type = db.Column(db.String(20), default='post')
     views = db.Column(db.Integer, default=0)
     featured = db.Column(db.Boolean, default=False)
-    
+
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
     published_at = db.Column(db.DateTime, default=None)
-    
+
     # Relationships
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     user = db.relationship('User', backref=db.backref('posts', lazy=True))
-    
+
     # Status constants
     STATUS_DRAFT = 'draft'
     STATUS_PUBLISHED = 'published'
     STATUS_ARCHIVED = 'archived'
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs) -> None:
         super(Post, self).__init__(**kwargs)
         if not self.slug and self.title:
             self.slug = self.generate_slug()
@@ -65,7 +65,7 @@ class Post(BaseModel):
         return cls.query.filter_by(status=cls.STATUS_PUBLISHED)\
                        .order_by(db.desc(cls.published_at)).all()
 
-    @classmethod 
+    @classmethod
     def search(cls, query: str) -> List['Post']:
         """Search posts by title or content."""
         return cls.query.filter(

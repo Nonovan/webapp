@@ -67,7 +67,7 @@ def init_db() -> None:
         db.create_all()
         click.echo('Database initialized successfully')
     except SQLAlchemyError as e:
-        app.logger.error(f"Database initialization failed: {e}")
+        app.logger.error("Database initialization failed: %s", exc_info=e)
         click.echo(f'Database initialization failed: {e}', err=True)
         exit(1)
 

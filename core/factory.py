@@ -4,8 +4,14 @@ from typing import Optional
 from flask import Flask
 from extensions import db, migrate, csrf, cache, limiter, session, metrics
 from core.config import Config
-from core.logging import setup_app_logging
-from core.middleware import setup_security_headers, setup_request_context, setup_response_context
+from core.loggings import setup_app_loggings, get_logger
+from core.middleware import (
+    setup_security_headers,
+    setup_request_context,
+    setup_response_context
+)
+
+logger = get_logger(__name__)
 
 def create_app(config_name: Optional[str] = None) -> Flask:
     """Centralized application factory"""
@@ -23,7 +29,7 @@ def create_app(config_name: Optional[str] = None) -> Flask:
         app.version = config.get('VERSION', '1.0.0')
         
         # Setup core services
-        setup_app_logging(app)
+        setup_app_loggings(app)
         
         # Setup request handling
         app.before_request(setup_request_context)
@@ -40,7 +46,7 @@ def create_app(config_name: Optional[str] = None) -> Flask:
             session.init_app(app)
             metrics.init_app(app)
         except Exception as e:
-            logging.error("Failed to initialize extensions: %s", e)
+            logger.error("Failed to initialize extensions: %s", e)
             raise
             
         # Register health check
@@ -57,4 +63,3 @@ def create_app(config_name: Optional[str] = None) -> Flask:
     except Exception as e:
         logging.critical("Failed to create application: %s", e)
         raise
-    

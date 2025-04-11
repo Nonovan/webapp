@@ -1,15 +1,38 @@
-from datetime import datetime
-from typing import Dict, Any, Optional, List, Type
+from datetime import datetime, timezone
+from typing import Dict, Any, Optional, List, Type, TypeVar, TYPE_CHECKING
 from flask import current_app
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from .user import User
+from sqlalchemy.ext.declarative import declared_attr
+
+if TYPE_CHECKING:
+    from .user import User
 
 db = SQLAlchemy()
 
+# Define TypeVar with proper constraints using PEP 8 naming
+T_Model = TypeVar('T_Model', bound='BaseModel')
+
 class TimestampMixin:
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    """Mixin class that adds created and updated timestamps to models."""
+    @declared_attr
+    def created_at(self) -> datetime:
+        """Creation timestamp for the record."""
+        return db.Column(
+            db.DateTime(timezone=True),
+            nullable=False,
+            default=lambda: datetime.now(timezone.utc)
+        )
+
+    @declared_attr
+    def updated_at(self) -> datetime:
+        """Last update timestamp for the record."""
+        return db.Column(
+            db.DateTime(timezone=True),
+            nullable=False,
+            default=lambda: datetime.now(timezone.utc),
+            onupdate=lambda: datetime.now(timezone.utc)
+        )
 
 class BaseModel(db.Model, TimestampMixin):
     """Base model class with common functionality."""
@@ -46,15 +69,19 @@ class BaseModel(db.Model, TimestampMixin):
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert model to dictionary with relationships."""
-        data = {c.name: getattr(self, c.name) for c in self.__table__.columns}
-        # Add relationships if they exist
+        data = {
+            c.name: getattr(self, c.name)
+            for c in self.__table__.columns
+        }
         for rel in self.__mapper__.relationships:
             if hasattr(self, rel.key):
-                data[rel.key] = [item.to_dict() for item in getattr(self, rel.key)]
+                data[rel.key] = [
+                    item.to_dict() for item in getattr(self, rel.key)
+                ]
         return data
 
     @classmethod
-    def get_by_id(cls: Type['BaseModel'], record_id: int) -> Optional['BaseModel']:
+    def get_by_id(cls: Type[T_Model], record_id: int) -> Optional[T_Model]:
         """Get instance by ID with error handling."""
         try:
             return cls.query.get(record_id)
@@ -63,7 +90,7 @@ class BaseModel(db.Model, TimestampMixin):
             return None
 
     @classmethod
-    def list_all(cls: Type['BaseModel'], page: int = 1, per_page: int = 20) -> List['BaseModel']:
+    def list_all(cls: Type[T_Model], page: int = 1, per_page: int = 20) -> List[T_Model]:
         """Get all instances with pagination."""
         try:
             return cls.query.paginate(page=page, per_page=per_page, error_out=False).items
@@ -72,7 +99,7 @@ class BaseModel(db.Model, TimestampMixin):
             return []
 
     @classmethod
-    def get_or_404(cls: Type['BaseModel'], record_id: int) -> 'BaseModel':
+    def get_or_404(cls: Type[T_Model], record_id: int) -> T_Model:
         """Get instance by ID or 404 with error handling."""
         try:
             return cls.query.get_or_404(record_id)

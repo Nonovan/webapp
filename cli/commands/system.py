@@ -3,7 +3,7 @@ import psutil
 import click
 from flask.cli import AppGroup
 from core.config import Config
-from core.logging import get_logger
+from core.loggings import get_logger
 from extensions import db, metrics
 
 logger = get_logger(__name__) or logging.getLogger(__name__)

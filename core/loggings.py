@@ -1,3 +1,12 @@
+"""Logging configuration module.
+
+This module provides logging setup for the application, including:
+- Console logging with request context
+- JSON file logging with rotation
+- Security event logging
+- Sentry integration for error tracking
+"""
+
 import logging
 import logging.handlers
 import json
@@ -7,7 +16,7 @@ from typing import Any, Dict
 from flask import Flask, request, g
 import sentry_sdk
 
-def setup_app_logging(app: Flask) -> None:
+def setup_app_loggings(app: Flask) -> None:
     """Configure centralized application logging."""
 
     # Create logs directory
@@ -98,8 +107,32 @@ def setup_app_logging(app: Flask) -> None:
             traces_sample_rate=1.0
         )
 
-def get_logger(app: Flask)  -> None:
+def get_logger(app: Flask) -> logging.Logger:
+    """Get configured application logger.
+    
+    Args:
+        app: Flask application instance
+        
+    Returns:
+        logging.Logger: Configured application logger
+        
+    Example:
+        >>> logger = get_logger(app)
+        >>> logger.info("Application started")
+    """
     return app.logger
 
 def get_sentry_client() -> sentry_sdk.Client:
+    """Get configured Sentry client.
+    
+    Returns:
+        sentry_sdk.Client: Current Sentry client instance or None if not configured
+        
+    Example:
+        >>> client = get_sentry_client()
+        >>> client.capture_message("Error occurred")
+        
+    Raises:
+        RuntimeError: If Sentry is not properly configured
+    """
     return sentry_sdk.Hub.current.client

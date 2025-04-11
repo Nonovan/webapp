@@ -2,7 +2,7 @@ from datetime import datetime
 import os
 import click
 from flask.cli import AppGroup
-from core.logging import get_logger
+from core.loggings import get_logger
 from core.seeder import seed_database
 from extensions import db
 

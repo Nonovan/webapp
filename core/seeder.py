@@ -1,11 +1,19 @@
 from datetime import datetime, timedelta
-import click
+from typing import List
 from flask import current_app
-from models import db, User
-from extensions import metrics
+import click
+from extensions import db
+from models.user import User
 
 def seed_database() -> bool:
-    """Seeds the database with initial data."""
+    """Seed database with initial data.
+    
+    Returns:
+        bool: True if seeding was successful, False if already seeded
+        
+    Raises:
+        Exception: If seeding fails
+    """
     try:
         # Check if already seeded
         if User.query.count() > 0:
@@ -16,7 +24,7 @@ def seed_database() -> bool:
             # Create admin user
             admin = User(
                 username="admin",
-                email="admin@example.com",
+                email="admin@example.com", 
                 role="admin",
                 status="active",
                 created_at=datetime.utcnow()
@@ -26,15 +34,16 @@ def seed_database() -> bool:
             bar_line.update(1)
 
             # Create test users
-            test_users = [
+            test_users: List[User] = [
                 User(
                     username=f"user{i}",
                     email=f"user{i}@example.com",
                     role="user",
-                    status="active",
+                    status="active", 
                     created_at=datetime.utcnow() - timedelta(days=i)
                 ) for i in range(1, 4)
             ]
+            
             for user in test_users:
                 user.set_password("UserPass123!")
             db.session.add_all(test_users)
@@ -43,14 +52,11 @@ def seed_database() -> bool:
             # Commit changes
             db.session.commit()
 
-            # Log success
             current_app.logger.info(f"Database seeded with {len(test_users) + 1} users")
-            metrics.increment('database_seed_success')
             return True
 
     except Exception as e:
         current_app.logger.error(f"Database seeding failed: {e}")
-        metrics.increment('database_seed_error')
         db.session.rollback()
         raise
 
