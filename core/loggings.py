@@ -68,7 +68,6 @@ def setup_app_loggings(app: Flask) -> None:
             filename=f'{log_dir}/error.log',
             maxBytes=10485760,
             backupCount=10,
-            level=logging.ERROR,
             encoding='utf-8'
         ),
 
@@ -80,6 +79,15 @@ def setup_app_loggings(app: Flask) -> None:
             encoding='utf-8'
         )
     ]
+
+    # Create and configure error handler separately
+    error_handler = logging.handlers.RotatingFileHandler(
+        filename=f'{log_dir}/error.log',
+        maxBytes=10485760,
+        backupCount=10,
+        encoding='utf-8'
+    )
+    error_handler.setLevel(logging.ERROR)  # Set level correctly on the handler
 
     # Configure formatters
     console_formatter = logging.Formatter(
@@ -97,6 +105,10 @@ def setup_app_loggings(app: Flask) -> None:
             handler.setFormatter(json_formatter)
         app.logger.addHandler(handler)
 
+    # Add error handler separately
+    error_handler.setFormatter(json_formatter)
+    app.logger.addHandler(error_handler)
+
     app.logger.setLevel(app.config['LOG_LEVEL'])
 
     # Configure Sentry if DSN provided
@@ -109,13 +121,13 @@ def setup_app_loggings(app: Flask) -> None:
 
 def get_logger(app: Flask) -> logging.Logger:
     """Get configured application logger.
-    
+
     Args:
         app: Flask application instance
-        
+
     Returns:
         logging.Logger: Configured application logger
-        
+
     Example:
         >>> logger = get_logger(app)
         >>> logger.info("Application started")
@@ -124,14 +136,14 @@ def get_logger(app: Flask) -> logging.Logger:
 
 def get_sentry_client() -> sentry_sdk.Client:
     """Get configured Sentry client.
-    
+
     Returns:
         sentry_sdk.Client: Current Sentry client instance or None if not configured
-        
+
     Example:
         >>> client = get_sentry_client()
         >>> client.capture_message("Error occurred")
-        
+
     Raises:
         RuntimeError: If Sentry is not properly configured
     """

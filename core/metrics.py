@@ -91,7 +91,7 @@ def track_metrics(name: str) -> Callable[[F], F]:
                 })
                 return result
 
-            except Exception as e:
+            except db.exc.SQLAlchemyError as e:
                 metrics.info(f'{name}_error', 1, labels={
                     'method': func.__name__,
                     'error': type(e).__name__
@@ -150,62 +150,56 @@ class DatabaseMetrics:
 
     @staticmethod
     def get_db_metrics() -> Dict[str, Any]:
-        """Collect current database performance metrics."""
+        """
+        Collect current database performance metrics.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing various database metrics including:
+                - Number of active connections
+                - Query statistics (total queries, slow queries, execution time)
+                - Cache hit ratio
+                - Table sizes from PostgreSQL statistics
+
+        Raises:
+            No exceptions are raised; errors are caught and reported in the result.
+        """
+        results = {
+            'active_connections': 0,
+            'total_queries': 0,
+            'slow_queries': 0,
+            'query_errors': 0,
+            'total_exec_time': 0,
+            'rows_processed': 0,
+            'cache_hit_ratio': 0,
+            'table_sizes': {}
+        }
+
         try:
             # Get active connections
-            active_connections = db.engine.pool.status()['checkedout']
-            
-            # Get query statistics from pg_stat_database
-            query_stats = db.session.execute("""
-                SELECT 
-                    total_exec_time,
-                    calls,
-                    rows,
-                    shared_blks_hit,
-                    shared_blks_read,
-                    temp_files,
-                    temp_bytes
-                FROM pg_stat_statements 
-                WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-            """).fetchone()
+            results['active_connections'] = DatabaseMetrics._get_active_connections()
+
+            # Get query statistics
+            query_stats = DatabaseMetrics._get_query_statistics()
+            if query_stats:
+                results['total_queries'] = getattr(query_stats, 'calls', 0) or 0
+                results['total_exec_time'] = getattr(query_stats, 'total_exec_time', 0) or 0
+                results['rows_processed'] = getattr(query_stats, 'rows', 0) or 0
+
+                # Calculate cache hit ratio
+                results['cache_hit_ratio'] = DatabaseMetrics._calculate_cache_hit_ratio(query_stats)
 
             # Get slow query count
-            slow_queries = db.session.execute("""
-                SELECT COUNT(*) 
-                FROM pg_stat_statements 
-                WHERE mean_exec_time > 1000 
-                AND dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-            """).scalar()
+            results['slow_queries'] = DatabaseMetrics._get_slow_queries()
 
             # Get error count
-            error_count = db.session.execute("""
-                SELECT sum(xact_rollback) 
-                FROM pg_stat_database 
-                WHERE datname = current_database()
-            """).scalar()
+            results['query_errors'] = DatabaseMetrics._get_error_count()
 
             # Get table sizes
-            table_sizes = db.session.execute("""
-                SELECT relname, pg_size_pretty(pg_total_relation_size(relname::regclass)) 
-                FROM pg_stat_user_tables
-            """).fetchall()
+            results['table_sizes'] = DatabaseMetrics._get_table_sizes()
 
-            return {
-                'active_connections': active_connections,
-                'total_queries': query_stats.calls if query_stats else 0,
-                'slow_queries': slow_queries or 0,
-                'query_errors': error_count or 0,
-                'total_exec_time': query_stats.total_exec_time if query_stats else 0,
-                'rows_processed': query_stats.rows if query_stats else 0,
-                'cache_hit_ratio': (
-                    query_stats.shared_blks_hit / 
-                    (query_stats.shared_blks_hit + query_stats.shared_blks_read)
-                    if query_stats and (query_stats.shared_blks_hit + query_stats.shared_blks_read) > 0 
-                    else 0
-                ),
-                'table_sizes': dict(table_sizes)
-            }
-        except Exception as e:
+            return results
+
+        except db.exc.SQLAlchemyError as e:
             current_app.logger.error(f"Database metrics collection failed: {e}")
             return {
                 'error': str(e),
@@ -217,3 +211,88 @@ class DatabaseMetrics:
             }
         finally:
             db.session.close()
+
+    @staticmethod
+    def _get_active_connections() -> int:
+        """Get the number of active database connections."""
+        try:
+            if hasattr(db.engine, 'pool') and hasattr(db.engine.pool, 'status'):
+                pool_status = db.engine.pool.status()
+                if pool_status and isinstance(pool_status, dict):
+                    return pool_status.get('checkedout', 0)
+        except AttributeError:
+            current_app.logger.warning("Could not fetch active connections due to missing attributes")
+        return 0
+
+    @staticmethod
+    def _get_query_statistics():
+        """Get query statistics from pg_stat_statements."""
+        try:
+            return db.session.execute("""
+                SELECT
+                    total_exec_time,
+                    calls,
+                    rows,
+                    shared_blks_hit,
+                    shared_blks_read,
+                    temp_files,
+                    temp_bytes
+                FROM pg_stat_statements
+                WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+            """).fetchone()
+        except db.exc.SQLAlchemyError as e:
+            current_app.logger.warning(f"Could not fetch query stats due to database error: {e}")
+            return None
+
+    @staticmethod
+    def _get_slow_queries() -> int:
+        """Get count of slow queries (execution time > 1000ms)."""
+        try:
+            return db.session.execute("""
+                SELECT COUNT(*)
+                FROM pg_stat_statements
+                WHERE mean_exec_time > 1000
+                AND dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+            """).scalar() or 0
+        except db.exc.SQLAlchemyError as e:
+            current_app.logger.warning(f"Could not fetch slow queries count due to database error: {e}")
+            return 0
+
+    @staticmethod
+    def _get_error_count() -> int:
+        """Get transaction rollback count as a proxy for errors."""
+        try:
+            return db.session.execute("""
+                SELECT sum(xact_rollback)
+                FROM pg_stat_database
+                WHERE datname = current_database()
+            """).scalar() or 0
+        except db.exc.SQLAlchemyError as e:
+            current_app.logger.warning(f"Could not fetch error count due to database error: {e}")
+            return 0
+
+    @staticmethod
+    def _get_table_sizes() -> Dict[str, str]:
+        """Get table sizes for all user tables."""
+        try:
+            table_sizes_result = db.session.execute("""
+                SELECT relname, pg_size_pretty(pg_total_relation_size(relname::regclass))
+                FROM pg_stat_user_tables
+            """).fetchall()
+            return dict(table_sizes_result) if table_sizes_result else {}
+        except db.exc.SQLAlchemyError as e:
+            current_app.logger.warning(f"Could not fetch table sizes due to database error: {e}")
+            return {}
+
+    @staticmethod
+    def _calculate_cache_hit_ratio(query_stats) -> float:
+        """Calculate the cache hit ratio from query statistics."""
+        try:
+            shared_blks_hit = getattr(query_stats, 'shared_blks_hit', 0) or 0
+            shared_blks_read = getattr(query_stats, 'shared_blks_read', 0) or 0
+            total_blocks = shared_blks_hit + shared_blks_read
+            if total_blocks > 0:
+                return shared_blks_hit / total_blocks
+        except (AttributeError, TypeError, ZeroDivisionError):
+            pass
+        return 0

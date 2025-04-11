@@ -12,42 +12,42 @@ def log_request() -> None:
     """Log and track incoming requests."""
     request_id = request.headers.get('X-Request-ID', 'unknown')
     current_app.logger.info(f"Request {request_id}: {request.method} {request.path}")
-    metrics.increment('request_count_total')
+    metrics.info('request_count_total', 1)
 
 @main_bp.route('/')
 @limiter.limit("60/minute")
 @cache.cached(timeout=300)
-def home() -> str | tuple:
+def home() -> Union[str, tuple]:
     """Home page route."""
     try:
-        metrics.increment('page_views_total', tags=['page:home'])
+        metrics.info('page_views_total', 1, labels={'page': 'home'})
         return render_template('main/home.html')  # Ensure a valid return value
     except (TemplateNotFound, RuntimeError) as e:  # Replace with specific exceptions
         current_app.logger.error(f"Home page error: {e}")
-        metrics.increment('error_count_total', tags=['page:home'])
+        metrics.info('error_count_total', 1, labels={'page': 'home'})
         abort(500)
         return jsonify({'error': 'Internal server error'}), 500  # Fallback return value
 
 @main_bp.route('/about')
 @limiter.limit("30/minute")
 @cache.cached(timeout=3600)
-def about() -> str:
+def about() -> Union[str, tuple]:
     """About page route."""
     try:
-        metrics.increment('page_views_total', tags=['page:about'])
+        metrics.info('page_views_total', 1, labels={'page': 'about'})
         return render_template('main/about.html')
     except (TemplateNotFound, RuntimeError) as e:  # Replace with specific exceptions
         current_app.logger.error(f"About page error: {e}")
-        metrics.increment('error_count_total', tags=['page:about'])
+        metrics.info('error_count_total', 1, labels={'page': 'about'})
         abort(500)
-        return "Error: Unable to load about page"  # Fallback return value
+        return jsonify({'error': 'Internal server error'}), 500  # Fallback return value
 
 @main_bp.route('/cloud')
 @login_required
 @require_role('admin')
 @limiter.limit("30/minute")
 @cache.cached(timeout=60)
-def cloud() -> str | tuple:
+def cloud() -> Union[str, tuple]:
     """Cloud services dashboard route."""
     try:
         start_time = datetime.utcnow()
@@ -67,7 +67,7 @@ def cloud() -> str | tuple:
         )
 
         # Track view
-        metrics.increment('cloud_dashboard_views_total', tags=[f'user:{g.user.id}'])
+        metrics.info('cloud_dashboard_views_total', 1, labels={'user': str(g.user.id)})
 
         # Render template
         response = render_template(
@@ -81,21 +81,22 @@ def cloud() -> str | tuple:
         )
 
         # Track performance
-        metrics.observe(
+        metrics.info(
             'cloud_dashboard_load_time',
-            (datetime.utcnow() - start_time).total_seconds()
+            (datetime.utcnow() - start_time).total_seconds(),
+            labels={'user': str(g.user.id)}
         )
 
         return response
 
     except (KeyError, ValueError, RuntimeError) as e:  # Replace with specific exceptions
         current_app.logger.error(f"Cloud dashboard error: {str(e)}")
-        metrics.increment('error_count_total', tags=['page:cloud'])
+        metrics.info('error_count_total', 1, labels={'page': 'cloud'})
         return jsonify({'error': 'Internal server error'}), 500
 
 @main_bp.route('/profile')
 @login_required
-@limiter.limit("30/minute") 
+@limiter.limit("30/minute")
 def profile() -> Union[str, tuple[dict, int]]:
     """User profile route."""
     try:
@@ -144,7 +145,7 @@ def ics():
 @require_role('operator')
 @limiter.limit("30/minute")
 @cache.cached(timeout=60)
-def environmental_data() -> str | tuple:
+def environmental_data() -> Union[str, tuple]:
     """Get latest environmental data for ICS systems."""
     try:
         start_time = datetime.utcnow()
@@ -154,8 +155,8 @@ def environmental_data() -> str | tuple:
             .first()
 
         # Track request
-        metrics.increment('ics_environmental_requests_total',
-                        tags=[f'user:{g.user.id}'])
+        metrics.info('ics_environmental_requests_total', 1,
+                   labels={'user': str(g.user.id)})
 
         if data:
             # Log successful data retrieval
@@ -176,7 +177,7 @@ def environmental_data() -> str | tuple:
             )
 
         # Handle no data case
-        metrics.increment('ics_environmental_no_data_total')
+        metrics.info('ics_environmental_no_data_total', 1)
         return render_template(
             "monitoring/environmental_data.html",
             error="No environmental data available"
@@ -188,7 +189,7 @@ def environmental_data() -> str | tuple:
             f"Environmental data error: {str(e)}",
             extra={'user_id': g.user.id}
         )
-        metrics.increment('ics_environmental_errors_total')
+        metrics.info('ics_environmental_errors_total', 1)
 
         return render_template(
             "monitoring/environmental_data.html",

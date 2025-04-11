@@ -1,9 +1,8 @@
 from datetime import datetime
 import uuid
-from typing import Dict, Any
+from typing import Dict
 from flask import Blueprint, g, request, current_app, Response
 from extensions import metrics
-from . import routes
 
 monitoring_bp = Blueprint(
     'monitoring',
@@ -18,7 +17,7 @@ def before_request() -> None:
     g.request_id = request.headers.get('X-Request-ID', str(uuid.uuid4()))
     g.start_time = datetime.utcnow()
 
-    metrics.increment('monitoring_requests_total', {
+    metrics.info('monitoring_requests_total', 1, labels={
         'method': request.method,
         'path': request.path
     })
@@ -41,15 +40,15 @@ def after_request(response: Response) -> Response:
 
     elapsed = datetime.utcnow() - g.start_time
 
-    response.headers.update({
-        'X-Request-ID': g.request_id,
-        'X-Response-Time': f'{elapsed.total_seconds():.3f}s',
-        'X-Content-Type-Options': 'nosniff',
-        'X-Frame-Options': 'DENY',
-        'X-XSS-Protection': '1; mode=block'
-    })
+    # Use set() method for individual headers instead of update()
+    response.headers.set('X-Request-ID', g.request_id)
+    response.headers.set('X-Response-Time', f'{elapsed.total_seconds():.3f}s')
+    response.headers.set('X-Content-Type-Options', 'nosniff')
+    response.headers.set('X-Frame-Options', 'DENY')
+    response.headers.set('X-XSS-Protection', '1; mode=block')
 
-    metrics.timing('monitoring_response_time', elapsed.total_seconds(), {
+    # Use info() method instead of timing() which is not available in PrometheusMetrics
+    metrics.info('monitoring_response_time', elapsed.total_seconds(), labels={
         'path': request.path,
         'status': response.status_code
     })
@@ -75,7 +74,10 @@ def ratelimit_handler() -> tuple[Dict[str, str], int]:
         f'Rate limit exceeded: {request.url}',
         extra={'request_id': g.get('request_id')}
     )
-    metrics.increment('monitoring_ratelimit_total')
+    metrics.info('monitoring_ratelimit_total', 1, labels={
+        'path': request.path,
+        'method': request.method
+    })
     return {'error': 'Rate limit exceeded'}, 429
 
 @monitoring_bp.errorhandler(500)
@@ -85,5 +87,8 @@ def internal_error(e: Exception) -> tuple[Dict[str, str], int]:
         f'Server Error: {e}',
         extra={'request_id': g.get('request_id')}
     )
-    metrics.increment('monitoring_error_total')
+    metrics.info('monitoring_error_total', 1, labels={
+        'path': request.path,
+        'method': request.method
+    })
     return {'error': 'Internal server error'}, 500

@@ -37,14 +37,17 @@ def test_db() -> Any:
     return db
 
 @pytest.fixture
+@pytest.fixture
+@pytest.fixture
+@pytest.fixture
 def test_user(database) -> Any:
     """Create test user."""
-    user = User(
-        username='testuser',
-        email='test@example.com',
-        role='user',
-        status='active'
-    )
+    # Create user based on actual User model parameters
+    user = User()
+    user.username = 'testuser'
+    user.email = 'test@example.com'
+    user.role = 'user'
+    user.status = 'active'
     user.set_password('Password123!')
     database.session.add(user)
     database.session.commit()
@@ -86,13 +89,14 @@ def basic_mock_data() -> dict:
     }
 
 @pytest.fixture
+@pytest.fixture
 def admin_user_with_database(database) -> User:
-    user = User(
-        username='admin',
-        email='admin@example.com',
-        role='admin',
-        status='active'
-    )
+    """Create an admin user with database access for testing."""
+    user = User()
+    user.username = 'admin'
+    user.email = 'admin@example.com'
+    user.role = 'admin'
+    user.status = 'active'
     user.set_password('AdminPass123!')
     database.session.add(user)
     database.session.commit()
@@ -198,28 +202,28 @@ def mock_db_metrics() -> Dict[str, Any]:
     }
 
 @pytest.fixture
+@pytest.fixture
 def admin_user(database) -> User:
     """Create admin user fixture."""
-    user = User(
-        username='admin',
-        email='admin@example.com',
-        role='admin',
-        status='active'
-    )
+    user = User()
+    user.username = 'admin'
+    user.email = 'admin@example.com'
+    user.role = 'admin'
+    user.status = 'active'
     user.set_password('AdminPass123!')
     database.session.add(user)
     database.session.commit()
     return user
 
 @pytest.fixture
+@pytest.fixture
 def operator_user(database) -> User:
     """Create operator user fixture."""
-    user = User(
-        username='operator',
-        email='operator@example.com',
-        role='operator',
-        status='active'
-    )
+    user = User()
+    user.username = 'operator'
+    user.email = 'operator@example.com'
+    user.role = 'operator'
+    user.status = 'active'
     user.set_password('OperatorPass123!')
     database.session.add(user)
     database.session.commit()

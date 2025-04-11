@@ -2,7 +2,6 @@ from datetime import datetime
 import logging
 from typing import Any, Dict
 import pytest
-from sqlalchemy.orm import Session
 from app import create_app
 from extensions import db
 from models.user import User
@@ -30,20 +29,20 @@ def app() -> Any:
     return test_app
 
 @pytest.fixture
-def client(app) -> Any:
+def client(test_app) -> Any:
     """Create test client."""
-    return app.test_client()
+    return test_app.test_client()
 
 @pytest.fixture
-def runner(app) -> Any:
+def runner(test_app) -> Any:
     """Create test CLI runner."""
-    return app.test_cli_runner()
+    return test_app.test_cli_runner()
 
 # Database Fixtures
 @pytest.fixture
-def init_database(app) -> Session:
+def init_database(test_app):
     """Initialize test database."""
-    with app.app_context():
+    with test_app.app_context():
         db.create_all()
         yield db
         db.session.remove()
@@ -51,32 +50,32 @@ def init_database(app) -> Session:
 
 # User Fixtures
 @pytest.fixture
-def test_user() -> User:
+def test_user(test_app) -> User:
     """Create test user."""
-    user = User(
-        username='testuser',
-        email='test@example.com',
-        role='user',
-        status='active'
-    )
-    user.set_password('TestPass123!')
-    db.session.add(user)
-    db.session.commit()
-    return user
+    with test_app.app_context():
+        user = User()
+        user.username = 'testuser'
+        user.email = 'test@example.com'
+        user.role = 'user'
+        user.status = 'active'
+        user.set_password('TestPass123!')
+        db.session.add(user)
+        db.session.commit()
+        return user
 
 @pytest.fixture
-def admin_user() -> User:
+def admin_user(test_app) -> User:
     """Create admin user."""
-    admin = User(
-        username='admin',
-        email='admin@example.com',
-        role='admin',
-        status='active'
-    )
-    admin.set_password('AdminPass123!')
-    db.session.add(admin)
-    db.session.commit()
-    return admin
+    with test_app.app_context():
+        admin = User()
+        admin.username = 'admin'
+        admin.email = 'admin@example.com'
+        admin.role = 'admin'
+        admin.status = 'active'
+        admin.set_password('AdminPass123!')
+        db.session.add(admin)
+        db.session.commit()
+        return admin
 
 @pytest.fixture
 def auth_headers(user_fixture) -> Dict[str, str]:

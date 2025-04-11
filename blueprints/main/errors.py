@@ -2,13 +2,23 @@ from flask import Blueprint, request, jsonify, g, session, render_template, curr
 from extensions import db, metrics
 
 def log_error(error, level='error', context=None) -> None:
+    """
+    Log an error to the application logger and record it in metrics.
+
+    Args:
+        error: The error object containing code and message
+        level: Log level to use (default: 'error')
+        context: Optional context information to include in log
+    """
     log_message = f'Error {error.code}: {request.url} - {error}'
     if context:
         log_message += f' | Context: {context}'
     getattr(current_app.logger, level)(log_message)
-    metrics.increment(f'error_{error.code}')
 
-def init_error_handlers(blueprint: Blueprint) -> None:
+    # Using the correct metrics API method (info) instead of increment
+    metrics.info(f'error_{error.code}', 1)
+
+def init_error_handlers(blueprint: Blueprint) -> Blueprint:
     """Initialize error handlers and monitoring."""
 
     # Register error metrics

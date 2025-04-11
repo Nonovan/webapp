@@ -6,28 +6,40 @@ from core.loggings import get_logger
 from core.seeder import seed_database
 from extensions import db
 
-logger = get_logger(__name__) or click.get_current_context().obj.get('logger', None)
+# Initialize CLI group and logger
 db_cli = AppGroup('db')
+# Initialize logger with None for now,
+# the application instance will be attached when available
+logger = get_logger(app=None)  # type: ignore
 
 @db_cli.command('init')
 @click.option('--seed/--no-seed', default=False, help='Seed initial data')
 @click.option('--env', default='development', help='Environment to initialize')
-def init_db(seed: bool) -> None:
-    """Initialize database tables and optionally seed data."""
+def init_db(seed: bool, env: str) -> None:
+    """Initialize database tables and optionally seed data.
+
+    Args:
+        seed: Whether to seed initial data
+        env: Environment to initialize
+    """
     try:
         with click.progressbar(length=3, label='Initializing database') as bar_line:
+            # Create schema
             db.create_all()
             bar_line.update(1)
 
+            # Seed data if requested
             if seed:
                 seed_database()
             bar_line.update(1)
 
-            # Verify schema
+            # Verify database
             db.session.execute('SELECT 1')
             bar_line.update(1)
 
         click.echo('Database initialized successfully')
+        logger.info(f'Database initialized in {env} environment')
+
     except Exception as e:
         logger.error(f'Database initialization failed: {e}')
         raise click.ClickException(str(e))
@@ -37,7 +49,8 @@ def init_db(seed: bool) -> None:
 @click.option('--compress/--no-compress', default=True, help='Use compression')
 def backup_db(backup_dir: str, compress: bool) -> None:
     """Create database backup."""
-    filename = None  # Initialize filename to avoid unbound variable error
+    # Initialize filename to avoid unbound variable error
+    filename = None
     try:
         # Validate backup directory
         backup_dir = os.path.abspath(backup_dir)
@@ -50,7 +63,7 @@ def backup_db(backup_dir: str, compress: bool) -> None:
         # Create backup filename
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         filename = os.path.join(
-            backup_dir, 
+            backup_dir,
             f'backup_{timestamp}.sql{"" if not compress else ".gz"}'
         )
 
@@ -58,10 +71,10 @@ def backup_db(backup_dir: str, compress: bool) -> None:
         if os.path.exists(filename):
             raise FileExistsError(f"Backup file already exists: {filename}")
 
-        with click.progressbar(length=3, label='Creating backup') as bar:
+        with click.progressbar(length=3, label='Creating backup') as bar_line:
             # Validate database connection
             db.session.execute('SELECT 1')
-            bar.update(1)
+            bar_line.update(1)
 
             # Create backup
             if compress:
@@ -72,12 +85,12 @@ def backup_db(backup_dir: str, compress: bool) -> None:
             result = os.system(cmd)
             if result != 0:
                 raise RuntimeError('Backup command failed')
-            bar.update(1)
+            bar_line.update(1)
 
             # Verify backup
             if not os.path.exists(filename) or os.path.getsize(filename) == 0:
                 raise FileNotFoundError('Backup file not created or empty')
-            bar.update(1)
+            bar_line.update(1)
 
         logger.info(f'Database backup created: {filename}')
         click.echo(f'Database backed up to {filename}')
@@ -85,17 +98,17 @@ def backup_db(backup_dir: str, compress: bool) -> None:
     except Exception as e:
         logger.error(f'Backup failed: {str(e)}')
         # Only attempt cleanup if filename was created
-        if 'filename' in locals() and os.path.exists(filename):
+        if filename is not None and os.path.exists(filename):
             os.remove(filename)
         raise click.ClickException(f'Backup failed: {str(e)}')
 
-@db_cli.command('restore') 
+@db_cli.command('restore')
 @click.argument('backup_file')
 @click.option('--force/--no-force', default=False, help='Force restore without confirmation')
 def restore_db(backup_file: str, force: bool) -> None:
     """Restore database from backup."""
     backup_file = os.path.abspath(backup_file)
-    
+
     if not os.path.exists(backup_file):
         raise click.ClickException(f'Backup file not found: {backup_file}')
 

@@ -40,11 +40,16 @@ def generate_token(user_id: int, role: str, expires_in: int = 3600) -> str:
             current_app.config['SECRET_KEY'],
             algorithm='HS256'
         )
-        metrics.increment('token_generation_total')
+        # Fix: Use info method instead of increment for Prometheus metrics
+        metrics.info('token_generation_total', 1)
+        # Fix: Convert bytes to str if needed (for PyJWT versions that return bytes)
+        if isinstance(token, bytes):
+            token = token.decode('utf-8')
         return token
     except Exception as e:
         current_app.logger.error(f"Token generation failed: {e}")
-        metrics.increment('token_generation_error')
+        # Fix: Use info method instead of increment for Prometheus metrics
+        metrics.info('token_generation_error', 1)
         raise
 
 @cache.memoize(timeout=300)
@@ -56,15 +61,15 @@ def verify_token(token: str) -> dict | None:
             current_app.config['SECRET_KEY'],
             algorithms=['HS256']
         )
-        metrics.increment('token_verification_success')
+        metrics.info('token_verification_success', 1)
         current_app.logger.info(f'Token verified for user {payload.get("user_id")}')
         return payload
     except jwt.ExpiredSignatureError:
-        metrics.increment('token_verification_expired')
+        metrics.info('token_verification_expired', 1)
         current_app.logger.warning('Expired token detected')
         return None
     except jwt.InvalidTokenError as e:
-        metrics.increment('token_verification_invalid')
+        metrics.info('token_verification_invalid', 1)
         current_app.logger.warning(f'Invalid token: {e}')
         return None
 

@@ -1,11 +1,27 @@
-import os
+import logging
 import click
+from flask import current_app
 from flask.cli import AppGroup
 from core.loggings import get_logger
 from extensions import db
 from models import User
 
-logger = get_logger(__name__) or click.get_current_context().obj.get('logger', None)
+try:
+    try:
+        # Use fallback logger setup to avoid type error with None
+        if current_app:
+            logger = get_logger(app=current_app)
+        else:
+            logger = logging.getLogger('cli')
+            logger.setLevel(logging.INFO)
+    except AttributeError as e:
+        logger = None
+        print(f"Logger initialization warning: {e}")
+except (AttributeError, ImportError):
+    logger = None
+
+if logger is None and click.get_current_context().obj:
+    logger = click.get_current_context().obj.get('logger', None)
 if logger is None:
     raise RuntimeError("Logger initialization failed. Ensure get_logger is configured correctly or provide a fallback logger.")
 user_cli = AppGroup('user')
@@ -18,19 +34,28 @@ user_cli = AppGroup('user')
 def create_user(username: str, email: str, password: str, role: str) -> None:
     """Create new user with role."""
     try:
-        user = User(
-            username=username,
-            email=email,
-            role=role,
-            status='active'
-        )
+        # Check if logger is defined before using it
+        log = logger if logger else None
+
+        # Create the user object correctly
+        user = User()
+        user.username = username
+        user.email = email
+        user.role = role
+        user.status = 'active'
         user.set_password(password)
+
         db.session.add(user)
         db.session.commit()
-        logger.info(f"Created user: {username} with role: {role}")
+
+        # Use logger safely with conditional check
+        if log:
+            log.info("Created user: %s with role: %s", username, role)
         click.echo(f"User {username} created successfully")
     except Exception as e:
-        logger.error(f"User creation failed: {e}")
+        # Handle errors with logger safety check
+        if logger:
+            logger.error("User creation failed: %s", e)
         db.session.rollback()
         raise click.ClickException(str(e))
 
@@ -54,7 +79,9 @@ def list_users(role: str, status: str) -> None:
                 f"Status: {user.status:<10} Last Login: {user.last_login or 'Never'}"
             )
     except Exception as e:
-        logger.error(f"User listing failed: {e}")
+        # Check if logger is defined before using it
+        if logger:
+            logger.error("User listing failed: %s", e)
         raise click.ClickException(str(e))
 
 @user_cli.command('reset-password')
@@ -68,10 +95,14 @@ def reset_password(username: str, password: str) -> None:
             raise click.ClickException(f"User {username} not found")
         user.set_password(password)
         db.session.commit()
-        logger.info(f"Reset password for user: {username}")
+        # Check if logger is defined before using it
+        if logger:
+            logger.info("Reset password for user: %s", username)
         click.echo(f"Password reset successful for {username}")
     except Exception as e:
-        logger.error(f"Password reset failed: {e}")
+        # Check if logger is defined before using it
+        if logger:
+            logger.error("Password reset failed: %s", e)
         db.session.rollback()
         raise click.ClickException(str(e))
 
@@ -83,13 +114,20 @@ def change_role(username: str, new_role: str) -> None:
     try:
         user = User.query.filter_by(username=username).first()
         if not user:
-            raise click.ClickException(f"User {username} not found")        
+            raise click.ClickException(f"User {username} not found")
         old_role = user.role
         user.role = new_role
         db.session.commit()
-        logger.info(f"Changed role for {username}: {old_role} -> {new_role}")
+
+        # Check if logger is defined before using it
+        if logger:
+            logger.info("Changed role for %s: %s -> %s", username, old_role, new_role)
+
         click.echo(f"Role changed from {old_role} to {new_role} for {username}")
     except Exception as e:
-        logger.error(f"Role change failed: {e}")
+        # Check if logger is defined before using it
+        if logger:
+            logger.error("Role change failed: %s", e)
+
         db.session.rollback()
         raise click.ClickException(str(e))

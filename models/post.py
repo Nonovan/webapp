@@ -19,8 +19,7 @@ class Post(BaseModel):
     featured = db.Column(db.Boolean, default=False)
 
     # Timestamps
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, onupdate=datetime.utcnow)
+    # Removed created_at and updated_at as they're already defined in BaseModel (TimestampMixin)
     published_at = db.Column(db.DateTime, default=None)
 
     # Relationships

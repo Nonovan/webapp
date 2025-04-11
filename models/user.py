@@ -85,6 +85,10 @@ class User(db.Model):
 
             current_app.logger.info(f"Generated token for user {self.id}")
 
+            # Convert token to string if it's bytes
+            if isinstance(token, bytes):
+                token = token.decode('utf-8')
+
             return token
 
         except Exception as e:

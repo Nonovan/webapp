@@ -60,22 +60,40 @@ class DatabaseMetrics:
 
     @staticmethod
     @cache.memoize(timeout=30)
+    @staticmethod
+    @cache.memoize(timeout=30)
+    @staticmethod
     def get_db_metrics() -> Dict[str, Any]:
         """Collect database performance metrics."""
         try:
             with db.engine.connect() as conn:
+                # Get database metrics
+                db_size = conn.execute(text(
+                    "SELECT pg_size_pretty(pg_database_size(current_database()))"
+                )).scalar()
+
+                active_connections = conn.execute(text(
+                    "SELECT count(*) FROM pg_stat_activity"
+                )).scalar()
+
+                deadlocks = conn.execute(text(
+                    "SELECT deadlocks FROM pg_stat_database WHERE datname = current_database()"
+                )).scalar()
+
+                # Access pool status through correct attributes
+                connection_pool = db.engine.pool
+                pool_status = {}
+
+                if hasattr(connection_pool, 'status') and callable(connection_pool.status):
+                    pool_status = connection_pool.status()
+
+                # Safely access pool status with proper error handling
                 return {
-                    'database_size': conn.execute(text(
-                        "SELECT pg_size_pretty(pg_database_size(current_database()))"
-                    )).scalar(),
-                    'active_connections': conn.execute(text(
-                        "SELECT count(*) FROM pg_stat_activity"
-                    )).scalar(),
-                    'deadlocks': conn.execute(text(
-                        "SELECT deadlocks FROM pg_stat_database WHERE datname = current_database()"
-                    )).scalar(),
-                    'pool_size': db.engine.pool.size(),
-                    'in_use': db.engine.pool.checkedout()
+                    'database_size': db_size,
+                    'active_connections': active_connections,
+                    'deadlocks': deadlocks,
+                    'pool_size': pool_status['size'] if isinstance(pool_status, dict) and 'size' in pool_status else 0,
+                    'in_use': pool_status['checkedin'] if isinstance(pool_status, dict) and 'checkedin' in pool_status else 0
                 }
         except Exception as e:
             raise DatabaseMetrics.MetricsError(f"Database metrics error: {e}") from e
@@ -90,9 +108,26 @@ class ApplicationMetrics:
 
     @staticmethod
     @cache.memoize(timeout=60)
+    @staticmethod
+    @cache.memoize(timeout=60)
     def get_app_metrics() -> Dict[str, Any]:
         """Collect application-specific metrics."""
         try:
+            # Access metrics directly or use appropriate method instead of get_metric
+            # PrometheusMetrics doesn't have get_metric method
+            metric_request_data = 0
+            metric_error_data = 0
+
+            # Try to access metrics if they exist in the metrics registry
+            if hasattr(metrics, 'registry'):
+                for metric in metrics.registry.collect():
+                    if metric.name == 'requests_total':
+                        for sample in metric.samples:
+                            metric_request_data += sample.value
+                    if metric.name == 'errors_total':
+                        for sample in metric.samples:
+                            metric_error_data += sample.value
+
             return {
                 'total_users': User.query.count(),
                 'active_users': User.query.filter(
@@ -100,8 +135,8 @@ class ApplicationMetrics:
                 ).count(),
                 'uptime': str(datetime.utcnow() - current_app.uptime),
                 'version': current_app.config.get('VERSION', '1.0.0'),
-                'requests_total': metrics.get_metric('requests_total', 0),
-                'errors_total': metrics.get_metric('errors_total', 0)
+                'requests_total': metric_request_data,
+                'errors_total': metric_error_data
             }
         except Exception as e:
             raise ApplicationMetrics.MetricsError(f"Application metrics error: {e}") from e
@@ -144,13 +179,13 @@ def get_all_metrics() -> Dict[str, Any]:
             'environment': EnvironmentalData.get_env_metrics(),
             'timestamp': datetime.utcnow().isoformat()
         }
-        metrics.increment('metrics_collection_success')
+        metrics.info('metrics_collection_success', 1)
         return metrics_data
 
     except (SystemMetrics.MetricsError, DatabaseMetrics.MetricsError,
             EnvironmentalData.MetricsError, ApplicationMetrics.MetricsError) as e:
         current_app.logger.error(f"Metrics collection error: {e}")
-        metrics.increment('metrics_collection_error', {'type': e.error_code})
+        metrics.info('metrics_collection_error', 1, labels={'type': e.error_code})
         return {
             'error': str(e),
             'code': e.error_code,
@@ -159,7 +194,7 @@ def get_all_metrics() -> Dict[str, Any]:
 
     except (psutil.Error, AttributeError, KeyError, TypeError, RuntimeError) as e:
         current_app.logger.error(f"Unexpected metrics error: {e}")
-        metrics.increment('metrics_collection_error', {'type': 'unknown'})
+        metrics.info('metrics_collection_error', 1, labels={'type': 'unknown'})
         return {
             'error': str(e),
             'timestamp': datetime.utcnow().isoformat()

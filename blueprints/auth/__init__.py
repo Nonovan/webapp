@@ -13,7 +13,7 @@ auth_bp = Blueprint(
 def before_request() -> None:
     """Setup request context and tracking."""
     g.start_time = datetime.utcnow()
-    metrics.increment('auth_requests_total', {
+    metrics.info('auth_requests_total', 1, labels={
         'method': request.method,
         'endpoint': request.endpoint,
         'user_id': session.get('user_id', 'anonymous')
@@ -30,11 +30,11 @@ def unauthorized_error(_error) -> tuple[dict[str, str], int]:
             'user_id': session.get('user_id')
         }
     )
-    metrics.increment('auth_unauthorized_total')
+    metrics.info('auth_unauthorized_total', 1)
     return {'error': 'Unauthorized access'}, 401
 
 @auth_bp.app_errorhandler(403)
-def forbidden_error() -> tuple[dict[str, str], int]:
+def forbidden_error(_error) -> tuple[dict[str, str], int]:
     """Handle forbidden access attempts."""
     current_app.logger.warning(
         'Forbidden access',
@@ -44,15 +44,22 @@ def forbidden_error() -> tuple[dict[str, str], int]:
             'user_id': session.get('user_id')
         }
     )
-    metrics.increment('auth_forbidden_total')
+    metrics.info('auth_forbidden_total', 1)
     return {'error': 'Forbidden access'}, 403
 
 @auth_bp.teardown_request
 def teardown_request(exc) -> None:
-    """Cleanup after request."""
+    """Cleanup after request and record error metrics if an exception occurred."""
     if exc:
         db.session.rollback()
-        metrics.increment('auth_errors_total', {
+        metrics.info('auth_errors_total', 1, labels={
             'type': exc.__class__.__name__
         })
     db.session.remove()
+
+    # Calculate request duration if start time was recorded
+    if hasattr(g, 'start_time'):
+        duration = (datetime.utcnow() - g.start_time).total_seconds()
+        metrics.info('auth_request_duration_seconds', duration, labels={
+            'endpoint': request.endpoint
+        })

@@ -7,10 +7,10 @@ from models.user import User
 
 def seed_database() -> bool:
     """Seed database with initial data.
-    
+
     Returns:
         bool: True if seeding was successful, False if already seeded
-        
+
     Raises:
         Exception: If seeding fails
     """
@@ -22,30 +22,28 @@ def seed_database() -> bool:
 
         with click.progressbar(length=2, label='Seeding database') as bar_line:
             # Create admin user
-            admin = User(
-                username="admin",
-                email="admin@example.com", 
-                role="admin",
-                status="active",
-                created_at=datetime.utcnow()
-            )
+            admin = User()
+            admin.username = "admin"
+            admin.email = "admin@example.com"
+            admin.role = "admin"
+            admin.status = "active"
+            admin.created_at = datetime.utcnow()
             admin.set_password("AdminPass123!")
             db.session.add(admin)
             bar_line.update(1)
 
             # Create test users
-            test_users: List[User] = [
-                User(
-                    username=f"user{i}",
-                    email=f"user{i}@example.com",
-                    role="user",
-                    status="active", 
-                    created_at=datetime.utcnow() - timedelta(days=i)
-                ) for i in range(1, 4)
-            ]
-            
-            for user in test_users:
+            test_users: List[User] = []
+            for i in range(1, 4):
+                user = User()
+                user.username = f"user{i}"
+                user.email = f"user{i}@example.com"
+                user.role = "user"
+                user.status = "active"
+                user.created_at = datetime.utcnow() - timedelta(days=i)
                 user.set_password("UserPass123!")
+                test_users.append(user)
+
             db.session.add_all(test_users)
             bar_line.update(1)
 

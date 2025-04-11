@@ -69,15 +69,26 @@ class BaseModel(db.Model, TimestampMixin):
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert model to dictionary with relationships."""
-        data = {
-            c.name: getattr(self, c.name)
-            for c in self.__table__.columns
-        }
-        for rel in self.__mapper__.relationships:
-            if hasattr(self, rel.key):
-                data[rel.key] = [
-                    item.to_dict() for item in getattr(self, rel.key)
-                ]
+        data = {}
+        # Use introspection methods that are guaranteed to exist at runtime
+        # instead of directly accessing private attributes
+        for c in db.inspect(self).mapper.column_attrs:
+            data[c.key] = getattr(self, c.key)
+
+        # Handle relationships safely
+        for rel_name, _ in db.inspect(self).mapper.relationships.items():
+            if hasattr(self, rel_name):
+                rel_data = getattr(self, rel_name)
+                # Handle both collections and scalar relationships
+                if rel_data is None:
+                    data[rel_name] = None
+                elif hasattr(rel_data, 'to_dict'):  # Single object
+                    data[rel_name] = rel_data.to_dict()
+                else:  # Collection of objects
+                    data[rel_name] = [
+                        item.to_dict() for item in rel_data
+                        if hasattr(item, 'to_dict')
+                    ]
         return data
 
     @classmethod

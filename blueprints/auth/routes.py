@@ -1,6 +1,7 @@
 from datetime import datetime
-from typing import Union
-from flask import Blueprint, Response, request, render_template, flash, redirect, url_for, session, current_app
+from typing import Union, cast
+from flask import Blueprint, Response, request, render_template, flash, url_for, session, current_app
+from flask import redirect as flask_redirect
 from models import User
 from extensions import db, limiter
 
@@ -19,7 +20,7 @@ def login() -> Union[str, Response]:
 
     if not username or not password:
         flash("Username and password are required", "error")
-        return render_template("auth/login.html"), 400
+        return Response(render_template("auth/login.html"), status=400)
 
     try:
         user = User.query.filter_by(username=username).first()
@@ -31,7 +32,7 @@ def login() -> Union[str, Response]:
                     return render_template("auth/login.html", requires_2fa=True)
                 if not user.verify_totp(totp_code):
                     flash("Invalid 2FA code", "error")
-                    return render_template("auth/login.html", requires_2fa=True), 401
+                    return Response(render_template("auth/login.html", requires_2fa=True), status=401)
 
             # Login successful
             session['user_id'] = user.id
@@ -44,21 +45,22 @@ def login() -> Union[str, Response]:
             db.session.commit()
 
             current_app.logger.info(f"User {username} logged in successfully")
-            return redirect(url_for('main.home'))
+            # Fix the return type to match the Union[str, Response] annotation
+            return cast(Union[str, Response], flask_redirect(url_for('main.home')))
 
         flash("Invalid credentials", "error")
         current_app.logger.warning(f"Failed login attempt for user: {username}")
-        return render_template("auth/login.html"), 401
+        return Response(render_template("auth/login.html"), status=401)
 
     except db.SQLAlchemyError as e:
         current_app.logger.error(f"Database error during login: {str(e)}")
         flash("A database error occurred. Please try again later.", "error")
-        return render_template("auth/login.html"), 500
+        return Response(render_template("auth/login.html"), status=500)
     except ValueError as e:
         current_app.logger.error(f"Value error during login: {str(e)}")
         flash("A value error occurred. Please try again later.", "error")
-        return render_template("auth/login.html"), 500
+        return Response(render_template("auth/login.html"), status=500)
     except RuntimeError as e:
         current_app.logger.error(f"Runtime error during login: {str(e)}")
         flash("A runtime error occurred. Please try again later.", "error")
-        return render_template("auth/login.html"), 500
+        return Response(render_template("auth/login.html"), status=500)
