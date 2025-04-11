@@ -1,3 +1,20 @@
+"""
+Test fixtures for the myproject application.
+
+This module provides a collection of pytest fixtures used across the test suite,
+enabling consistent test setup and dependency injection. These fixtures include:
+
+- Application configuration and initialization
+- Database setup and teardown
+- User authentication with different roles
+- JWT token generation for API testing
+- Mock data generation for various test scenarios
+- Test client configuration
+
+The fixtures are designed to be composable, allowing tests to request only the
+dependencies they need while maintaining isolation between test cases.
+"""
+
 from typing import Dict, Any
 from datetime import datetime, timedelta
 import jwt
@@ -8,7 +25,13 @@ from models.user import User
 
 @pytest.fixture
 def test_app() -> Any:
-    """Create test application instance."""
+    """
+    Create test application instance.
+
+    Returns:
+        Flask application configured for testing with an in-memory SQLite database
+        and test-specific configuration settings.
+    """
     app = create_app('testing')
     app.config.update({
         'TESTING': True,
@@ -28,20 +51,38 @@ def test_app() -> Any:
 
 @pytest.fixture
 def test_client(app_instance) -> Any:
-    """Create test client."""
+    """
+    Create Flask test client.
+
+    Args:
+        app_instance: Flask application fixture
+
+    Returns:
+        Flask test client for making requests in tests
+    """
     return app_instance.test_client()
 
 @pytest.fixture
 def test_db() -> Any:
-    """Create test database."""
+    """
+    Provide a database instance for testing.
+
+    Returns:
+        SQLAlchemy database instance ready for testing
+    """
     return db
 
 @pytest.fixture
-@pytest.fixture
-@pytest.fixture
-@pytest.fixture
 def test_user(database) -> Any:
-    """Create test user."""
+    """
+    Create a standard test user in the database.
+
+    Args:
+        database: SQLAlchemy database instance
+
+    Returns:
+        User: A user instance with 'user' role
+    """
     # Create user based on actual User model parameters
     user = User()
     user.username = 'testuser'
@@ -55,7 +96,16 @@ def test_user(database) -> Any:
 
 @pytest.fixture
 def auth_token_with_role(app_instance, user_fixture) -> Any:
-    """Generate authentication token with role."""
+    """
+    Generate authentication token with user role information.
+
+    Args:
+        app_instance: Flask application fixture
+        user_fixture: User model instance
+
+    Returns:
+        str: JWT token with user ID and role claims
+    """
     token = jwt.encode(
         {
             'user_id': user_fixture.id,
@@ -69,6 +119,15 @@ def auth_token_with_role(app_instance, user_fixture) -> Any:
 
 @pytest.fixture
 def auth_headers_with_token(auth_token) -> dict:
+    """
+    Create authentication headers with bearer token.
+
+    Args:
+        auth_token: JWT authentication token
+
+    Returns:
+        dict: HTTP headers dictionary with Authorization and Content-Type
+    """
     return {
         'Authorization': f'Bearer {auth_token}',
         'Content-Type': 'application/json'
@@ -76,6 +135,12 @@ def auth_headers_with_token(auth_token) -> dict:
 
 @pytest.fixture
 def basic_mock_data() -> dict:
+    """
+    Provide basic mock data for testing.
+
+    Returns:
+        dict: Sample data structure with users and system metrics
+    """
     return {
         'users': [
             {'username': 'user1', 'email': 'user1@example.com'},
@@ -89,9 +154,16 @@ def basic_mock_data() -> dict:
     }
 
 @pytest.fixture
-@pytest.fixture
 def admin_user_with_database(database) -> User:
-    """Create an admin user with database access for testing."""
+    """
+    Create an admin user with database access for testing.
+
+    Args:
+        database: SQLAlchemy database instance
+
+    Returns:
+        User: User instance with 'admin' role
+    """
     user = User()
     user.username = 'admin'
     user.email = 'admin@example.com'
@@ -104,6 +176,12 @@ def admin_user_with_database(database) -> User:
 
 @pytest.fixture
 def mock_metrics() -> dict:
+    """
+    Provide mock system metrics data.
+
+    Returns:
+        dict: Sample metrics data with CPU, memory and disk usage values
+    """
     return {
         'cpu_usage': 45.2,
         'memory_usage': 62.8,
@@ -112,6 +190,15 @@ def mock_metrics() -> dict:
 
 @pytest.fixture
 def api_headers(auth_token) -> dict:
+    """
+    Create headers for API requests.
+
+    Args:
+        auth_token: JWT authentication token
+
+    Returns:
+        dict: HTTP headers for authenticated API requests
+    """
     return {
         'Authorization': f'Bearer {auth_token}',
         'Content-Type': 'application/json'
@@ -119,7 +206,18 @@ def api_headers(auth_token) -> dict:
 
 @pytest.fixture
 def auth_token_without_role(app_instance, user_fixture) -> Any:
-    """Generate authentication token without role."""
+    """
+    Generate authentication token without role information.
+
+    Creates a token with only user ID for testing role-specific access controls.
+
+    Args:
+        app_instance: Flask application fixture
+        user_fixture: User model instance
+
+    Returns:
+        str: JWT token with user ID but no role claim
+    """
     token = jwt.encode(
         {
             'user_id': user_fixture.id,
@@ -132,6 +230,15 @@ def auth_token_without_role(app_instance, user_fixture) -> Any:
 
 @pytest.fixture
 def auth_headers(auth_token) -> dict:
+    """
+    Create standard authentication headers.
+
+    Args:
+        auth_token: JWT authentication token
+
+    Returns:
+        dict: HTTP headers with Authorization and Content-Type
+    """
     return {
         'Authorization': f'Bearer {auth_token}',
         'Content-Type': 'application/json'
@@ -139,6 +246,12 @@ def auth_headers(auth_token) -> dict:
 
 @pytest.fixture
 def mock_data() -> dict:
+    """
+    Provide comprehensive mock data for testing.
+
+    Returns:
+        dict: Detailed mock data structure with users, system metrics, and database information
+    """
     return {
         'users': [
             {'username': 'user1', 'email': 'user1@example.com', 'role': 'user'},
@@ -172,7 +285,12 @@ def mock_data() -> dict:
 
 @pytest.fixture
 def mock_system_metrics() -> Dict[str, Any]:
-    """System metrics test data."""
+    """
+    Provide detailed system metrics test data.
+
+    Returns:
+        Dict[str, Any]: System metrics including CPU, memory, and disk information
+    """
     return {
         'cpu': {
             'usage': 45.2,
@@ -193,7 +311,12 @@ def mock_system_metrics() -> Dict[str, Any]:
 
 @pytest.fixture
 def mock_db_metrics() -> Dict[str, Any]:
-    """Database metrics test data."""
+    """
+    Provide database metrics test data.
+
+    Returns:
+        Dict[str, Any]: Database metrics including connection counts and performance statistics
+    """
     return {
         'connections': 5,
         'active_queries': 3,
@@ -202,9 +325,16 @@ def mock_db_metrics() -> Dict[str, Any]:
     }
 
 @pytest.fixture
-@pytest.fixture
 def admin_user(database) -> User:
-    """Create admin user fixture."""
+    """
+    Create admin user fixture.
+
+    Args:
+        database: SQLAlchemy database instance
+
+    Returns:
+        User: User instance with 'admin' role
+    """
     user = User()
     user.username = 'admin'
     user.email = 'admin@example.com'
@@ -216,9 +346,16 @@ def admin_user(database) -> User:
     return user
 
 @pytest.fixture
-@pytest.fixture
 def operator_user(database) -> User:
-    """Create operator user fixture."""
+    """
+    Create operator user fixture.
+
+    Args:
+        database: SQLAlchemy database instance
+
+    Returns:
+        User: User instance with 'operator' role for testing operator-specific functionality
+    """
     user = User()
     user.username = 'operator'
     user.email = 'operator@example.com'

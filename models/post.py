@@ -1,3 +1,21 @@
+"""
+Post model module for content management in myproject.
+
+This module defines the Post model which represents blog posts, articles,
+announcements and other content items in the system. It provides functionality
+for content creation, publication, and management with features including:
+
+- Slug generation for SEO-friendly URLs
+- Publication status tracking (draft, published, archived)
+- View counting and analytics
+- Post categorization and type management
+- Content search capabilities
+- User relationship mapping for authorship
+
+The Post model extends the BaseModel to leverage common functionality like
+timestamp tracking and CRUD operations while adding content-specific features.
+"""
+
 from datetime import datetime
 from typing import List
 from . import db, BaseModel
@@ -76,6 +94,20 @@ class Post(BaseModel):
 
     def to_dict(self) -> dict:
         """Convert post to dictionary."""
+        published_at_iso = None
+        if self.published_at:
+            if isinstance(self.published_at, datetime):
+                published_at_iso = self.published_at.isoformat()
+            else:
+                published_at_iso = str(self.published_at)
+
+        created_at_iso = None
+        if hasattr(self, 'created_at') and self.created_at:
+            if isinstance(self.created_at, datetime):
+                created_at_iso = self.created_at.isoformat()
+            else:
+                created_at_iso = str(self.created_at)
+
         return {
             'id': self.id,
             'title': self.title,
@@ -85,8 +117,8 @@ class Post(BaseModel):
             'views': self.views,
             'featured': self.featured,
             'author': self.user.username,
-            'created_at': self.created_at.isoformat(),
-            'published_at': self.published_at.isoformat() if self.published_at else None
+            'created_at': created_at_iso,
+            'published_at': published_at_iso
         }
 
     def __repr__(self) -> str:

@@ -1,8 +1,17 @@
 """
 Flask extensions module for the myproject application.
 
-This module initializes and configures all Flask extensions used throughout the application.
-It includes database connections, security measures, caching, email services, and monitoring tools.
+This module initializes and configures all Flask extensions used throughout the application,
+establishing the core infrastructure components needed for the application to function.
+It includes:
+- Database connections and migrations (SQLAlchemy, Alembic)
+- Security features (CSRF protection, rate limiting, CORS)
+- Caching infrastructure (Redis)
+- Email and session handling
+- Metrics collection and reporting (Prometheus)
+
+All extensions are instantiated here but configured and initialized during application
+factory setup. This separation allows for proper context binding and testing isolation.
 """
 
 from typing import Dict, Any

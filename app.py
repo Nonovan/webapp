@@ -1,3 +1,22 @@
+"""
+Main application entry point for the myproject Flask application.
+
+This module handles the application initialization, configuration loading,
+and environment validation. It serves as the WSGI entry point and provides
+CLI commands for administrative tasks.
+
+The application uses a factory pattern for initialization to allow for
+proper extension setup and blueprint registration. Security checks are
+performed before initialization to ensure proper configuration.
+
+Key responsibilities:
+- Environment validation for security-critical variables
+- Application logging setup
+- Blueprint registration for routing
+- Database initialization commands
+- Application startup sequence
+"""
+
 import logging
 import os
 from flask import Flask
@@ -13,7 +32,7 @@ from extensions import db
 # Security constants
 REQUIRED_ENV_VARS = [
     'SECRET_KEY',
-    'DATABASE_URL', 
+    'DATABASE_URL',
     'JWT_SECRET_KEY',
     'CSRF_SECRET_KEY',
     'SESSION_KEY'

@@ -1,3 +1,24 @@
+"""
+User model module for authentication and authorization in myproject.
+
+This module defines the User model which serves as the foundation for the application's
+authentication and authorization system. It provides robust functionality for:
+
+- Secure password management with hashing and verification
+- Role-based access control (user, admin, operator roles)
+- JWT token generation and validation for API authentication
+- Two-factor authentication support
+- Account status management (pending, active, inactive, suspended)
+- User profile information storage
+- Login tracking and security monitoring
+- Password reset capabilities
+
+The User model implements security best practices including proper password hashing,
+token expiration, and protection against common authentication vulnerabilities.
+It serves as the central component for user identity and access management throughout
+the application.
+"""
+
 from datetime import datetime, timedelta
 from typing import Optional
 import uuid

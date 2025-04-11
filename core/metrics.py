@@ -1,9 +1,19 @@
 """
-Metrics management module for the application.
+Application metrics collection and monitoring system.
 
-This module provides functionality for recording, tracking, and collecting various metrics
-related to HTTP requests, system resources, database performance, and application functions.
-It integrates with Prometheus for storing and exposing metrics data.
+This module provides a comprehensive metrics collection framework for monitoring
+application performance, resource usage, and error conditions. It integrates with
+Prometheus for metrics storage and visualization.
+
+Key features:
+- HTTP request and endpoint-specific metrics collection
+- Function execution timing and error tracking via decorators
+- System resource monitoring (CPU, memory, disk, network)
+- Database performance metrics collection
+- Integration with Flask and SQLAlchemy for application-level metrics
+
+These metrics enable real-time monitoring, alerting, and performance optimization
+based on actual usage patterns and system behavior.
 """
 
 from datetime import datetime
