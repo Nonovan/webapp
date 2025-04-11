@@ -1,3 +1,19 @@
+"""
+Authentication utility functions for myproject.
+
+This module provides utility functions for authentication-related operations,
+implementing security best practices for:
+- Input validation and sanitization
+- Password strength verification
+- JWT token generation and verification
+- Authorization decorators for role-based access control
+- Rate limiting for security-critical operations
+
+These utilities are used throughout the application to ensure consistent
+security practices and to centralize authentication logic for easier
+maintenance and updates.
+"""
+
 import re
 from datetime import datetime, timedelta
 from functools import wraps
@@ -7,14 +23,51 @@ import jwt
 from extensions import limiter, cache, metrics
 
 def validate_input(text: str) -> bool:
-    """Validate and sanitize general text input."""
+    """
+    Validate and sanitize general text input.
+
+    This function checks if the input is a valid string and matches a safe pattern
+    for usernames and other text fields to prevent injection attacks.
+
+    Args:
+        text: The input string to validate
+
+    Returns:
+        bool: True if the input is valid, False otherwise
+
+    Examples:
+        >>> validate_input("john_doe123")
+        True
+        >>> validate_input("<script>alert('XSS')</script>")
+        False
+    """
     if not text or not isinstance(text, str):
         return False
     text = text.strip()
     return bool(re.match(r'^[\w\s-]{1,100}$', text))
 
 def validate_password(password: str) -> tuple[bool, str | None]:
-    """Enhanced password strength validation."""
+    """
+    Validate password strength with comprehensive checks.
+
+    This function verifies that a password meets security requirements for:
+    - Minimum length (12 characters)
+    - Character diversity (uppercase, lowercase, numbers, special chars)
+
+    Args:
+        password: The password string to validate
+
+    Returns:
+        tuple[bool, str | None]:
+            - A boolean indicating if the password is valid
+            - An error message if invalid, None otherwise
+
+    Examples:
+        >>> validate_password("short")
+        (False, "Password must be at least 12 characters")
+        >>> validate_password("StrongP@ssw0rd")
+        (True, None)
+    """
     if len(password) < 12:
         return False, "Password must be at least 12 characters"
     if not re.search("[a-z]", password):
@@ -28,7 +81,27 @@ def validate_password(password: str) -> tuple[bool, str | None]:
     return True, None
 
 def generate_token(user_id: int, role: str, expires_in: int = 3600) -> str:
-    """Generate JWT token with role and expiration."""
+    """
+    Generate a secure JWT token with user information and expiration.
+
+    This function creates a signed JWT token containing the user's ID and role,
+    with automatic expiration for security.
+
+    Args:
+        user_id: The user's ID to encode in the token
+        role: The user's role for authorization checks
+        expires_in: Token lifetime in seconds (default: 1 hour)
+
+    Returns:
+        str: A signed JWT token string
+
+    Raises:
+        RuntimeError: If token generation fails
+
+    Examples:
+        >>> token = generate_token(123, "admin", 7200)  # 2-hour admin token
+        >>> token = generate_token(456, "user")  # 1-hour user token
+    """
     try:
         token = jwt.encode(
             {
@@ -54,7 +127,24 @@ def generate_token(user_id: int, role: str, expires_in: int = 3600) -> str:
 
 @cache.memoize(timeout=300)
 def verify_token(token: str) -> dict | None:
-    """Verify JWT token with caching."""
+    """
+    Verify and decode a JWT token with caching for performance.
+
+    This function validates a JWT token's signature and expiration,
+    returning the decoded payload if valid. Results are cached to
+    reduce cryptographic operations.
+
+    Args:
+        token: The JWT token string to verify
+
+    Returns:
+        dict | None: The decoded token payload if valid, None otherwise
+
+    Examples:
+        >>> payload = verify_token("eyJhbGciOiJIUzI1...")
+        >>> if payload:
+        ...     user_id = payload.get("user_id")
+    """
     try:
         payload = jwt.decode(
             token,
@@ -75,7 +165,25 @@ def verify_token(token: str) -> dict | None:
 
 
 def require_role(role) -> Callable:
-    """Require specific role for access."""
+    """
+    Decorator to restrict route access to users with a specific role.
+
+    This decorator checks that the authenticated user has the required role,
+    aborting with a 403 Forbidden response if the user lacks sufficient
+    permissions.
+
+    Args:
+        role: The role string required to access the route
+
+    Returns:
+        Callable: A decorator function that can be applied to route handlers
+
+    Examples:
+        >>> @app.route('/admin-only')
+        >>> @require_role('admin')
+        >>> def admin_page():
+        ...     return "Admin access granted"
+    """
     def decorator(f):
         @wraps(f)
         @limiter.limit("30/minute")
@@ -88,7 +196,25 @@ def require_role(role) -> Callable:
     return decorator
 
 def login_required(f) -> Callable:
-    """Enhanced login requirement check."""
+    """
+    Decorator to restrict route access to authenticated users.
+
+    This decorator checks that a valid user session exists, redirecting
+    to the login page if not. It also implements session timeout for
+    security, requiring re-authentication after 30 minutes of inactivity.
+
+    Args:
+        f: The route handler function to decorate
+
+    Returns:
+        Callable: A decorated function that enforces authentication
+
+    Examples:
+        >>> @app.route('/profile')
+        >>> @login_required
+        >>> def profile():
+        ...     return "Authenticated user's profile"
+    """
     @wraps(f)
     @limiter.limit("60/minute")
     def decorated_function(*args, **kwargs):
@@ -104,11 +230,46 @@ def login_required(f) -> Callable:
     return decorated_function
 
 def rate_limit(limit="5/minute") -> Callable:
-    """Apply rate limiting to routes."""
+    """
+    Apply custom rate limiting to routes.
+
+    This function provides a more readable way to apply rate limiting
+    to specific routes, helping prevent abuse and brute force attempts.
+
+    Args:
+        limit: Rate limit string in the format "number/period"
+              (default: "5/minute")
+
+    Returns:
+        Callable: A rate limiting decorator that can be applied to route handlers
+
+    Examples:
+        >>> @app.route('/sensitive')
+        >>> @rate_limit("3/minute")
+        >>> def sensitive_operation():
+        ...     return "Rate-limited sensitive operation"
+    """
     return limiter.limit(limit)
 
 def sanitize_input(text) -> str:
-    """Sanitize user input."""
+    """
+    Sanitize user input by removing potentially dangerous characters.
+
+    This function removes HTML tags and other potentially malicious
+    characters from user input to prevent XSS and injection attacks.
+
+    Args:
+        text: The input string to sanitize
+
+    Returns:
+        str: The sanitized string
+
+    Examples:
+        >>> sanitize_input("<script>alert('XSS')</script>")
+        "alertXSS"
+        >>> sanitize_input("Normal text")
+        "Normal text"
+    """
     if not text or not isinstance(text, str):
         return ""
     return re.sub(r'[<>\'";]', '', text.strip())

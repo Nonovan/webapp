@@ -33,6 +33,14 @@ def record_request_metrics() -> None:
 
     Increments the http_requests_total counter with labels for the
     current request method and endpoint name.
+
+    Returns:
+        None: This function records metrics as a side effect
+
+    Example:
+        @app.before_request
+        def before_request():
+            record_request_metrics()
     """
     metrics.info('http_requests_total', 1, labels={
         'method': request.method,
@@ -46,6 +54,14 @@ def record_endpoint_metrics() -> None:
 
     Increments the http_requests_by_endpoint_total counter with labels
     for the current request method, path, and endpoint name.
+
+    Returns:
+        None: This function records metrics as a side effect
+
+    Example:
+        @app.before_request
+        def before_request():
+            record_endpoint_metrics()
     """
     metrics.info('http_requests_by_endpoint_total', 1, labels={
         'method': request.method,
@@ -63,7 +79,16 @@ def record_error_metrics(error: Exception) -> None:
 
     Args:
         error (Exception): The exception that occurred. Expected to have a 'code'
-                          attribute. If 'code' is missing, defaults to 500.
+                           attribute. If 'code' is missing, defaults to 500.
+
+    Returns:
+        None: This function records metrics as a side effect
+
+    Example:
+        @app.errorhandler(404)
+        def page_not_found(error):
+            record_error_metrics(error)
+            return "Page not found", 404
     """
     metrics.info('http_errors_total', 1, labels={
         'method': request.method,
@@ -130,6 +155,9 @@ class SystemMetrics:
         """
         Collect current system resource metrics.
 
+        Gathers CPU usage, memory utilization, disk space, and network statistics
+        from the host system to provide a comprehensive view of resource utilization.
+
         Returns:
             Dict[str, Any]: Dictionary containing various system metrics including:
                 - CPU usage percentage
@@ -137,6 +165,10 @@ class SystemMetrics:
                 - Disk usage percentage for root partition
                 - Network I/O stats (bytes sent/received)
                 - Current timestamp
+
+        Example:
+            metrics = SystemMetrics.get_system_metrics()
+            print(f"CPU usage: {metrics['cpu_usage']}%")
         """
         return {
             'cpu_usage': psutil.cpu_percent(),
@@ -163,6 +195,10 @@ class DatabaseMetrics:
         """
         Collect current database performance metrics.
 
+        Queries the database for performance statistics including connection counts,
+        query execution times, and cache effectiveness to monitor database health
+        and performance.
+
         Returns:
             Dict[str, Any]: Dictionary containing various database metrics including:
                 - Number of active connections
@@ -172,6 +208,10 @@ class DatabaseMetrics:
 
         Raises:
             No exceptions are raised; errors are caught and reported in the result.
+
+        Example:
+            metrics = DatabaseMetrics.get_db_metrics()
+            print(f"Active connections: {metrics['active_connections']}")
         """
         results = {
             'active_connections': 0,
@@ -224,7 +264,15 @@ class DatabaseMetrics:
 
     @staticmethod
     def _get_active_connections() -> int:
-        """Get the number of active database connections."""
+        """
+        Get the number of active database connections.
+
+        Retrieves the count of currently active database connections from
+        the SQLAlchemy connection pool.
+
+        Returns:
+            int: Number of active database connections
+        """
         try:
             if hasattr(db.engine, 'pool') and hasattr(db.engine.pool, 'status'):
                 pool_status = db.engine.pool.status()
@@ -236,7 +284,15 @@ class DatabaseMetrics:
 
     @staticmethod
     def _get_query_statistics():
-        """Get query statistics from pg_stat_statements."""
+        """
+        Get query statistics from pg_stat_statements.
+
+        Retrieves query execution statistics from the PostgreSQL
+        pg_stat_statements extension if available.
+
+        Returns:
+            Row: Database row with query statistics or None if unavailable
+        """
         try:
             return db.session.execute("""
                 SELECT
@@ -256,7 +312,15 @@ class DatabaseMetrics:
 
     @staticmethod
     def _get_slow_queries() -> int:
-        """Get count of slow queries (execution time > 1000ms)."""
+        """
+        Get count of slow queries (execution time > 1000ms).
+
+        Counts queries that have taken longer than 1 second to execute,
+        which may indicate performance issues.
+
+        Returns:
+            int: Number of slow queries detected
+        """
         try:
             return db.session.execute("""
                 SELECT COUNT(*)
@@ -270,7 +334,15 @@ class DatabaseMetrics:
 
     @staticmethod
     def _get_error_count() -> int:
-        """Get transaction rollback count as a proxy for errors."""
+        """
+        Get transaction rollback count as a proxy for errors.
+
+        Retrieves the count of transaction rollbacks, which generally
+        indicate query errors or application exceptions.
+
+        Returns:
+            int: Number of transaction rollbacks
+        """
         try:
             return db.session.execute("""
                 SELECT sum(xact_rollback)
@@ -283,7 +355,15 @@ class DatabaseMetrics:
 
     @staticmethod
     def _get_table_sizes() -> Dict[str, str]:
-        """Get table sizes for all user tables."""
+        """
+        Get table sizes for all user tables.
+
+        Retrieves the size information for all tables in the current database,
+        which helps identify large tables that may need optimization.
+
+        Returns:
+            Dict[str, str]: Dictionary mapping table names to their formatted sizes
+        """
         try:
             table_sizes_result = db.session.execute("""
                 SELECT relname, pg_size_pretty(pg_total_relation_size(relname::regclass))
@@ -296,7 +376,18 @@ class DatabaseMetrics:
 
     @staticmethod
     def _calculate_cache_hit_ratio(query_stats) -> float:
-        """Calculate the cache hit ratio from query statistics."""
+        """
+        Calculate the cache hit ratio from query statistics.
+
+        Computes the percentage of database block reads that were satisfied
+        from the shared buffer cache, which indicates caching effectiveness.
+
+        Args:
+            query_stats: Row object containing query statistics
+
+        Returns:
+            float: Cache hit ratio as a percentage (0-100)
+        """
         try:
             shared_blks_hit = getattr(query_stats, 'shared_blks_hit', 0) or 0
             shared_blks_read = getattr(query_stats, 'shared_blks_read', 0) or 0

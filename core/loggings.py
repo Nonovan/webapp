@@ -1,10 +1,22 @@
-"""Logging configuration module.
+"""
+Logging configuration module for myproject.
 
-This module provides logging setup for the application, including:
-- Console logging with request context
-- JSON file logging with rotation
-- Security event logging
-- Sentry integration for error tracking
+This module provides a comprehensive logging system for the application with
+features such as structured JSON logging, log rotation, security event tracking,
+and integration with error monitoring services like Sentry.
+
+The logging system is designed to facilitate application monitoring, debugging,
+and auditing by capturing detailed contextual information with each log entry,
+including request IDs, user IDs, IP addresses, and timestamps with proper timezone
+information.
+
+Key features include:
+- Structured JSON logs for machine parsing and analysis
+- Console output for development environments
+- File-based logging with size-based rotation
+- Separate error and security event logs
+- Integration with Sentry for error tracking
+- Request context enrichment
 """
 
 import logging
@@ -17,14 +29,46 @@ from flask import Flask, request, g
 import sentry_sdk
 
 def setup_app_loggings(app: Flask) -> None:
-    """Configure centralized application logging."""
+    """
+    Configure centralized application logging.
 
+    This function sets up a comprehensive logging system for the Flask application,
+    including file handlers with rotation, console output, structured JSON formatting,
+    and Sentry integration for error tracking.
+
+    Args:
+        app (Flask): The Flask application instance to configure logging for
+
+    Returns:
+        None: This function configures the application's logging system in-place
+
+    Example:
+        app = Flask(__name__)
+        setup_app_loggings(app)
+        app.logger.info("Application logging initialized")
+    """
     # Create logs directory
     log_dir = 'logs'
     os.makedirs(log_dir, exist_ok=True)
 
     class JsonFormatter(logging.Formatter):
+        """
+        Custom formatter that outputs log records as JSON objects.
+
+        This formatter converts log records to structured JSON format with
+        additional context information from the current request and application
+        state, enabling better log parsing and analysis.
+        """
         def format(self, record) -> str:
+            """
+            Format log record as JSON string.
+
+            Args:
+                record: The log record to format
+
+            Returns:
+                str: JSON-formatted log entry
+            """
             log_data: Dict[str, Any] = {
                 'timestamp': datetime.utcnow().isoformat(),
                 'level': record.levelname,
@@ -120,31 +164,40 @@ def setup_app_loggings(app: Flask) -> None:
         )
 
 def get_logger(app: Flask) -> logging.Logger:
-    """Get configured application logger.
+    """
+    Get configured application logger.
+
+    Provides access to the properly configured logger for the application,
+    ensuring consistent logging format and behavior throughout the codebase.
 
     Args:
-        app: Flask application instance
+        app (Flask): Flask application instance
 
     Returns:
         logging.Logger: Configured application logger
 
     Example:
-        >>> logger = get_logger(app)
-        >>> logger.info("Application started")
+        app = Flask(__name__)
+        logger = get_logger(app)
+        logger.info("Application started")
     """
     return app.logger
 
 def get_sentry_client() -> sentry_sdk.Client:
-    """Get configured Sentry client.
+    """
+    Get configured Sentry client.
+
+    Provides access to the Sentry client for additional error reporting
+    or configuration at runtime.
 
     Returns:
         sentry_sdk.Client: Current Sentry client instance or None if not configured
 
-    Example:
-        >>> client = get_sentry_client()
-        >>> client.capture_message("Error occurred")
-
     Raises:
         RuntimeError: If Sentry is not properly configured
+
+    Example:
+        client = get_sentry_client()
+        client.capture_message("Error occurred")
     """
     return sentry_sdk.Hub.current.client

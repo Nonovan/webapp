@@ -1,3 +1,23 @@
+"""
+User model testing module for myproject.
+
+This module contains tests for the User model, verifying its functionality for
+authentication, data validation, and user management operations. The tests ensure
+that the model handles user data correctly, enforces security rules, and maintains
+data integrity.
+
+Areas tested include:
+- Password hashing and verification
+- User creation and database interactions
+- Field validation (email, username, etc.)
+- Login tracking and authentication
+- Token generation and validation
+- Role-based permissions
+
+Each test focuses on specific functionality to provide comprehensive coverage
+of the User model's capabilities and constraints.
+"""
+
 from datetime import datetime
 import time
 import pytest
@@ -6,15 +26,21 @@ from sqlalchemy.orm import Session
 from models import User
 
 class TestUser:
-    """Test suite for User model.
-    
-    Tests user creation, authentication, and data validation.
+    """
+    Test suite for User model functionality.
+
+    This class contains tests for core User model functionality including
+    authentication, data validation, and database operations.
     """
 
     def test_password_hashing(self) -> None:
-        """Test password hashing and verification.
-        
-        Ensures passwords are properly hashed and can be verified.
+        """
+        Test password hashing and verification.
+
+        Verifies that:
+        - Passwords are properly hashed (not stored in plaintext)
+        - Password verification works for correct passwords
+        - Password verification fails for incorrect passwords
         """
         user = User(email='test@example.com')
         user.set_password('SecurePass123!')
@@ -24,9 +50,14 @@ class TestUser:
         assert not user.check_password('wrongpass')
 
     def test_user_creation(self, test_db: Session) -> None:
-        """Test user creation with required fields.
-        
-        Verifies that a user can be created with all required fields.
+        """
+        Test user creation with required fields.
+
+        Verifies that a user can be created with all required fields
+        and that database insertion works correctly.
+
+        Args:
+            test_db: Database session fixture
         """
         user = User(
             username='test',
@@ -46,9 +77,14 @@ class TestUser:
         assert isinstance(user.created_at, datetime)
 
     def test_username_unique(self, test_db: Session) -> None:
-        """Test username uniqueness constraint.
-        
-        Verifies that usernames must be unique.
+        """
+        Test username uniqueness constraint.
+
+        Verifies that the database enforces username uniqueness by
+        raising an exception when attempting to create a duplicate.
+
+        Args:
+            test_db: Database session fixture
         """
         user1 = User(
             username='test',
@@ -66,7 +102,15 @@ class TestUser:
             test_db.session.commit()
 
     def test_invalid_email(self, test_db) -> None:
-        """Test email validation."""
+        """
+        Test email validation.
+
+        Verifies that the model rejects invalid email formats, enforcing
+        email validity rules.
+
+        Args:
+            test_db: Database session fixture
+        """
         invalid_emails = [
             'invalid',
             'user@',
@@ -82,7 +126,15 @@ class TestUser:
                 test_db.session.commit()
 
     def test_role_default(self, test_db) -> None:
-        """Test default role assignment."""
+        """
+        Test default role assignment.
+
+        Verifies that users are assigned the default 'user' role when
+        no explicit role is specified.
+
+        Args:
+            test_db: Database session fixture
+        """
         u = User()
         u.username = 'test'
         test_db.session.add(u)
@@ -90,7 +142,15 @@ class TestUser:
         assert u.role == 'user'
 
 def test_status_transitions(test_db) -> None:
-    """Test user status state transitions."""
+    """
+    Test user status state transitions.
+
+    Verifies that a user's status can be updated through the defined
+    state transitions and that these changes persist to the database.
+
+    Args:
+        test_db: Database session fixture
+    """
     u = User(username='test')
     u.email = 'test@example.com'
     u.status = 'pending'
@@ -111,7 +171,15 @@ def test_status_transitions(test_db) -> None:
     assert u.status == 'suspended'
 
 def test_login_tracking(test_db) -> None:
-    """Test login attempt tracking."""
+    """
+    Test login attempt tracking.
+
+    Verifies that the User model correctly tracks successful and failed
+    login attempts with appropriate timestamps and counters.
+
+    Args:
+        test_db: Database session fixture
+    """
     u = User()
     u.username = 'test'
     u.email = 'test@example.com'
@@ -131,7 +199,15 @@ def test_login_tracking(test_db) -> None:
     assert u.last_failed_login is not None
 
 def test_token_generation(test_db) -> None:
-    """Test token generation and validation."""
+    """
+    Test token generation and validation.
+
+    Verifies that authentication tokens can be generated for users
+    and that these tokens can be verified to retrieve the user.
+
+    Args:
+        test_db: Database session fixture
+    """
     u = User()
     u.username = 'test'
     u.role = 'user'
@@ -147,7 +223,15 @@ def test_token_generation(test_db) -> None:
     assert decoded.role == u.role
 
 def test_token_expiration(test_db) -> None:
-    """Test token expiration."""
+    """
+    Test token expiration.
+
+    Verifies that authentication tokens properly expire after the
+    specified time and cannot be used after expiration.
+
+    Args:
+        test_db: Database session fixture
+    """
     u = User()
     u.username = 'test'
     test_db.session.add(u)
@@ -158,7 +242,12 @@ def test_token_expiration(test_db) -> None:
     assert User.verify_token(token) is None
 
 def test_password_validation() -> None:
-    """Test password strength requirements."""
+    """
+    Test password strength requirements.
+
+    Verifies that the password validation enforces strength requirements
+    including length, character types, and complexity.
+    """
     u = User(email='test@example.com')
 
     with pytest.raises(ValueError):
@@ -174,7 +263,15 @@ def test_password_validation() -> None:
         u.set_password('NoSpecials123')  # No special chars
 
 def test_profile_updates(test_db) -> None:
-    """Test user profile updates."""
+    """
+    Test user profile updates.
+
+    Verifies that user profile attributes can be updated and that
+    these changes persist correctly to the database.
+
+    Args:
+        test_db: Database session fixture
+    """
     u = User()
     u.username = 'test'
     u.email = 'test@example.com'
@@ -195,7 +292,15 @@ def test_profile_updates(test_db) -> None:
     assert u.avatar_url == 'https://example.com/avatar.jpg'
 
 def test_role_management(test_db) -> None:
-    """Test role assignment and verification."""
+    """
+    Test role assignment and verification.
+
+    Verifies that roles can be assigned to users and that role-based
+    permission checks function correctly.
+
+    Args:
+        test_db: Database session fixture
+    """
     # Admin user
     admin = User()
     admin.username = 'admin'
@@ -220,7 +325,15 @@ def test_role_management(test_db) -> None:
     assert user.role != 'admin'
 
 def test_user_search(test_db) -> None:
-    """Test user search functionality."""
+    """
+    Test user search functionality.
+
+    Verifies that users can be found by search criteria such as username
+    prefixes, demonstrating the model's query capabilities.
+
+    Args:
+        test_db: Database session fixture
+    """
     # Create test users
     users = [
         User(email='test1@example.com'),
@@ -244,7 +357,15 @@ def test_user_search(test_db) -> None:
 
 
 def test_last_login_update(test_db: Session) -> None:
-    """Test user login timestamp tracking."""
+    """
+    Test user login timestamp tracking.
+
+    Verifies that the last login timestamp is correctly updated when
+    a user logs in and that the login count is properly incremented.
+
+    Args:
+        test_db: Database session fixture
+    """
     # Create test user
     u = User()
     u.username = 'test'

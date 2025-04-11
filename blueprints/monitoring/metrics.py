@@ -1,3 +1,21 @@
+"""
+Metrics collection module for myproject.
+
+This module provides classes and functions for collecting various system and
+application metrics. It gathers data about CPU usage, memory utilization, disk
+space, database performance, and application-specific metrics to provide a
+comprehensive overview of system health and performance.
+
+The metrics are designed to be:
+- Cached appropriately to minimize collection overhead
+- Structured consistently for easy consumption
+- Error-tolerant to prevent cascading failures
+- Extensible for custom application metrics
+
+These metrics enable monitoring, alerting, capacity planning, and performance
+optimization of the application in production environments.
+"""
+
 import os
 from datetime import datetime, timedelta
 from typing import Dict, Any
@@ -8,8 +26,26 @@ from extensions import metrics, db, cache
 from models.user import User
 
 class SystemMetrics:
+    """
+    System-level metrics collection class.
+
+    This class provides methods to collect operating system metrics including
+    CPU usage, memory utilization, disk space, and network I/O statistics.
+    The collected data provides visibility into the overall health and
+    resource utilization of the host system.
+    """
+
     class MetricsError(Exception):
-        """System metrics specific errors."""
+        """
+        System metrics specific errors.
+
+        This exception class is used for errors that occur during system
+        metrics collection, providing structured error reporting.
+
+        Attributes:
+            message (str): Error message describing the issue
+            error_code (str): Identifier for the type of error
+        """
         def __init__(self, message: str) -> None:
             self.message = message
             self.error_code = 'SYSTEM_METRICS_ERROR'
@@ -18,7 +54,28 @@ class SystemMetrics:
     @staticmethod
     @cache.memoize(timeout=30)
     def get_system_metrics() -> Dict[str, Any]:
-        """Collect system-level metrics."""
+        """
+        Collect system-level metrics with caching.
+
+        This method gathers core system metrics including CPU, memory, and disk usage.
+        It caches results for 30 seconds to reduce collection overhead for frequent calls.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing system metrics:
+                - cpu_usage: CPU utilization percentage
+                - memory_usage: Memory utilization percentage
+                - disk_usage: Disk space utilization percentage
+                - boot_time: System boot time
+                - load_avg: System load averages
+                - network: Network I/O statistics
+
+        Raises:
+            SystemMetrics.MetricsError: If metrics collection fails
+
+        Example:
+            metrics = SystemMetrics.get_system_metrics()
+            print(f"CPU usage: {metrics['cpu_usage']}%")
+        """
         try:
             return {
                 'cpu_usage': psutil.cpu_percent(interval=1),
@@ -37,7 +94,27 @@ class SystemMetrics:
     @staticmethod
     @cache.memoize(timeout=30)
     def get_process_metrics() -> Dict[str, Any]:
-        """Collect process-specific metrics."""
+        """
+        Collect process-specific metrics with caching.
+
+        This method gathers metrics specific to the current application process,
+        including memory usage, CPU utilization, and open file handles.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing process metrics:
+                - memory_used: Process memory usage in MB
+                - cpu_percent: Process CPU utilization percentage
+                - threads: Number of threads in the process
+                - open_files: Count of open file handles
+                - connections: Count of open network connections
+
+        Raises:
+            SystemMetrics.MetricsError: If metrics collection fails
+
+        Example:
+            metrics = SystemMetrics.get_process_metrics()
+            print(f"Process memory: {metrics['memory_used']} MB")
+        """
         try:
             process = psutil.Process(os.getpid())
             return {
@@ -51,8 +128,26 @@ class SystemMetrics:
             raise SystemMetrics.MetricsError(f"Process metrics error: {e}") from e
 
 class DatabaseMetrics:
+    """
+    Database performance metrics collection class.
+
+    This class provides methods to collect database performance metrics
+    including connection count, database size, query performance, and
+    pool status. These metrics help monitor database health and identify
+    potential performance issues.
+    """
+
     class MetricsError(Exception):
-        """Database metrics specific errors."""
+        """
+        Database metrics specific errors.
+
+        This exception class is used for errors that occur during database
+        metrics collection, providing structured error reporting.
+
+        Attributes:
+            message (str): Error message describing the issue
+            error_code (str): Identifier for the type of error
+        """
         def __init__(self, message: str) -> None:
             self.message = message
             self.error_code = 'DATABASE_METRICS_ERROR'
@@ -60,11 +155,29 @@ class DatabaseMetrics:
 
     @staticmethod
     @cache.memoize(timeout=30)
-    @staticmethod
-    @cache.memoize(timeout=30)
-    @staticmethod
     def get_db_metrics() -> Dict[str, Any]:
-        """Collect database performance metrics."""
+        """
+        Collect database performance metrics with caching.
+
+        This method gathers database metrics including the database size,
+        connection counts, and pool status to monitor database health and
+        resource utilization.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing database metrics:
+                - database_size: Size of the database
+                - active_connections: Number of active database connections
+                - deadlocks: Count of deadlocks detected
+                - pool_size: Size of the connection pool
+                - in_use: Number of connections currently in use
+
+        Raises:
+            DatabaseMetrics.MetricsError: If metrics collection fails
+
+        Example:
+            metrics = DatabaseMetrics.get_db_metrics()
+            print(f"Active connections: {metrics['active_connections']}")
+        """
         try:
             with db.engine.connect() as conn:
                 # Get database metrics
@@ -99,8 +212,25 @@ class DatabaseMetrics:
             raise DatabaseMetrics.MetricsError(f"Database metrics error: {e}") from e
 
 class ApplicationMetrics:
+    """
+    Application-specific metrics collection class.
+
+    This class provides methods to collect application-specific metrics such as
+    user counts, request rates, and uptime. These metrics help monitor application
+    health, usage patterns, and overall performance.
+    """
+
     class MetricsError(Exception):
-        """Application metrics specific errors."""
+        """
+        Application metrics specific errors.
+
+        This exception class is used for errors that occur during application
+        metrics collection, providing structured error reporting.
+
+        Attributes:
+            message (str): Error message describing the issue
+            error_code (str): Identifier for the type of error
+        """
         def __init__(self, message: str) -> None:
             self.message = message
             self.error_code = 'APPLICATION_METRICS_ERROR'
@@ -108,10 +238,30 @@ class ApplicationMetrics:
 
     @staticmethod
     @cache.memoize(timeout=60)
-    @staticmethod
-    @cache.memoize(timeout=60)
     def get_app_metrics() -> Dict[str, Any]:
-        """Collect application-specific metrics."""
+        """
+        Collect application-specific metrics with caching.
+
+        This method gathers metrics specific to the application, including
+        user counts, request totals, and uptime information to provide
+        insight into application usage and health.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing application metrics:
+                - total_users: Total number of registered users
+                - active_users: Number of recently active users
+                - uptime: Application uptime duration
+                - version: Application version string
+                - requests_total: Total number of HTTP requests processed
+                - errors_total: Total number of errors encountered
+
+        Raises:
+            ApplicationMetrics.MetricsError: If metrics collection fails
+
+        Example:
+            metrics = ApplicationMetrics.get_app_metrics()
+            print(f"Total users: {metrics['total_users']}")
+        """
         try:
             # Access metrics directly or use appropriate method instead of get_metric
             # PrometheusMetrics doesn't have get_metric method
@@ -142,8 +292,26 @@ class ApplicationMetrics:
             raise ApplicationMetrics.MetricsError(f"Application metrics error: {e}") from e
 
 class EnvironmentalData:
+    """
+    Environmental data collection class.
+
+    This class provides methods to collect environmental metrics such as
+    temperature, humidity, and network interface information. These metrics
+    are particularly relevant for IoT and industrial control system (ICS)
+    applications.
+    """
+
     class MetricsError(Exception):
-        """Environmental metrics specific errors."""
+        """
+        Environmental metrics specific errors.
+
+        This exception class is used for errors that occur during environmental
+        metrics collection, providing structured error reporting.
+
+        Attributes:
+            message (str): Error message describing the issue
+            error_code (str): Identifier for the type of error
+        """
         def __init__(self, message: str) -> None:
             self.message = message
             self.error_code = 'ENVIRONMENTAL_METRICS_ERROR'
@@ -152,7 +320,25 @@ class EnvironmentalData:
     @staticmethod
     @cache.memoize(timeout=30)
     def get_env_metrics() -> Dict[str, Any]:
-        """Collect environmental metrics."""
+        """
+        Collect environmental metrics with caching.
+
+        This method gathers environmental data including battery status
+        and network interface information, which is useful for monitoring
+        the physical environment of the system.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing environmental metrics:
+                - battery: Battery status information
+                - network_interfaces: Network interface details
+
+        Raises:
+            EnvironmentalData.MetricsError: If metrics collection fails
+
+        Example:
+            metrics = EnvironmentalData.get_env_metrics()
+            print(f"Battery: {metrics['battery']}")
+        """
         try:
             return {
                 'battery': psutil.sensors_battery()._asdict() if psutil.sensors_battery() else {},
@@ -169,7 +355,27 @@ class EnvironmentalData:
 
 @cache.memoize(timeout=60)
 def get_all_metrics() -> Dict[str, Any]:
-    """Collect all system, database and application metrics."""
+    """
+    Collect all system, database and application metrics.
+
+    This function aggregates metrics from all available sources into a single
+    comprehensive metrics report. It caches the result to reduce collection
+    overhead for frequent calls.
+
+    Returns:
+        Dict[str, Any]: Dictionary containing all metrics:
+            - system: System metrics
+            - process: Process metrics
+            - database: Database metrics
+            - application: Application metrics
+            - environment: Environmental metrics
+            - timestamp: Collection timestamp
+
+    Example:
+        all_metrics = get_all_metrics()
+        print(f"CPU usage: {all_metrics['system']['cpu_usage']}%")
+        print(f"Active users: {all_metrics['application']['active_users']}")
+    """
     try:
         metrics_data = {
             'system': SystemMetrics.get_system_metrics(),

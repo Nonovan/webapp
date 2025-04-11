@@ -1,3 +1,17 @@
+"""
+Authentication routes module for myproject.
+
+This module defines the HTTP routes for user authentication, including:
+- User login with support for multi-factor authentication
+- Password validation and security checks
+- Session management
+- Security protections against brute-force attacks
+
+The module implements secure authentication practices including rate limiting,
+proper password handling, and comprehensive error handling to prevent common
+security vulnerabilities.
+"""
+
 from datetime import datetime
 from typing import Union, cast
 from flask import Blueprint, Response, request, render_template, flash, url_for, session, current_app
@@ -10,7 +24,29 @@ auth_bp = Blueprint('auth', __name__)
 @auth_bp.route("/login", methods=['GET', 'POST'])
 @limiter.limit("5/minute")
 def login() -> Union[str, Response]:
-    """Handle user login with enhanced security."""
+    """
+    Handle user login requests with enhanced security.
+
+    This route supports both GET and POST methods:
+    - GET: Renders the login form
+    - POST: Processes the login attempt with credentials validation
+
+    Features:
+    - Rate limiting to prevent brute force attacks
+    - Two-factor authentication support when enabled
+    - Comprehensive input validation
+    - Session management with login tracking
+    - Secure error handling
+
+    Returns:
+        Union[str, Response]:
+            - On GET: Rendered login template
+            - On successful POST: Redirect to home page
+            - On failed POST: Error response with appropriate status code
+
+    Rate limit:
+        5 requests per minute per IP address
+    """
     if request.method == 'GET':
         return render_template("auth/login.html")
 

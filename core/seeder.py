@@ -1,3 +1,20 @@
+"""
+Database seeding module for myproject.
+
+This module provides functionality for populating the database with initial data
+required for application operation. It creates default users, test data, and
+reference values needed for development, testing, and initial deployment.
+
+Database seeding is typically performed:
+- During initial application setup
+- When setting up development environments
+- During testing to ensure consistent test data
+- When deploying to new environments
+
+The module implements idempotent seeding operations that can be safely run
+multiple times without creating duplicate data.
+"""
+
 from datetime import datetime, timedelta
 from typing import List
 from flask import current_app
@@ -6,13 +23,23 @@ from extensions import db
 from models.user import User
 
 def seed_database() -> bool:
-    """Seed database with initial data.
+    """
+    Seed database with initial data.
+
+    Populates the database with initial users and required application data.
+    This function checks if data already exists before adding new records to
+    prevent duplicates when run multiple times.
 
     Returns:
         bool: True if seeding was successful, False if already seeded
 
     Raises:
         Exception: If seeding fails
+
+    Example:
+        # Seed database during application initialization
+        with app.app_context():
+            seed_database()
     """
     try:
         # Check if already seeded

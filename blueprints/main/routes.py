@@ -1,3 +1,22 @@
+"""
+Main routes module for myproject.
+
+This module defines the primary routes for the application's user interface,
+including the home page, about page, cloud services dashboard, ICS application
+interface, and user profile pages. These routes provide the core functionality
+of the application for end users.
+
+Each route implements appropriate:
+- Authentication and authorization checks
+- Rate limiting to prevent abuse
+- Caching for performance optimization
+- Error handling for a smooth user experience
+- Metrics collection for monitoring
+
+The routes are organized by functional area and include both page rendering
+for browser clients and API endpoints for AJAX and mobile integration.
+"""
+
 from datetime import datetime
 from typing import Union
 from flask import render_template, current_app, request, abort, jsonify, g
@@ -9,7 +28,15 @@ from . import main_bp
 
 @main_bp.before_request
 def log_request() -> None:
-    """Log and track incoming requests."""
+    """
+    Log and track incoming requests to main routes.
+
+    This function runs before each request to the main blueprint. It logs
+    request details for audit purposes and increments request count metrics.
+
+    Returns:
+        None: This function logs information as a side effect
+    """
     request_id = request.headers.get('X-Request-ID', 'unknown')
     current_app.logger.info(f"Request {request_id}: {request.method} {request.path}")
     metrics.info('request_count_total', 1)
@@ -18,7 +45,19 @@ def log_request() -> None:
 @limiter.limit("60/minute")
 @cache.cached(timeout=300)
 def home() -> Union[str, tuple]:
-    """Home page route."""
+    """
+    Render the application home page.
+
+    This route displays the main landing page of the application with
+    feature highlights and summary information. It's rate-limited and
+    cached to handle high traffic efficiently.
+
+    Returns:
+        Union[str, tuple]: Rendered template on success, or error response on failure
+
+    Example URL:
+        GET /
+    """
     try:
         metrics.info('page_views_total', 1, labels={'page': 'home'})
         return render_template('main/home.html')  # Ensure a valid return value
@@ -32,7 +71,19 @@ def home() -> Union[str, tuple]:
 @limiter.limit("30/minute")
 @cache.cached(timeout=3600)
 def about() -> Union[str, tuple]:
-    """About page route."""
+    """
+    Render the about page.
+
+    This route displays information about the application, company,
+    and services provided. It's cached longer than most pages since
+    the content changes infrequently.
+
+    Returns:
+        Union[str, tuple]: Rendered template on success, or error response on failure
+
+    Example URL:
+        GET /about
+    """
     try:
         metrics.info('page_views_total', 1, labels={'page': 'about'})
         return render_template('main/about.html')
@@ -48,7 +99,19 @@ def about() -> Union[str, tuple]:
 @limiter.limit("30/minute")
 @cache.cached(timeout=60)
 def cloud() -> Union[str, tuple]:
-    """Cloud services dashboard route."""
+    """
+    Render the cloud services dashboard.
+
+    This route displays the cloud services management dashboard with
+    real-time system metrics, user activity, and system alerts. It requires
+    admin role and is cached for a short period due to its dynamic nature.
+
+    Returns:
+        Union[str, tuple]: Rendered dashboard template on success, or error response on failure
+
+    Example URL:
+        GET /cloud
+    """
     try:
         start_time = datetime.utcnow()
 
@@ -98,7 +161,18 @@ def cloud() -> Union[str, tuple]:
 @login_required
 @limiter.limit("30/minute")
 def profile() -> Union[str, tuple[dict, int]]:
-    """User profile route."""
+    """
+    Render the user profile page.
+
+    This route displays the current user's profile information with
+    account settings and activity history. It requires authentication.
+
+    Returns:
+        Union[str, tuple]: Rendered profile template on success, or error response on failure
+
+    Example URL:
+        GET /profile
+    """
     try:
         return render_template('main/profile.html')
     except (TemplateNotFound, RuntimeError) as e:
@@ -111,7 +185,19 @@ def profile() -> Union[str, tuple[dict, int]]:
 @limiter.limit("30/minute")
 @cache.cached(timeout=60)
 def admin() -> Union[str, tuple[dict, int]]:
-    """Admin panel route."""
+    """
+    Render the admin panel.
+
+    This route displays the administrative control panel with system
+    configuration, user management, and monitoring tools. It requires
+    admin role and is cached briefly to reduce server load.
+
+    Returns:
+        Union[str, tuple]: Rendered admin template on success, or error response on failure
+
+    Example URL:
+        GET /admin
+    """
     try:
         return render_template('main/admin.html',
             system_metrics=SystemMetrics.get_system_metrics(),
@@ -128,7 +214,22 @@ def admin() -> Union[str, tuple[dict, int]]:
 @limiter.limit("30/minute")
 @cache.cached(timeout=60)
 def ics():
-    """ICS application route."""
+    """
+    Render the ICS (Industrial Control System) application interface.
+
+    This route displays the industrial control system interface with
+    operational controls and real-time monitoring. It requires operator
+    role and is cached briefly due to its semi-dynamic nature.
+
+    Returns:
+        str: Rendered ICS template on success
+
+    Raises:
+        werkzeug.exceptions.HTTPException: If an error occurs and abort() is called
+
+    Example URL:
+        GET /ics
+    """
     try:
         system_metrics = SystemMetrics.get_system_metrics()
         return render_template('main/ics.html',
@@ -146,7 +247,19 @@ def ics():
 @limiter.limit("30/minute")
 @cache.cached(timeout=60)
 def environmental_data() -> Union[str, tuple]:
-    """Get latest environmental data for ICS systems."""
+    """
+    Render environmental data for ICS systems.
+
+    This route displays real-time environmental metrics from ICS sensors
+    including temperature and humidity readings. It requires operator role
+    and is cached briefly to balance freshness with server load.
+
+    Returns:
+        Union[str, tuple]: Rendered environmental data template, possibly with status code
+
+    Example URL:
+        GET /ics/environmental
+    """
     try:
         start_time = datetime.utcnow()
 

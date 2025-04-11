@@ -1,3 +1,22 @@
+"""
+Main application blueprint for myproject.
+
+This blueprint provides the primary user interface and core application functionality,
+including the home page, cloud services dashboard, ICS application interface, and user
+profile management. It serves as the central blueprint for end-user interaction with
+the application.
+
+The blueprint implements:
+- Primary navigation routes (home, about, cloud dashboard)
+- Common layout and template inheritance
+- Request tracking and performance monitoring
+- Response header management for security and caching
+- Centralized error handling for consistent user experience
+
+Request metrics are automatically captured, and responses are enhanced with security
+headers, caching directives, and compression for improved performance and security.
+"""
+
 from datetime import datetime
 import gzip
 import uuid
@@ -14,7 +33,20 @@ main_bp = Blueprint(
 
 @main_bp.before_request
 def before_request() -> None:
-    """Track request metrics and validate access."""
+    """
+    Set up request context and tracking for main routes.
+
+    This function runs before each request to the main blueprint. It:
+    - Records the request start time for performance measurement
+    - Assigns a unique request ID for request tracing
+    - Increments request metrics counters in Prometheus
+
+    The timing and request ID data are stored in Flask's g object for access
+    by other middleware and route handlers.
+
+    Returns:
+        None: This function sets up request context as a side effect
+    """
     g.start_time = datetime.utcnow()
     g.request_id = request.headers.get('X-Request-ID', str(uuid.uuid4()))
 
@@ -27,7 +59,21 @@ def before_request() -> None:
 
 @main_bp.after_request
 def after_request(response: Response) -> Response:
-    """Add response metrics and headers."""
+    """
+    Process responses for main routes.
+
+    This function runs after each request to the main blueprint. It:
+    - Adds performance metrics about response timing
+    - Sets security headers to protect against common web vulnerabilities
+    - Adds response metadata (request ID, timing) for debugging
+    - Compresses large responses for faster transmission
+
+    Args:
+        response (Response): The Flask response object
+
+    Returns:
+        Response: The modified response with additional headers and compression
+    """
     if hasattr(g, 'start_time'):
         duration = (datetime.utcnow() - g.start_time).total_seconds()
         # Use info method instead of timing for PrometheusMetrics
@@ -56,7 +102,22 @@ def after_request(response: Response) -> Response:
 
 @main_bp.teardown_request
 def teardown_request(exc) -> None:
-    """Cleanup after request."""
+    """
+    Clean up after request completion.
+
+    This function runs after each request to the main blueprint, regardless of whether
+    an exception occurred. It:
+    - Rolls back any uncommitted database changes if an error occurred
+    - Records metrics about any errors that happened
+    - Logs error details for troubleshooting
+    - Ensures proper database session cleanup
+
+    Args:
+        exc: Exception that was raised during request handling, or None if no exception
+
+    Returns:
+        None: This function performs cleanup as a side effect
+    """
     if exc is not None:
         db.session.rollback()
         metrics.info('main_errors_total', 1, labels={
