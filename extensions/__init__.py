@@ -78,50 +78,6 @@ error_counter = metrics.counter(
     }
 )  # Counter for HTTP errors
 
-
-def record_request_metrics() -> None:
-    """
-    Record HTTP request metrics directly to Prometheus.
-
-    This function increments the http_requests_total counter with appropriate
-    labels for the current request method and endpoint.
-    """
-    metrics.info('http_requests_total', 1, labels={
-        'method': request.method,
-        'endpoint': request.endpoint
-    })
-
-
-def record_endpoint_metrics() -> None:
-    """
-    Record endpoint-specific metrics directly to Prometheus.
-
-    This function increments the http_requests_by_endpoint_total counter with
-    labels for the current request method, path, and endpoint name.
-    """
-    metrics.info('http_requests_by_endpoint_total', 1, labels={
-        'method': request.method,
-        'path': request.path,
-        'endpoint': request.endpoint
-    })
-
-
-def record_error_metrics(error: Exception) -> None:
-    """
-    Record error metrics directly to Prometheus.
-
-    This function increments the http_errors_total counter with labels for
-    the current request method and the error's status code.
-
-    Args:
-        error (Exception): The exception that occurred, expected to have a 'code'
-                          attribute. If 'code' is missing, defaults to 500.
-    """
-    metrics.info('http_errors_total', 1, labels={
-        'method': request.method,
-        'status': getattr(error, 'code', 500)
-    })
-
 __all__ = [
     'db',
     'migrate',
@@ -131,5 +87,8 @@ __all__ = [
     'cache',
     'mail',
     'session',
-    'metrics'
+    'metrics',
+    'request_counter',
+    'endpoint_counter',
+    'error_counter'
 ]
