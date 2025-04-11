@@ -6,10 +6,16 @@ from sqlalchemy.orm import Session
 from models import User
 
 class TestUser:
-    """Test suite for User model."""
+    """Test suite for User model.
+    
+    Tests user creation, authentication, and data validation.
+    """
 
     def test_password_hashing(self) -> None:
-        """Test password hashing and verification."""
+        """Test password hashing and verification.
+        
+        Ensures passwords are properly hashed and can be verified.
+        """
         user = User(email='test@example.com')
         user.set_password('SecurePass123!')
 
@@ -18,7 +24,10 @@ class TestUser:
         assert not user.check_password('wrongpass')
 
     def test_user_creation(self, test_db: Session) -> None:
-        """Test user creation with required fields."""
+        """Test user creation with required fields.
+        
+        Verifies that a user can be created with all required fields.
+        """
         user = User(
             username='test',
             email='test@example.com',
@@ -37,7 +46,10 @@ class TestUser:
         assert isinstance(user.created_at, datetime)
 
     def test_username_unique(self, test_db: Session) -> None:
-        """Test username uniqueness constraint."""
+        """Test username uniqueness constraint.
+        
+        Verifies that usernames must be unique.
+        """
         user1 = User(
             username='test',
             email='test1@example.com'
