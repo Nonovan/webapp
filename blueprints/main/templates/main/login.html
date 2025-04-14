@@ -13,13 +13,19 @@
                     {% with messages = get_flashed_messages(with_categories=true) %}
                         {% if messages %}
                             {% for category, message in messages %}
-                                <div class="alert alert-{{ category }}" role="alert">{{ message }}</div>
+                                <div class="alert alert-info" role="alert">
+                                    <i class="bi bi-info-circle me-2"></i>
+                                    For security reasons, login attempts are limited to 5 per minute.
+                                </div>
                             {% endfor %}
                         {% endif %}
                     {% endwith %}
 
                     <form method="post" class="needs-validation" novalidate>
+                        <!-- Make CSRF token visible in the code but not to the user -->
                         {{ form.csrf_token }}
+                        <!-- Add CSRF token explanation in a comment -->
+                        <!-- CSRF protection prevents cross-site request forgery attacks -->
                         <div class="mb-3">
                             <label for="username" class="form-label">Username</label>
                             <input type="text" 
@@ -50,19 +56,22 @@
                                </div>
        
                                {% if requires_2fa %}
-                               <div class="mb-3">
-                                   <label for="totp" class="form-label">2FA Code</label>
-                                   <input type="text" 
-                                          class="form-control" 
-                                          id="totp" 
-                                          name="totp" 
-                                          pattern="[0-9]{6}"
-                                          maxlength="6"
-                                          inputmode="numeric"
-                                          autocomplete="one-time-code"
-                                          required>
-                                   <div class="form-text">Enter the 6-digit code from your authenticator app</div>
-                               </div>
+                                    <div class="mb-3">
+                                        <label for="totp" class="form-label">Two-Factor Authentication Code</label>
+                                        <input type="text" 
+                                            class="form-control" 
+                                            id="totp" 
+                                            name="totp" 
+                                            pattern="[0-9]{6}"
+                                            maxlength="6"
+                                            inputmode="numeric"
+                                            autocomplete="one-time-code"
+                                            required>
+                                        <div class="form-text">
+                                            <i class="bi bi-shield-lock"></i> 
+                                            Enter the 6-digit code from your authenticator app for additional security.
+                                        </div>
+                                    </div>
                                {% endif %}
        
                                <div class="mb-3">
@@ -100,31 +109,50 @@
        {% block scripts %}
        <script src="https://www.google.com/recaptcha/api.js" async defer></script>
        <script>
-       document.getElementById('togglePassword').addEventListener('click', function() {
-           const password = document.getElementById('password');
-           const icon = this.querySelector('i');
-           const type = password.getAttribute('type') === 'password' ? 'text' : 'password';
-           password.setAttribute('type', type);
-           icon.classList.toggle('bi-eye');
-           icon.classList.toggle('bi-eye-slash');
-       });
-       
-       function onRecaptchaVerified(token) {
-           document.querySelector('button[type="submit"]').removeAttribute('disabled');
-       }
+        // Login attempt tracking to identify potential brute force attacks
+        let loginAttempts = parseInt(localStorage.getItem('loginAttempts') || '0');
+        
+        form.addEventListener('submit', function(e) {
+            // Update login attempts in local storage
+            loginAttempts++;
+            localStorage.setItem('loginAttempts', loginAttempts.toString());
+            
+            // If too many attempts, add delay before allowing another submission
+            if (loginAttempts > 3) {
+                const submitBtn = document.getElementById('submitBtn');
+                submitBtn.disabled = true;
+                setTimeout(() => {
+                    submitBtn.disabled = false;
+                }, 3000); // 3 second delay after multiple attempts
+            }
+        });
+        </script>
+        <script>
+        document.getElementById('togglePassword').addEventListener('click', function() {
+            const password = document.getElementById('password');
+            const icon = this.querySelector('i');
+            const type = password.getAttribute('type') === 'password' ? 'text' : 'password';
+            password.setAttribute('type', type);
+            icon.classList.toggle('bi-eye');
+            icon.classList.toggle('bi-eye-slash');
+        });
+        
+        function onRecaptchaVerified(token) {
+            document.querySelector('button[type="submit"]').removeAttribute('disabled');
+        }
 
-       // Add form validation
-       const form = document.querySelector('form');
-       form.addEventListener('submit', function(e) {
-           if (!form.checkValidity()) {
-               e.preventDefault();
-               e.stopPropagation();
-           }
-           form.classList.add('was-validated');
-           
-           const submitBtn = document.getElementById('submitBtn');
-           submitBtn.disabled = true;
-           submitBtn.querySelector('.spinner-border').classList.remove('d-none');
-       });
-       </script>
-       {% endblock %}
+        // Form validation
+        const form = document.querySelector('form');
+        form.addEventListener('submit', function(e) {
+            if (!form.checkValidity()) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            form.classList.add('was-validated');
+            
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.querySelector('.spinner-border').classList.remove('d-none');
+        });
+        </script>
+        {% endblock %}

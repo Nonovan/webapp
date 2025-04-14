@@ -113,15 +113,15 @@ def generate_token(user_id: int, role: str, expires_in: int = 3600) -> str:
             current_app.config['SECRET_KEY'],
             algorithm='HS256'
         )
-        # Fix: Use info method instead of increment for Prometheus metrics
+        # Use info method instead of increment for Prometheus metrics
         metrics.info('token_generation_total', 1)
-        # Fix: Convert bytes to str if needed (for PyJWT versions that return bytes)
+        # Convert bytes to str if needed (for PyJWT versions that return bytes)
         if isinstance(token, bytes):
             token = token.decode('utf-8')
         return token
     except Exception as e:
         current_app.logger.error(f"Token generation failed: {e}")
-        # Fix: Use info method instead of increment for Prometheus metrics
+        # Use info method instead of increment for Prometheus metrics
         metrics.info('token_generation_error', 1)
         raise
 

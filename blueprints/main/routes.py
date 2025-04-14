@@ -61,7 +61,7 @@ def home() -> Union[str, tuple]:
     try:
         metrics.info('page_views_total', 1, labels={'page': 'home'})
         return render_template('main/home.html')  # Ensure a valid return value
-    except (TemplateNotFound, RuntimeError) as e:  # Replace with specific exceptions
+    except (TemplateNotFound, RuntimeError) as e:
         current_app.logger.error(f"Home page error: {e}")
         metrics.info('error_count_total', 1, labels={'page': 'home'})
         abort(500)
@@ -152,7 +152,7 @@ def cloud() -> Union[str, tuple]:
 
         return response
 
-    except (KeyError, ValueError, RuntimeError) as e:  # Replace with specific exceptions
+    except (KeyError, ValueError, RuntimeError) as e:
         current_app.logger.error(f"Cloud dashboard error: {str(e)}")
         metrics.info('error_count_total', 1, labels={'page': 'cloud'})
         return jsonify({'error': 'Internal server error'}), 500
@@ -237,7 +237,7 @@ def ics():
             memory_usage=system_metrics['memory_usage'],
             uptime=datetime.utcnow() - current_app.uptime
         )
-    except (KeyError, RuntimeError) as e:  # Replace with specific exceptions
+    except (KeyError, RuntimeError) as e:
         current_app.logger.error(f"ICS application error: {e}")
         abort(500)
 
@@ -296,7 +296,7 @@ def environmental_data() -> Union[str, tuple]:
             error="No environmental data available"
         ), 404
 
-    except (KeyError, RuntimeError) as e:  # Replace with specific exceptions
+    except (KeyError, RuntimeError) as e:
         # Log error and track metric
         current_app.logger.error(
             f"Environmental data error: {str(e)}",

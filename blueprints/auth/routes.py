@@ -81,7 +81,6 @@ def login() -> Union[str, Response]:
             db.session.commit()
 
             current_app.logger.info(f"User {username} logged in successfully")
-            # Fix the return type to match the Union[str, Response] annotation
             return cast(Union[str, Response], flask_redirect(url_for('main.home')))
 
         flash("Invalid credentials", "error")
