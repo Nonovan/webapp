@@ -48,7 +48,7 @@ factory-boy==3.3.0
 
 # Development
 python-dotenv==1.0.0
-black==23.9.1
+black==24.3.0
 flake8==6.1.0
 mypy==1.5.1
 pre-commit==3.4.0
