@@ -16,7 +16,7 @@ from flask import current_app, render_template
 from sqlalchemy.exc import SQLAlchemyError
 
 from extensions import db
-from models.newsletter import Subscriber
+from models import Subscriber
 from services.email_service import EmailService
 
 class NewsletterService:
@@ -82,7 +82,7 @@ class NewsletterService:
                 'success': False,
                 'error': 'Database error occurred'
             }
-        except (ValueError, RuntimeError) as e:  # Replace with specific exceptions
+        except (ValueError, RuntimeError) as e:
             current_app.logger.error(f"Error in subscribe_email: {str(e)}")
             return {
                 'success': False,
@@ -159,7 +159,7 @@ class NewsletterService:
                 'success': False, 
                 'error': 'Database error occurred'
             }
-        except Exception as e:
+        except (ValueError, RuntimeError) as e:
             current_app.logger.error(f"Error in unsubscribe: {str(e)}")
             return {
                 'success': False,
@@ -215,21 +215,29 @@ class NewsletterService:
                     html = render_template('emails/newsletter.html', **context)
                     
                     # Send email using EmailService
-                    email_service = EmailService
-                    email_service.send_email(
-                        to_address=email,
+                    EmailService().send_email(
+                        to=email,
                         subject=subject,
-                        body=html
+                        html_content=html
                     )
-            
+        
+            # Log successful newsletter sending - THIS IS WHERE THE LOGGING SHOULD GO
             current_app.logger.info(f"Newsletter sent to {recipient_count} recipients")
+            
             return {
                 'success': True,
                 'message': f'Newsletter sent successfully to {recipient_count} recipients',
                 'count': recipient_count
             }
             
-        except (SQLAlchemyError, RuntimeError, ValueError) as e:
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            current_app.logger.error(f"Database error in send_newsletter: {str(e)}")
+            return {
+                'success': False,
+                'error': f'Failed to send newsletter: {str(e)}'
+            }
+        except (ValueError, RuntimeError) as e:  # Replace with specific exceptions
             current_app.logger.error(f"Error in send_newsletter: {str(e)}")
             return {
                 'success': False,
@@ -304,16 +312,13 @@ class NewsletterService:
                 'confirmation_url': confirmation_url
             }
             
-            html = render_template('emails/confirm_subscription.html', **context)
-            email_service = EmailService()
-            email_service.send_email(
-                to_address=email,
-                subject="Please confirm your newsletter subscription",
-                body=html
-            )
-            )
+            html_content = render_template('emails/confirm_subscription.html', **context)
             
-            return True
-        except Exception as e:
+            return EmailService().send_email(
+                to=email,
+                subject="Please confirm your newsletter subscription",
+                html_content=html_content
+            )
+        except (ValueError, RuntimeError, ConnectionError) as e:
             current_app.logger.error(f"Failed to send confirmation email: {str(e)}")
             return False

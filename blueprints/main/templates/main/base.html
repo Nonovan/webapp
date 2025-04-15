@@ -480,7 +480,7 @@
         <!-- Session timeout warning -->
         <script>
         document.addEventListener("DOMContentLoaded", function() {
-            {% if 'user_id' in session %}
+            {% if "user_id" in session %}
             // Timeout warning set at 28 minutes (assuming 30-minute sessions)
             const sessionTimeout = 28 * 60 * 1000;
             let warningTimeout;

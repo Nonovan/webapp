@@ -21,13 +21,14 @@ data structure and business rules in a single location.
 
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List, Type, TypeVar, TYPE_CHECKING
-from flask import current_app
+from flask import current_app, abort
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.declarative import declared_attr
 
-if TYPE_CHECKING:
-    from .user import User
+from .user import User
+from .post import Post
+from .newsletter import Subscriber
 
 db = SQLAlchemy()
 
@@ -87,6 +88,7 @@ class TimestampMixin:
             default=lambda: datetime.now(timezone.utc),
             onupdate=lambda: datetime.now(timezone.utc)
         )
+
 
 class BaseModel(db.Model, TimestampMixin):
     """
@@ -218,28 +220,28 @@ class BaseModel(db.Model, TimestampMixin):
     @classmethod
     def get_by_id(cls: Type[T_Model], record_id: int) -> Optional[T_Model]:
         """
-        Get instance by ID with error handling.
+        Get model instance by primary key.
 
-        Retrieves a model instance by its primary key ID, handling database
-        errors gracefully with appropriate logging.
+        Retrieves a single model instance by its primary key ID,
+        returning None if no matching record is found.
 
         Args:
-            record_id: The primary key ID of the record to retrieve
+            record_id: Primary key value to search for
 
         Returns:
-            Optional[T_Model]: The model instance if found, None otherwise
+            Optional[T_Model]: Model instance if found, None otherwise
 
         Example:
             user = User.get_by_id(1)
             if user:
-                # User found
+                # User exists
             else:
                 # User not found
         """
         try:
             return cls.query.get(record_id)
         except SQLAlchemyError as e:
-            current_app.logger.error(f"Error fetching {cls.__name__} {record_id}: {str(e)}")
+            current_app.logger.error(f"Error retrieving {cls.__name__}: {str(e)}")
             return None
 
     @classmethod
@@ -274,34 +276,32 @@ class BaseModel(db.Model, TimestampMixin):
     @classmethod
     def get_or_404(cls: Type[T_Model], record_id: int) -> T_Model:
         """
-        Get instance by ID or 404 with error handling.
+        Get model instance or raise 404 error.
 
-        Retrieves a model instance by its primary key ID, raising a 404 exception
-        if not found. This is useful for API endpoints where a missing resource
-        should result in a 404 response.
+        Similar to get_by_id(), but raises a 404 error if the record is not found.
+        This is useful in view functions to handle non-existent resources.
 
         Args:
-            record_id: The primary key ID of the record to retrieve
+            record_id: Primary key value to search for
 
         Returns:
-            T_Model: The model instance
+            T_Model: Model instance if found
 
         Raises:
-            NotFound: If the record with the given ID doesn't exist
-            SQLAlchemyError: If a database error occurs
+            HTTPException: 404 error if record not found
 
         Example:
             try:
                 user = User.get_or_404(1)
                 # User exists
-            except NotFound:
-                # Handle 404 case
+            except HTTPException:
+                # Handle not found case
         """
-        try:
-            return cls.query.get_or_404(record_id)
-        except SQLAlchemyError as e:
-            current_app.logger.error(f"Error fetching {cls.__name__} {record_id}: {str(e)}")
-            raise
+        record = cls.get_by_id(record_id)
+        if record is None:
+            abort(404, f"{cls.__name__} with id {record_id} not found")
+        assert record is not None, "Record should not be None at this point"
+        return record
 
     def __repr__(self) -> str:
         """
@@ -319,4 +319,4 @@ class BaseModel(db.Model, TimestampMixin):
         """
         return f'<{self.__class__.__name__} {self.id}>'
 
-__all__ = ['db', 'User']
+__all__ = ['db', 'User', 'Post', 'Subscriber', 'BaseModel', 'TimestampMixin']

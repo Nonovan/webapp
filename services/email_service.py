@@ -1,395 +1,231 @@
-# services/newsletter_service.py
+# services/email_service.py
 
 """
-Newsletter service for managing subscriptions and sending newsletters.
+Email service for sending and managing email delivery.
 
-This module provides a service class that handles newsletter operations such as
-subscribing, unsubscribing, and sending newsletters to subscribers. It follows
-best practices for email validation, duplicate prevention, and error handling.
+This module provides a service class that handles email operations such as
+template rendering, sending transactional emails, and email delivery tracking.
+It abstracts away the details of email server configuration and provides a
+clean interface for sending emails throughout the application.
 """
 
-from datetime import datetime, timedelta
-import re
-from typing import Dict, List, Optional, Union
-import uuid
-from flask import current_app, render_template
-from sqlalchemy.exc import SQLAlchemyError
+import logging
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from typing import Dict, List, Optional, Union, Any
+from flask import current_app
 
-from extensions import db
-from models.newsletter import Subscriber
-from services.email_service import EmailService
-
-class NewsletterService:
+class EmailService:
     """
-    A service class for managing newsletter-related operations.
+    Service for handling email sending and delivery.
     
-    This class provides methods for managing newsletter subscriptions
-    and sending newsletters to subscribers.
+    This class provides methods for sending emails with various configurations
+    and can be extended to support different email providers.
     """
-
-    @staticmethod
-    def subscribe_email(email: str) -> Dict[str, Union[bool, str]]:
+    
+    def __init__(self, 
+                smtp_server: Optional[str] = None, 
+                port: int = 587, 
+                username: Optional[str] = None, 
+                password: Optional[str] = None, 
+                use_tls: bool = True,
+                from_email: Optional[str] = None,
+                from_name: Optional[str] = None):
         """
-        Subscribe an email address to the newsletter.
+        Initialize the email service.
         
         Args:
-            email: The email address to subscribe
-            
-        Returns:
-            A dictionary with success flag and optional error message
+            smtp_server: SMTP server address
+            port: SMTP server port
+            username: SMTP username
+            password: SMTP password
+            use_tls: Whether to use TLS encryption
+            from_email: Default sender email address
+            from_name: Default sender name
         """
-        try:
-            # Validate email format
-            if not NewsletterService._validate_email(email):
-                return {
-                    'success': False,
-                    'error': 'Invalid email format'
-                }
-                
-            # Check if already subscribed
-            existing = Subscriber.query.filter_by(email=email).first()
-            if existing:
-                if existing.confirmed:
-                    return {
-                        'success': True,
-                        'message': 'Email already subscribed'
-                    }
-                else:
-                    # Resend confirmation email for unconfirmed subscribers
-                    NewsletterService._send_confirmation_email(email, existing.confirmation_token)
-                    return {
-                        'success': True,
-                        'message': 'Confirmation email resent'
-                    }
-                    
-            # Generate confirmation token
-            confirmation_token = str(uuid.uuid4())
-                    
-            # Create new subscriber
-            new_subscriber = Subscriber(
-                email=email,
-                subscribed_at=datetime.utcnow(),
-                confirmed=False,
-                confirmation_token=confirmation_token
-            )
-            
-            db.session.add(new_subscriber)
-            db.session.commit()
-            
-            # Send confirmation email
-            NewsletterService._send_confirmation_email(email, confirmation_token)
-            
-            current_app.logger.info(f"New newsletter subscription request: {email}")
-            return {
-                'success': True,
-                'message': 'Subscription confirmation email sent'
-            }
-            
-        except SQLAlchemyError as e:
-            db.session.rollback()
-            current_app.logger.error(f"Database error in subscribe_email: {str(e)}")
-            return {
-                'success': False,
-                'error': 'Database error occurred'
-            }
-        except ValueError as e:
-            current_app.logger.error(f"Value error in subscribe_email: {str(e)}")
-            return {
-                'success': False,
-                'error': 'Invalid input provided'
-            }
-        except RuntimeError as e:
-            current_app.logger.error(f"Runtime error in subscribe_email: {str(e)}")
-            return {
-                'success': False,
-                'error': 'A runtime error occurred'
-            }
+        self.smtp_server = smtp_server
+        self.port = port
+        self.username = username
+        self.password = password
+        self.use_tls = use_tls
+        self.from_email = from_email
+        self.from_name = from_name
     
-    @staticmethod
-    def confirm_subscription(token: str) -> Dict[str, Union[bool, str]]:
+    def send_email(self, 
+                   to: Union[str, List[str]],
+                   subject: str,
+                   text_content: Optional[str] = None,
+                   html_content: Optional[str] = None,
+                   from_email: Optional[str] = None,
+                   from_name: Optional[str] = None,
+                   cc: Optional[Union[str, List[str]]] = None,
+                   bcc: Optional[Union[str, List[str]]] = None,
+                   reply_to: Optional[str] = None,
+                   attachments: Optional[List[Dict[str, Any]]] = None) -> bool:
         """
-        Confirm a newsletter subscription using a confirmation token.
+        Send an email with the configured settings.
         
         Args:
-            token: The confirmation token sent to the subscriber
-            
-        Returns:
-            A dictionary with success flag and message
-        """
-        try:
-            subscriber = Subscriber.query.filter_by(confirmation_token=token).first()
-            
-            if not subscriber:
-                return {
-                    'success': False,
-                    'error': 'Invalid or expired confirmation token'
-                }
-                
-            subscriber.confirmed = True
-            subscriber.confirmed_at = datetime.utcnow()
-            db.session.commit()
-            
-            current_app.logger.info(f"Confirmed newsletter subscription: {subscriber.email}")
-            return {
-                'success': True,
-                'message': 'Subscription confirmed successfully'
-            }
-            
-        except SQLAlchemyError as e:
-            db.session.rollback()
-            current_app.logger.error(f"Database error in confirm_subscription: {str(e)}")
-            return {
-                'success': False,
-                'error': 'Database error occurred'
-            }
-        except ValueError as e:
-            current_app.logger.error(f"Value error in confirm_subscription: {str(e)}")
-            return {
-                'success': False,
-                'error': 'Invalid input provided'
-            }
-            current_app.logger.error(f"Error in confirm_subscription: {str(e)}")
-            return {
-                'success': False,
-                'error': 'An unexpected error occurred'
-            }
-        except (SQLAlchemyError, ValueError, RuntimeError) as e:
-            current_app.logger.error(f"Error in confirm_subscription: {str(e)}")
-            return {
-                'success': False,
-                'error': 'An unexpected error occurred'
-            }
-        
-        # Ensure a return statement in case no exception is raised
-        return {
-            'success': False,
-            'error': 'An unknown error occurred'
-        }
-            
-    @staticmethod
-    def unsubscribe(email_or_token: str) -> Dict[str, Union[bool, str]]:
-        """
-        Unsubscribe from the newsletter.
-        
-        Args:
-            email_or_token: Either the subscriber's email or unsubscribe token
-            
-        Returns:
-            A dictionary with success flag and message
-        """
-        try:
-            # Try to find by unsubscribe token first
-            subscriber = Subscriber.query.filter_by(unsubscribe_token=email_or_token).first()
-            
-            # If not found by token, try email
-            if not subscriber and '@' in email_or_token:
-                subscriber = Subscriber.query.filter_by(email=email_or_token).first()
-                
-            if not subscriber:
-                return {
-                    'success': False,
-                    'error': 'No subscription found for this email or token'
-                }
-                
-            email = subscriber.email
-            db.session.delete(subscriber)
-            db.session.commit()
-            
-            current_app.logger.info(f"Unsubscribed from newsletter: {email}")
-            return {
-                'success': True,
-                'message': f'Successfully unsubscribed: {email}'
-            }
-        except ValueError as e:
-            current_app.logger.error(f"Value error in unsubscribe: {str(e)}")
-            return {
-                'success': False,
-                'error': 'Invalid input provided'
-            }
-        except RuntimeError as e:
-            current_app.logger.error(f"Runtime error in unsubscribe: {str(e)}")
-            return {
-                'success': False,
-                'error': 'A runtime error occurred'
-            }
-        except SQLAlchemyError as e:
-            db.session.rollback()
-            current_app.logger.error(f"Database error in unsubscribe: {str(e)}")
-            return {
-                'success': False,
-                'error': 'Database error occurred'
-            }
-        # Ensure a default return in case no exception is raised
-        return {
-            'success': False,
-            'error': 'An unknown error occurred'
-        }
-    
-    @staticmethod
-    def send_newsletter(subject: str, content: str, test_emails: Optional[List[str]] = None) -> Dict[str, Union[bool, str, int]]:
-        """
-        Send a newsletter to all confirmed subscribers or test emails.
-        
-        Args:
-            subject: The newsletter subject
-            content: The newsletter content (HTML)
-            test_emails: Optional list of test emails to send to instead of subscribers
-            
-        Returns:
-            A dictionary with success flag, message and count of recipients
-        """
-        try:
-            if test_emails:
-                # Send only to test emails
-                recipients = test_emails
-                recipient_count = len(test_emails)
-            else:
-                # Get all confirmed subscribers
-                subscribers = Subscriber.query.filter_by(confirmed=True).all()
-                recipients = [sub.email for sub in subscribers]
-                recipient_count = len(recipients)
-                
-            if recipient_count == 0:
-                return {
-                    'success': False,
-                    'error': 'No recipients found'
-                }
-                
-            # Send emails in batches to avoid timeouts
-            batch_size = 50
-            for i in range(0, recipient_count, batch_size):
-                batch = recipients[i:i + batch_size]
-                
-                for email in batch:
-                    # Find subscriber to include unsubscribe token
-                    subscriber = Subscriber.query.filter_by(email=email).first()
-                    unsubscribe_token = subscriber.unsubscribe_token if subscriber else None
-                    
-                    # Prepare newsletter content with unsubscribe link
-                    context = {
-                        'content': content,
-                        'unsubscribe_url': f"{current_app.config['BASE_URL']}/newsletter/unsubscribe/{unsubscribe_token}" if unsubscribe_token else None
-                    }
-                    html = render_template('emails/newsletter.html', **context)
-                    EmailService.send_email(
-                        to=email,
-                        subject=subject,
-                        html_content=html
-                    )
-        except ValueError as e:
-            current_app.logger.error(f"Value error in send_newsletter: {str(e)}")
-            return {
-                'success': False,
-                'error': 'Invalid input provided'
-            }
-        except RuntimeError as e:
-            current_app.logger.error(f"Runtime error in send_newsletter: {str(e)}")
-            return {
-                'success': False,
-                'error': f'Failed to send newsletter due to runtime error: {str(e)}'
-            }
-            
-            current_app.logger.info(f"Newsletter sent to {recipient_count} recipients")
-            return {
-                'success': True,
-                'message': f'Newsletter sent successfully to {recipient_count} recipients',
-                'count': recipient_count
-            }
-            
-        except SQLAlchemyError as e:
-            current_app.logger.error(f"Error in send_newsletter: {str(e)}")
-            return {
-                'success': False,
-                'error': f'Failed to send newsletter: {str(e)}'
-            }
-    
-    @staticmethod
-    def get_stats() -> Dict[str, int]:
-        """
-        Get newsletter subscription statistics.
-        
-        Returns:
-            A dictionary with various statistics
-        """
-        try:
-            total_subscribers = Subscriber.query.count()
-            confirmed_subscribers = Subscriber.query.filter_by(confirmed=True).count()
-            pending_subscribers = total_subscribers - confirmed_subscribers
-            
-            # Get subscribers in the last 30 days
-            thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-            new_subscribers = Subscriber.query.filter(Subscriber.subscribed_at >= thirty_days_ago).count()
-            
-            return {
-                'total': total_subscribers,
-                'confirmed': confirmed_subscribers,
-                'pending': pending_subscribers,
-                'new_30d': new_subscribers
-            }
-            
-        except SQLAlchemyError as e:
-            current_app.logger.error(f"Database error in get_stats: {str(e)}")
-            return {
-                'total': 0,
-                'confirmed': 0,
-                'pending': 0,
-                'new_30d': 0
-            }
-    
-    # Private methods
-    
-    @staticmethod
-    def _validate_email(email: str) -> bool:
-        """
-        Validate an email address format.
-        
-        Args:
-            email: The email address to validate
-            
-        Returns:
-            Boolean indicating if the email format is valid
-        """
-        pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-        return re.match(pattern, email) is not None
-    
-    @staticmethod
-    def _send_confirmation_email(email: str, token: str) -> bool:
-        """
-        Send a confirmation email to a subscriber.
-        
-        Args:
-            email: The recipient email address
-            token: The confirmation token
+            to: Recipient email address or list of addresses
+            subject: Email subject line
+            text_content: Plain text email content
+            html_content: HTML email content
+            from_email: Sender email address (overrides default)
+            from_name: Sender name (overrides default)
+            cc: Carbon copy recipients
+            bcc: Blind carbon copy recipients
+            reply_to: Reply-to email address
+            attachments: List of attachment dictionaries
             
         Returns:
             Boolean indicating if the email was sent successfully
         """
+        if not text_content and not html_content:
+            raise ValueError("Either text_content or html_content must be provided")
+            
+        # Ensure to is a list
+        recipients = [to] if isinstance(to, str) else to
+        
+        # Get sender information
+        sender_email = from_email or self.from_email or current_app.config.get('MAIL_DEFAULT_SENDER')
+        sender_name = from_name or self.from_name or current_app.config.get('MAIL_DEFAULT_SENDER_NAME')
+        
+        if not sender_email:
+            raise ValueError("Sender email is required")
+        
+        # Create message
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = subject
+        
+        # Set headers
+        if sender_name:
+            msg['From'] = f"{sender_name} <{sender_email}>"
+        else:
+            msg['From'] = sender_email
+            
+        msg['To'] = ', '.join(recipients)
+        
+        if cc:
+            cc_list = [cc] if isinstance(cc, str) else cc
+            msg['Cc'] = ', '.join(cc_list)
+            recipients.extend(cc_list)
+            
+        if bcc:
+            bcc_list = [bcc] if isinstance(bcc, str) else bcc
+            recipients.extend(bcc_list)
+            
+        if reply_to:
+            msg['Reply-To'] = reply_to
+        
+        # Add content
+        if text_content:
+            msg.attach(MIMEText(text_content, 'plain'))
+            
+        if html_content:
+            msg.attach(MIMEText(html_content, 'html'))
+            
+        # Add attachments if present
+        if attachments:
+            for attachment in attachments:
+                self._add_attachment(msg, attachment)
+                
+        # Send email
         try:
-            confirmation_url = f"{current_app.config['BASE_URL']}/newsletter/confirm/{token}"
+            # Get SMTP settings
+            smtp_server = self.smtp_server or current_app.config.get('SMTP_SERVER')
+            port = self.port or current_app.config.get('SMTP_PORT', 587)
+            username = self.username or current_app.config.get('SMTP_USERNAME')
+            password = self.password or current_app.config.get('SMTP_PASSWORD')
+            use_tls = self.use_tls if self.use_tls is not None else current_app.config.get('SMTP_USE_TLS', True)
             
-            context = {
-                'confirmation_url': confirmation_url,
-                'email': email,
-                'support_email': current_app.config.get('SUPPORT_EMAIL', 'support@example.com'),
-                'company_name': current_app.config.get('COMPANY_NAME', 'Our Company')
-            }
+            if not smtp_server:
+                raise ValueError("SMTP server is required")
+                
+            # Connect and send
+            smtp = smtplib.SMTP(smtp_server, port)
             
-            html = render_template('emails/confirm_subscription.html', **context)
-            
-            # Import directly here to avoid circular imports
-            from services.email_service import send_email
-            
-            # Use the module-level function
-            result = send_email(
-                to=email,
-                subject="Please confirm your newsletter subscription",
-                html_content=html
+            if use_tls:
+                smtp.starttls()
+                
+            if username and password:
+                smtp.login(username, password)
+                
+            smtp.sendmail(
+                sender_email,
+                recipients,
+                msg.as_string()
             )
             
-            if not result:
-                raise RuntimeError("Email service returned failure")
-                
+            smtp.quit()
+            
             return True
-        except (RuntimeError, ValueError, KeyError) as e:
-            current_app.logger.error(f"Failed to send confirmation email: {str(e)}")
+            
+        except (smtplib.SMTPException, ValueError) as e:
+            logger = logging.getLogger(__name__)
+            logger.error("Failed to send email: %s", str(e))
             return False
+    
+    def _add_attachment(self, msg: MIMEMultipart, attachment: Dict[str, Any]) -> None:
+        """
+        Add an attachment to the email message.
+        
+        Args:
+            msg: The email message to add the attachment to
+            attachment: Attachment information dictionary
+        """
+        # This is a placeholder for attachment handling
+        # The implementation depends on your specific needs
+        
+def send_email(to: Union[str, List[str]], 
+              subject: str, 
+              text_content: Optional[str] = None,
+              html_content: Optional[str] = None,
+              **kwargs: Any) -> bool:
+    """
+    Send an email using application configuration.
+    
+    This is a module-level convenience function that uses Flask's
+    current_app to get email configuration and send an email.
+    
+    Args:
+        to: Recipient email address(es)
+        subject: Email subject line
+        text_content: Plain text content (optional if html_content is provided)
+        html_content: HTML content (optional if text_content is provided)
+        **kwargs: Additional parameters to pass to EmailService.send_email
+        
+    Returns:
+        Boolean indicating if the email was sent successfully
+    
+    Example:
+        from services.email_service import send_email
+        
+        send_email(
+            to='user@example.com',
+            subject='Welcome to our service',
+            html_content='<h1>Welcome!</h1><p>Thank you for signing up.</p>'
+        )
+    """
+    try:
+        config = current_app.config
+        
+        service = EmailService(
+            smtp_server=config.get('SMTP_SERVER'),
+            port=config.get('SMTP_PORT', 587),
+            username=config.get('SMTP_USERNAME'),
+            password=config.get('SMTP_PASSWORD'),
+            use_tls=config.get('SMTP_USE_TLS', True)
+        )
+        
+        return service.send_email(
+            to=to,
+            subject=subject,
+            text_content=text_content,
+            html_content=html_content,
+            **kwargs
+        )
+        
+    except (ValueError, KeyError, RuntimeError) as e:
+        logging.getLogger(__name__).error("Failed to send email: %s", str(e))
+        return False
