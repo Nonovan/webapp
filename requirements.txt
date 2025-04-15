@@ -127,7 +127,7 @@ colorama==0.4.6
 # safety==2.3.5
 bandit==1.7.5  # Already included above
 # owasp-dependency-check==0.4.5
-certifi==2023.11.17
+certifi==2024.7.4
 
 # Utilities
 python-slugify==8.0.1
