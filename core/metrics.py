@@ -16,12 +16,14 @@ These metrics enable real-time monitoring, alerting, and performance optimizatio
 based on actual usage patterns and system behavior.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
+import os
 from functools import wraps
 from typing import Callable, Any, TypeVar, cast, Dict
 import psutil
 from flask import request, current_app
-from extensions import metrics, db
+from sqlalchemy import text
+from extensions import metrics, db, cache
 
 # Type alias for callable functions
 F = TypeVar('F', bound=Callable[..., Any])
@@ -126,11 +128,19 @@ def track_metrics(name: str) -> Callable[[F], F]:
                 })
                 return result
 
-            except db.exc.SQLAlchemyError as e:
+            except (psutil.Error, AttributeError, ValueError) as e:
+                error_type = type(e).__name__
                 metrics.info(f'{name}_error', 1, labels={
                     'method': func.__name__,
-                    'error': type(e).__name__
+                    'error': error_type
                 })
+                
+                # Log additional details for certain error types
+                if isinstance(e, db.exc.SQLAlchemyError):
+                    current_app.logger.error(f"Database error in {func.__name__}: {str(e)}")
+                else:
+                    current_app.logger.error(f"Error in {func.__name__}: {str(e)}")
+                    
                 raise
 
             finally:
@@ -142,6 +152,58 @@ def track_metrics(name: str) -> Callable[[F], F]:
     return decorator
 
 
+def measure_latency(func: F) -> F:
+    """
+    Decorator to measure function execution latency.
+
+    This decorator wraps a route function to measure its execution time and record
+    it to Prometheus, providing visibility into endpoint performance.
+
+    Args:
+        func (Callable): The function to measure
+
+    Returns:
+        Callable: The wrapped function with latency measurement
+
+    Example:
+        @app.route('/api/users')
+        @measure_latency
+        def get_users():
+            # Route implementation
+    """
+    @wraps(func)
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        start_time = datetime.utcnow()
+        
+        try:
+            result = func(*args, **kwargs)
+            return result
+        finally:
+            duration = (datetime.utcnow() - start_time).total_seconds()
+            # Use endpoint or path, with fallbacks
+            endpoint = request.endpoint or 'unknown'
+            path = request.path or '/unknown'
+            
+            # Record latency with appropriate labels
+            metrics.info('request_latency_seconds', duration, labels={
+                'endpoint': endpoint,
+                'path': path,
+                'method': request.method
+            })
+            
+            # Also record to appropriate histogram if available
+            if hasattr(metrics, 'histogram') and callable(getattr(metrics, 'histogram')):
+                try:
+                    metrics.histogram('request_latency_histogram_seconds', duration, labels={
+                        'endpoint': endpoint 
+                    })
+                except AttributeError:
+                    # Ignore errors related to missing attributes in histograms
+                    pass
+            
+    return cast(F, wrapped)
+
+
 class SystemMetrics:
     """
     Utility class for collecting system-level metrics.
@@ -151,6 +213,7 @@ class SystemMetrics:
     """
 
     @staticmethod
+    @cache.memoize(timeout=30)
     def get_system_metrics() -> Dict[str, Any]:
         """
         Collect current system resource metrics.
@@ -178,8 +241,48 @@ class SystemMetrics:
                 'bytes_sent': psutil.net_io_counters().bytes_sent,
                 'bytes_recv': psutil.net_io_counters().bytes_recv
             },
+            'load_avg': os.getloadavg() if hasattr(os, 'getloadavg') else (0, 0, 0),
+            'boot_time': datetime.fromtimestamp(psutil.boot_time()).isoformat(),
             'timestamp': datetime.utcnow().isoformat()
         }
+
+    @staticmethod
+    @cache.memoize(timeout=30)
+    def get_process_metrics() -> Dict[str, Any]:
+        """
+        Collect metrics for the current process.
+
+        Gathers metrics related to the current Python process including
+        memory usage, CPU utilization, and open file handles.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing process metrics:
+                - memory_used_mb: Memory usage in MB
+                - cpu_percent: CPU utilization percentage
+                - threads: Thread count
+                - open_files: Open file handle count
+                - connections: Network connection count
+
+        Example:
+            metrics = SystemMetrics.get_process_metrics()
+            print(f"Memory usage: {metrics['memory_used_mb']} MB")
+        """
+        try:
+            process = psutil.Process()
+            return {
+                'memory_used_mb': process.memory_info().rss / (1024 * 1024),
+                'cpu_percent': process.cpu_percent(),
+                'threads': process.num_threads(),
+                'open_files': len(process.open_files()),
+                'connections': len(process.connections()),
+                'timestamp': datetime.utcnow().isoformat()
+            }
+        except psutil.Error as e:
+            current_app.logger.error(f"Failed to collect process metrics: {e}")
+            return {
+                'error': str(e),
+                'timestamp': datetime.utcnow().isoformat()
+            }
 
 
 class DatabaseMetrics:
@@ -221,7 +324,8 @@ class DatabaseMetrics:
             'total_exec_time': 0,
             'rows_processed': 0,
             'cache_hit_ratio': 0,
-            'table_sizes': {}
+            'table_sizes': {},
+            'timestamp': datetime.utcnow().isoformat()
         }
 
         try:
@@ -257,7 +361,8 @@ class DatabaseMetrics:
                 'total_queries': -1,
                 'slow_queries': -1,
                 'query_errors': -1,
-                'table_sizes': {}
+                'table_sizes': {},
+                'timestamp': datetime.utcnow().isoformat()
             }
         finally:
             db.session.close()
@@ -265,22 +370,22 @@ class DatabaseMetrics:
     @staticmethod
     def _get_active_connections() -> int:
         """
-        Get the number of active database connections.
+        Get count of active database connections.
 
-        Retrieves the count of currently active database connections from
-        the SQLAlchemy connection pool.
+        Queries pg_stat_activity to count active connections to the database.
 
         Returns:
-            int: Number of active database connections
+            int: Number of active connections
         """
         try:
-            if hasattr(db.engine, 'pool') and hasattr(db.engine.pool, 'status'):
-                pool_status = db.engine.pool.status()
-                if pool_status and isinstance(pool_status, dict):
-                    return pool_status.get('checkedout', 0)
-        except AttributeError:
-            current_app.logger.warning("Could not fetch active connections due to missing attributes")
-        return 0
+            return db.session.execute(text("""
+                SELECT count(*)
+                FROM pg_stat_activity
+                WHERE datname = current_database()
+            """)).scalar() or 0
+        except db.exc.SQLAlchemyError as e:
+            current_app.logger.warning(f"Could not fetch connection count due to database error: {e}")
+            return -1
 
     @staticmethod
     def _get_query_statistics():
@@ -294,7 +399,7 @@ class DatabaseMetrics:
             Row: Database row with query statistics or None if unavailable
         """
         try:
-            return db.session.execute("""
+            return db.session.execute(text("""
                 SELECT
                     total_exec_time,
                     calls,
@@ -305,7 +410,7 @@ class DatabaseMetrics:
                     temp_bytes
                 FROM pg_stat_statements
                 WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-            """).fetchone()
+            """)).fetchone()
         except db.exc.SQLAlchemyError as e:
             current_app.logger.warning(f"Could not fetch query stats due to database error: {e}")
             return None
@@ -313,23 +418,23 @@ class DatabaseMetrics:
     @staticmethod
     def _get_slow_queries() -> int:
         """
-        Get count of slow queries (execution time > 1000ms).
+        Get count of slow queries from pg_stat_statements.
 
-        Counts queries that have taken longer than 1 second to execute,
-        which may indicate performance issues.
+        Identifies queries that took longer than a threshold time to execute,
+        which can indicate performance issues.
 
         Returns:
-            int: Number of slow queries detected
+            int: Number of slow queries (>100ms)
         """
         try:
-            return db.session.execute("""
-                SELECT COUNT(*)
+            return db.session.execute(text("""
+                SELECT count(*)
                 FROM pg_stat_statements
-                WHERE mean_exec_time > 1000
+                WHERE mean_exec_time > 100
                 AND dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-            """).scalar() or 0
+            """)).scalar() or 0
         except db.exc.SQLAlchemyError as e:
-            current_app.logger.warning(f"Could not fetch slow queries count due to database error: {e}")
+            current_app.logger.warning(f"Could not fetch slow query count due to database error: {e}")
             return 0
 
     @staticmethod
@@ -344,11 +449,11 @@ class DatabaseMetrics:
             int: Number of transaction rollbacks
         """
         try:
-            return db.session.execute("""
+            return db.session.execute(text("""
                 SELECT sum(xact_rollback)
                 FROM pg_stat_database
                 WHERE datname = current_database()
-            """).scalar() or 0
+            """)).scalar() or 0
         except db.exc.SQLAlchemyError as e:
             current_app.logger.warning(f"Could not fetch error count due to database error: {e}")
             return 0
@@ -356,20 +461,30 @@ class DatabaseMetrics:
     @staticmethod
     def _get_table_sizes() -> Dict[str, str]:
         """
-        Get table sizes for all user tables.
+        Get sizes of largest tables in the database.
 
-        Retrieves the size information for all tables in the current database,
-        which helps identify large tables that may need optimization.
+        Retrieves the sizes of the largest tables in the database to identify
+        potential space issues or unexpected growth.
 
         Returns:
-            Dict[str, str]: Dictionary mapping table names to their formatted sizes
+            Dict[str, str]: Dictionary mapping table names to their pretty-printed sizes
         """
         try:
-            table_sizes_result = db.session.execute("""
-                SELECT relname, pg_size_pretty(pg_total_relation_size(relname::regclass))
-                FROM pg_stat_user_tables
-            """).fetchall()
-            return dict(table_sizes_result) if table_sizes_result else {}
+            table_sizes = {}
+            result = db.session.execute(text("""
+                SELECT
+                    table_name,
+                    pg_size_pretty(pg_total_relation_size(quote_ident(table_name)))
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                ORDER BY pg_total_relation_size(quote_ident(table_name)) DESC
+                LIMIT 10
+            """)).fetchall()
+            
+            for table_name, size in result:
+                table_sizes[table_name] = size
+                
+            return table_sizes
         except db.exc.SQLAlchemyError as e:
             current_app.logger.warning(f"Could not fetch table sizes due to database error: {e}")
             return {}
@@ -377,23 +492,190 @@ class DatabaseMetrics:
     @staticmethod
     def _calculate_cache_hit_ratio(query_stats) -> float:
         """
-        Calculate the cache hit ratio from query statistics.
+        Calculate cache hit ratio from query statistics.
 
-        Computes the percentage of database block reads that were satisfied
-        from the shared buffer cache, which indicates caching effectiveness.
+        Determines what percentage of data blocks were found in the buffer cache
+        rather than requiring disk reads.
 
         Args:
-            query_stats: Row object containing query statistics
+            query_stats: Row object with shared_blks_hit and shared_blks_read attributes
 
         Returns:
             float: Cache hit ratio as a percentage (0-100)
         """
+        if hasattr(query_stats, 'shared_blks_hit') and hasattr(query_stats, 'shared_blks_read'):
+            hits = getattr(query_stats, 'shared_blks_hit', 0) or 0
+            reads = getattr(query_stats, 'shared_blks_read', 0) or 0
+            
+            if hits + reads > 0:
+                return (hits / (hits + reads)) * 100
+                
+        return 0.0
+
+
+class ApplicationMetrics:
+    """
+    Utility class for collecting application-specific metrics.
+    
+    Provides methods to gather metrics about application usage, performance,
+    and business-specific indicators.
+    """
+    
+    @staticmethod
+    @cache.memoize(timeout=60)
+    def get_app_metrics() -> Dict[str, Any]:
+        """
+        Collect application-specific metrics.
+        
+        Gathers metrics related to application usage and business operations
+        such as user counts, active sessions, and feature usage.
+        
+        Returns:
+            Dict[str, Any]: Dictionary containing application metrics:
+                - total_users: Total user count
+                - active_users: Users active in last 5 minutes
+                - uptime: Application uptime
+                - version: Application version
+                
+        Example:
+            metrics = ApplicationMetrics.get_app_metrics()
+            print(f"Active users: {metrics['active_users']}")
+        """
         try:
-            shared_blks_hit = getattr(query_stats, 'shared_blks_hit', 0) or 0
-            shared_blks_read = getattr(query_stats, 'shared_blks_read', 0) or 0
-            total_blocks = shared_blks_hit + shared_blks_read
-            if total_blocks > 0:
-                return shared_blks_hit / total_blocks
-        except (AttributeError, TypeError, ZeroDivisionError):
-            pass
-        return 0
+            # Import here to avoid circular imports
+            from models.user import User
+            
+            # Get application uptime
+            uptime = datetime.utcnow() - current_app.uptime if hasattr(current_app, 'uptime') else timedelta(seconds=0)
+            
+            return {
+                'total_users': User.query.count(),
+                'active_users': User.query.filter(
+                    User.last_login > (datetime.utcnow() - timedelta(minutes=5))
+                ).count(),
+                'uptime': str(uptime),
+                'version': current_app.config.get('VERSION', '1.0.0'),
+                'timestamp': datetime.utcnow().isoformat()
+            }
+        except (db.exc.SQLAlchemyError, AttributeError, ValueError) as e:
+            current_app.logger.error(f"Failed to collect application metrics: {e}")
+            return {
+                'error': str(e),
+                'timestamp': datetime.utcnow().isoformat()
+            }
+
+
+class SecurityMetrics:
+    """
+    Utility class for collecting security-related metrics.
+    
+    Provides methods to gather metrics about security events, authentication
+    attempts, and potential security anomalies.
+    """
+    
+    @staticmethod
+    @cache.memoize(timeout=120)
+    def get_security_metrics() -> Dict[str, Any]:
+        """
+        Collect security-related metrics.
+        
+        Gathers metrics related to authentication attempts, security incidents,
+        and potential breach indicators.
+        
+        Returns:
+            Dict[str, Any]: Dictionary containing security metrics:
+                - failed_logins_24h: Count of failed logins in last 24h
+                - account_lockouts_24h: Count of account lockouts in last 24h
+                - incidents_active: Count of active security incidents
+                - suspicious_ips: List of suspicious IP addresses
+                
+        Example:
+            metrics = SecurityMetrics.get_security_metrics()
+            print(f"Failed logins: {metrics['failed_logins_24h']}")
+        """
+        try:
+            # Import here to avoid circular imports
+            from models.audit_log import AuditLog
+            from models.security_incident import SecurityIncident
+            from sqlalchemy import func
+            
+            cutoff = datetime.utcnow() - timedelta(hours=24)
+            
+            # Get failed login count
+            failed_logins = AuditLog.query.filter(
+                AuditLog.event_type == AuditLog.EVENT_LOGIN_FAILED,
+                AuditLog.created_at >= cutoff
+            ).count()
+            
+            # Get account lockout count
+            account_lockouts = AuditLog.query.filter(
+                AuditLog.event_type == AuditLog.EVENT_ACCOUNT_LOCKOUT,
+                AuditLog.created_at >= cutoff
+            ).count()
+            
+            # Get active security incidents
+            active_incidents = SecurityIncident.query.filter(
+                SecurityIncident.status.in_(['open', 'investigating'])
+            ).count()
+            
+            # Get suspicious IPs (IPs with multiple failed logins)
+            suspicious_ips_query = db.session.query(
+                AuditLog.ip_address,
+                func.count(AuditLog.id).label('attempts')
+            ).filter(
+                AuditLog.event_type == AuditLog.EVENT_LOGIN_FAILED,
+                AuditLog.created_at >= cutoff
+            ).group_by(
+                AuditLog.ip_address
+            ).having(
+                func.count(AuditLog.id) > 5
+            ).all()
+            
+            suspicious_ips = [ip for ip, _ in suspicious_ips_query if ip]
+            
+            return {
+                'failed_logins_24h': failed_logins,
+                'account_lockouts_24h': account_lockouts,
+                'incidents_active': active_incidents,
+                'suspicious_ips': suspicious_ips,
+                'timestamp': datetime.utcnow().isoformat()
+            }
+        except (db.exc.SQLAlchemyError, AttributeError, ValueError) as e:
+            current_app.logger.error(f"Failed to collect security metrics: {e}")
+            return {
+                'error': str(e),
+                'timestamp': datetime.utcnow().isoformat()
+            }
+
+
+@cache.memoize(timeout=60)
+def get_all_metrics() -> Dict[str, Any]:
+    """
+    Collect all metrics in a single comprehensive report.
+    
+    Aggregates system, database, application, and security metrics into
+    a single dictionary for dashboard display or health monitoring.
+    
+    Returns:
+        Dict[str, Any]: Dictionary containing all metrics organized by category
+        
+    Example:
+        all_metrics = get_all_metrics()
+        print(f"CPU usage: {all_metrics['system']['cpu_usage']}%")
+        print(f"Active users: {all_metrics['application']['active_users']}")
+    """
+    try:
+        return {
+            'system': SystemMetrics.get_system_metrics(),
+            'process': SystemMetrics.get_process_metrics(),
+            'database': DatabaseMetrics.get_db_metrics(),
+            'application': ApplicationMetrics.get_app_metrics(),
+            'security': SecurityMetrics.get_security_metrics(),
+            'timestamp': datetime.utcnow().isoformat()
+        }
+    except (psutil.Error, db.exc.SQLAlchemyError, AttributeError, ValueError) as e:
+        current_app.logger.error(f"Failed to collect all metrics: {e}")
+        return {
+            'error': str(e),
+            'timestamp': datetime.utcnow().isoformat()
+        }

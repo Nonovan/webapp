@@ -123,11 +123,31 @@ def setup_response_context(response):
     """
     if hasattr(g, 'start_time'):
         elapsed = datetime.utcnow() - g.start_time
+        request_id = getattr(g, 'request_id', str(uuid.uuid4()))
+        api_version = getattr(g, 'api_version', 'v1')
+        
+        # Add standard headers
         response.headers.update({
-            'X-Request-ID': g.request_id,
+            'X-Request-ID': request_id,
             'X-Response-Time': f'{elapsed.total_seconds():.3f}s',
-            'X-API-Version': g.api_version
+            'X-API-Version': api_version
         })
+
+        # Record response metrics
+        if hasattr(current_app, 'extensions') and 'prometheus_metrics' in current_app.extensions:
+            metrics = current_app.extensions['prometheus_metrics']
+            metrics.info('response_time_seconds', elapsed.total_seconds(), labels={
+                'endpoint': request.endpoint or 'unknown',
+                'method': request.method,
+                'status': response.status_code
+            })
+            
+            # Track response sizes
+            if response.content_length:
+                metrics.info('response_size_bytes', response.content_length, labels={
+                    'endpoint': request.endpoint or 'unknown',
+                    'method': request.method
+                })
 
         # Compression for large responses
         if (response.content_length and response.content_length > 1024
@@ -135,7 +155,74 @@ def setup_response_context(response):
             response.data = gzip.compress(response.data)
             response.headers['Content-Encoding'] = 'gzip'
 
-        current_app.logger.info(
-            f'Response {g.request_id}: {response.status_code} ({elapsed.total_seconds():.3f}s)'
+        # Log successful responses at INFO level, errors at appropriate levels
+        if response.status_code >= 500:
+            log_level = 'error'
+            from models.audit_log import AuditLog
+            # Record server errors in audit log
+            try:
+                AuditLog.create(
+                    event_type='server_error',
+                    description=f"Server error {response.status_code} on {request.method} {request.path}",
+                    user_id=g.get('user_id'),
+                    ip_address=request.remote_addr,
+                    severity='error'
+                )
+            except Exception as e:
+                current_app.logger.error(f"Failed to log server error to audit log: {e}")
+                
+        elif response.status_code >= 400:
+            log_level = 'warning'
+        else:
+            log_level = 'info'
+        
+        # Log with appropriate level
+        getattr(current_app.logger, log_level)(
+            f'Response {request_id}: {response.status_code} ({elapsed.total_seconds():.3f}s)',
+            extra={
+                'request_id': request_id,
+                'status_code': response.status_code,
+                'response_time': elapsed.total_seconds(),
+                'endpoint': request.endpoint,
+                'path': request.path,
+                'user_id': g.get('user_id'),
+                'ip_address': request.remote_addr
+            }
         )
+        
+        # Add timing information to security monitoring
+        if 'monitoring_bp' in current_app.blueprints and response.status_code >= 400:
+            try:
+                # Track unusual response patterns
+                from models.audit_log import AuditLog
+                if response.status_code == 401:
+                    # Unauthorized access attempts
+                    AuditLog.create(
+                        event_type=AuditLog.EVENT_PERMISSION_DENIED,
+                        description=f"Unauthorized access attempt to {request.path}",
+                        user_id=g.get('user_id'),
+                        ip_address=request.remote_addr,
+                        severity='warning'
+                    )
+                elif response.status_code == 403:
+                    # Forbidden access attempts
+                    AuditLog.create(
+                        event_type=AuditLog.EVENT_PERMISSION_DENIED,
+                        description=f"Forbidden access attempt to {request.path}",
+                        user_id=g.get('user_id'),
+                        ip_address=request.remote_addr,
+                        severity='warning'
+                    )
+                elif response.status_code == 429:
+                    # Rate limit exceeded
+                    AuditLog.create(
+                        event_type='rate_limit_exceeded',
+                        description=f"Rate limit exceeded for {request.path}",
+                        user_id=g.get('user_id'),
+                        ip_address=request.remote_addr,
+                        severity='warning'
+                    )
+            except Exception as e:
+                current_app.logger.error(f"Failed to create audit log for response: {e}")
+    
     return response

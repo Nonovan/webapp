@@ -11,6 +11,7 @@ Key components:
 - Version tracking for deployment management
 - Blueprint registration for modular feature organization
 - Error handling and logging configuration
+- Security monitoring initialization
 
 The application follows Flask best practices with a modular structure,
 separation of concerns, and dependency injection to facilitate testing
@@ -18,18 +19,22 @@ and maintenance.
 """
 
 import logging
-from flask import Flask
+import os
+from datetime import datetime
+from flask import Flask, g, request
 from core.factory import create_app as core_create_app
 from views import register_blueprints
+from core.utils import generate_request_id
 
 __version__ = '1.0.0'
 
 def create_app() -> Flask:
     """
-    Application factory function.
+    Create and configure the Flask application.
 
-    Creates and configures a Flask application instance using the factory pattern.
-    This approach allows for proper application context management, testing isolation,
+    This function implements the application factory pattern, creating a new Flask
+    instance with all the necessary configuration, extensions, and blueprints. It
+    separates application creation from usage to enable better testability
     and configuration flexibility.
 
     The factory handles:
@@ -37,6 +42,7 @@ def create_app() -> Flask:
     - Blueprint registration
     - Extension initialization
     - Error handling setup
+    - Security monitoring initialization
 
     Returns:
         Flask: A fully configured Flask application instance ready to serve requests
@@ -56,6 +62,29 @@ def create_app() -> Flask:
 
         # Set version
         app.config['VERSION'] = __version__
+        
+        # Store application startup time for uptime tracking
+        app.uptime = datetime.utcnow()
+
+        # Set up request tracking middleware
+        @app.before_request
+        def set_request_context():
+            """Set up context for request tracking and monitoring."""
+            # Generate unique request ID
+            g.request_id = request.headers.get('X-Request-ID', generate_request_id())
+            g.start_time = datetime.utcnow()
+            
+            # Make CSP nonce available for this request
+            g.csp_nonce = os.urandom(16).hex()
+        
+        # Set up file integrity monitoring if enabled
+        if app.config.get('ENABLE_FILE_INTEGRITY_MONITORING', True):
+            from core.config import Config
+            app.config = Config.initialize_file_hashes(
+                app.config, 
+                os.path.dirname(os.path.abspath(__file__))
+            )
+            app.logger.info("File integrity monitoring initialized")
 
         return app
 
