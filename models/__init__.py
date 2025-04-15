@@ -25,15 +25,21 @@ from flask import current_app, abort
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.declarative import declared_attr
+from extensions import db
 
-from .user import User
-from .post import Post
-from .newsletter import Subscriber
-
-db = SQLAlchemy()
+# Import models - these should be imported after Base/TimestampMixin definitions
+# to avoid circular imports, but are placed here for type checking
+if TYPE_CHECKING:
+    from .user import User
+    from .post import Post
+    from .newsletter import Subscriber
+    from .notification import Notification
+    from .security_incident import SecurityIncident
+    from .audit_log import AuditLog
 
 # Define TypeVar with proper constraints using PEP 8 naming
 T_Model = TypeVar('T_Model', bound='BaseModel')
+
 
 class TimestampMixin:
     """
@@ -56,8 +62,9 @@ class TimestampMixin:
             id = db.Column(db.Integer, primary_key=True)
             name = db.Column(db.String(50))
     """
+
     @declared_attr
-    def created_at(self) -> datetime:
+    def created_at(self):
         """
         Creation timestamp for the record.
 
@@ -73,7 +80,7 @@ class TimestampMixin:
         )
 
     @declared_attr
-    def updated_at(self) -> datetime:
+    def updated_at(self):
         """
         Last update timestamp for the record.
 
@@ -116,6 +123,17 @@ class BaseModel(db.Model, TimestampMixin):
     """
     __abstract__ = True
     id = db.Column(db.Integer, primary_key=True)
+
+    def __init__(self, **kwargs):
+        """
+        Initialize the model with dynamic attributes.
+        
+        Args:
+            **kwargs: Key-value pairs to set as attributes
+        """
+        # Don't pass __abstract__ to parent constructor
+        kwargs.pop('__abstract__', None)
+        super().__init__(**kwargs)
 
     def save(self) -> bool:
         """
@@ -319,4 +337,18 @@ class BaseModel(db.Model, TimestampMixin):
         """
         return f'<{self.__class__.__name__} {self.id}>'
 
-__all__ = ['db', 'User', 'Post', 'Subscriber', 'BaseModel', 'TimestampMixin']
+
+# Import models here after the base classes have been defined
+# This avoids circular import problems
+from .user import User
+from .post import Post
+from .newsletter import Subscriber
+from .notification import Notification
+from .security_incident import SecurityIncident
+from .audit_log import AuditLog
+
+# Export public interface
+__all__ = [
+    'db', 'BaseModel', 'TimestampMixin',
+    'User', 'Post', 'Subscriber', 'Notification', 'SecurityIncident', 'AuditLog'
+]

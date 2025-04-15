@@ -25,6 +25,7 @@ from sqlalchemy import text
 from extensions import metrics, db, cache
 from models.user import User
 
+
 class SystemMetrics:
     """
     System-level metrics collection class.
@@ -127,6 +128,7 @@ class SystemMetrics:
         except (psutil.Error, AttributeError) as e:
             raise SystemMetrics.MetricsError(f"Process metrics error: {e}") from e
 
+
 class DatabaseMetrics:
     """
     Database performance metrics collection class.
@@ -211,6 +213,7 @@ class DatabaseMetrics:
         except Exception as e:
             raise DatabaseMetrics.MetricsError(f"Database metrics error: {e}") from e
 
+
 class ApplicationMetrics:
     """
     Application-specific metrics collection class.
@@ -291,6 +294,7 @@ class ApplicationMetrics:
         except Exception as e:
             raise ApplicationMetrics.MetricsError(f"Application metrics error: {e}") from e
 
+
 class EnvironmentalData:
     """
     Environmental data collection class.
@@ -349,8 +353,6 @@ class EnvironmentalData:
             }
         except Exception as e:
             raise EnvironmentalData.MetricsError(f"Environmental metrics error: {e}") from e
-
-    timestamp = db.Column(db.DateTime, nullable=False)  # Add the timestamp attribute
 
 
 @cache.memoize(timeout=60)
