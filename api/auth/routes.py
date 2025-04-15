@@ -36,37 +36,7 @@ auth_api = Blueprint('auth_api', __name__)
 
 @auth_api.route('/login', methods=['POST'])
 def login():
-    """
-    API endpoint for user authentication.
-    
-    This endpoint authenticates a user based on username and password credentials
-    provided in the JSON request body. If authentication is successful, a JWT token
-    is generated and returned along with basic user information.
-    
-    Request Body:
-        {
-            "username": "string",
-            "password": "string"
-        }
-        
-    Returns:
-        200 OK: Authentication successful
-            {
-                "token": "string",
-                "user": {
-                    "id": int,
-                    "username": "string",
-                    "role": "string"
-                }
-            }
-        400 BAD REQUEST: Missing credentials
-        401 UNAUTHORIZED: Invalid credentials
-    
-    Security:
-        - Rate limiting is applied to prevent brute force attacks
-        - Failed login attempts are tracked and may trigger account lockouts
-        - Passwords are never logged or returned in responses
-    """
+    """API endpoint for user authentication."""
     data = request.get_json()
     username = data.get('username')
     password = data.get('password')
@@ -89,7 +59,11 @@ def login():
             }
         }), 200
     else:
-        return jsonify({"error": error_message}), 401
+        # Check if this is a lockout situation
+        if "locked" in error_message.lower():
+            return jsonify({"error": error_message, "locked": True}), 423  # 423 Locked status code
+        else:
+            return jsonify({"error": error_message}), 401
 
 @auth_api.route('/register', methods=['POST'])
 def register():

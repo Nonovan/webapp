@@ -134,6 +134,14 @@
             </div>
         </div>
     </div>
+
+    {% if lockout %}
+    <div class="alert alert-danger mt-3">
+        <h5><i class="bi bi-lock-fill me-2"></i>Account Temporarily Locked</h5>
+        <p>{{ lockout_message }}</p>
+        <p class="mb-0">For security reasons, this account has been temporarily locked due to multiple failed login attempts. Please try again later or contact support if you need immediate assistance.</p>
+    </div>
+    {% endif %}
        
         {% block scripts %}
         <script src="https://www.google.com/recaptcha/api.js" async defer></script>
@@ -162,6 +170,17 @@
                 const spinner = this.querySelector(".spinner-border");
                 spinner.classList.remove("d-none");
             });
+
+            // Add lockout detection
+            {% if lockout %}
+            const submitBtn = document.querySelector('#submitBtn');
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                setTimeout(() => {
+                    submitBtn.disabled = false;
+                }, 5000); // Short delay to prevent rapid retries
+            }
+            {% endif %}
         });
         </script>
         {% endblock %}

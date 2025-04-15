@@ -162,5 +162,33 @@ def check() -> None:
         click.echo(f'Health check failed: {e}', err=True)
         exit(1)
 
+@cli.command()
+@click.argument('username')
+def unlock_account(username):
+    """
+    Unlock a user account that has been locked due to failed login attempts.
+
+    Args:
+        username: Username of the account to unlock
+    """
+    try:
+        app = create_app()
+        with app.app_context():
+            user = User.query.filter_by(username=username).first()
+            
+            if not user:
+                click.echo(f"User '{username}' not found.")
+                return
+                
+            if user.is_locked():
+                user.locked_until = None
+                user.failed_login_count = 0
+                db.session.commit()
+                click.echo(f"Account for '{username}' has been successfully unlocked.")
+            else:
+                click.echo(f"Account for '{username}' is not locked.")
+    except (RuntimeError, KeyError, db.exc.SQLAlchemyError) as e:
+        click.echo(f"Error unlocking account: {e}")
+
 if __name__ == '__main__':
     cli()

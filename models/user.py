@@ -19,7 +19,7 @@ It serves as the central component for user identity and access management throu
 the application.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import uuid
 import jwt
@@ -57,7 +57,8 @@ class User(db.Model):
     last_login = db.Column(db.DateTime)
     login_count = db.Column(db.Integer, default=0)
     failed_login_count = db.Column(db.Integer, default=0)
-    last_failed_login = db.Column(db.DateTime)
+    last_failed_login = db.Column(db.DateTime(timezone=True))
+    locked_until = db.Column(db.DateTime(timezone=True))
 
     # Constants
     STATUS_PENDING = 'pending'
@@ -137,10 +138,60 @@ class User(db.Model):
         db.session.commit()
 
     def record_failed_login(self) -> None:
-        """Record failed login attempt."""
+        """Record a failed login attempt and apply lockout if needed."""
         self.failed_login_count += 1
-        self.last_failed_login = datetime.utcnow()
-        db.session.commit()
+        self.last_failed_login = datetime.now(timezone.utc)
+
+        # Progressive lockout strategy
+        if self.failed_login_count >= 10:
+            # Extended lockout (1 hour) after 10 failed attempts
+            self.locked_until = datetime.now(timezone.utc) + timedelta(hours=1)
+        elif self.failed_login_count >= 5:
+            # Medium lockout (15 minutes) after 5 failed attempts
+            self.locked_until = datetime.now(timezone.utc) + timedelta(minutes=15)
+        elif self.failed_login_count >= 3:
+            # Short lockout (5 minutes) after 3 failed attempts
+            self.locked_until = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+        db.session.add(self)
+
+    def reset_failed_logins(self) -> None:
+        """Reset failed login count after successful authentication."""
+        self.failed_login_count = 0
+        self.locked_until = None
+        db.session.add(self)
+
+    def is_locked(self) -> bool:
+        """Check if the account is currently locked out."""
+        if not self.locked_until:
+            return False
+
+        # Check if lockout period has expired
+        if self.locked_until <= datetime.now(timezone.utc):
+            # Auto-unlock if lockout period passed
+            self.locked_until = None
+            return False
+
+        return True
+
+    def get_lockout_message(self) -> Optional[str]:
+        """Get appropriate lockout message with remaining time."""
+        if not self.locked_until:
+            return None
+
+        now = datetime.now(timezone.utc)
+        if self.locked_until <= now:
+            return None
+
+        time_diff = self.locked_until - now
+        minutes = int(time_diff.total_seconds() / 60)
+
+        if minutes > 60:
+            return f"Account locked for security. Try again in {minutes // 60} hours and {minutes % 60} minutes."
+        elif minutes > 0:
+            return f"Account locked for security. Try again in {minutes} minutes."
+        else:
+            return f"Account locked for security. Try again in {int(time_diff.total_seconds())} seconds."
 
     @property
     def is_admin(self) -> bool:

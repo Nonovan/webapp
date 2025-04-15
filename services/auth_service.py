@@ -20,6 +20,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Optional, Tuple, Union
 from flask import current_app, session
+from werkzeug.security import check_password_hash
 
 from blueprints.auth.utils import validate_password
 from models.user import User
@@ -52,23 +53,29 @@ class AuthService:
         
         # Check if user exists
         if not user:
+            # Use same error message to prevent username enumeration
             return False, None, "Invalid username or password"
             
         # Check if account is locked
-        if user.failed_login_count >= 5 and user.last_failed_login:
-            lockout_time = user.last_failed_login + timedelta(minutes=15)
-            if datetime.utcnow() < lockout_time:
-                return False, None, "Account temporarily locked due to multiple failed attempts"
+        if user.is_locked():
+            # Use event logging for security monitoring
+            current_app.logger.warning(f"Login attempt on locked account: {username}")
+            return False, None, user.get_lockout_message()
         
         # Verify password
-        if not user.check_password(password):
+        if not check_password_hash(user.password, password):
             # Record failed login
             user.record_failed_login()
             db.session.commit()
+            
+            # Check if this attempt triggered a lockout
+            if user.is_locked():
+                return False, None, user.get_lockout_message()
+                
             return False, None, "Invalid username or password"
             
         # Reset failed login counter on successful login
-        user.failed_login_count = 0
+        user.reset_failed_logins()
         user.update_last_login()
         db.session.commit()
         
