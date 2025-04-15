@@ -1,10 +1,38 @@
 :root {
+  /* Core color variables */
   --primary: #0066cc;
   --secondary: #6c757d;
   --success: #28a745;
   --danger: #dc3545;
+  --warning: #ffc107;
+  --info: #17a2b8;
+  --light: #f8f9fa;
+  --dark: #343a40;
   --background: #f8f9fa;
   --text: #212529;
+  --text-muted: #6c757d;
+  
+  /* Security status colors */
+  --security-secure: #28a745;
+  --security-warning: #ffc107;
+  --security-breach: #dc3545;
+  --security-unknown: #6c757d;
+  
+  /* Light/Dark mode variables */
+  --card-bg: #ffffff;
+  --card-border: rgba(0,0,0,0.125);
+  --card-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Dark mode theme variables */
+[data-bs-theme="dark"] {
+  --primary: #0d6efd;
+  --background: #212529;
+  --text: #f8f9fa;
+  --text-muted: #adb5bd;
+  --card-bg: #343a40;
+  --card-border: rgba(255,255,255,0.125);
+  --card-shadow: 0 2px 4px rgba(0,0,0,0.25);
 }
 
 /* Base styles */
@@ -19,6 +47,7 @@ body {
   line-height: 1.6;
   color: var(--text);
   background: var(--background);
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 /* Typography */
@@ -38,7 +67,12 @@ h1 {
   border-radius: 4px;
   border: none;
   cursor: pointer;
-  transition: opacity 0.2s;
+  transition: opacity 0.2s, background-color 0.2s;
+}
+
+.btn:focus {
+  outline: 3px solid rgba(0, 102, 204, 0.5);
+  outline-offset: 2px;
 }
 
 .btn-primary {
@@ -46,12 +80,27 @@ h1 {
   color: white;
 }
 
+.btn-primary:hover {
+  opacity: 0.9;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: white;
+}
+
+.btn-danger:hover {
+  opacity: 0.9;
+}
+
 .card {
-  background: white;
+  background: var(--card-bg);
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: var(--card-shadow);
+  border: 1px solid var(--card-border);
   padding: 1rem;
   margin-bottom: 1rem;
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
 }
 
 /* Responsive */
@@ -61,6 +110,9 @@ h1 {
   }
   h1 {
     font-size: 1.75rem;
+  }
+  .card {
+    padding: 0.75rem;
   }
 }
 
@@ -72,4 +124,88 @@ h1 {
 
 .fade-in {
   animation: fadeIn 0.3s ease-in;
+}
+
+/* Security status indicators */
+.security-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.security-status-secure {
+  background-color: rgba(40, 167, 69, 0.2);
+  color: var(--security-secure);
+  border: 1px solid var(--security-secure);
+}
+
+.security-status-warning {
+  background-color: rgba(255, 193, 7, 0.2);
+  color: var(--security-warning);
+  border: 1px solid var(--security-warning);
+}
+
+.security-status-breach {
+  background-color: rgba(220, 53, 69, 0.2);
+  color: var(--security-breach);
+  border: 1px solid var(--security-breach);
+}
+
+/* Focus visibility for accessibility */
+:focus-visible {
+  outline: 3px solid rgba(0, 102, 204, 0.5);
+  outline-offset: 2px;
+}
+
+/* Theme transition */
+.theme-transition {
+  transition: background-color 0.3s ease,
+              color 0.3s ease,
+              border-color 0.3s ease,
+              box-shadow 0.3s ease;
+}
+
+/* Password strength meter */
+.password-strength-meter {
+  height: 6px;
+  border-radius: 3px;
+  background-color: #e9ecef;
+  margin-top: 0.5rem;
+  overflow: hidden;
+}
+
+.password-strength-meter .progress-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+/* Additional styles for ICS controls */
+.control-panel {
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  background-color: var(--card-bg);
+}
+
+.form-range::-webkit-slider-thumb {
+  background: var(--primary);
+}
+
+.form-range::-moz-range-thumb {
+  background: var(--primary);
+}
+
+/* Spinner animation for loading states */
+.bi-arrow-clockwise-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
