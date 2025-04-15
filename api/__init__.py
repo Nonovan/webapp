@@ -26,12 +26,12 @@ api_bp = Blueprint('api', __name__, url_prefix='/api')
 
 # Define API-wide error handlers
 @api_bp.errorhandler(404)
-def resource_not_found(e):
+def resource_not_found(_e):
     """Handle resources not found with a consistent JSON response"""
     return jsonify(error="Resource not found"), 404
 
 @api_bp.errorhandler(500)
-def internal_server_error(e):
+def internal_server_error(_):
     """Handle internal server errors with a consistent JSON response"""
     return jsonify(error="Internal server error"), 500
 

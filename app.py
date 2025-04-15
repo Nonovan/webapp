@@ -28,8 +28,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from core.factory import create_app
 from extensions import db
 from models.audit_log import AuditLog
+from core.seeder import seed_database, seed_development_data
 from core.utils import log_event
-from core.seeder import seed_database, seed_development_data, log_event
 
 # Security constants
 REQUIRED_ENV_VARS = [
@@ -197,7 +197,7 @@ def verify_integrity() -> None:
             exit(1)
         else:
             click.echo('All critical files verified. Integrity check passed.')
-    except Exception as e:
+    except (RuntimeError, ValueError, KeyError, ImportError) as e:
         app.logger.error("File integrity check failed: %s", exc_info=e)
         click.echo(f'File integrity check failed: {e}', err=True)
         exit(1)
@@ -244,7 +244,7 @@ def security_scan() -> None:
                 exit(1)
             else:
                 click.echo("Security scan complete. No issues found.")
-    except Exception as e:
+    except (RuntimeError, ValueError, KeyError, ImportError) as e:
         app.logger.error("Security scan failed: %s", exc_info=e)
         click.echo(f'Security scan failed: {e}', err=True)
         exit(1)

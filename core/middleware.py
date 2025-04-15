@@ -168,7 +168,7 @@ def setup_response_context(response):
                     ip_address=request.remote_addr,
                     severity='error'
                 )
-            except Exception as e:
+            except (ValueError, RuntimeError) as e:
                 current_app.logger.error(f"Failed to log server error to audit log: {e}")
                 
         elif response.status_code >= 400:
@@ -222,7 +222,7 @@ def setup_response_context(response):
                         ip_address=request.remote_addr,
                         severity='warning'
                     )
-            except Exception as e:
+            except (ValueError, RuntimeError) as e:
                 current_app.logger.error(f"Failed to create audit log for response: {e}")
     
     return response
