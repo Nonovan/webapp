@@ -13,26 +13,50 @@
                     {% with messages = get_flashed_messages(with_categories=true) %}
                         {% if messages %}
                             {% for category, message in messages %}
-                                <div class="alert alert-info" role="alert">
-                                    <i class="bi bi-info-circle me-2"></i>
-                                    For security reasons, login attempts are limited to 5 per minute.
-                                </div>
+                                <div class="alert alert-{{ category }}" role="alert">{{ message }}</div>
+                            {% endfor %}
+                               
                             {% endfor %}
                         {% endif %}
                     {% endwith %}
 
                     <form method="post" class="needs-validation" novalidate>
+                         <!-- 
+                        SECURITY NOTES:
+                        1. Rate limiting (5/minute) protects against brute force attacks
+                        2. Local login attempt tracking adds client-side brute force protection
+                        3. Form validation prevents empty submissions but server must validate
+                        4. reCAPTCHA prevents automated login attempts
+                        5. CSRF tokens prevent cross-site request forgery attacks
+                        6. Password visibility toggle improves UX while maintaining security
+                        7. Two-factor authentication adds strong protection when enabled
+                        8. Input sanitization protects against XSS/injection attempts
+                        -->
+
+                        <!-- Remember me option -->
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="remember" name="remember">
+                            <label class="form-check-label" for="remember">Remember me</label>
+                        </div>
+
+                        <!-- Rate limiting notification informs users of security measures -->
+                        <div class="alert alert-info d-flex align-items-center" role="alert">
+                            <i class="bi bi-info-circle me-2"></i>
+                            <div>For security reasons, login attempts are limited to 5 per minute.</div>
+                        </div>
+
                         <!-- Make CSRF token visible in the code but not to the user -->
                         {{ form.csrf_token }}
                         <!-- Add CSRF token explanation in a comment -->
                         <!-- CSRF protection prevents cross-site request forgery attacks -->
+
                         <div class="mb-3">
                             <label for="username" class="form-label">Username</label>
                             <input type="text" 
-                                   class="form-control {% if form.username.errors %}is-invalid{% endif %}"
-                                   id="username" 
-                                   name="username" 
-                                   required>
+                                class="form-control {% if form.username.errors %}is-invalid{% endif %}"
+                                id="username" 
+                                name="username" 
+                                required>
                             {% if form.username.errors %}
                                 <div class="invalid-feedback">{{ form.username.errors[0] }}</div>
                             {% endif %}
@@ -41,118 +65,103 @@
                         <div class="mb-3">
                             <label for="password" class="form-label">Password</label>
                             <div class="input-group">
-                                <input type="password" 
-                                       class="form-control {% if form.password.errors %}is-invalid{% endif %}"
-                                       id="password" 
-                                       name="password" 
-                                       required>
-                                       <button class="btn btn-outline-secondary" type="button" id="togglePassword" aria-label="Toggle password visibility">
-                                           <i class="bi bi-eye" aria-hidden="true"></i>
-                                       </button>
-                                   </div>
-                                   {% if form.password.errors %}
-                                       <div class="invalid-feedback">{{ form.password.errors[0] }}</div>
-                                   {% endif %}
-                               </div>
-       
-                               {% if requires_2fa %}
+                                <input type="password"
+                                    class="form-control {% if form.password.errors %}is-invalid{% endif %}"
+                                    id="password" 
+                                    name="password" 
+                                    autocomplete="current-password"
+                                    required>
+                                    <button class="btn btn-outline-secondary" type="button" id="togglePassword" aria-label="Toggle password visibility">
+                                        <i class="bi bi-eye" aria-hidden="true"></i>
+                                    </button>
+                                </div>
+                                {% if form.password.errors %}
+                                    <div class="invalid-feedback">{{ form.password.errors[0] }}</div>
+                                {% endif %}
+                            </div>
+    
+                            {% if requires_2fa %}
                                     <div class="mb-3">
                                         <label for="totp" class="form-label">Two-Factor Authentication Code</label>
                                         <input type="text" 
                                             class="form-control" 
                                             id="totp" 
                                             name="totp" 
-                                            pattern="[0-9]{6}"
-                                            maxlength="6"
-                                            inputmode="numeric"
-                                            autocomplete="one-time-code"
+                                            pattern="[0-9]{6}" 
+                                            maxlength="6" 
+                                            inputmode="numeric" 
+                                            autocomplete="one-time-code" 
+                                            placeholder="Enter 6-digit code"
+                                            aria-label="Two-Factor Authentication Code"
                                             required>
                                         <div class="form-text">
                                             <i class="bi bi-shield-lock"></i> 
                                             Enter the 6-digit code from your authenticator app for additional security.
                                         </div>
                                     </div>
-                               {% endif %}
+                            {% endif %}
+    
+                            <div class="mb-3">
+                                <div class="g-recaptcha" data-sitekey="{{ recaptcha_site_key }}" data-callback="onRecaptchaVerified"></div>
+                            </div>
+    
+                            <div class="d-grid gap-2">
+                                <button type="submit" class="btn btn-primary btn-lg" id="submitBtn" disabled>
+                                    <span class="spinner-border spinner-border-sm d-none" role="status"></span>
+                                    <i class="bi bi-box-arrow-in-right me-2"></i>Login
+                                </button>
+                                <div class="text-center my-3">
+                                    <span class="text-muted">Or continue with</span>
+                                </div>
+                                <div class="d-flex gap-2">
+                                    <a href="{{ url_for('auth.google_login') }}" class="btn btn-outline-danger flex-grow-1">
+                                        <i class="bi bi-google me-2"></i>Google
+                                    </a>
+                                    <a href="{{ url_for('auth.github_login') }}" class="btn btn-outline-dark flex-grow-1">
+                                        <i class="bi bi-github me-2"></i>GitHub
+                                    </a>
+                                </div>
+                            </div>
+                        
+                        <div class="text-center mt-4">
+                            <p class="mb-2">Don't have an account? 
+                                <a href="{{ url_for('auth.register') }}" class="text-primary">Register here.</a></p>
+                            <p class="text-center mt-3">
+                                <a href="{{ url_for('auth.reset_password') }}" class="text-muted">Forgot your password?</a></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
        
-                               <div class="mb-3">
-                                   <div class="g-recaptcha" data-sitekey="{{ recaptcha_site_key }}" data-callback="onRecaptchaVerified"></div>
-                               </div>
-       
-                               <div class="d-grid gap-2">
-                                   <button type="submit" class="btn btn-primary btn-lg" id="submitBtn" disabled>
-                                       <span class="spinner-border spinner-border-sm d-none" role="status"></span>
-                                       <i class="bi bi-box-arrow-in-right me-2"></i>Login
-                                   </button>
-                                   <div class="text-center my-3">
-                                       <span class="text-muted">Or continue with</span>
-                                   </div>
-                                   <div class="d-flex gap-2">
-                                       <a href="{{ url_for('auth.google_login') }}" class="btn btn-outline-danger flex-grow-1">
-                                           <i class="bi bi-google me-2"></i>Google
-                                       </a>
-                                       <a href="{{ url_for('auth.github_login') }}" class="btn btn-outline-dark flex-grow-1">
-                                           <i class="bi bi-github me-2"></i>GitHub
-                                       </a>
-                                   </div>
-                               </div>
-                           
-                           <div class="text-center mt-4">
-                               <p class="mb-2">Don't have an account? <a href="{{ url_for('auth.register') }}" class="text-primary">Register here</a></p>
-                               <p><a href="{{ url_for('auth.reset_password') }}" class="text-muted">Forgot your password?</a></p>
-                           </div>
-                       </div>
-                   </div>
-               </div>
-           </div>
-       </div>
-       
-       {% block scripts %}
-       <script src="https://www.google.com/recaptcha/api.js" async defer></script>
-       <script>
-        // Login attempt tracking to identify potential brute force attacks
-        let loginAttempts = parseInt(localStorage.getItem('loginAttempts') || '0');
-        
-        form.addEventListener('submit', function(e) {
-            // Update login attempts in local storage
-            loginAttempts++;
-            localStorage.setItem('loginAttempts', loginAttempts.toString());
-            
-            // If too many attempts, add delay before allowing another submission
-            if (loginAttempts > 3) {
-                const submitBtn = document.getElementById('submitBtn');
-                submitBtn.disabled = true;
-                setTimeout(() => {
-                    submitBtn.disabled = false;
-                }, 3000); // 3 second delay after multiple attempts
-            }
-        });
+        {% block scripts %}
+        <script src="https://www.google.com/recaptcha/api.js" async defer></script>
+        <link rel="stylesheet" 
+              href="{{ url_for('static', filename='css/style.css') }}"
+              integrity="{{ sri_hash('css/style.css') }}" 
+              crossorigin="anonymous">
+
+        <script src="{{ url_for('static', filename='js/auth-common.js') }}"
+                integrity="{{ sri_hash('js/auth-common.js') }}" 
+                crossorigin="anonymous"></script>
+        <script nonce="{{ csp_nonce }}">
+            // Your inline JavaScript
         </script>
         <script>
-        document.getElementById('togglePassword').addEventListener('click', function() {
-            const password = document.getElementById('password');
-            const icon = this.querySelector('i');
-            const type = password.getAttribute('type') === 'password' ? 'text' : 'password';
-            password.setAttribute('type', type);
-            icon.classList.toggle('bi-eye');
-            icon.classList.toggle('bi-eye-slash');
-        });
-        
-        function onRecaptchaVerified(token) {
-            document.querySelector('button[type="submit"]').removeAttribute('disabled');
-        }
-
-        // Form validation
-        const form = document.querySelector('form');
-        form.addEventListener('submit', function(e) {
-            if (!form.checkValidity()) {
-                e.preventDefault();
-                e.stopPropagation();
-            }
-            form.classList.add('was-validated');
+        document.addEventListener('DOMContentLoaded', function() {
+            // Use shared functions
+            togglePasswordVisibility('password', 'togglePassword');
+            setupFormValidation();
+            setupBruteForceProtection(document.querySelector('form'), 'submitBtn');
             
-            const submitBtn = document.getElementById('submitBtn');
-            submitBtn.disabled = true;
-            submitBtn.querySelector('.spinner-border').classList.remove('d-none');
+            // reCAPTCHA callback defined globally for Google API usage
+            window.onRecaptchaVerified = onRecaptchaVerified;
+
+            document.querySelector("#submitBtn").addEventListener("click", function () {
+                const spinner = this.querySelector(".spinner-border");
+                spinner.classList.remove("d-none");
+            });
         });
         </script>
         {% endblock %}

@@ -16,6 +16,7 @@ behavior, and flexible deployment options without hard-coding sensitive values.
 """
 
 import os
+from datetime import timedelta
 from core.config import Config as CoreConfig
 
 class BaseConfig(CoreConfig):
@@ -102,6 +103,15 @@ class BaseConfig(CoreConfig):
 
         # Update base config with environment settings
         base_configuration.update(env_config.get(env, env_config['development']))
+
+        # Session security settings
+        base_configuration.update({
+            'SESSION_COOKIE_SECURE': True,  # Only send cookies over HTTPS
+            'SESSION_COOKIE_HTTPONLY': True,  # Prevent JavaScript access to cookies
+            'SESSION_COOKIE_SAMESITE': 'Lax',  # Restrict cross-site requests
+            'PERMANENT_SESSION_LIFETIME': timedelta(hours=1)  # Default session lifetime
+        })
+
         return base_configuration
 
 config = BaseConfig

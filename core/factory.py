@@ -19,9 +19,10 @@ imports, and provides a single entry point for application configuration.
 """
 
 import logging
+import os
 from datetime import datetime
 from typing import Optional
-from flask import Flask
+from flask import Flask, g
 from extensions import db, migrate, csrf, cache, limiter, session, metrics
 from core.config import Config
 from core.loggings import setup_app_loggings, get_logger
@@ -30,6 +31,7 @@ from core.middleware import (
     setup_request_context,
     setup_response_context
 )
+from core.utils import generate_sri_hash
 
 logger = get_logger(Flask(__name__))
 
@@ -100,6 +102,43 @@ def create_app(config_name: Optional[str] = None) -> Flask:
                 'uptime': str(datetime.utcnow() - app.uptime),
                 'version': app.version
             }
+
+        @app.context_processor
+        def inject_csp_nonce():
+            """Make CSP nonce available to all templates."""
+            if hasattr(g, 'csp_nonce'):
+                return {'csp_nonce': g.csp_nonce}
+            return {'csp_nonce': ''}
+
+        # Cache SRI hashes in production
+        sri_cache = {}
+
+        @app.context_processor
+        def inject_sri_hashes():
+            """Provide SRI hash generation function to templates."""
+            def sri_hash(filename):
+                """Generate SRI hash for a static file."""
+                if filename.startswith('http'):
+                    return ''
+                
+                # Check cache first
+                if app.config['ENV'] == 'production' and filename in sri_cache:
+                    return sri_cache[filename]
+                
+                static_file_path = os.path.join(app.static_folder, filename)
+                if not os.path.exists(static_file_path):
+                    app.logger.warning(f"SRI hash requested for non-existent file: {filename}")
+                    return ''
+                
+                hash_value = generate_sri_hash(static_file_path)
+                
+                # Cache in production
+                if app.config['ENV'] == 'production':
+                    sri_cache[filename] = hash_value
+                
+                return hash_value
+            
+            return {'sri_hash': sri_hash}
 
         return app
 

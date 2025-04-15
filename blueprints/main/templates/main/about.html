@@ -78,6 +78,9 @@
 {% endblock %}
 
 {% block scripts %}
+<script nonce="{{ csp_nonce }}">
+    // Your inline JavaScript
+</script>
 <script>
 document.getElementById('contactForm').addEventListener('submit', function(e) {
     e.preventDefault();

@@ -13,7 +13,7 @@ These utilities are used throughout the application to ensure consistent
 security practices and to centralize authentication logic for easier
 maintenance and updates.
 """
-
+import uuid
 import re
 from datetime import datetime, timedelta
 from functools import wraps
@@ -273,3 +273,32 @@ def sanitize_input(text) -> str:
     if not text or not isinstance(text, str):
         return ""
     return re.sub(r'[<>\'";]', '', text.strip())
+
+def regenerate_session():
+    """
+    Regenerate the session to prevent session fixation attacks.
+    
+    This function preserves important session data while creating a new
+    session ID, effectively preventing session fixation attacks.
+    """
+    
+    # Save the important session values
+    saved_data = {}
+    keys_to_preserve = ['user_id', 'username', 'role', 'last_active', 'csrf_token']
+    
+    for key in keys_to_preserve:
+        if key in session:
+            saved_data[key] = session[key]
+    
+    # Clear the current session
+    session.clear()
+    
+    # Generate a new session ID
+    session['session_id'] = str(uuid.uuid4())
+    
+    # Restore the saved values
+    for key, value in saved_data.items():
+        session[key] = value
+        
+    # Log the event
+    current_app.logger.info(f"Session regenerated for user_id={saved_data.get('user_id', 'unknown')}")

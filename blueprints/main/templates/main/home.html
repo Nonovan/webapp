@@ -82,4 +82,7 @@
 {% block scripts %}
 <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 <script src="{{ url_for('static', filename='js/status-preview.js') }}"></script>
+<script nonce="{{ csp_nonce }}">
+    // Your inline JavaScript
+</script>
 {% endblock %}

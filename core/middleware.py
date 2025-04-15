@@ -15,6 +15,8 @@ and execute for every request/response cycle, ensuring consistent handling acros
 all endpoints without duplicating code in individual route handlers.
 """
 
+import base64
+import os
 from datetime import datetime
 import gzip
 import uuid
@@ -33,20 +35,38 @@ def setup_security_headers(response):
 
     Returns:
         The modified response object with security headers
-
-    Example:
-        @app.after_request
-        def add_security_headers(response):
-            return setup_security_headers(response)
     """
+    # Define a comprehensive Content Security Policy
+    csp_directives = [
+        "default-src 'self'",
+        "script-src 'self' https://cdn.jsdelivr.net https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/ https://cdn.plot.ly", 
+        "style-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com 'unsafe-inline'",
+        "img-src 'self' data: https:",
+        "font-src 'self' https://cdn.jsdelivr.net https://fonts.gstatic.com",
+        "frame-src 'self' https://www.google.com/recaptcha/",
+        "connect-src 'self'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+        "object-src 'none'",
+        "integrity-src 'self'"
+    ]
+
+    # Add nonce to script-src directive if available
+    if hasattr(g, 'csp_nonce'):
+        csp_directives[1] = f"script-src 'self' https://cdn.jsdelivr.net https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/ https://cdn.plot.ly 'nonce-{g.csp_nonce}'"
+
+    # Combine directives and set as one header
+    csp_header = '; '.join(csp_directives)
+
     response.headers.update({
         'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
-        'Content-Security-Policy': "default-src 'self'",
+        'Content-Security-Policy': csp_header,
         'X-Content-Type-Options': 'nosniff',
         'X-Frame-Options': 'DENY',
         'X-XSS-Protection': '1; mode=block',
         'Referrer-Policy': 'strict-origin-same-origin',
-        'Permissions-Policy': 'geolocation=(), camera=()',
+        'Permissions-Policy': 'geolocation=(), camera=(), microphone=(), payment=()',
         'Access-Control-Allow-Origin': current_app.config.get('ALLOWED_ORIGINS', '*'),
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
@@ -72,6 +92,9 @@ def setup_request_context() -> None:
     g.request_id = request.headers.get('X-Request-ID', str(uuid.uuid4()))
     g.start_time = datetime.utcnow()
     g.api_version = request.headers.get('X-API-Version', 'v1')
+    
+    # Generate a CSP nonce for each request
+    g.csp_nonce = base64.b64encode(os.urandom(16)).decode('utf-8')
 
     # Validate API version
     if not g.api_version in current_app.config['API_VERSIONS']:

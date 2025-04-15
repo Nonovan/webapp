@@ -12,90 +12,83 @@ proper password handling, and comprehensive error handling to prevent common
 security vulnerabilities.
 """
 
-from datetime import datetime
-from typing import Union, cast
-from flask import Blueprint, Response, request, render_template, flash, url_for, session, current_app
-from flask import redirect as flask_redirect
-from models import User
-from extensions import db, limiter
+from flask import Blueprint, render_template, flash, url_for, session, current_app, redirect
+from forms import LoginForm
+
+
+from services.auth_service import AuthService
+from extensions import limiter
+
 
 auth_bp = Blueprint('auth', __name__)
 
-@auth_bp.route("/login", methods=['GET', 'POST'])
+@auth_bp.route('/login', methods=['GET', 'POST'])
 @limiter.limit("5/minute")
-def login() -> Union[str, Response]:
-    """
-    Handle user login requests with enhanced security.
-
-    This route supports both GET and POST methods:
-    - GET: Renders the login form
-    - POST: Processes the login attempt with credentials validation
-
-    Features:
-    - Rate limiting to prevent brute force attacks
-    - Two-factor authentication support when enabled
-    - Comprehensive input validation
-    - Session management with login tracking
-    - Secure error handling
-
+def login():
+    """Handle user authentication and login process.
+    
+    This function manages the login workflow for users, including form validation,
+    credential verification, session management, and security protections.
+    
+    Methods:
+        GET: Display login form with reCAPTCHA.
+        POST: Process login credentials, validate user, and establish session.
+    
+    Security features:
+        - Rate limiting (5 requests per minute per IP)
+        - Password hash verification
+        - Session fixation protection
+        - reCAPTCHA integration
+        - Logging of login attempts
+    
+    Form fields:
+        - username: User's username
+        - password: User's password
+        - remember: Optional checkbox to extend session lifetime
+    
     Returns:
-        Union[str, Response]:
-            - On GET: Rendered login template
-            - On successful POST: Redirect to home page
-            - On failed POST: Error response with appropriate status code
-
-    Rate limit:
-        5 requests per minute per IP address
+        GET: Rendered login template with form
+        POST (success): Redirect to dashboard
+        POST (failure): Rendered login template with error messages
+    
+    Session data set on successful login:
+        - user_id: Database ID of authenticated user
+        - username: Username of authenticated user
+        - role: User's role for permission checks
+        - last_active: Timestamp for session timeout management
     """
-    if request.method == 'GET':
-        return render_template("auth/login.html")
-
-    username = request.form.get("username")
-    password = request.form.get("password")
-    totp_code = request.form.get("totp")
-
-    if not username or not password:
-        flash("Username and password are required", "error")
-        return Response(render_template("auth/login.html"), status=400)
-
-    try:
-        user = User.query.filter_by(username=username).first()
-
-        if user and user.check_password(password):
-            # Check 2FA if enabled
+    
+    form = LoginForm()
+    
+    if form.validate_on_submit():
+        username = form.username.data
+        password = form.password.data
+        
+        # Use AuthService to authenticate
+        success, user, error_message = AuthService.authenticate_user(username, password)
+        
+        if success and user:
+            # Use AuthService to establish session
+            AuthService.login_user_session(user, remember=form.remember.data)
+            
+            # Handle 2FA if enabled
             if user.two_factor_enabled:
-                if not totp_code:
-                    return render_template("auth/login.html", requires_2fa=True)
-                if not user.verify_totp(totp_code):
-                    flash("Invalid 2FA code", "error")
-                    return Response(render_template("auth/login.html", requires_2fa=True), status=401)
+                session['awaiting_2fa'] = True
+                return redirect(url_for('auth.two_factor'))
+                
+            return redirect(url_for('main.dashboard'))
+        else:
+            flash(error_message, 'danger')
+    
+    return render_template(
+        'auth/login.html', 
+        form=form, 
+        recaptcha_site_key=current_app.config['RECAPTCHA_SITE_KEY']
+    )
 
-            # Login successful
-            session['user_id'] = user.id
-            session['role'] = user.role
-            session['last_active'] = datetime.utcnow().isoformat()
-
-            # Update login tracking
-            user.last_login = datetime.utcnow()
-            user.login_count += 1
-            db.session.commit()
-
-            current_app.logger.info(f"User {username} logged in successfully")
-            return cast(Union[str, Response], flask_redirect(url_for('main.home')))
-
-        flash("Invalid credentials", "error")
-        current_app.logger.warning(f"Failed login attempt for user: {username}")
-        return Response(render_template("auth/login.html"), status=401)
-
-    except db.SQLAlchemyError as e:
-        current_app.logger.error(f"Database error during login: {str(e)}")
-        flash("A database error occurred. Please try again later.", "error")
-        return Response(render_template("auth/login.html"), status=500)
-    except ValueError as e:
-        current_app.logger.error(f"Value error during login: {str(e)}")
-        flash("A value error occurred. Please try again later.", "error")
-        return Response(render_template("auth/login.html"), status=500)
-    except RuntimeError as e:
-        current_app.logger.error(f"Runtime error during login: {str(e)}")
-        flash("A runtime error occurred. Please try again later.", "error")
-        return Response(render_template("auth/login.html"), status=500)
+@auth_bp.route('/logout')
+def logout():
+    """Log out the user and redirect to login page."""
+    AuthService.logout_user()
+    flash('You have been logged out successfully', 'success')
+    return redirect(url_for('auth.login'))

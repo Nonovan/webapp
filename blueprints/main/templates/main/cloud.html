@@ -202,6 +202,9 @@
     </div>
                 
 {% block scripts %}
+<script nonce="{{ csp_nonce }}">
+    // Your inline JavaScript
+</script>
 <script>
 function updateDashboard(data) {
     // Update gauges

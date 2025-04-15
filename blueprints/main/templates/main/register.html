@@ -31,6 +31,7 @@
                                 <span class="input-group-text">
                                     <i class="bi bi-person"></i>
                                 </span>
+                                <!-- Pattern attribute provides first line of defense against injection attacks -->
                                 <input type="text" 
                                        class="form-control {% if form.username.errors %}is-invalid{% endif %}"
                                        id="username" 
@@ -73,6 +74,13 @@
   
                         <div class="mb-3">
                             <label for="password" class="form-label">Password</label>
+                            <ul id="password-requirements" class="small text-muted mb-2">
+                                <li data-requirement="length">Must be at least 12 characters</li>
+                                <li data-requirement="lowercase">Must include lowercase letter</li>
+                                <li data-requirement="uppercase">Must include uppercase letter</li>
+                                <li data-requirement="number">Must include a number</li>
+                                <li data-requirement="special">Must include special character</li>
+                            </ul>
                             <div class="input-group">
                                 <input type="password" 
                                     class="form-control {% if form.password.errors %}is-invalid{% endif %}"
@@ -82,9 +90,18 @@
                                     pattern="^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{12,}$"
                                     aria-describedby="passwordHelp">
 
-                                <div id="passwordHelp" class="form-text">
-                                    Minimum 12 characters with at least 1 letter, 1 number, and 1 special character
-                                </div>
+                            <button class="btn btn-outline-secondary" type="button" id="togglePassword">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                        </div>
+                        <div id="passwordStrength" class="progress mt-2" style="height: 5px;">
+                            <div class="progress-bar" role="progressbar"></div>
+                        </div>
+                        <div id="passwordStrengthText" class="form-text text-muted">Password strength: Weak</div>
+
+                        <div id="passwordHelp" class="form-text">
+                            Minimum 12 characters with at least 1 letter, 1 number, and 1 special character
+                        </div>
 
                         <div class="mb-3">
                             <label for="confirm" class="form-label">Confirm Password</label>
@@ -107,8 +124,6 @@
                         <div class="g-recaptcha mb-3" data-sitekey="{{ recaptcha_site_key }}"></div>
 
                         <div class="d-grid gap-2">
-                            <button type="submit" class="btn btn-primary">Register</button>
-                            <hr>
                             <a href="{{ url_for('auth.google_register') }}" class="btn btn-danger">
                                 <i class="bi bi-google"></i> Register with Google
                             </a>
@@ -116,6 +131,11 @@
                                 <i class="bi bi-github"></i> Register with GitHub
                             </a>
                         </div>
+
+                        <button type="submit" class="btn btn-primary" id="registerBtn">
+                            <span class="spinner-border spinner-border-sm d-none" role="status"></span>
+                            Register
+                        </button>
                     </form>
                     
                     <p class="text-center mt-3">
@@ -126,80 +146,51 @@
         </div>
     </div>
 </div>
-
+<!-- Terms and Conditions Modal -->
+<div class="modal fade" id="termsModal" tabindex="-1" aria-labelledby="termsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="termsModalLabel">Terms and Conditions</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Insert your terms and conditions here...</p>
+            </div>
+        </div>
+    </div>
+</div>
 {% block scripts %}
 <script src="https://www.google.com/recaptcha/api.js" async defer></script>
+
+<!-- Local static files with SRI -->
+<link rel="stylesheet" 
+      href="{{ url_for('static', filename='css/style.css') }}"
+      integrity="{{ sri_hash('css/style.css') }}" 
+      crossorigin="anonymous">
+
+<script src="{{ url_for('static', filename='js/auth-common.js') }}"
+        integrity="{{ sri_hash('js/auth-common.js') }}" 
+        crossorigin="anonymous"></script>
+
+<script nonce="{{ csp_nonce }}">
+    // Your inline JavaScript
+</script>
 <script>
-document.getElementById('togglePassword').addEventListener('click', function() {
-    const password = document.getElementById('password');
-    const type = password.getAttribute('type') === 'password' ? 'text' : 'password';
-    password.setAttribute('type', type);
-    this.querySelector('i').classList.toggle('bi-eye');
-    this.querySelector('i').classList.toggle('bi-eye-slash');
-});
-
-document.getElementById('password').addEventListener('input', function() {
-    const strength = checkPasswordStrength(this.value);
-    const progressBar = document.querySelector('#passwordStrength .progress-bar');
-    progressBar.style.width = `${strength * 25}%`;
-    progressBar.className = `progress-bar bg-${getStrengthColor(strength)}`;
-});
-
-function checkPasswordStrength(password) {
-    let strength = 0;
-    if (password.length >= 12) strength++; // Increased length requirement
-    if (password.match(/[a-z]/)) strength++;
-    if (password.match(/[A-Z]/)) strength++;
-    if (password.match(/[0-9]/)) strength++;
-    if (password.match(/[^A-Za-z0-9]/)) strength++; // Special characters
-    return Math.min(4, strength);
-}
-
-function getStrengthColor(strength) {
-    return ['danger', 'warning', 'info', 'success'][strength - 1] || 'danger';
-}
-
-(function () {
-    'use strict'
+document.addEventListener('DOMContentLoaded', function() {
+    // Use shared functions
+    togglePasswordVisibility('password', 'togglePassword');
+    setupPasswordStrengthMeter('password', '#passwordStrength .progress-bar', '#passwordStrengthText');
+    setupPasswordMatchValidation('password', 'confirm');
+    setupFormValidation();
     
-    // Password strength checker
-    const passwordInput = document.getElementById('password');
-    const strengthMeter = document.querySelector('.password-strength');
-    
-    passwordInput.addEventListener('input', function() {
-        const strength = checkPasswordStrength(this.value);
-        strengthMeter.innerHTML = `Password strength: ${strength}`;
-    });
+    // reCAPTCHA callback defined globally for Google API usage
+    window.onRecaptchaVerified = onRecaptchaVerified;
 
-    // Password match validation
-    const confirmInput = document.getElementById('confirm');
-    confirmInput.addEventListener('input', function() {
-        if (this.value !== passwordInput.value) {
-            this.setCustomValidity('Passwords do not match');
-        } else {
-            this.setCustomValidity('');
-        }
+    document.querySelector("#registerBtn").addEventListener("click", function () {
+        const spinner = this.querySelector(".spinner-border");
+        spinner.classList.remove("d-none");
     });
-
-    // Form validation
-    const forms = document.querySelectorAll('.needs-validation');
-    Array.prototype.slice.call(forms).forEach(function (form) {
-        form.addEventListener('submit', function (event) {
-            if (!form.checkValidity()) {
-                event.preventDefault();
-                event.stopPropagation();
-            }
-            form.classList.add('was-validated');
-        }, false);
-    });
-})();
-
-document.querySelector('form').addEventListener('submit', function(e) {
-    if (!this.checkValidity()) {
-        e.preventDefault();
-        e.stopPropagation();
-    }
-    this.classList.add('was-validated');
 });
 </script>
 {% endblock %}

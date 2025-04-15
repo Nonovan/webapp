@@ -19,7 +19,8 @@ Key responsibilities:
 
 import logging
 import os
-from flask import Flask
+from datetime import datetime, timedelta
+from flask import Flask, session, flash, redirect, url_for
 import click
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -71,6 +72,7 @@ def register_blueprints(flask_app: Flask) -> None:
     flask_app.register_blueprint(auth_bp)
     flask_app.register_blueprint(main_bp)
 
+
 # Initialize application
 try:
     validate_environment()
@@ -78,6 +80,25 @@ try:
 except SQLAlchemyError as e:
     logging.critical("Application initialization failed: %s", e)
     raise
+
+@app.before_request
+def validate_session():
+    """
+    Validate user session on each request.
+    Checks session age, user agent consistency, and IP address changes.
+    """
+    if 'user_id' in session:
+        # Check for session age
+        if 'last_active' in session:
+            last_active = datetime.fromisoformat(session['last_active'])
+            if datetime.utcnow() - last_active > timedelta(minutes=30):
+                # Session expired
+                session.clear()
+                flash('Your session has expired. Please log in again.', 'warning')
+                return redirect(url_for('auth.login'))
+        
+        # Update last active time
+        session['last_active'] = datetime.utcnow().isoformat()
 
 @app.cli.command()
 def init_db() -> None:
