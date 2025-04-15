@@ -17,7 +17,7 @@ Routes:
     /logout: Invalidate current token
 """
 
-from flask import Blueprint, request, jsonify, session, current_app, flash, redirect, url_for
+from flask import Blueprint, request, jsonify, session, current_app
 from services.auth_service import AuthService
 
 
@@ -31,9 +31,10 @@ def regenerate_session():
     """
     session.modified = True
 
-auth_bp = Blueprint('auth', __name__)
+# Create auth API blueprint - Note: Changed from auth_bp to auth_api to match imports
+auth_api = Blueprint('auth_api', __name__)
 
-@auth_bp.route('/login', methods=['POST'])
+@auth_api.route('/login', methods=['POST'])
 def login():
     """
     API endpoint for user authentication.
@@ -90,7 +91,7 @@ def login():
     else:
         return jsonify({"error": error_message}), 401
 
-@auth_bp.route('/register', methods=['POST'])
+@auth_api.route('/register', methods=['POST'])
 def register():
     """
     Register a new user account.
@@ -150,7 +151,7 @@ def register():
         status_code = 409 if "exists" in error_message.lower() else 400
         return jsonify({"error": error_message}), status_code
 
-@auth_bp.route('/extend-session', methods=['POST'])
+@auth_api.route('/extend-session', methods=['POST'])
 def extend_session():
     """
     Extend the lifetime of the current user session.
@@ -193,7 +194,7 @@ def extend_session():
         current_app.logger.error(f"Unexpected session extension error: {e}")
         return jsonify({'success': False, 'message': 'An unexpected error occurred'}), 500
 
-@auth_bp.route('/logout')
+@auth_api.route('/logout')
 def logout():
     """Log out the user and redirect to login page"""
     # Log the logout event
@@ -203,5 +204,4 @@ def logout():
     # Clear session
     session.clear()
     
-    flash('You have been logged out successfully', 'success')
-    return redirect(url_for('auth.login'))
+    return jsonify({'success': True, 'message': 'Successfully logged out'}), 200

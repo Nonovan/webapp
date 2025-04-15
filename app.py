@@ -25,9 +25,6 @@ import click
 from sqlalchemy.exc import SQLAlchemyError
 
 from core.factory import create_app
-from blueprints.monitoring.routes import monitoring_bp
-from blueprints.auth.routes import auth_bp
-from blueprints.main.routes import main_bp
 from extensions import db
 
 # Security constants
@@ -61,17 +58,6 @@ def setup_logging(flask_app: Flask) -> None:
     handler.setFormatter(formatter)
     flask_app.logger.handlers = [handler]
     flask_app.logger.setLevel(flask_app.config['LOG_LEVEL'])
-
-def register_blueprints(flask_app: Flask) -> None:
-    """
-    Register Flask blueprints for application routes.
-    Args:
-        flask_app: Flask application instance
-    """
-    flask_app.register_blueprint(monitoring_bp)
-    flask_app.register_blueprint(auth_bp)
-    flask_app.register_blueprint(main_bp)
-
 
 # Initialize application
 try:

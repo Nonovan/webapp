@@ -21,8 +21,11 @@ from datetime import datetime
 import os
 import click
 from flask.cli import FlaskGroup
+
 from app import create_app
 from extensions import db
+from models import User
+
 
 cli = FlaskGroup(create_app=create_app)
 
@@ -70,13 +73,30 @@ def init_db(seed: bool) -> None:
         $ flask init_db --seed
     """
     try:
-        with create_app().app_context():
+        app = create_app()
+        
+        with app.app_context():
             db.create_all()
+            click.echo("Database tables created")
+            
             if seed:
-                # Add seeding logic here
-                pass
-            click.echo('Database initialized successfully.')
-    except (db.exc.SQLAlchemyError, RuntimeError, OSError) as e:
+                # Import models for seeding
+                
+                # Create admin user if it doesn't exist
+                admin = User.query.filter_by(username='admin').first()
+                if not admin:
+                    admin = User(
+                        username='admin',
+                        email='admin@example.com',
+                        role='admin'
+                    )
+                    admin.set_password('AdminPassword123!')
+                    db.session.add(admin)
+                    db.session.commit()
+                    click.echo("Admin user created")
+                
+                click.echo("Database seeded successfully")
+    except (RuntimeError, KeyError, db.exc.SQLAlchemyError) as e:
         click.echo(f'Error initializing database: {e}', err=True)
         exit(1)
 

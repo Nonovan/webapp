@@ -21,8 +21,8 @@ imports, and provides a single entry point for application configuration.
 import logging
 import os
 from datetime import datetime
-from typing import Optional
 from flask import Flask, g
+from blueprints import register_all_blueprints
 from extensions import db, migrate, csrf, cache, limiter, session, metrics
 from core.config import Config
 from core.loggings import setup_app_loggings, get_logger
@@ -32,10 +32,12 @@ from core.middleware import (
     setup_response_context
 )
 from core.utils import generate_sri_hash
+from api import register_api
+
 
 logger = get_logger(Flask(__name__))
 
-def create_app(config_name: Optional[str] = None) -> Flask:
+def create_app(config=None):
     """
     Create and configure a Flask application instance.
 
@@ -44,8 +46,7 @@ def create_app(config_name: Optional[str] = None) -> Flask:
     loading, extension setup, middleware registration, and error handling.
 
     Args:
-        config_name (Optional[str]): Name of specific configuration to load
-                                    ('development', 'production', 'testing')
+        config (Optional[dict]): Configuration dictionary to load
 
     Returns:
         Flask: A fully configured Flask application instance
@@ -58,15 +59,14 @@ def create_app(config_name: Optional[str] = None) -> Flask:
         app = create_app()
 
         # Create an application with testing configuration
-        test_app = create_app('testing')
+        test_app = create_app({'ENV': 'testing'})
     """
     try:
         app = Flask(__name__)
 
         # Load and validate configuration
-        config = Config.load()
-        if config_name:
-            config.update(Config.load_from_name(config_name))
+        if config is None:
+            config = Config.load()
         app.config.update(config)
 
         # Track application metadata
@@ -139,6 +139,12 @@ def create_app(config_name: Optional[str] = None) -> Flask:
                 return hash_value
             
             return {'sri_hash': sri_hash}
+
+        # Register API routes
+        register_api(app)
+        
+        # Register blueprints
+        register_all_blueprints(app)
 
         return app
 
