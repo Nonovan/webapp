@@ -492,6 +492,92 @@ def check_security_status() -> Dict[str, Any]:
     
     return security_data
 
+def check_config_integrity() -> bool:
+    """
+    Verify integrity of critical configuration files.
+    
+    Uses the established file integrity checking functions from core.utils
+    instead of implementing a separate hashing mechanism.
+    
+    Returns:
+        bool: True if all files match their reference hashes, False otherwise
+    """
+    from core.utils import check_file_integrity
+    
+    # Get expected hashes from application configuration
+    expected_hashes = current_app.config.get('CONFIG_FILE_HASHES', {})
+    if not expected_hashes:
+        current_app.logger.warning("No reference hashes found for config files")
+        return False
+    
+    # Check each file against its expected hash
+    for file_path, expected_hash in expected_hashes.items():
+        if not check_file_integrity(file_path, expected_hash):
+            current_app.logger.warning(f"Configuration file integrity check failed: {file_path}")
+            
+            # Record security event
+            try:
+                from models.audit_log import AuditLog
+                AuditLog.create(
+                    event_type=AuditLog.EVENT_FILE_INTEGRITY,
+                    description=f"Configuration file modified: {file_path}",
+                    severity=AuditLog.SEVERITY_ERROR
+                )
+            except Exception as e:
+                current_app.logger.error(f"Failed to record file integrity event: {e}")
+                
+            return False
+    
+    return True
+
+def check_critical_file_integrity() -> bool:
+    """
+    Verify integrity of critical application files.
+    
+    Uses the established file integrity checking functions from core.utils
+    for consistency and to leverage the security monitoring system.
+    
+    Returns:
+        bool: True if all files match their reference hashes, False otherwise
+    """
+    from core.utils import check_file_integrity, detect_file_changes
+    
+    # Get expected hashes from application configuration
+    expected_hashes = current_app.config.get('CRITICAL_FILE_HASHES', {})
+    if not expected_hashes:
+        current_app.logger.warning("No reference hashes found for critical files")
+        return False
+    
+    # Use the more comprehensive detection function
+    app_root = os.path.dirname(os.path.abspath(current_app.root_path))
+    changes = detect_file_changes(app_root, expected_hashes)
+    
+    if changes:
+        # Log each detected change
+        for change in changes:
+            path = change.get('path', 'unknown')
+            status = change.get('status', 'unknown')
+            severity = change.get('severity', 'medium')
+            
+            current_app.logger.warning(f"File integrity violation: {path} ({status})")
+            
+            # Record security event for high severity changes
+            if severity in ('high', 'critical'):
+                try:
+                    from models.audit_log import AuditLog
+                    AuditLog.create(
+                        event_type=AuditLog.EVENT_FILE_INTEGRITY,
+                        description=f"Critical file modified: {path}",
+                        details=str(change),
+                        severity=AuditLog.SEVERITY_ERROR
+                    )
+                except Exception as e:
+                    current_app.logger.error(f"Failed to record file integrity event: {e}")
+        
+        return False
+    
+    return True
+
 def detect_anomalies() -> bool:
     """
     Detect system anomalies that might indicate a security breach.
@@ -1371,60 +1457,6 @@ def get_suspicious_ips() -> List[Dict[str, Any]]:
     ).filter(failed_login_counts.c.count > 5).all()
     
     return [{'ip': ip, 'count': count} for ip, count in suspicious]
-
-def check_config_integrity() -> bool:
-    """Verify integrity of critical configuration files."""
-    import os
-    import hashlib
-    
-    # Get expected hashes from application configuration
-    expected_hashes = current_app.config.get('CONFIG_FILE_HASHES', {})
-    
-    # Check critical configuration files
-    config_files = ['config.py', '.env', 'app.py']
-    
-    for file in config_files:
-        if os.path.exists(file):
-            # Calculate current file hash
-            with open(file, 'rb') as f:
-                file_hash = hashlib.sha256(f.read()).hexdigest()
-                
-            # Compare with expected hash if available
-            if file in expected_hashes and file_hash != expected_hashes[file]:
-                current_app.logger.warning(f"Configuration file modified: {file}")
-                return False
-    
-    return True
-
-def check_critical_file_integrity() -> bool:
-    """Verify integrity of critical application files."""
-    import os
-    import hashlib
-    
-    # Get expected hashes from application configuration
-    expected_hashes = current_app.config.get('CRITICAL_FILE_HASHES', {})
-    
-    # Check critical files
-    critical_files = [
-        'app.py',
-        'wsgi.py',
-        'core/security.py',
-        'core/auth.py',
-        'extensions.py'
-    ]
-    
-    for file in critical_files:
-        if os.path.exists(file):
-            # Calculate current file hash
-            with open(file, 'rb') as f:
-                file_hash = hashlib.sha256(f.read()).hexdigest()
-                
-            # Compare with expected hash if available
-            if file in expected_hashes and file_hash != expected_hashes[file]:
-                current_app.logger.warning(f"Critical file modified: {file}")
-                return False
-    
-    return True
 
 def calculate_risk_score(security_data: Dict[str, Any]) -> int:
     """Calculate security risk score based on collected security data."""

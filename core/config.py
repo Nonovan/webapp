@@ -242,7 +242,9 @@ class Config:
         Initialize file integrity hashes for critical files.
         
         This method computes hash values for security-critical files to enable
-        integrity monitoring during application runtime.
+        integrity monitoring during application runtime. It uses the Argon2 
+        algorithm for advanced hashing security where appropriate, and falls
+        back to SHA-256 for larger files for performance reasons.
         
         Args:
             config: Current application configuration dictionary
@@ -250,6 +252,9 @@ class Config:
             
         Returns:
             Dict[str, Any]: Updated configuration with file hashes
+            
+        Example:
+            app.config = Config.initialize_file_hashes(app.config, app_root_path)
         """
         from core.utils import calculate_file_hash
         
@@ -261,38 +266,72 @@ class Config:
         config_files = [
             os.path.join(app_root, 'config.py'),
             os.path.join(app_root, '.env'),
-            os.path.join(app_root, 'app.py')
+            os.path.join(app_root, 'app.py'),
+            os.path.join(app_root, 'core', 'config.py'),
+            os.path.join(app_root, 'core', 'factory.py'),
+            os.path.join(app_root, 'core', 'middleware.py')
         ]
         
         # Define critical application files
         critical_files = [
             os.path.join(app_root, 'app.py'),
             os.path.join(app_root, 'wsgi.py'),
+            os.path.join(app_root, 'core', 'utils.py'),
             os.path.join(app_root, 'core', 'security.py'),
             os.path.join(app_root, 'core', 'auth.py'),
-            os.path.join(app_root, 'extensions.py')
+            os.path.join(app_root, 'extensions.py'),
+            os.path.join(app_root, 'blueprints', 'monitoring', 'routes.py'),
+            os.path.join(app_root, 'models', 'audit_log.py'),
+            os.path.join(app_root, 'models', 'security_incident.py'),
+            os.path.join(app_root, 'models', 'user.py')
         ]
         
-        # Compute hashes for config files
+        # Compute hashes for config files - use algorithm based on file size
         config_hashes = {}
+        algorithm = config.get('FILE_HASH_ALGORITHM', 'sha256')
+        
         for file_path in config_files:
             if os.path.exists(file_path):
                 try:
-                    config_hashes[file_path] = calculate_file_hash(file_path)
-                except (IOError, OSError):
-                    pass
+                    file_size = os.path.getsize(file_path)
+                    # For security-critical but small config files, we can use a stronger hash
+                    if file_size < 1024 * 10:  # 10KB or smaller
+                        config_hashes[file_path] = calculate_file_hash(file_path, algorithm)
+                    else:
+                        # For larger files, use SHA-256 for better performance
+                        config_hashes[file_path] = calculate_file_hash(file_path, 'sha256')
+                except (IOError, OSError) as e:
+                    import logging
+                    logging.warning("Could not hash config file %s: %s", file_path, e)
                     
         # Compute hashes for critical files
         critical_hashes = {}
         for file_path in critical_files:
             if os.path.exists(file_path):
                 try:
-                    critical_hashes[file_path] = calculate_file_hash(file_path)
-                except (IOError, OSError):
-                    pass
+                    critical_hashes[file_path] = calculate_file_hash(file_path, algorithm)
+                except (IOError, OSError) as e:
+                    import logging
+                    logging.warning("Could not hash critical file %s: %s", file_path, e)
+        
+        # Add monitored directories (these will be checked for unexpected files)
+        monitored_directories = [
+            os.path.join(app_root, 'core'),
+            os.path.join(app_root, 'models'),
+            os.path.join(app_root, 'blueprints', 'auth'),
+            os.path.join(app_root, 'blueprints', 'monitoring')
+        ]
+        config['MONITORED_DIRECTORIES'] = monitored_directories
         
         # Update configuration
         config['CONFIG_FILE_HASHES'] = config_hashes
         config['CRITICAL_FILE_HASHES'] = critical_hashes
+        config['FILE_HASH_TIMESTAMP'] = cls.format_timestamp()
         
         return config
+
+    @staticmethod
+    def format_timestamp() -> str:
+        """Format current datetime as ISO 8601 string."""
+        from datetime import datetime
+        return datetime.utcnow().isoformat()
