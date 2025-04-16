@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+import os
 
 # subscribe.py
 
@@ -22,4 +23,5 @@ def subscribe():
     return jsonify({'message': f'Successfully subscribed {email} to the newsletter!'}), 200
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() in ['true', '1', 't']
+    app.run(debug=debug_mode)
