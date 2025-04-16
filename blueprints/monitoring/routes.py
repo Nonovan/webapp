@@ -20,6 +20,7 @@ Routes:
 import logging
 import os
 import json
+import ipaddress
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, Tuple, List
 from functools import wraps
@@ -401,29 +402,29 @@ def get_incident(incident_id):
 def update_incident(incident_id):
     """
     Update a security incident.
-    
+
     This endpoint allows updating the status, resolution, and notes for a security incident.
     Only admin users can update incidents.
     """
     try:
         incident = SecurityIncident.query.get_or_404(incident_id)
         data = request.get_json()
-        
+
         if 'status' in data:
             incident.status = data['status']
-            
+
         if 'resolution' in data:
             incident.resolution = data['resolution']
-            
+
         if 'notes' in data:
             incident.notes = data['notes']
-            
+
         if 'assigned_to' in data:
             incident.assigned_to = data['assigned_to']
-            
+
         # Update the modified timestamp
         incident.updated_at = datetime.utcnow()
-        
+
         db.session.commit()
         
         log_security_event(
@@ -434,7 +435,7 @@ def update_incident(incident_id):
         )
         
         return format_response(incident.to_dict())
-        
+
     except (SQLAlchemyError, ValueError, OSError) as e:
         db.session.rollback()
         log_security_event(
@@ -459,33 +460,38 @@ def get_forensic_data(incident_id):
     try:
         # Determine path to forensic data
         forensic_dir = current_app.config.get('FORENSIC_DATA_DIR', 'forensic_data')
-        
+
         # List all forensic files for this incident
         if not os.path.exists(forensic_dir):
             return format_response({'error': 'No forensic data found'}, 404)
-            
+
         forensic_files = []
         for filename in os.listdir(forensic_dir):
             if filename.startswith(f'incident_{incident_id}_'):
                 forensic_files.append(filename)
-                
+
         if not forensic_files:
             return format_response({'error': 'No forensic data found for this incident'}, 404)
-            
+
         # Get the latest forensic file
         latest_file = sorted(forensic_files)[-1]
         file_path = os.path.join(forensic_dir, latest_file)
-        
+
+        # Validate file path to prevent directory traversal
+        if not os.path.abspath(file_path).startswith(os.path.abspath(forensic_dir)):
+            current_app.logger.error(f"Invalid file path detected: {file_path}")
+            return format_response({'error': 'Invalid file path'}, 400)
+
         # Read the forensic data
         with open(file_path, 'r', encoding='utf-8') as f:
             forensic_data = json.load(f)
-            
+
         return format_response({
             'incident_id': incident_id,
             'forensic_file': latest_file,
             'data': forensic_data
         })
-        
+
     except (OSError, ValueError, SQLAlchemyError) as e:
         log_security_event(
             event_type='get_forensic_error',
@@ -1099,6 +1105,29 @@ def trigger_incident_response(breach_data: Dict[str, Any]) -> Optional[int]:
             title = "Unauthorized API Access Attempts"
         
         # Record incident in database
+    try:
+        # Calculate threat level if not already provided
+        if 'threat_level' not in breach_data:
+            breach_data['threat_level'] = calculate_threat_level(breach_data)
+        
+        # Log critical security event
+        current_app.logger.critical(
+            "CRITICAL SECURITY THREAT DETECTED - Initiating incident response",
+            extra={'breach_data': breach_data}
+        )
+        
+        # Create descriptive title based on primary threat
+        title = "Security Incident Detected"
+        if breach_data.get('login_anomalies', {}).get('suspicious_ips'):
+            title = "Multiple Failed Login Attempts Detected"
+        elif breach_data.get('database_anomalies', {}).get('sensitive_tables'):
+            title = "Unusual Access to Sensitive Database Tables"
+        elif breach_data.get('file_access_anomalies', {}).get('sensitive_files'):
+            title = "Suspicious Access to Sensitive Files"
+        elif breach_data.get('api_anomalies', {}).get('unauthorized_attempts'):
+            title = "Unauthorized API Access Attempts"
+        
+        # Record incident in database
         incident = SecurityIncident(
             title=title,
             threat_level=breach_data['threat_level'],
@@ -1150,6 +1179,7 @@ def trigger_incident_response(breach_data: Dict[str, Any]) -> Optional[int]:
         
         return incident.id
     except (OSError, ValueError, SQLAlchemyError) as e:
+        db.session.rollback()  # Ensure database consistency
         db.session.rollback()  # Ensure database consistency
         current_app.logger.error(f"Failed to create security incident: {e}")
         # Even if DB storage fails, still try to notify admins
@@ -1318,7 +1348,16 @@ def initiate_countermeasures(breach_data: Dict[str, Any]) -> None:
                     current_app.logger.warning(f"Invalid IP address detected: {ip}")
                     continue
                 
+            for ip in suspicious_ips:
+                # Validate IP address before blocking
+                try:
+                    ipaddress.ip_address(ip)
+                except ValueError:
+                    current_app.logger.warning(f"Invalid IP address detected: {ip}")
+                    continue
+                
                 # Implement IP blocking (depends on infrastructure)
+                current_app.logger.info(f"Blocking suspicious IP: {ip}")
                 current_app.logger.info(f"Blocking suspicious IP: {ip}")
                 
                 # Log the countermeasure
