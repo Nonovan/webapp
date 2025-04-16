@@ -1,135 +1,231 @@
+"""
+Security incident model for tracking and responding to security events.
+
+This module provides the SecurityIncident model which represents security events 
+that require investigation or response. It tracks incidents detected through the
+application's monitoring systems including suspicious access patterns, breach attempts,
+and other security-related events requiring attention.
+
+The model supports the complete incident lifecycle from detection through investigation,
+remediation, and resolution, providing a comprehensive audit trail of security responses.
+"""
+
 from datetime import datetime, timezone
+from typing import Dict, Any, Optional, List
+from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy import desc
 from extensions import db
 from models.base import BaseModel
 
 class SecurityIncident(BaseModel):
     """
-    A class to represent a security incident.
+    A model representing a detected security incident requiring attention.
     
     This model tracks security incidents detected by the application's
     monitoring systems, including breach detection, login anomalies,
-    and other security-related events that require attention or response.
+    and other security-related events that require investigation and response.
+    It provides a full audit trail of incident detection, investigation,
+    and resolution.
+
+    Attributes:
+        id: Primary key
+        title: Short descriptive title of the incident
+        incident_type: Type classification (e.g., brute_force, data_leak)
+        description: Brief summary description of the incident
+        details: Detailed information including technical specifics
+        severity: Criticality level (critical, high, medium, low)
+        status: Current status (open, investigating, resolved, closed)
+        user_id: User associated with the incident (if applicable)
+        ip_address: IP address associated with the incident
+        source: How the incident was detected (system, user_report, etc.)
+        assigned_to: User ID of staff member handling the incident
+        resolution: Description of how the incident was resolved
+        resolved_at: When the incident was marked as resolved
+        created_at: When the incident was detected/created
+        updated_at: Last update timestamp
     """
     __tablename__ = 'security_incidents'
 
+    # Primary columns
     id = db.Column(db.Integer, primary_key=True)
-    incident_id = db.Column(db.String(36), unique=True, nullable=True)  # For backward compatibility
-    description = db.Column(db.Text, nullable=True)
-    severity = db.Column(db.String(20), nullable=True)  # For backward compatibility (low, medium, high)
-    reported_at = db.Column(db.DateTime(timezone=True), nullable=True)  # For backward compatibility
+    title = db.Column(db.String(100), nullable=False)
+    incident_type = db.Column(db.String(50), nullable=False, index=True)
+    description = db.Column(db.String(255), nullable=False)
+    details = db.Column(db.Text, nullable=True)
+    severity = db.Column(db.String(20), nullable=False, index=True) 
+    status = db.Column(db.String(20), default='open', index=True)
     
-    # New fields for breach detection and incident response
-    title = db.Column(db.String(100), nullable=True)
-    details = db.Column(db.Text, nullable=False)
-    threat_level = db.Column(db.Integer, default=1)  # 1-10 scale
-    status = db.Column(db.String(20), default='open')  # open, investigating, resolved, false_positive
-    detected_at = db.Column(db.DateTime(timezone=True), default=datetime.now(timezone.utc))
+    # Relations and references
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    ip_address = db.Column(db.String(45), nullable=True)
+    source = db.Column(db.String(50), default='system')  # system, user_report, security_scan
+    assigned_to = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    
+    # Resolution information
+    resolution = db.Column(db.Text, nullable=True)
     resolved_at = db.Column(db.DateTime(timezone=True), nullable=True)
-    resolved_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
-    source = db.Column(db.String(50), default='system')  # system, manual, external
     
-    # Define relationship but don't import User to avoid circular imports
-    resolved_by = db.relationship('User', foreign_keys=[resolved_by_id], backref=db.backref('resolved_incidents', lazy='dynamic'))
+    # Metadata
+    notes = db.Column(db.Text, nullable=True)  # Internal notes on investigation
+    external_references = db.Column(db.String(255), nullable=True)  # External tracking IDs
+    
+    # Relationships
+    user = db.relationship('User', foreign_keys=[user_id], 
+                          backref=db.backref('security_incidents', lazy='dynamic'))
+    assignee = db.relationship('User', foreign_keys=[assigned_to],
+                              backref=db.backref('assigned_incidents', lazy='dynamic'))
 
-    def __init__(self, threat_level=None, details=None, status=None, detected_at=None, 
-                title=None, incident_id=None, description=None, severity=None, reported_at=None,
-                source=None):
+    def __init__(self, title: str, incident_type: str, description: str, 
+                severity: str = 'medium', details: Optional[str] = None,
+                status: str = 'open', user_id: Optional[int] = None, 
+                ip_address: Optional[str] = None, source: str = 'system',
+                assigned_to: Optional[int] = None, notes: Optional[str] = None,
+                resolution: Optional[str] = None, resolved_at: Optional[datetime] = None,
+                external_references: Optional[str] = None, **kwargs):
         """
         Initialize a SecurityIncident instance.
 
         Args:
-            threat_level: Numeric assessment of threat severity (1-10)
-            details: Detailed information about the incident
-            status: Current status of the incident (open, investigating, resolved, false_positive)
-            detected_at: Timestamp when the incident was detected
-            title: Short title describing the incident
-            incident_id: Legacy field - unique identifier for the incident
-            description: Legacy field - description of the incident
-            severity: Legacy field - severity level (low, medium, high)
-            reported_at: Legacy field - timestamp when incident was reported
-            source: Source of the incident detection (system, manual, external)
+            title: Short descriptive title of the incident
+            incident_type: Classification of incident type
+            description: Brief summary description
+            severity: Criticality level (critical, high, medium, low)
+            details: Detailed information including technical specifics
+            status: Current status (open, investigating, resolved, closed)
+            user_id: User associated with the incident (if applicable)
+            ip_address: IP address associated with the incident
+            source: How the incident was detected (system, user_report, etc.)
+            assigned_to: User ID of staff member handling the incident
+            notes: Internal notes on investigation progress
+            resolution: Description of how the incident was resolved
+            resolved_at: When the incident was marked as resolved
+            external_references: References to external tracking systems
         """
-        # Handle new fields
-        self.threat_level = threat_level or 1
-        self.details = details or ""
-        self.status = status or "open"
-        self.detected_at = detected_at or datetime.now(timezone.utc)
-        self.title = title or "Security incident detected"
-        self.source = source or "system"
-        
-        # Handle legacy fields for backward compatibility
-        self.incident_id = incident_id
+        super().__init__(**kwargs)  # Call the base class __init__ method
+        self.title = title
+        self.incident_type = incident_type
         self.description = description
+        self.details = details
         self.severity = severity
-        self.reported_at = reported_at
-
-    def __str__(self):
-        """
-        Return a string representation of the security incident.
-        """
-        return f"SecurityIncident(ID: {self.id}, Threat Level: {self.threat_level}, Status: {self.status})"
-
-    def is_critical(self):
-        """
-        Check if the incident is critical based on threat level or severity.
-
-        Returns:
-            bool: True if threat level is high (>=7) or severity is "high"
-        """
-        # Check both new and legacy fields
-        threat_critical = self.threat_level >= 7 if self.threat_level else False
-        severity_critical = self.severity and self.severity.lower() == "high"
+        self.status = status
+        self.user_id = user_id
+        self.ip_address = ip_address
+        self.source = source
+        self.assigned_to = assigned_to
+        self.notes = notes
+        self.resolution = resolution
+        self.resolved_at = resolved_at
+        self.external_references = external_references
         
-        return threat_critical or severity_critical
+        # Handle any legacy fields from kwargs
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+
+    @hybrid_property
+    def is_resolved(self) -> bool:
+        """Check if the incident has been resolved."""
+        return self.status in ('resolved', 'closed')
+    
+    @hybrid_property
+    def time_to_resolution(self) -> Optional[int]:
+        """Calculate time to resolution in hours, if resolved."""
+        if self.resolved_at and self.created_at:
+            delta = (self.resolved_at() if callable(self.resolved_at) else self.resolved_at) - \
+                    (self.created_at() if callable(self.created_at) else self.created_at)
+            return int(delta.total_seconds() / 3600)
+        return None
+
+    def assign_to(self, user_id: int) -> None:
+        """
+        Assign the incident to a user for investigation.
         
-    def resolve(self, user_id, resolution_notes=None):
+        Args:
+            user_id: ID of the user to assign the incident to
+        """
+        self.assigned_to = user_id
+        self.status = 'investigating' if self.status == 'open' else self.status
+        self.updated_at = datetime.now(timezone.utc)
+    
+    def resolve(self, resolution: str, user_id: Optional[int] = None) -> None:
         """
         Mark the incident as resolved.
         
         Args:
-            user_id: ID of the user resolving the incident
-            resolution_notes: Notes explaining the resolution
-            
-        Returns:
-            bool: True if successfully resolved
+            resolution: Description of how the incident was resolved
+            user_id: ID of the user who resolved the incident
         """
-        self.status = "resolved"
+        self.status = 'resolved'
+        self.resolution = resolution
         self.resolved_at = datetime.now(timezone.utc)
-        self.resolved_by_id = user_id
+        self.updated_at = self.resolved_at
         
-        if resolution_notes:
-            self.details += f"\n\nRESOLUTION ({self.resolved_at.strftime('%Y-%m-%d %H:%M:%S')}):\n{resolution_notes}"
+        if user_id:
+            # Track who resolved it if provided
+            from models.audit_log import AuditLog
+            from core.security_utils import log_security_event
             
-        db.session.add(self)
-        try:
-            db.session.commit()
-            return True
-        except db.exc.SQLAlchemyError:
-            db.session.rollback()
-            return False
-            
-    def mark_false_positive(self, user_id, notes=None):
+            log_security_event(
+                event_type=AuditLog.EVENT_SECURITY_COUNTERMEASURE,
+                description=f"Security incident #{self.id} resolved",
+                user_id=user_id,
+                details=f"Resolution: {resolution[:50]}..."
+            )
+    
+    def close(self, reason: Optional[str] = None) -> None:
         """
-        Mark the incident as a false positive.
+        Close the incident (final state).
         
         Args:
-            user_id: ID of the user marking the incident
-            notes: Additional notes explaining why it's a false positive
-        
-        Returns:
-            bool: True if successfully updated
+            reason: Optional reason for closure
         """
-        self.status = "false_positive"
-        self.resolved_at = datetime.now(timezone.utc)
-        self.resolved_by_id = user_id
+        self.status = 'closed'
+        if reason:
+            self.notes = f"{self.notes or ''}\nClosure reason: {reason}"
+        self.updated_at = datetime.now(timezone.utc)
+    
+    @classmethod
+    def get_active_incidents(cls) -> List['SecurityIncident']:
+        """Get all active (non-closed) security incidents."""
+        return cls.query.filter(
+            cls.status.in_(['open', 'investigating'])
+        ).order_by(desc(cls.severity), desc(cls.created_at)).all()
+    
+    @classmethod
+    def get_incidents_by_severity(cls, severity: str) -> List['SecurityIncident']:
+        """Get incidents with the specified severity level."""
+        return cls.query.filter_by(severity=severity).order_by(desc(cls.created_at)).all()
+    
+    @classmethod
+    def count_by_status(cls) -> Dict[str, int]:
+        """Count incidents by status."""
+        result = db.session.query(
+            cls.status, 
+            db.func.count(cls.id)
+        ).group_by(cls.status).all()
         
-        if notes:
-            self.details += f"\n\nFALSE POSITIVE ({self.resolved_at.strftime('%Y-%m-%d %H:%M:%S')}):\n{notes}"
-            
-        db.session.add(self)
-        try:
-            db.session.commit()
-            return True
-        except db.exc.SQLAlchemyError:
-            db.session.rollback()
-            return False
+        return {status: count for status, count in result}
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert the incident to a dictionary for API responses."""
+        return {
+            'id': self.id,
+            'title': self.title,
+            'incident_type': self.incident_type,
+            'description': self.description,
+            'details': self.details,
+            'severity': self.severity,
+            'status': self.status,
+            'user_id': self.user_id,
+            'ip_address': self.ip_address,
+            'source': self.source,
+            'assigned_to': self.assigned_to,
+            'resolution': self.resolution,
+            'notes': self.notes,
+            'external_references': self.external_references,
+            'created_at': (self.created_at() if callable(self.created_at) else self.created_at).isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None,
+            'is_resolved': self.is_resolved,
+            'time_to_resolution': self.time_to_resolution
+        }

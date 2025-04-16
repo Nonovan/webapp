@@ -25,11 +25,11 @@ from flask import Flask, session, flash, redirect, url_for, request
 import click
 from sqlalchemy.exc import SQLAlchemyError
 
-from core.factory import create_app
 from extensions import db
 from models.audit_log import AuditLog
+from core.factory import create_app
 from core.seeder import seed_database, seed_development_data
-from core.utils import log_event, log_security_event
+from core.utils import log_security_event
 
 # Security constants
 REQUIRED_ENV_VARS = [

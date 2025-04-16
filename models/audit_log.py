@@ -19,10 +19,10 @@ security investigations.
 """
 
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, Optional, List, ClassVar
+from typing import Dict, Any, Optional, List, Tuple, ClassVar
 
 from flask import current_app
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from sqlalchemy.exc import SQLAlchemyError
 
 from extensions import db
@@ -73,6 +73,7 @@ class AuditLog(BaseModel):
     EVENT_SECURITY_COUNTERMEASURE: ClassVar[str] = 'security_countermeasure'
     EVENT_DATABASE_ACCESS: ClassVar[str] = 'database_access'
     EVENT_RATE_LIMIT_EXCEEDED: ClassVar[str] = 'rate_limit_exceeded'
+    EVENT_API_ABUSE: ClassVar[str] = 'api_abuse'
     
     # Severity constants
     SEVERITY_INFO: ClassVar[str] = 'info'
@@ -216,6 +217,10 @@ class AuditLog(BaseModel):
             cls.EVENT_SECURITY_COUNTERMEASURE,
             cls.EVENT_FILE_INTEGRITY,
             cls.EVENT_RATE_LIMIT_EXCEEDED,
+            cls.EVENT_CONFIG_CHANGE,        # Track configuration changes
+            cls.EVENT_ADMIN_ACTION,         # Track administrative actions
+            cls.EVENT_PASSWORD_RESET,       # Track password resets
+            cls.EVENT_API_ABUSE             # Track API abuse
         ]
         
         # Calculate the cutoff time
@@ -244,6 +249,99 @@ class AuditLog(BaseModel):
                 cls.event_type == event_type,
                 cls.created_at >= cutoff
             ).count()
+            
+    @classmethod
+    def get_login_failures_by_ip(cls, hours: int = 24, min_count: int = 5) -> List[Tuple[str, int]]:
+        """
+        Get IPs with multiple failed login attempts.
+        
+        This method finds IP addresses with suspicious login activity
+        that might indicate brute force attacks.
+        
+        Args:
+            hours: How many hours back to look
+            min_count: Minimum number of failures to be considered suspicious
+            
+        Returns:
+            List[Tuple[str, int]]: List of (ip_address, failure_count) tuples
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        
+        # Use SQLAlchemy to count failed logins grouped by IP
+        result = db.session.query(
+                cls.ip_address, 
+                func.count(cls.id).label('count')
+            ).filter(
+                cls.event_type == cls.EVENT_LOGIN_FAILED,
+                cls.created_at >= cutoff,
+                cls.ip_address != None  # Ensure IP is not null
+            ).group_by(
+                cls.ip_address
+            ).having(
+                func.count(cls.id) >= min_count
+            ).order_by(
+                desc('count')
+            ).all()
+            
+        return result
+        
+    @classmethod
+    def get_security_timeline(cls, user_id: Optional[int] = None, hours: int = 24) -> List['AuditLog']:
+        """
+        Get a timeline of security-relevant events for analysis.
+        
+        This method provides a chronological sequence of security events
+        for a specific user or system-wide if no user is specified.
+        
+        Args:
+            user_id: Optional user ID to filter by
+            hours: How many hours back to look
+            
+        Returns:
+            List['AuditLog']: List of audit log entries in chronological order
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        query = cls.query.filter(cls.created_at >= cutoff)
+        
+        # Filter by security-relevant events
+        query = query.filter(cls.event_type.in_([
+            cls.EVENT_LOGIN_SUCCESS,
+            cls.EVENT_LOGIN_FAILED,
+            cls.EVENT_PERMISSION_DENIED,
+            cls.EVENT_PASSWORD_RESET,
+            cls.EVENT_SECURITY_BREACH_ATTEMPT,
+            cls.EVENT_SECURITY_COUNTERMEASURE,
+            cls.EVENT_ADMIN_ACTION,
+            cls.EVENT_CONFIG_CHANGE,
+            cls.EVENT_API_ACCESS
+        ]))
+        
+        # Filter by user if specified
+        if user_id is not None:
+            query = query.filter(cls.user_id == user_id)
+        
+        # Order chronologically
+        return query.order_by(cls.created_at).all()
+    
+    @classmethod
+    def get_critical_events(cls, hours: int = 24) -> List['AuditLog']:
+        """
+        Get high-severity security events that require attention.
+        
+        This method finds critical security events that may indicate
+        a breach or require immediate response.
+        
+        Args:
+            hours: How many hours back to look
+            
+        Returns:
+            List['AuditLog']: List of critical audit log entries
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        return cls.query.filter(
+            cls.severity.in_([cls.SEVERITY_CRITICAL, cls.SEVERITY_ERROR]),
+            cls.created_at >= cutoff
+        ).order_by(desc(cls.created_at)).all()
     
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -256,10 +354,13 @@ class AuditLog(BaseModel):
             'id': self.id,
             'event_type': self.event_type,
             'user_id': self.user_id,
+            'description': self.description,
             'ip_address': self.ip_address,
             'user_agent': self.user_agent,
-            'description': self.description,
             'details': self.details,
             'severity': self.severity,
-            'timestamp': self.created_at.isoformat() if self.created_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'timestamp': self.created_at.timestamp() if self.created_at else None,
+            'related_id': self.related_id,
+            'related_type': self.related_type
         }

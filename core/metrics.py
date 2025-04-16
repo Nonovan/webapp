@@ -15,7 +15,6 @@ Key features:
 These metrics enable real-time monitoring, alerting, and performance optimization
 based on actual usage patterns and system behavior.
 """
-
 from datetime import datetime, timedelta
 import os
 from functools import wraps
@@ -213,48 +212,79 @@ class SystemMetrics:
     """
 
     @staticmethod
-    @cache.memoize(timeout=30)
+    @cache.memoize(timeout=60)
     def get_system_metrics() -> Dict[str, Any]:
         """
-        Collect current system resource metrics.
-
-        Gathers CPU usage, memory utilization, disk space, and network statistics
-        from the host system to provide a comprehensive view of resource utilization.
-
+        Collect comprehensive system metrics.
+        
+        This function gathers various system-level metrics including CPU usage, memory
+        utilization, disk space, and network I/O. It uses the psutil library to gather
+        these metrics in a cross-platform compatible way.
+        
         Returns:
             Dict[str, Any]: Dictionary containing various system metrics including:
-                - CPU usage percentage
-                - Memory usage percentage
-                - Disk usage percentage for root partition
-                - Network I/O stats (bytes sent/received)
-                - Current timestamp
-
+                - cpu_usage: CPU usage percentage
+                - memory_usage: Memory usage percentage
+                - disk_usage: Disk usage percentage for root partition
+                - network: Dict with bytes_sent and bytes_recv
+                - load_avg: System load averages tuple
+                - boot_time: System boot time as ISO string
+                - timestamp: Current UTC timestamp as ISO string
+                
         Example:
             metrics = SystemMetrics.get_system_metrics()
             print(f"CPU usage: {metrics['cpu_usage']}%")
         """
-        return {
-            'cpu_usage': psutil.cpu_percent(),
-            'memory_usage': psutil.virtual_memory().percent,
-            'disk_usage': psutil.disk_usage('/').percent,
-            'network': {
-                'bytes_sent': psutil.net_io_counters().bytes_sent,
-                'bytes_recv': psutil.net_io_counters().bytes_recv
-            },
-            'load_avg': os.getloadavg() if hasattr(os, 'getloadavg') else (0, 0, 0),
-            'boot_time': datetime.fromtimestamp(psutil.boot_time()).isoformat(),
-            'timestamp': datetime.utcnow().isoformat()
-        }
+        try:
+            # Get basic system metrics
+            system_metrics = {
+                'cpu_usage': psutil.cpu_percent(),
+                'memory_usage': psutil.virtual_memory().percent,
+                'disk_usage': psutil.disk_usage('/').percent,
+                'network': {
+                    'bytes_sent': psutil.net_io_counters().bytes_sent,
+                    'bytes_recv': psutil.net_io_counters().bytes_recv
+                },
+                'timestamp': datetime.utcnow().isoformat()
+            }
+            
+            # Add optional metrics with error handling
+            try:
+                metrics['load_avg'] = os.getloadavg() if hasattr(os, 'getloadavg') else (0, 0, 0)
+            except (AttributeError, OSError):
+                metrics['load_avg'] = (0, 0, 0)
+                
+            try:
+                metrics['boot_time'] = datetime.fromtimestamp(psutil.boot_time()).isoformat()
+            except (psutil.Error, OSError, OverflowError):
+                metrics['boot_time'] = None
+                
+            return system_metrics
+            
+        except (psutil.Error, OSError, ValueError) as e:
+            current_app.logger.error(f"Error collecting system metrics: {e}")
+            # Return minimal metrics to avoid breaking dependent systems
+            return {
+                'cpu_usage': 0,
+                'memory_usage': 0,
+                'disk_usage': 0,
+                'network': {'bytes_sent': 0, 'bytes_recv': 0},
+                'load_avg': (0, 0, 0),
+                'boot_time': None,
+                'timestamp': datetime.utcnow().isoformat(),
+                'error': str(e)
+            }
 
     @staticmethod
     @cache.memoize(timeout=30)
     def get_process_metrics() -> Dict[str, Any]:
         """
         Collect metrics for the current process.
-
+        
         Gathers metrics related to the current Python process including
-        memory usage, CPU utilization, and open file handles.
-
+        memory usage, CPU utilization, threads, and open file handles.
+        This provides insight into the application's resource consumption.
+        
         Returns:
             Dict[str, Any]: Dictionary containing process metrics:
                 - memory_used_mb: Memory usage in MB
@@ -262,26 +292,51 @@ class SystemMetrics:
                 - threads: Thread count
                 - open_files: Open file handle count
                 - connections: Network connection count
-
+                - timestamp: Current UTC timestamp as ISO string
+                
         Example:
             metrics = SystemMetrics.get_process_metrics()
             print(f"Memory usage: {metrics['memory_used_mb']} MB")
         """
         try:
             process = psutil.Process()
-            return {
+            
+            # Basic metrics that should always be available
+            process_metrics = {
                 'memory_used_mb': process.memory_info().rss / (1024 * 1024),
                 'cpu_percent': process.cpu_percent(),
-                'threads': process.num_threads(),
-                'open_files': len(process.open_files()),
-                'connections': len(process.connections()),
                 'timestamp': datetime.utcnow().isoformat()
             }
-        except psutil.Error as e:
-            current_app.logger.error(f"Failed to collect process metrics: {e}")
+            
+            # Optional metrics that might fail on some platforms
+            try:
+                process_metrics['threads'] = len(process.threads())
+            except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
+                process_metrics['threads'] = 0
+            
+            try:
+                process_metrics['open_files'] = len(process.open_files())
+            except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
+                process_metrics['open_files'] = 0
+                
+            try:
+                process_metrics['connections'] = len(process.connections())
+            except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
+                process_metrics['connections'] = 0
+                
+            return process_metrics
+            
+        except (psutil.Error, OSError, ValueError) as e:
+            current_app.logger.error(f"Error collecting process metrics: {e}")
+            # Return minimal metrics to avoid breaking dependent systems
             return {
-                'error': str(e),
-                'timestamp': datetime.utcnow().isoformat()
+                'memory_used_mb': 0,
+                'cpu_percent': 0,
+                'threads': 0,
+                'open_files': 0,
+                'connections': 0,
+                'timestamp': datetime.utcnow().isoformat(),
+                'error': str(e)
             }
 
 
@@ -597,13 +652,15 @@ def get_all_metrics() -> Dict[str, Any]:
         print(f"CPU usage: {all_metrics['system']['cpu_usage']}%")
         print(f"Active users: {all_metrics['application']['active_users']}")
     """
+    from core.security_utils import get_security_metrics
+
     try:
         return {
             'system': SystemMetrics.get_system_metrics(),
             'process': SystemMetrics.get_process_metrics(),
             'database': DatabaseMetrics.get_db_metrics(),
             'application': ApplicationMetrics.get_app_metrics(),
-            'security': SecurityMetrics.get_security_metrics(),
+            'security': get_security_metrics(),
             'timestamp': datetime.utcnow().isoformat()
         }
     except (psutil.Error, db.exc.SQLAlchemyError, AttributeError, ValueError) as e:

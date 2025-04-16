@@ -13,8 +13,6 @@ These utilities are designed to be stateless, reusable components that
 encapsulate common operations to reduce code duplication and ensure
 consistent behavior throughout the application.
 """
-
-import logging
 import hashlib
 import base64
 import os

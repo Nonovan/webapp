@@ -20,27 +20,30 @@ from datetime import datetime, timedelta
 from typing import List
 from flask import current_app
 import click
+from sqlalchemy.exc import SQLAlchemyError
 from extensions import db
 from models.user import User
 from models.audit_log import AuditLog
 from models.security_incident import SecurityIncident
-from models.notification import Notification
+from models.system_config import SystemConfig
 
 
 def seed_database() -> bool:
     """
-    Seed database with initial data.
-
-    Populates the database with initial users and required application data.
-    This function checks if data already exists before adding new records to
-    prevent duplicates when run multiple times.
-
+    Seed the database with initial required data.
+    
+    This function creates necessary initial data for the application to function:
+    - Admin user
+    - Test users
+    - Sample audit logs
+    - Security incidents
+    
+    It checks if the database is already seeded by looking for existing users
+    to prevent duplicate data.
+    
     Returns:
-        bool: True if seeding was successful, False if already seeded
-
-    Raises:
-        Exception: If seeding fails
-
+        bool: True if seeding was successful, False if already seeded or error occurred
+        
     Example:
         # Seed database during application initialization
         with app.app_context():
@@ -52,32 +55,34 @@ def seed_database() -> bool:
             current_app.logger.info("Database already seeded. Skipping.")
             return False
 
-        with click.progressbar(length=5, label='Seeding database') as bar_line:
+        with click.progressbar(length=5, label='Seeding database') as bar:
             # Create admin user
-            admin = User()
-            admin.username = "admin"
-            admin.email = "admin@example.com"
-            admin.role = "admin"
-            admin.status = "active"
-            admin.created_at = datetime.utcnow()
+            admin = User(
+                username="admin",
+                email="admin@example.com",
+                role="admin",
+                status="active",
+                created_at=datetime.utcnow()
+            )
             admin.set_password("AdminPass123!")
             db.session.add(admin)
-            bar_line.update(1)
+            bar.update(1)
 
             # Create test users
             test_users: List[User] = []
             for i in range(1, 4):
-                user = User()
-                user.username = f"user{i}"
-                user.email = f"user{i}@example.com"
-                user.role = "user"
-                user.status = "active"
-                user.created_at = datetime.utcnow() - timedelta(days=i)
+                user = User(
+                    username=f"user{i}",
+                    email=f"user{i}@example.com",
+                    role="user",
+                    status="active",
+                    created_at=datetime.utcnow() - timedelta(days=i)
+                )
                 user.set_password("UserPass123!")
                 test_users.append(user)
 
             db.session.add_all(test_users)
-            bar_line.update(1)
+            bar.update(1)
             
             # Create test audit log entries
             audit_logs = []
@@ -88,12 +93,16 @@ def seed_database() -> bool:
                 AuditLog.EVENT_API_ACCESS,
                 AuditLog.EVENT_PERMISSION_DENIED
             ]
+            
+            # Sample realistic IP addresses
             ip_addresses = [
-                '192.168.1.100', 
-                '10.0.0.15', 
-                '172.16.1.25', 
-                '192.168.10.55'
+                "192.168.1.101",
+                "10.0.0.15",
+                "172.16.0.25",
+                "192.168.0.254"
             ]
+            
+            # Sample user agents
             user_agents = [
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Safari/605.1.15',
@@ -103,6 +112,7 @@ def seed_database() -> bool:
             
             # Generate audit logs for the past 7 days
             for i in range(30):  # Generate 30 logs
+                # Randomize timestamps for realistic data
                 days_ago = random.randint(0, 7)
                 hours_ago = random.randint(0, 23)
                 minutes_ago = random.randint(0, 59)
@@ -113,11 +123,12 @@ def seed_database() -> bool:
                     minutes=minutes_ago
                 )
                 
+                # Select random event type and user
                 event_type = random.choice(event_types)
                 user_id = random.choice([None, admin.id, test_users[0].id, test_users[1].id])
                 
                 # Determine severity based on event type
-                if event_type == AuditLog.EVENT_LOGIN_FAILED or event_type == AuditLog.EVENT_PERMISSION_DENIED:
+                if event_type in (AuditLog.EVENT_LOGIN_FAILED, AuditLog.EVENT_PERMISSION_DENIED):
                     severity = random.choice([AuditLog.SEVERITY_WARNING, AuditLog.SEVERITY_ERROR])
                 else:
                     severity = AuditLog.SEVERITY_INFO
@@ -130,122 +141,116 @@ def seed_database() -> bool:
                 elif event_type == AuditLog.EVENT_PASSWORD_RESET:
                     details = "Password reset requested"
                 elif event_type == AuditLog.EVENT_API_ACCESS:
-                    details = "API endpoint accessed: /api/v1/users"
+                    details = f"API endpoint accessed: /api/users/{random.randint(1, 100)}"
                 elif event_type == AuditLog.EVENT_PERMISSION_DENIED:
-                    details = "Permission denied for resource: /admin/settings"
+                    details = "Permission denied to access restricted resource"
+                else:
+                    details = "System event logged"
                 
-                # Initialize 'details' with a default value
-                details = "No details provided"
-
-                # Generate appropriate details based on event type
-                if event_type == AuditLog.EVENT_LOGIN_SUCCESS:
-                    details = "User login successful"
-                elif event_type == AuditLog.EVENT_LOGIN_FAILED:
-                    details = "Failed login attempt - invalid password"
-                elif event_type == AuditLog.EVENT_PASSWORD_RESET:
-                    details = "Password reset requested"
-                elif event_type == AuditLog.EVENT_API_ACCESS:
-                    details = "API endpoint accessed: /api/v1/users"
-                elif event_type == AuditLog.EVENT_PERMISSION_DENIED:
-                    details = "Permission denied for resource: /admin/settings"
-
+                # Create audit log entry with realistic data
                 log = AuditLog(
                     event_type=event_type,
                     user_id=user_id,
                     ip_address=random.choice(ip_addresses),
                     user_agent=random.choice(user_agents),
-                    details=details,
+                    description=details,
                     severity=severity,
-                    created_at=event_time  # Pass 'created_at' in the constructor if supported
+                    created_at=event_time
                 )
-                
                 audit_logs.append(log)
             
             db.session.add_all(audit_logs)
-            bar_line.update(1)
+            bar.update(1)
             
-            # Create security incidents
+            # Create sample security incidents
             incidents = []
-            
-            # Create one resolved incident
-            resolved_incident = SecurityIncident(
-                title="Suspicious Login Attempts Detected",
-                threat_level=6,
-                details="""Multiple failed login attempts from IP 192.168.1.100.
-                Detected 5 failed attempts within 10 minutes.""",
-                status="resolved",
-                detected_at=datetime.utcnow() - timedelta(days=5),
-                source="system",
-            )
-            incidents.append(resolved_incident)
-            
-            # Create one open incident
-            open_incident = SecurityIncident(
-                title="Unusual File Access Pattern Detected",
-                threat_level=7,
-                details="""User accessed multiple sensitive files in rapid succession.
-                This behavior deviates from normal usage patterns.""",
-                status="investigating",
-                detected_at=datetime.utcnow() - timedelta(hours=6),
-                source="system",
-            )
-            incidents.append(open_incident)
-            
-            db.session.add_all(incidents)
-            bar_line.update(1)
-            
-            # Create notifications
-            notifications = []
-            
-            # Security alert notification
-            security_notification = Notification(
-                user_id=admin.id,
-                type="security_alert",
-                title="Security Incident Detected",
-                message="A new security incident has been reported. Please review the details and take appropriate action.",
-                created_at=datetime.utcnow() - timedelta(hours=6),
-                read=False
-            )
-            notifications.append(security_notification)
-            
-            # System notification
-            system_notification = Notification(
-                user_id=admin.id,
-                type="system",
-                title="System Update Available",
-                message="A new system update is available. Please update at your earliest convenience.",
-                created_at=datetime.utcnow() - timedelta(days=1),
-                read=True
-            )
-            notifications.append(system_notification)
-            
-            # User notification
-            for user in test_users:
-                user_notification = Notification(
-                    user_id=user.id,
-                    type="account",
-                    title="Password Expiration Notice",
-                    message="Your password will expire in 7 days. Please update your password.",
-                    created_at=datetime.utcnow() - timedelta(days=3),
-                    read=random.choice([True, False])
+            incident_types = ["brute_force", "suspicious_access", "data_leak", "malware_detected"]
+            sources = ["system", "user_report", "security_scan", "api_gateway"]
+
+            for i in range(5):
+                incident_type = random.choice(incident_types)
+                
+                # Create realistic incident descriptions
+                if incident_type == "brute_force":
+                    title = "Multiple Failed Login Attempts"
+                    description = "Multiple failed login attempts detected from IP address"
+                    details = f"Detected {random.randint(5, 20)} failed login attempts within 10 minutes from the same IP address."
+                    severity = random.choice(["high", "medium"])
+                elif incident_type == "suspicious_access":
+                    title = "Unusual Access Pattern Detected"
+                    description = "Unusual access pattern detected for user account"
+                    details = "User accessed system resources outside normal working hours from an unrecognized IP address."
+                    severity = random.choice(["medium", "low"])
+                elif incident_type == "data_leak":
+                    title = "Potential Data Exposure"
+                    description = "Potential data exposure through insecure API endpoint"
+                    details = "Large data transfer detected through API endpoint that may have exposed sensitive customer information."
+                    severity = "critical"
+                else:  # malware_detected
+                    title = "Suspicious File Upload"
+                    description = "Suspicious file upload detected and quarantined"
+                    details = "File with potentially malicious code signature uploaded and automatically quarantined by security system."
+                    severity = "high"
+                
+                # Randomize creation dates for realistic data
+                days_ago = random.randint(1, 30)
+                created_at = datetime.utcnow() - timedelta(days=days_ago)
+                
+                # More recent incidents are more likely to be open
+                if days_ago < 7:
+                    status = random.choice(["open", "investigating"])
+                    resolved_at = None
+                    resolution = None
+                else:
+                    status = random.choice(["resolved", "closed"])
+                    resolved_at = created_at + timedelta(hours=random.randint(12, 72))
+                    resolution = "Issue investigated and addressed according to security protocols." if status == "resolved" else "Incident closed after investigation determined no further action required."
+                
+                # Create the incident
+                incident = SecurityIncident(
+                    title=title,
+                    incident_type=incident_type,
+                    description=description,
+                    details=details,
+                    user_id=random.choice([None, admin.id, test_users[0].id]),
+                    ip_address=random.choice(ip_addresses),
+                    severity=severity,
+                    status=status,
+                    source=random.choice(sources),
+                    created_at=created_at,
+                    updated_at=created_at + timedelta(hours=random.randint(1, 24)),
+                    resolved_at=resolved_at,
+                    resolution=resolution,
+                    assigned_to=admin.id if status in ["investigating", "resolved"] else None
                 )
-                notifications.append(user_notification)
+                incidents.append(incident)
+
+            db.session.add_all(incidents)
+            bar.update(1)
             
-            db.session.add_all(notifications)
-            bar_line.update(1)
-
-            # Commit changes
-            db.session.commit()
-
-            current_app.logger.info(f"Database seeded with {len(test_users) + 1} users, " +
-                                   f"{len(audit_logs)} audit logs, {len(incidents)} incidents, " +
-                                   f"and {len(notifications)} notifications")
-            return True
-
-    except Exception as e:
-        current_app.logger.error(f"Database seeding failed: {e}")
+            # Set up system configuration
+            configs = [
+                SystemConfig(key="maintenance_mode", value="false", 
+                             description="Enable site maintenance mode"),
+                SystemConfig(key="max_login_attempts", value="5", 
+                             description="Maximum failed login attempts before account lockout"),
+                SystemConfig(key="session_timeout", value="30", 
+                             description="Session timeout in minutes"),
+                SystemConfig(key="security_level", value="high", 
+                             description="Application security level (low, medium, high)")
+            ]
+            db.session.add_all(configs)
+            bar.update(1)
+        
+        # Commit all changes
+        db.session.commit()
+        current_app.logger.info("Database successfully seeded with initial data")
+        return True
+        
+    except (SQLAlchemyError, ValueError) as e:
         db.session.rollback()
-        raise
+        current_app.logger.error(f"Database seeding failed: {e}")
+        return False
 
 
 def seed_development_data() -> bool:

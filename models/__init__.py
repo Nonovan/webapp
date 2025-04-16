@@ -18,7 +18,7 @@ code organization and reusability.
 The models form the foundation of the application's domain logic, encapsulating both
 data structure and business rules in a single location.
 """
-
+import logging
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List, Type, TypeVar, TYPE_CHECKING
 from flask import current_app, abort
@@ -340,15 +340,89 @@ class BaseModel(db.Model, TimestampMixin):
 
 # Import models here after the base classes have been defined
 # This avoids circular import problems
+from .base import AuditableMixin
 from .user import User
 from .post import Post
 from .newsletter import Subscriber
 from .notification import Notification
 from .security_incident import SecurityIncident
 from .audit_log import AuditLog
+from .system_config import SystemConfig
+
+# Import secondary models with relationships to main models
+__all__ = []  # Initialize __all__ as an empty list
+from .user_session import UserSession
+from .user_activity import UserActivity
+from .file_upload import FileUpload
+
+try:
+    __all__.extend(['UserSession', 'UserActivity', 'FileUpload'])
+except ImportError:
+    # These models might not exist in all installations
+    pass
 
 # Export public interface
 __all__ = [
-    'db', 'BaseModel', 'TimestampMixin',
-    'User', 'Post', 'Subscriber', 'Notification', 'SecurityIncident', 'AuditLog'
+    'db', 'BaseModel', 'TimestampMixin', 'AuditableMixin',
+    'User', 'Post', 'Subscriber', 'Notification', 
+    'SecurityIncident', 'AuditLog', 'SystemConfig'
 ]
+
+# Set up model event listeners for security auditing
+from sqlalchemy import event
+
+def _setup_audit_listeners():
+    """Set up SQLAlchemy event listeners for security auditing."""
+    models_to_audit = [User, SecurityIncident, SystemConfig]
+
+    for model in models_to_audit:
+        # Use unique function names for each listener to avoid overwriting
+        def make_before_update(model_cls):
+            @event.listens_for(model_cls, 'before_update')
+            def before_update(_mapper, _connection, target):
+                """Event handler for before_update events.
+                
+                Args:
+                    mapper: SQLAlchemy mapper that is the target of the event
+                    connection: SQLAlchemy connection in use for the update
+                    target: The model instance being updated
+                """
+                if hasattr(target, 'mark_modified'):
+                    target.mark_modified()
+            return before_update
+
+        def make_before_delete(model_cls):
+            @event.listens_for(model_cls, 'before_delete')
+            def before_delete(_mapper, _connection, target):
+                """Event handler for before_delete events.
+                
+                Args:
+                    mapper: SQLAlchemy mapper that is the target of the event
+                    connection: SQLAlchemy connection in use for the delete
+                    target: The model instance being deleted
+                """
+                if isinstance(target, AuditableMixin):
+                    # For deletion, we want to log before the instance is removed
+                    # from the database to ensure we capture all its information
+                    try:
+                        modified_fields = ['DELETE']
+                        target.log_change(modified_fields, f"Record deleted: {target}")
+                    except (AttributeError, RuntimeError) as e:
+                        # Log errors but don't interrupt the delete operation
+                        logging.error("Error logging deletion event: %s", e)
+            return before_delete
+
+        # Register the listeners with unique function instances
+        make_before_update(model)
+        make_before_delete(model)
+
+# Initialize listeners if not in test mode
+import sys
+if 'pytest' not in sys.modules:
+    try:
+        _setup_audit_listeners()
+    except RuntimeError as e:
+        if current_app:
+            current_app.logger.error(f"Failed to set up audit listeners: {e}")
+        else:
+            logging.error("Failed to set up audit listeners: %s", e)

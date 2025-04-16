@@ -34,7 +34,12 @@ from extensions import db, cache, limiter
 from models.security_incident import SecurityIncident
 from models.audit_log import AuditLog
 from models.user import User  # Added for user account locking
-from core.security_utils import get_security_metrics, calculate_threat_level, log_security_event
+from core.security_utils import (
+    get_security_metrics, 
+    calculate_threat_level, 
+    log_security_event,
+     check_critical_file_integrity
+)
 
 # Configure monitoring blueprint
 monitoring_bp = Blueprint('monitoring', __name__, url_prefix='/monitoring')
@@ -295,6 +300,7 @@ def _determine_severity(threat_level):
     elif threat_level >= 3:
         return 'medium'
     else:
+        pass
         return 'low'
 
 @monitoring_bp.route('/metrics')
@@ -510,45 +516,6 @@ def check_security_status() -> Dict[str, Any]:
     """
     return get_security_metrics()
 
-def check_config_integrity() -> bool:
-    """
-    Verify integrity of critical configuration files.
-    
-    Uses the established file integrity checking functions from core.utils
-    instead of implementing a separate hashing mechanism.
-    
-    Returns:
-        bool: True if all files match their reference hashes, False otherwise
-    """
-    from core.utils import check_file_integrity
-    
-    # Get expected hashes from application configuration
-    expected_hashes = current_app.config.get('CONFIG_FILE_HASHES', {})
-    if not expected_hashes:
-        current_app.logger.warning("No reference hashes found for config files")
-        return False
-    
-    # Check each file against its expected hash
-    for file_path, expected_hash in expected_hashes.items():
-        if not check_file_integrity(file_path, expected_hash):
-            current_app.logger.warning(f"Configuration file integrity check failed: {file_path}")
-            
-            # Record security event
-            try:
-                from core.security_utils import log_security_event
-
-                log_security_event(
-                    event_type=AuditLog.EVENT_FILE_INTEGRITY,
-                    description=f"Configuration file modified: {file_path}",
-                    severity='error'
-                )
-            except Exception as e:
-                current_app.logger.error(f"Failed to record file integrity event: {e}")
-                
-            return False
-    
-    return True
-
 def check_critical_file_integrity() -> bool:
     """
     Verify integrity of critical application files.
@@ -559,7 +526,7 @@ def check_critical_file_integrity() -> bool:
     Returns:
         bool: True if all files match their reference hashes, False otherwise
     """
-    from core.utils import check_file_integrity, detect_file_changes
+    from core.utils import detect_file_changes
     
     # Get expected hashes from application configuration
     expected_hashes = current_app.config.get('CRITICAL_FILE_HASHES', {})
@@ -612,12 +579,10 @@ def detect_anomalies() -> bool:
     """
     try:
         # Check for multiple failed logins from same IP
-        recent_failed_logins = AuditLog.query.filter(
-            AuditLog.event_type == AuditLog.EVENT_LOGIN_FAILED,
-            AuditLog.created_at > func.now() - timedelta(minutes=10)
-        ).count()
+        from core.security_utils import get_suspicious_ips
+        suspicious_ips = get_suspicious_ips(hours=24, min_attempts=5)
         
-        if recent_failed_logins > 15:
+        if len(suspicious_ips) > 0:
             return True
             
         # Check for unusual API access patterns
@@ -645,9 +610,8 @@ def detect_anomalies() -> bool:
             
         # All checks passed
         return False
-    except (db.exc.SQLAlchemyError, OSError) as e:
-        current_app.logger.error(f"Error in anomaly detection: {e}")
-        # Default to no anomalies on error to prevent false positives
+    except Exception as e:
+        current_app.logger.error(f"Error detecting anomalies: {e}")
         return False
 
 def detect_login_anomalies(suspicious_ips=None):
@@ -662,73 +626,62 @@ def detect_login_anomalies(suspicious_ips=None):
     - Logins from unusual geographic locations
     - Logins with unusual user-agent strings
     
+    Args:
+        suspicious_ips: Optional pre-fetched list of suspicious IPs
+    
     Returns:
-        Dict[str, Any]: Dictionary containing login anomalies with keys such as:
-            - 'failed_attempts': List of suspicious failed login attempts
-            - 'unusual_locations': List of logins from unusual locations
-            - 'suspicious_ips': List of suspicious IP addresses
-            - 'unusual_times': List of logins at unusual times
+        Dict[str, Any]: Dictionary containing login anomalies
     """
-    if suspicious_ips is not None:
-        # Use provided suspicious IPs data
-        # Rest of function...
+    result = {
+        'failed_attempts': [],
+        'unusual_locations': [],
+        'suspicious_ips': [],
+        'unusual_times': []
+    }
+    
+    # Use provided suspicious IPs if available, otherwise fetch them
+    if suspicious_ips is None:
+        from core.security_utils import get_suspicious_ips
+        suspicious_ip_data = get_suspicious_ips(hours=24, min_attempts=5)
     else:
-        result = {
-            'failed_attempts': [],
-            'unusual_locations': [],
-            'suspicious_ips': [],
-            'unusual_times': []
-        }
+        suspicious_ip_data = suspicious_ips
+    
+    # Format suspicious IPs data
+    for ip_data in suspicious_ip_data:
+        ip = ip_data.get('ip')
+        count = ip_data.get('count', 0)
         
-        # Check for multiple failed login attempts from same IP
-        cutoff = datetime.utcnow() - timedelta(hours=24)
-        
-        # Group failed logins by IP and count
-        ip_counts = db.session.query(
-            AuditLog.ip_address,
-            func.count(AuditLog.id).label('attempt_count')
-        ).filter(
+        latest_attempt = AuditLog.query.filter(
             AuditLog.event_type == AuditLog.EVENT_LOGIN_FAILED,
-            AuditLog.created_at >= cutoff,
-            AuditLog.ip_address is not None
-        ).group_by(
-            AuditLog.ip_address
-        ).having(
-            func.count(AuditLog.id) >= 5
-        ).all()
+            AuditLog.ip_address == ip
+        ).order_by(desc(AuditLog.created_at)).first()
         
-        for ip, count in ip_counts:
-            latest_attempt = AuditLog.query.filter(
-                AuditLog.event_type == AuditLog.EVENT_LOGIN_FAILED,
-                AuditLog.ip_address == ip
-            ).order_by(desc(AuditLog.created_at)).first()
-            
-            result['suspicious_ips'].append({
-                'ip_address': ip,
-                'failed_attempts': count,
-                'last_attempt': latest_attempt.created_at.isoformat() if latest_attempt else None
-            })
-        
-        # Get successful logins that happened outside normal hours (9am-5pm)
-        unusual_time_logins = AuditLog.query.filter(
-            AuditLog.event_type == AuditLog.EVENT_LOGIN_SUCCESS,
-            AuditLog.created_at >= cutoff,
-            ~and_(
-                func.extract('hour', AuditLog.created_at) >= 9,
-                func.extract('hour', AuditLog.created_at) < 17
-            )
-        ).order_by(desc(AuditLog.created_at)).limit(10).all()
-        
-        for login in unusual_time_logins:
-            result['unusual_times'].append({
-                'user_id': login.user_id,
-                'timestamp': login.created_at.isoformat(),
-                'ip_address': login.ip_address,
-                'user_agent': login.user_agent
-            })
-        
-        # Return compiled results
-        return result
+        result['suspicious_ips'].append({
+            'ip_address': ip,
+            'failed_attempts': count,
+            'last_attempt': latest_attempt.created_at.isoformat() if latest_attempt else None
+        })
+
+    # Get successful logins that happened outside normal hours (9am-5pm)
+    unusual_time_logins = AuditLog.query.filter(
+        AuditLog.event_type == AuditLog.EVENT_LOGIN_SUCCESS,
+        AuditLog.created_at >= datetime.utcnow() - timedelta(hours=24),
+        ~and_(
+            func.extract('hour', AuditLog.created_at) >= 9,
+            func.extract('hour', AuditLog.created_at) < 17
+        )
+    ).order_by(desc(AuditLog.created_at)).limit(10).all()
+    
+    for login in unusual_time_logins:
+        result['unusual_times'].append({
+            'user_id': login.user_id,
+            'timestamp': login.created_at.isoformat(),
+            'ip_address': login.ip_address,
+            'user_agent': login.user_agent
+        })
+    
+    # Return compiled results
+    return result
 
 def detect_session_anomalies() -> Dict[str, Any]:
     """
@@ -1324,20 +1277,12 @@ def initiate_countermeasures(breach_data: Dict[str, Any]) -> None:
         breach_data: Dictionary containing detected anomalies and threat information
     """
     try:
-        # Get configuration for automated response
-        auto_response_enabled = current_app.config.get('ENABLE_AUTO_COUNTERMEASURES', False)
-        
-        if not auto_response_enabled:
-            current_app.logger.info("Automated countermeasures disabled in configuration")
-            return
-            
-        current_app.logger.info("Initiating automated countermeasures")
-        
-        # Block suspicious IPs if detected
+        # Block suspicious IPs
         if breach_data.get('login_anomalies', {}).get('suspicious_ips'):
             suspicious_ips = [
-                ip_data['ip_address'] 
-                for ip_data in breach_data['login_anomalies']['suspicious_ips']
+                item.get('ip_address') 
+                for item in breach_data['login_anomalies']['suspicious_ips']
+                if item.get('ip_address')
             ]
             
             for ip in suspicious_ips:
@@ -1449,57 +1394,52 @@ def get_active_session_count() -> int:
             )
         ).count()
 
-def get_suspicious_ips() -> List[Dict[str, Any]]:
-    """Get list of suspicious IPs with their activity counts."""
-    cutoff = datetime.utcnow() - timedelta(hours=24)
-    
-    # Subquery to count failed login attempts by IP
-    failed_login_counts = db.session.query(
-        AuditLog.ip_address,
-        func.count(AuditLog.id).label('count')
-    ).filter(
-        AuditLog.event_type == AuditLog.EVENT_LOGIN_FAILED,
-        AuditLog.created_at >= cutoff,
-        AuditLog.ip_address is not None
-    ).group_by(AuditLog.ip_address).subquery()
-    
-    # Get IPs with more than 5 failed attempts
-    suspicious = db.session.query(
-        failed_login_counts.c.ip_address,
-        failed_login_counts.c.count
-    ).filter(failed_login_counts.c.count > 5).all()
-    
-    return [{'ip': ip, 'count': count} for ip, count in suspicious]
-
 def calculate_risk_score(security_data: Dict[str, Any]) -> int:
-    """Calculate security risk score based on collected security data."""
+    """
+    Calculate security risk score based on collected security data.
+    
+    This function analyzes various security metrics to determine an overall
+    risk score for the system on a scale of 1-10 (10 being highest risk).
+    It considers factors like failed login attempts, account lockouts,
+    suspicious IP addresses, and file integrity violations.
+    
+    Args:
+        security_data: Dictionary containing security metrics including:
+            - failed_logins_24h: Number of failed logins in past 24 hours
+            - account_lockouts_24h: Number of account lockouts in past 24 hours
+            - suspicious_ips: List of suspicious IP addresses
+            - config_integrity: Boolean indicating config file integrity status
+            - file_integrity: Boolean indicating critical file integrity status
+        
+    Returns:
+        int: Risk score on a scale of 1-10
+    """
     score = 1  # Start with minimum risk
     
-    # Check failed logins
-    if security_data['failed_logins_24h'] > 100:
-        score += 3
-    elif security_data['failed_logins_24h'] > 50:
-        score += 2
-    elif security_data['failed_logins_24h'] > 20:
-        score += 1
+    # Risk factors and their corresponding score increments
+    risk_factors = [
+        # Failed login thresholds
+        (security_data['failed_logins_24h'] > 100, 3),
+        (security_data['failed_logins_24h'] > 50, 2),
+        (security_data['failed_logins_24h'] > 20, 1),
+        
+        # Account lockouts
+        (security_data['account_lockouts_24h'] > 5, 2),
+        (security_data['account_lockouts_24h'] > 0, 1),
+        
+        # Suspicious IPs
+        (len(security_data['suspicious_ips']) > 10, 3),
+        (len(security_data['suspicious_ips']) > 0, 1),
+        
+        # File integrity
+        (not security_data.get('config_integrity', True), 3),
+        (not security_data.get('file_integrity', True), 2)
+    ]
     
-    # Check account lockouts
-    if security_data['account_lockouts_24h'] > 5:
-        score += 2
-    elif security_data['account_lockouts_24h'] > 0:
-        score += 1
-    
-    # Check suspicious IPs
-    if len(security_data['suspicious_ips']) > 10:
-        score += 3
-    elif len(security_data['suspicious_ips']) > 0:
-        score += 1
-    
-    # Check file integrity
-    if not security_data['config_integrity']:
-        score += 3
-    
-    if not security_data['file_integrity']:
-        score += 2
-    
-    return min(score, 10)  # Cap at maximum risk of 10
+    # Apply each risk factor
+    for condition, increment in risk_factors:
+        if condition:
+            score += increment
+            
+    # Cap at maximum risk of 10
+    return min(score, 10)

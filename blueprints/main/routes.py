@@ -24,7 +24,7 @@ from jinja2 import TemplateNotFound
 from auth.utils import login_required, require_role
 from monitoring.metrics import SystemMetrics, DatabaseMetrics, EnvironmentalData
 from extensions import limiter, cache, metrics, db
-from core.security_utils import get_security_metrics, check_config_integrity, calculate_risk_score
+from core.security_utils import get_security_metrics, calculate_risk_score
 
 from . import main_bp
 

@@ -1,15 +1,18 @@
 # core/security_utils.py
 import os
 import hashlib
+import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from sqlalchemy import func
+from sqlalchemy.exc import SQLAlchemyError
+from flask import current_app, request, g, has_request_context, session
+
 from models.audit_log import AuditLog
 from extensions import db
-from sqlalchemy.exc import SQLAlchemyError
 from extensions import get_redis_client
-import logging
-from flask import current_app, request, g, has_request_context
+
+'ENCRYPTION_KEY': os.getenv('ENCRYPTION_KEY'),  # A strong random 32-byte key for encrypting sensitive data
 
 def get_suspicious_ips(hours: int = 24, min_attempts: int = 5) -> List[Dict[str, Any]]:
     """
@@ -179,8 +182,6 @@ def log_security_event(
             ip_address='192.168.1.1',
         )
     """
-    from models.audit_log import AuditLog
-    
     # Try to get user_id from flask.g if not provided
     if user_id is None and has_request_context() and hasattr(g, 'user_id'):
         user_id = g.user_id
@@ -209,7 +210,8 @@ def log_security_event(
     
     # Log to application log
     try:
-        if has_request_context() and hasattr(current_app, 'logger'):
+        from flask import has_app_context
+        if has_app_context() and has_request_context() and hasattr(current_app, 'logger'):
             current_app.logger.log(
                 log_level,
                 f"[SECURITY] {description}",
@@ -228,7 +230,8 @@ def log_security_event(
             )
     except (KeyError, ValueError, TypeError) as e:  # Replace with specific exceptions
         # Don't let logging errors prevent audit log entry
-        if has_request_context() and hasattr(current_app, 'logger'):
+        from flask import has_app_context
+        if has_app_context() and has_request_context() and hasattr(current_app, 'logger'):
             current_app.logger.error(f"Error writing to security log: {e}")
         else:
             logging.error("Error writing to security log: %s", e)
@@ -255,14 +258,14 @@ def log_security_event(
         if has_request_context() and hasattr(current_app, 'logger'):
             current_app.logger.error(f"Failed to record audit log: {e}")
         else:
-            logging.error(f"Failed to record audit log: {e}")
+            logging.error("Failed to record audit log: %s", e)
         return False
-    except Exception as e:
+    except (SQLAlchemyError, RuntimeError, ValueError) as e:  # Replace with specific exceptions
         # Handle any other exception types
         if has_request_context() and hasattr(current_app, 'logger'):
             current_app.logger.error(f"Unexpected error in audit logging: {e}")
         else:
-            logging.error(f"Unexpected error in audit logging: {e}")
+            logging.error("Unexpected error in audit logging: %s", e)
         return False
 
 
@@ -277,7 +280,6 @@ def verify_token(token: str, secret_key: Optional[str] = None) -> Optional[Dict[
     Returns:
         Dict or None: Token payload if valid, None if invalid
     """
-    from flask import current_app
     import jwt
     from extensions import metrics
     
@@ -309,7 +311,6 @@ def regenerate_session() -> None:
     This function preserves important session data while creating a new
     session ID, effectively preventing session fixation attacks.
     """
-    from flask import session, current_app
     import uuid
     
     # Save the important session values
@@ -349,8 +350,6 @@ def invalidate_user_sessions(user_id: int) -> bool:
     Returns:
         bool: True if sessions were invalidated, False otherwise
     """
-    from flask import current_app
-    
     redis_client = get_redis_client()
     if not redis_client:
         current_app.logger.warning("Redis unavailable, unable to invalidate sessions")
@@ -382,8 +381,7 @@ def check_config_integrity(app=None) -> bool:
     Returns:
         bool: True if all files match their reference hashes, False otherwise
     """
-    from flask import current_app as flask_app
-    app = app or flask_app
+    app = app or current_app
     
     # Get expected hashes from application configuration
     expected_hashes = app.config.get('CONFIG_FILE_HASHES', {})
@@ -421,8 +419,7 @@ def check_critical_file_integrity(app=None) -> bool:
     Returns:
         bool: True if all files match their reference hashes, False otherwise
     """
-    from flask import current_app as flask_app
-    app = app or flask_app
+    app = app or current_app
     
     from core.utils import detect_file_changes
     
@@ -623,3 +620,129 @@ def get_security_metrics(hours: int = 24) -> Dict[str, Any]:
     security_data['last_checked'] = datetime.utcnow().isoformat()
     
     return security_data
+
+
+def encrypt_sensitive_data(plaintext: str) -> str:
+    """
+    Encrypt sensitive data using Fernet symmetric encryption.
+    
+    This function encrypts sensitive configuration values, API keys, 
+    and other secret data that needs to be stored securely in the database.
+    It uses Fernet (AES-128 in CBC mode with PKCS7 padding and HMAC authentication)
+    which provides authenticated encryption.
+    
+    Args:
+        plaintext: The plaintext string to encrypt
+        
+    Returns:
+        str: Base64-encoded encrypted string
+        
+    Raises:
+        RuntimeError: If encryption fails due to missing key or other issues
+    """
+    if not plaintext:
+        return plaintext
+        
+    try:
+        from cryptography.fernet import Fernet
+        from flask import current_app
+        import base64
+        
+        # Get the encryption key from app config, or generate one if not provided
+        key = current_app.config.get('ENCRYPTION_KEY')
+        if not key:
+            current_app.logger.warning("No ENCRYPTION_KEY configured, using app secret key")
+            # Derive a 32-byte key from the app secret key using SHA-256
+            import hashlib
+            key = hashlib.sha256(current_app.config['SECRET_KEY'].encode()).digest()
+        elif len(key) != 32:
+            # Ensure key is 32 bytes (256 bits)
+            key = hashlib.sha256(key.encode()).digest()
+            
+        # Convert the key to a URL-safe base64-encoded string as required by Fernet
+        key_b64 = base64.urlsafe_b64encode(key)
+        
+        # Initialize the Fernet cipher with the key
+        cipher = Fernet(key_b64)
+        
+        # Encrypt the plaintext and encode as a string
+        encrypted_data = cipher.encrypt(plaintext.encode('utf-8'))
+        return encrypted_data.decode('utf-8')
+        
+    except Exception as e:
+        if has_request_context() and hasattr(current_app, 'logger'):
+            current_app.logger.error(f"Encryption failed: {e}")
+        else:
+            logging.error(f"Encryption failed: {e}")
+        raise RuntimeError(f"Failed to encrypt sensitive data: {e}")
+
+
+def decrypt_sensitive_data(encrypted_data: str) -> str:
+    """
+    Decrypt sensitive data that was encrypted using encrypt_sensitive_data.
+    
+    This function decrypts configuration values, API keys, and other secrets
+    that were previously encrypted with the encrypt_sensitive_data function.
+    
+    Args:
+        encrypted_data: Base64-encoded encrypted string
+        
+    Returns:
+        str: Decrypted plaintext string
+        
+    Raises:
+        RuntimeError: If decryption fails due to invalid key, tampered data, etc.
+    """
+    if not encrypted_data:
+        return encrypted_data
+    
+    import logging
+        
+    try:
+        from cryptography.fernet import Fernet, InvalidToken
+        from flask import current_app, has_app_context
+        import base64
+        import hashlib
+        
+        # Get the encryption key from app config
+        key = None
+        if has_app_context():
+            key = current_app.config.get('ENCRYPTION_KEY')
+            
+        if not key:
+            if has_app_context():
+                current_app.logger.warning("No ENCRYPTION_KEY configured, using app secret key")
+                key = hashlib.sha256(current_app.config['SECRET_KEY'].encode()).digest()
+            else:
+                logging.warning("No app context and no encryption key provided")
+                raise RuntimeError("Cannot decrypt: No encryption key available")
+        elif len(key) != 32:
+            # Ensure key is 32 bytes (256 bits)
+            key = hashlib.sha256(key.encode()).digest()
+        
+        # Convert the key to a URL-safe base64-encoded string as required by Fernet
+        key_b64 = base64.urlsafe_b64encode(key)
+        
+        # Initialize the Fernet cipher with the key
+        cipher = Fernet(key_b64)
+        
+        # Decrypt the data
+        try:
+            decrypted_data = cipher.decrypt(encrypted_data.encode('utf-8'))
+            return decrypted_data.decode('utf-8')
+        except InvalidToken:
+            msg = "Decryption failed: Invalid token or key"
+            if has_app_context():
+                current_app.logger.error(msg)
+            else:
+                logging.error(msg)
+            raise RuntimeError(msg)
+            
+    except Exception as e:
+        msg = f"Failed to decrypt sensitive data: {e}"
+        from flask import has_app_context, current_app
+        if has_app_context() and hasattr(current_app, 'logger'):
+            current_app.logger.error(msg)
+        else:
+            logging.error(msg)
+        raise RuntimeError(msg)

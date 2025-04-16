@@ -8,16 +8,17 @@ consistent patterns, and shared behaviors that all models can inherit.
 Key components:
 - BaseModel: Abstract base class with CRUD operations and serialization
 - TimestampMixin: Adds automatic timestamp tracking for all models
+- AuditableMixin: Adds auditing capabilities for security monitoring
 
 These base classes implement the Active Record pattern through SQLAlchemy ORM,
 promoting code reuse and ensuring consistent behavior across the data layer.
 """
 
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, List, Type, TypeVar
-from flask import current_app, abort
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.ext.declarative import declared_attr
+from typing import Dict, Any, Optional, List, Type, TypeVar, Union, ClassVar
+from flask import current_app, abort, g, has_request_context, request
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.hybrid import hybrid_property
 from extensions import db
 
 # Define TypeVar with proper constraints for type hinting
@@ -46,276 +47,381 @@ class TimestampMixin:
             name = db.Column(db.String(50))
     """
 
-    @declared_attr
-    def created_at(self):
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True
+    )
+    
+    updated_at = db.Column(
+        db.DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
+    
+    @hybrid_property
+    def age_hours(self) -> float:
+        """Calculate age in hours from created_at to now."""
+        if not self.created_at:
+            return 0
+        delta = datetime.now(timezone.utc) - self.created_at
+        return delta.total_seconds() / 3600
+    
+    @hybrid_property
+    def last_updated_hours(self) -> float:
+        """Calculate hours since last update."""
+        if not self.updated_at:
+            return 0
+        delta = datetime.now(timezone.utc) - self.updated_at
+        return delta.total_seconds() / 3600
+
+
+class AuditableMixin:
+    """
+    Mixin class that adds auditing capabilities to models.
+    
+    This mixin provides methods to track changes to model instances and log those
+    changes to the audit log for security monitoring and compliance purposes.
+    
+    Methods:
+        log_change: Record a change to the model in the audit log
+        log_access: Record access to the model in the audit log
+        log_critical_change: Record a security-critical change
+    """
+    
+    # Define security-critical fields that should trigger enhanced logging
+    SECURITY_CRITICAL_FIELDS: ClassVar[List[str]] = []
+    
+    def log_change(self, fields_changed: List[str], details: Optional[str] = None) -> bool:
         """
-        Creation timestamp for the record.
-
-        Automatically set when the record is first created.
-
+        Log a change to this model instance to the audit log.
+        
+        Args:
+            fields_changed: List of field names that were changed
+            details: Optional details about the change
+            
         Returns:
-            datetime: The creation timestamp with timezone
+            bool: True if the change was logged successfully
         """
-        return db.Column(
-            db.DateTime(timezone=True),
-            nullable=False,
-            default=lambda: datetime.now(timezone.utc)
-        )
-
-    @declared_attr
-    def updated_at(self):
+        from core.security_utils import log_security_event
+        
+        try:
+            # Determine if any security-critical fields were changed
+            critical = any(field in self.SECURITY_CRITICAL_FIELDS for field in fields_changed)
+            severity = 'warning' if critical else 'info'
+            
+            # Get model name for the event type
+            model_name = self.__class__.__name__.lower()
+            
+            # Log the change
+            user_id = g.get('user_id') if has_request_context() and hasattr(g, 'user_id') else None
+            ip_address = request.remote_addr if has_request_context() else None
+            
+            event_details = f"Changed fields: {', '.join(fields_changed)}"
+            if details:
+                event_details += f" | {details}"
+                
+            log_security_event(
+                event_type=f"{model_name}_modified",
+                description=f"{model_name.capitalize()} ID {getattr(self, 'id', 'unknown')} modified",
+                severity=severity,
+                user_id=user_id,
+                ip_address=ip_address,
+                details=event_details
+            )
+            return True
+        except (KeyError, AttributeError, RuntimeError) as e:
+            if current_app:
+                current_app.logger.error(f"Failed to log model change: {e}")
+            return False
+    
+    def log_access(self, access_type: str = 'read') -> bool:
         """
-        Last update timestamp for the record.
-
-        Automatically updated whenever the record is modified.
-
+        Log access to this model instance to the audit log.
+        
+        Args:
+            access_type: Type of access (read, list, export, etc.)
+            
         Returns:
-            datetime: The last update timestamp with timezone
+            bool: True if the access was logged successfully
         """
-        return db.Column(
-            db.DateTime(timezone=True),
-            nullable=False,
-            default=lambda: datetime.now(timezone.utc),
-            onupdate=lambda: datetime.now(timezone.utc)
-        )
+        # Only log access to sensitive models to avoid log bloat
+        if not getattr(self.__class__, 'AUDIT_ACCESS', False):
+            return True
+            
+        from core.security_utils import log_security_event
+        
+        try:
+            # Get model name for the event type
+            model_name = self.__class__.__name__.lower()
+            
+            # Log the access
+            user_id = g.get('user_id') if has_request_context() and hasattr(g, 'user_id') else None
+            ip_address = request.remote_addr if has_request_context() else None
+            
+            log_security_event(
+                event_type=f"{model_name}_{access_type}",
+                description=f"{model_name.capitalize()} ID {getattr(self, 'id', 'unknown')} accessed",
+                severity='info',
+                user_id=user_id,
+                ip_address=ip_address
+            )
+            return True
+        except (KeyError, AttributeError, RuntimeError) as e:
+            if current_app:
+                current_app.logger.error(f"Failed to log model access: {e}")
+            return False
+    
+    def log_critical_change(self, operation: str, reason: str) -> bool:
+        """
+        Log a security-critical change to this model instance.
+        
+        Args:
+            operation: Description of the operation (e.g., "password_reset")
+            reason: Reason for the critical change
+            
+        Returns:
+            bool: True if the critical change was logged successfully
+        """
+        from core.security_utils import log_security_event
+        
+        try:
+            # Get model name for the event type
+            model_name = self.__class__.__name__.lower()
+            
+            # Log the critical change
+            user_id = g.get('user_id') if has_request_context() and hasattr(g, 'user_id') else None
+            ip_address = request.remote_addr if has_request_context() else None
+            
+            log_security_event(
+                event_type=f"{model_name}_{operation}",
+                description=f"Critical change to {model_name} ID {getattr(self, 'id', 'unknown')}",
+                severity='warning',
+                user_id=user_id,
+                ip_address=ip_address,
+                details=f"Operation: {operation}, Reason: {reason}"
+            )
+            return True
+        except (KeyError, AttributeError, RuntimeError) as e:
+            if current_app:
+                current_app.logger.error(f"Failed to log critical change: {e}")
+            return False
 
 
 class BaseModel(db.Model, TimestampMixin):
     """
-    Base model class with common functionality.
-
-    This abstract base class provides common functionality for all models,
-    including standard CRUD operations, serialization, and error handling.
-    It integrates with SQLAlchemy's ORM system and adds additional convenience
-    methods for common operations.
-
-    All models in the application should inherit from this class to ensure
-    consistent behavior and reduce code duplication. The class includes
-    TimestampMixin for automatic timestamp tracking.
-
+    Abstract base model that provides common functionality for all models.
+    
+    This class should be used as the base for all models in the application.
+    It provides common CRUD operations, serialization, and utility methods.
+    
     Attributes:
-        id: Integer primary key
-        created_at: Datetime when the record was created (from TimestampMixin)
-        updated_at: Datetime when the record was last updated (from TimestampMixin)
-
-    Example:
-        class User(BaseModel):
-            username = db.Column(db.String(80), unique=True)
-
-            # Inherits save(), delete(), to_dict(), etc.
+        __abstract__: SQLAlchemy flag marking this as an abstract class
+        
+    Class Methods:
+        create: Create a new model instance
+        get_by_id: Retrieve a model instance by its primary key
+        get_or_404: Retrieve a model instance or abort with 404
+        
+    Instance Methods:
+        update: Update instance with new attribute values
+        delete: Delete this instance from the database
+        to_dict: Convert instance to a dictionary for serialization
     """
     __abstract__ = True
-    id = db.Column(db.Integer, primary_key=True)
 
-    def __init__(self, **kwargs):
+    @classmethod
+    def create(cls: Type[T_Model], **kwargs) -> T_Model:
         """
-        Initialize the model with dynamic attributes.
+        Create a new instance of the model and save it to the database.
         
         Args:
-            **kwargs: Key-value pairs to set as attributes
-        """
-        # Don't pass __abstract__ to parent constructor
-        kwargs.pop('__abstract__', None)
-        super().__init__(**kwargs)
-
-    def save(self) -> bool:
-        """
-        Save model instance with error handling.
-
-        Adds the model instance to the session and commits the transaction,
-        handling common database errors with appropriate logging.
-
+            **kwargs: Attribute values to set on the new instance
+            
         Returns:
-            bool: True if the save was successful, False otherwise
-
-        Example:
-            user = User(username='johndoe')
-            if user.save():
-                # Successfully saved
-            else:
-                # Handle error
+            T_Model: The new model instance
+            
+        Raises:
+            SQLAlchemyError: If database error occurs during creation
         """
         try:
-            db.session.add(self)
+            instance = cls(**kwargs)
+            db.session.add(instance)
             db.session.commit()
-            current_app.logger.info(f"{self.__class__.__name__} {self.id} saved")
-            return True
-        except IntegrityError as e:
-            db.session.rollback()
-            current_app.logger.error(f"Save failed - integrity error: {str(e)}")
-            return False
+            
+            # Log creation if the model supports it
+            if isinstance(instance, AuditableMixin):
+                model_name = cls.__name__.lower()
+                from core.security_utils import log_security_event
+                
+                user_id = g.get('user_id') if has_request_context() and hasattr(g, 'user_id') else None
+                ip_address = request.remote_addr if has_request_context() else None
+                
+                log_security_event(
+                    event_type=f"{model_name}_created",
+                    description=f"New {model_name} created with ID {instance.id}",
+                    severity='info',
+                    user_id=user_id,
+                    ip_address=ip_address
+                )
+                
+            return instance  # type: ignore
         except SQLAlchemyError as e:
             db.session.rollback()
-            current_app.logger.error(f"Save failed - database error: {str(e)}")
-            return False
+            if current_app:
+                current_app.logger.error(f"Failed to create {cls.__name__}: {e}")
+            raise
+
+    @classmethod
+    def get_by_id(cls: Type[T_Model], instance_id: Union[int, str]) -> Optional[T_Model]:
+        """
+        Retrieve an instance by its primary key.
+        
+        Args:
+            id: Primary key value to look up
+            
+        Returns:
+            Optional[T_Model]: Model instance if found, None otherwise
+        """
+        return cls.query.get(instance_id)
+
+    @classmethod
+    def get_or_404(cls: Type[T_Model], instance_id: Union[int, str], description: Optional[str] = None) -> T_Model:
+        """
+        Retrieve an instance by its primary key or abort with 404.
+        
+        Args:
+            instance_id: Primary key value to look up
+            description: Optional custom message for the 404 error
+            
+        Returns:
+            T_Model: Model instance
+            
+        Raises:
+            HTTPException: 404 error if instance not found
+        """
+        instance = cls.query.get(instance_id)
+        if instance is None:
+            abort(404, description=description or f"{cls.__name__} with ID {instance_id} not found")
+
+        # Log access if the model supports it
+        if isinstance(instance, AuditableMixin):
+            instance.log_access()
+
+        return instance  # type: ignore
+
+    def update(self, **kwargs) -> bool:
+        """
+        Update the instance with new attribute values.
+        
+        Args:
+            **kwargs: Attribute values to update
+            
+        Returns:
+            bool: True if update was successful
+            
+        Raises:
+            SQLAlchemyError: If database error occurs during update
+        """
+        try:
+            # Keep track of changed fields for auditing
+            fields_changed = []
+
+            for key, value in kwargs.items():
+                if hasattr(self, key) and getattr(self, key) != value:
+                    fields_changed.append(key)
+                    setattr(self, key, value)
+
+            if not fields_changed:
+                return True  # No changes made
+
+            db.session.commit()
+
+            # Log change if the model supports it
+            if isinstance(self, AuditableMixin) and fields_changed:
+                self.log_change(fields_changed)
+
+            return True
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            if current_app:
+                current_app.logger.error(f"Failed to update {self.__class__.__name__}: {e}")
+            raise
 
     def delete(self) -> bool:
         """
-        Delete model instance with error handling.
-
-        Removes the model instance from the database, handling database errors
-        with appropriate logging and transaction rollback.
-
+        Delete the instance from the database.
+        
         Returns:
-            bool: True if the deletion was successful, False otherwise
-
-        Example:
-            user = User.query.get(1)
-            if user.delete():
-                # Successfully deleted
-            else:
-                # Handle error
+            bool: True if deletion was successful
+            
+        Raises:
+            SQLAlchemyError: If database error occurs during deletion
         """
         try:
+            # Log deletion if the model supports it
+            if isinstance(self, AuditableMixin):
+                model_name = self.__class__.__name__.lower()
+                from core.security_utils import log_security_event
+
+                user_id = g.get('user_id') if has_request_context() and hasattr(g, 'user_id') else None
+                ip_address = request.remote_addr if has_request_context() else None
+
+                log_security_event(
+                    event_type=f"{model_name}_deleted",
+                    description=f"{model_name.capitalize()} ID {getattr(self, 'id', 'unknown')} deleted",
+                    severity='warning',
+                    user_id=user_id,
+                    ip_address=ip_address
+                )
+
             db.session.delete(self)
             db.session.commit()
-            current_app.logger.info(f"{self.__class__.__name__} {self.id} deleted")
             return True
         except SQLAlchemyError as e:
             db.session.rollback()
-            current_app.logger.error(f"Delete failed: {str(e)}")
-            return False
+            if current_app:
+                current_app.logger.error(f"Failed to delete {self.__class__.__name__}: {e}")
+            raise
 
     def to_dict(self) -> Dict[str, Any]:
         """
-        Convert model to dictionary with relationships.
-
-        Creates a dictionary representation of the model instance, including
-        both column values and relationship data if available. This is useful
-        for serialization to JSON for API responses.
-
-        Relationship handling:
-        - Scalar relationships (one-to-one): Calls to_dict() on related object
-        - Collection relationships (one-to-many): Maps to_dict() over collection
-
+        Convert the instance to a dictionary for serialization.
+        
+        This provides a default implementation that includes all columns.
+        Subclasses should override this to customize the serialization.
+        
         Returns:
-            Dict[str, Any]: Dictionary representation of the model
-
-        Example:
-            user = User.query.get(1)
-            user_dict = user.to_dict()
-            # Convert to JSON: json.dumps(user_dict)
+            Dict[str, Any]: Dictionary representation of the instance
         """
-        data = {}
-        # Use introspection methods that are guaranteed to exist at runtime
-        # instead of directly accessing private attributes
-        for c in db.inspect(self).mapper.column_attrs:
-            data[c.key] = getattr(self, c.key)
+        # Start with a dictionary of column attributes
+        result = {}
+        for column in self.__table__.columns:
+            value = getattr(self, column.name)
 
-        # Handle relationships safely
-        for rel_name, _ in db.inspect(self).mapper.relationships.items():
-            if hasattr(self, rel_name):
-                rel_data = getattr(self, rel_name)
-                # Handle both collections and scalar relationships
-                if rel_data is None:
-                    data[rel_name] = None
-                elif hasattr(rel_data, 'to_dict'):  # Single object
-                    data[rel_name] = rel_data.to_dict()
-                else:  # Collection of objects
-                    data[rel_name] = [
-                        item.to_dict() for item in rel_data
-                        if hasattr(item, 'to_dict')
-                    ]
-        return data
+            # Handle datetime objects for JSON serialization
+            if isinstance(value, datetime):
+                value = value.isoformat()
+
+            result[column.name] = value
+
+        return result
 
     @classmethod
-    def get_by_id(cls: Type[T_Model], record_id: int) -> Optional[T_Model]:
+    def filter_by_date_range(cls, start_date: datetime, end_date: datetime, 
+                          date_column: str = 'created_at') -> List['BaseModel']:
         """
-        Get model instance by primary key.
-
-        Retrieves a single model instance by its primary key ID,
-        returning None if no matching record is found.
-
+        Get all instances within a given date range.
+        
         Args:
-            record_id: Primary key value to search for
-
+            start_date: Start date for filtering
+            end_date: End date for filtering
+            date_column: Column name to filter on (default: created_at)
+            
         Returns:
-            Optional[T_Model]: Model instance if found, None otherwise
-
-        Example:
-            user = User.get_by_id(1)
-            if user:
-                # User exists
-            else:
-                # User not found
+            List[T_Model]: List of matching instances
         """
-        try:
-            return cls.query.get(record_id)
-        except SQLAlchemyError as e:
-            current_app.logger.error(f"Error retrieving {cls.__name__}: {str(e)}")
-            return None
-
-    @classmethod
-    def list_all(cls: Type[T_Model], page: int = 1, per_page: int = 20) -> List[T_Model]:
-        """
-        Get all instances with pagination.
-
-        Retrieves a paginated list of model instances, with configurable page
-        size and number. This method is useful for listing views where only a
-        subset of records should be returned at once.
-
-        Args:
-            page: The page number to retrieve (1-indexed)
-            per_page: The number of records per page
-
-        Returns:
-            List[T_Model]: List of model instances for the specified page
-
-        Example:
-            # Get first page of users, 20 per page
-            users = User.list_all()
-
-            # Get second page of users, 50 per page
-            users = User.list_all(page=2, per_page=50)
-        """
-        try:
-            return cls.query.paginate(page=page, per_page=per_page, error_out=False).items
-        except SQLAlchemyError as e:
-            current_app.logger.error(f"Error listing {cls.__name__}: {str(e)}")
-            return []
-
-    @classmethod
-    def get_or_404(cls: Type[T_Model], record_id: int) -> T_Model:
-        """
-        Get model instance or raise 404 error.
-
-        Similar to get_by_id(), but raises a 404 error if the record is not found.
-        This is useful in view functions to handle non-existent resources.
-
-        Args:
-            record_id: Primary key value to search for
-
-        Returns:
-            T_Model: Model instance if found
-
-        Raises:
-            HTTPException: 404 error if record not found
-
-        Example:
-            try:
-                user = User.get_or_404(1)
-                # User exists
-            except HTTPException:
-                # Handle not found case
-        """
-        record = cls.get_by_id(record_id)
-        if record is None:
-            abort(404, f"{cls.__name__} with id {record_id} not found")
-        assert record is not None, f"{cls.__name__} with id {record_id} not found"
-        return record
-
-    def __repr__(self) -> str:
-        """
-        String representation.
-
-        Provides a useful string representation of the model instance for
-        debugging and logging purposes.
-
-        Returns:
-            str: String representation in the format '<ClassName ID>'
-
-        Example:
-            user = User.get_by_id(1)
-            str(user)  # '<User 1>'
-        """
-        return f'<{self.__class__.__name__} {self.id}>'
+        column = getattr(cls, date_column)
+        return cls.query.filter(column >= start_date, column <= end_date).all()
