@@ -211,9 +211,9 @@ def security_scan() -> None:
         detect_session_anomalies,
         detect_file_access_anomalies
     )
-    
+
     click.echo("Starting security scan...")
-    
+
     try:
         with app.app_context():
             # Run various security detection functions
@@ -221,22 +221,22 @@ def security_scan() -> None:
             db_anomalies = detect_database_anomalies()
             session_anomalies = detect_session_anomalies()
             file_access_anomalies = detect_file_access_anomalies()
-            
+
             # Check for issues in each category
             issues = []
-            
+
             if login_anomalies.get('suspicious_ips'):
                 issues.append(f"Found {len(login_anomalies['suspicious_ips'])} suspicious IPs")
-                
+
             if db_anomalies.get('sensitive_tables'):
                 issues.append(f"Found {len(db_anomalies['sensitive_tables'])} sensitive table access events")
-                
+
             if session_anomalies.get('ip_changes'):
                 issues.append(f"Found {len(session_anomalies['ip_changes'])} session IP changes")
-                
+
             if file_access_anomalies.get('sensitive_files'):
                 issues.append(f"Found {len(file_access_anomalies['sensitive_files'])} sensitive file access events")
-            
+
             if issues:
                 click.echo("Security scan complete. Issues found:")
                 for issue in issues:
@@ -245,8 +245,8 @@ def security_scan() -> None:
             else:
                 click.echo("Security scan complete. No issues found.")
     except (RuntimeError, ValueError, KeyError, ImportError) as e:
-        app.logger.error("Security scan failed: %s", exc_info=e)
-        click.echo(f'Security scan failed: {e}', err=True)
+        app.logger.error("Security scan failed: %s", e, exc_info=True)
+        click.echo(f"Security scan failed: {e}", err=True)
         exit(1)
 
 if __name__ == '__main__':

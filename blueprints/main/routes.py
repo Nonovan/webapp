@@ -408,6 +408,11 @@ def check_config_integrity() -> bool:
     
     for file in config_files:
         if os.path.exists(file):
+            # Validate file path
+            if not os.path.abspath(file).startswith(os.getcwd()):
+                current_app.logger.warning(f"Invalid file path detected: {file}")
+                return False
+
             # Calculate current file hash
             with open(file, 'rb') as f:
                 file_hash = hashlib.sha256(f.read()).hexdigest()
@@ -443,6 +448,11 @@ def check_critical_file_integrity() -> bool:
     
     for file in critical_files:
         if os.path.exists(file):
+            # Validate file path
+            if not os.path.abspath(file).startswith(os.getcwd()):
+                current_app.logger.warning(f"Invalid file path detected: {file}")
+                return False
+
             # Calculate current file hash
             with open(file, 'rb') as f:
                 file_hash = hashlib.sha256(f.read()).hexdigest()
