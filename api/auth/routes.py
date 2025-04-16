@@ -16,20 +16,21 @@ Routes:
     /refresh: Refresh an existing JWT token
     /logout: Invalidate current token
 """
-
 from flask import Blueprint, request, jsonify, session, current_app
 from services.auth_service import AuthService
-
 
 def regenerate_session():
     """
     Regenerate the session ID for security purposes.
     
-    This function marks the session as modified, triggering Flask to 
-    generate a new session ID while preserving session data. This helps
-    prevent session fixation attacks.
+    This function preserves important session data while creating a new
+    session ID, effectively preventing session fixation attacks.
+    
+    Note: This is a wrapper around the core security_utils implementation
+    to maintain consistent session security across the application.
     """
-    session.modified = True
+    from core.security_utils import regenerate_session as core_regenerate_session
+    core_regenerate_session()
 
 # Create auth API blueprint - Note: Changed from auth_bp to auth_api to match imports
 auth_api = Blueprint('auth_api', __name__)

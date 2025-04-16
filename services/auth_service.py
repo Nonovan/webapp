@@ -16,7 +16,6 @@ Security features implemented:
 """
 
 import random
-import uuid
 from datetime import datetime, timedelta
 from typing import Optional, Tuple, Union
 from flask import current_app, session
@@ -163,40 +162,6 @@ class AuthService:
             
         # Clear session
         session.clear()
-    
-    @staticmethod
-    def regenerate_session() -> None:
-        """
-        Regenerate the session to prevent session fixation attacks.
-        
-        This function preserves important session data while creating a new
-        session ID, effectively preventing session fixation attacks.
-        """
-        # Save the important session values
-        saved_data = {}
-        keys_to_preserve = ['user_id', 'username', 'role', 'last_active', 'csrf_token']
-        
-        for key in keys_to_preserve:
-            if key in session:
-                saved_data[key] = session[key]
-        
-        # Clear the current session
-        session.clear()
-        
-        # Generate a new session ID
-        session['session_id'] = str(uuid.uuid4())
-        
-        # Restore the saved values
-        for key, value in saved_data.items():
-            session[key] = value
-        
-        # Generate new CSRF token
-        if hasattr(current_app, 'csrf'):
-            session['csrf_token'] = current_app.csrf.generate_csrf_token()
-            
-        # Log the event
-        user_id = saved_data.get('user_id', 'unknown')
-        current_app.logger.info(f"Session regenerated for user_id={user_id}")
     
     @staticmethod
     def validate_session() -> Tuple[bool, Optional[str]]:

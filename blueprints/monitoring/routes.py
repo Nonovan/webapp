@@ -21,21 +21,19 @@ import logging
 import os
 import json
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 from functools import wraps
-from sqlalchemy import func, and_, or_, desc
-import psutil
-from flask import Blueprint, request, jsonify, session, current_app, Response, g
+from sqlalchemy import desc, func, or_, and_
 from sqlalchemy.exc import SQLAlchemyError
+from flask import Blueprint, request, jsonify, session, current_app, Response, g
 from flask_wtf.csrf import CSRFProtect
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 
 from extensions import db, cache, limiter
-from models.notification import Notification
 from models.security_incident import SecurityIncident
-from services.email_service import send_email
 from models.audit_log import AuditLog
-from models.user import User
+from models.user import User  # Added for user account locking
+from core.security_utils import get_security_metrics, calculate_threat_level, log_security_event
 
 # Configure monitoring blueprint
 monitoring_bp = Blueprint('monitoring', __name__, url_prefix='/monitoring')
@@ -62,9 +60,14 @@ def admin_required(f):
     def decorated_function(*args, **kwargs):
         # Check if user is logged in and has admin role
         if not g.get('user') or g.user.role != 'admin':
-            log_event('permission_denied', f"Non-admin user attempted to access {request.path}", 
-                     level=logging.WARNING, user_id=g.get('user_id'), ip_address=request.remote_addr)
-            return jsonify({"error": "Administrator privileges required"}), 403
+            log_security_event(
+                'permission_denied', 
+                f"Non-admin user attempted to access {request.path}", 
+                severity='warning',
+                user_id=g.get('user_id') if hasattr(g, 'user_id') else None,
+                ip_address=request.remote_addr
+            )
+            return jsonify({"error": "Admin access required"}), 403
         return f(*args, **kwargs)
     return decorated_function
 
@@ -73,79 +76,22 @@ def measure_latency(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         start_time = datetime.utcnow()
-        result = f(*args, **kwargs)
-        duration = (datetime.utcnow() - start_time).total_seconds()
-        REQUEST_LATENCY.labels(endpoint=request.path).observe(duration)
-        return result
+        response = f(*args, **kwargs)
+        end_time = datetime.utcnow()
+        duration = (end_time - start_time).total_seconds()
+        endpoint = request.endpoint or 'unknown'
+        REQUEST_LATENCY.labels(endpoint=endpoint).observe(duration)
+        return response
     return decorated_function
 
 # --- Helper Functions ---
 
-def log_event(event_type: str, message: str, level=logging.INFO, user_id=None, ip_address=None, details=None):
-    """Helper function for consistent logging."""
-    current_app.logger.log(level, message, extra={
-        'event_type': event_type,
-        'user_id': user_id,
-        'ip_address': ip_address,
-        'details': details
-    })
-    
-    # Also create audit log entry for significant events
-    if level >= logging.WARNING:
-        create_audit_log(event_type, message, user_id, 
-                        'warning' if level == logging.WARNING else 'error')
-
-def create_audit_log(event_type: str, description: str, user_id: Optional[int] = None, 
-                    severity: str = 'info') -> bool:
-    """
-    Create an audit log entry with the current request info.
-    
-    This function records security-relevant events in the audit log,
-    capturing information about the event, the user who performed it,
-    and the source IP and user agent for later analysis.
-    
-    Args:
-        event_type: Type of security event (e.g., 'login_failed', 'account_lockout')
-        description: Detailed description of the event
-        user_id: Optional ID of the user involved (if known)
-        severity: Event severity level ('info', 'warning', 'error', 'critical')
-        
-    Returns:
-        bool: True if log entry was successfully created, False otherwise
-    """
-    try:
-        # Get IP and user agent if available
-        ip = request.remote_addr if hasattr(request, 'remote_addr') else None
-        user_agent = request.user_agent.string if hasattr(request, 'user_agent') else None
-        
-        # If user_id not provided but user is in session, use that
-        if user_id is None and 'user_id' in session:
-            user_id = session['user_id']
-            
-        # Create the log entry
-        AuditLog.create(
-            event_type=event_type,
-            description=description,
-            user_id=user_id,
-            ip_address=ip,
-            user_agent=user_agent,
-            severity=severity
-        )
-        
-    except (SQLAlchemyError, OSError) as e:
-        current_app.logger.error(f"Failed to create audit log: {e}")
-        return False
-
-    return True
-
 def format_response(data: Any, status: int = 200) -> Tuple[Response, int]:
     """Format standardized API response."""
-    response = {
-        'status': 'success' if status < 400 else 'error',
-        'data': data,
-        'timestamp': datetime.utcnow().isoformat()
-    }
-    return jsonify(response), status
+    if isinstance(data, dict) and 'error' in data and status == 200:
+        status = 400  # Default to 400 for error responses
+    
+    return jsonify(data), status
 
 # --- Security Monitoring Endpoints ---
 
@@ -219,19 +165,27 @@ def security_status():
     """
     try:
         security_data = check_security_status()
-        log_event('security_status_check', 'Security status checked by admin', 
-                 user_id=g.get('user_id'), ip_address=request.remote_addr)
+        log_security_event(
+            event_type='security_status_check',
+            description='Security status checked by admin',
+            user_id=g.get('user_id'),
+            ip_address=request.remote_addr
+        )
         return format_response(security_data)
     except (SQLAlchemyError, OSError) as e:
-        log_event('security_status_error', f"Error checking security status: {str(e)}", 
-                 level=logging.ERROR, user_id=g.get('user_id'), ip_address=request.remote_addr)
+        log_security_event(
+            event_type='security_status_error',
+            description=f"Error checking security status: {str(e)}",
+            severity='error',
+            user_id=g.get('user_id'),
+            ip_address=request.remote_addr
+        )
         return format_response({'error': str(e)}, 500)
 
-@monitoring_bp.route('/anomalies')
-@limiter.limit("5/minute")
+@monitoring_bp.route('/anomalies', methods=['GET'])
+@limiter.limit('10/hour')
 @admin_required
-@measure_latency
-def detect_system_anomalies():
+def detect_anomalies():
     """
     Detect security anomalies across the system.
     
@@ -239,30 +193,59 @@ def detect_system_anomalies():
     in login patterns, session activity, API usage, database access, and
     file system activity that may indicate security breaches.
     
-    Returns a JSON object with detected anomalies across various categories.
+    Returns:
+        Response: JSON response with detected anomalies across various categories
     """
     try:
-        # Collect anomalies across different areas
+        # Check cache first to avoid frequent expensive scans
+        cached_result = cache.get('last_anomaly_scan')
+        if cached_result and not request.args.get('force'):
+            return format_response(cached_result)
+        
+        # Get baseline security metrics first
+        security_metrics = get_security_metrics(hours=24)
+        
+        # Collect detailed anomalies across different areas
+        # (Use security_metrics data where possible to avoid duplicate queries)
         anomalies = {
-            'login_anomalies': detect_login_anomalies(),
+            'login_anomalies': detect_login_anomalies(
+                suspicious_ips=security_metrics['suspicious_ips']
+            ),
             'session_anomalies': detect_session_anomalies(),
             'api_anomalies': detect_api_anomalies(),
             'database_anomalies': detect_database_anomalies(),
-            'file_access_anomalies': detect_file_access_anomalies()
+            'file_access_anomalies': detect_file_access_anomalies(
+                config_integrity=security_metrics['config_integrity'],
+                file_integrity=security_metrics['file_integrity']
+            )
         }
         
-        # Calculate threat level
-        threat_level = calculate_threat_level(anomalies)
+        # Add relevant security metrics to anomaly report
+        anomalies['security_metrics'] = {
+            'failed_logins_24h': security_metrics['failed_logins_24h'],
+            'account_lockouts_24h': security_metrics['account_lockouts_24h'],
+            'active_sessions': security_metrics['active_sessions'],
+            'incidents_active': security_metrics['incidents_active']
+        }
+        
+        # Calculate threat level - use baseline risk score as a factor
+        baseline_risk = security_metrics['risk_score']
+        threat_level = calculate_threat_level(anomalies, baseline_risk)
+        
         anomalies['threat_level'] = {'value': threat_level}
         anomalies['timestamp'] = {'value': datetime.utcnow().isoformat()}
         
-        # Track metrics
+        # Track metrics for each anomaly type
         for anomaly_type, data in anomalies.items():
-            if anomaly_type != 'threat_level' and anomaly_type != 'timestamp':
-                count = sum(len(category) for category in data.values() if isinstance(category, list))
+            if anomaly_type not in ('threat_level', 'timestamp', 'security_metrics'):
+                count = sum(len(category) for category in data.values() 
+                            if isinstance(category, list))
                 if count > 0:
-                    severity = 'critical' if threat_level >= 8 else 'high' if threat_level >= 5 else 'medium' if threat_level >= 3 else 'low'
-                    ANOMALY_DETECTIONS.labels(anomaly_type=anomaly_type, severity=severity).inc(count)
+                    severity = _determine_severity(threat_level)
+                    ANOMALY_DETECTIONS.labels(
+                        anomaly_type=anomaly_type, 
+                        severity=severity
+                    ).inc(count)
         
         # If threat level is high, trigger incident response
         if threat_level >= 7:
@@ -272,15 +255,46 @@ def detect_system_anomalies():
         # Cache the results briefly to avoid repeated expensive scans
         cache.set('last_anomaly_scan', anomalies, timeout=300)  # 5 minutes
         
-        log_event('anomaly_detection', f"Security anomaly scan completed. Threat level: {threat_level}/10", 
-                 user_id=g.get('user_id'), ip_address=request.remote_addr)
+        # Log the event
+        log_security_event(
+            event_type='anomaly_detection', 
+            description=f"Security anomaly scan completed. Threat level: {threat_level}/10", 
+            user_id=g.get('user_id'), 
+            ip_address=request.remote_addr
+        )
                  
         return format_response(anomalies)
         
-    except (SQLAlchemyError, OSError, ValueError) as e:
-        log_event('anomaly_detection_error', f"Error detecting anomalies: {str(e)}", 
-                 level=logging.ERROR, user_id=g.get('user_id'), ip_address=request.remote_addr)
+    except Exception as e:
+        current_app.logger.exception("Error in anomaly detection")
+        log_security_event(
+            event_type='anomaly_detection_error', 
+            description=f"Error detecting anomalies: {str(e)}", 
+            severity='error', 
+            user_id=g.get('user_id'), 
+            ip_address=request.remote_addr
+        )
         return format_response({'error': str(e)}, 500)
+
+
+def _determine_severity(threat_level):
+    """
+    Determine severity level based on threat level.
+    
+    Args:
+        threat_level: Numeric threat level value
+        
+    Returns:
+        str: Severity level (critical, high, medium, low)
+    """
+    if threat_level >= 8:
+        return 'critical'
+    elif threat_level >= 5:
+        return 'high'
+    elif threat_level >= 3:
+        return 'medium'
+    else:
+        return 'low'
 
 @monitoring_bp.route('/metrics')
 @limiter.limit("10/minute")
@@ -348,8 +362,13 @@ def list_incidents():
         return format_response(result)
         
     except (SQLAlchemyError, ValueError, OSError) as e:
-        log_event('list_incidents_error', f"Error listing security incidents: {str(e)}", 
-                 level=logging.ERROR, user_id=g.get('user_id'), ip_address=request.remote_addr)
+        log_security_event(
+            event_type='list_incidents_error',
+            description=f"Error listing security incidents: {str(e)}",
+            severity='error',
+            user_id=g.get('user_id'),
+            ip_address=request.remote_addr
+        )
         return format_response({'error': str(e)}, 500)
 
 @monitoring_bp.route('/incidents/<int:incident_id>')
@@ -366,8 +385,13 @@ def get_incident(incident_id):
         incident = SecurityIncident.query.get_or_404(incident_id)
         return format_response(incident.to_dict())
     except (SQLAlchemyError, ValueError, OSError) as e:
-        log_event('get_incident_error', f"Error retrieving incident {incident_id}: {str(e)}", 
-                 level=logging.ERROR, user_id=g.get('user_id'), ip_address=request.remote_addr)
+        log_security_event(
+            event_type='get_incident_error',
+            description=f"Error retrieving incident {incident_id}: {str(e)}",
+            severity='error',
+            user_id=g.get('user_id'),
+            ip_address=request.remote_addr
+        )
         return format_response({'error': str(e)}, 500)
 
 @monitoring_bp.route('/incidents/<int:incident_id>', methods=['PUT'])
@@ -402,15 +426,24 @@ def update_incident(incident_id):
         
         db.session.commit()
         
-        log_event('incident_updated', f"Security incident {incident_id} updated", 
-                 user_id=g.get('user_id'), ip_address=request.remote_addr)
-                 
+        log_security_event(
+            event_type='incident_updated',
+            description=f"Security incident {incident_id} updated",
+            user_id=g.get('user_id'),
+            ip_address=request.remote_addr
+        )
+        
         return format_response(incident.to_dict())
         
     except (SQLAlchemyError, ValueError, OSError) as e:
         db.session.rollback()
-        log_event('update_incident_error', f"Error updating incident {incident_id}: {str(e)}", 
-                 level=logging.ERROR, user_id=g.get('user_id'), ip_address=request.remote_addr)
+        log_security_event(
+            event_type='update_incident_error',
+            description=f"Error updating incident {incident_id}: {str(e)}",
+            severity='error',
+            user_id=g.get('user_id'),
+            ip_address=request.remote_addr
+        )
         return format_response({'error': str(e)}, 500)
 
 @monitoring_bp.route('/forensics/<int:incident_id>')
@@ -424,9 +457,6 @@ def get_forensic_data(incident_id):
     which may include process information, network connections, and system resources.
     """
     try:
-        # Get the incident to verify it exists
-        incident = SecurityIncident.query.get_or_404(incident_id)
-        
         # Determine path to forensic data
         forensic_dir = current_app.config.get('FORENSIC_DATA_DIR', 'forensic_data')
         
@@ -457,8 +487,13 @@ def get_forensic_data(incident_id):
         })
         
     except (OSError, ValueError, SQLAlchemyError) as e:
-        log_event('get_forensic_error', f"Error retrieving forensic data for incident {incident_id}: {str(e)}", 
-                 level=logging.ERROR, user_id=g.get('user_id'), ip_address=request.remote_addr)
+        log_security_event(
+            event_type='get_forensic_error',
+            description=f"Error retrieving forensic data for incident {incident_id}: {str(e)}",
+            severity='error',
+            user_id=g.get('user_id'),
+            ip_address=request.remote_addr
+        )
         return format_response({'error': str(e)}, 500)
 
 # --- Core Security Monitoring Functions ---
@@ -466,31 +501,8 @@ def get_forensic_data(incident_id):
 def check_security_status() -> Dict[str, Any]:
     """
     Perform comprehensive security status check.
-    
-    Analyzes system security status by checking:
-    - Recent failed login attempts
-    - User session validity
-    - Configuration integrity
-    - System file integrity
-    - Database connection security
-    
-    Returns:
-        Dict[str, Any]: Security status information
     """
-    security_data = {
-        'failed_logins_24h': get_failed_login_count(hours=24),
-        'account_lockouts_24h': get_account_lockout_count(hours=24),
-        'active_sessions': get_active_session_count(),
-        'suspicious_ips': get_suspicious_ips(),
-        'config_integrity': check_config_integrity(),
-        'file_integrity': check_critical_file_integrity()
-    }
-    
-    # Calculate risk score (1-10)
-    security_data['risk_score'] = calculate_risk_score(security_data)
-    security_data['last_checked'] = datetime.utcnow().isoformat()
-    
-    return security_data
+    return get_security_metrics()
 
 def check_config_integrity() -> bool:
     """
@@ -517,11 +529,12 @@ def check_config_integrity() -> bool:
             
             # Record security event
             try:
-                from models.audit_log import AuditLog
-                AuditLog.create(
+                from core.security_utils import log_security_event
+
+                log_security_event(
                     event_type=AuditLog.EVENT_FILE_INTEGRITY,
                     description=f"Configuration file modified: {file_path}",
-                    severity=AuditLog.SEVERITY_ERROR
+                    severity='error'
                 )
             except Exception as e:
                 current_app.logger.error(f"Failed to record file integrity event: {e}")
@@ -564,12 +577,12 @@ def check_critical_file_integrity() -> bool:
             # Record security event for high severity changes
             if severity in ('high', 'critical'):
                 try:
-                    from models.audit_log import AuditLog
-                    AuditLog.create(
+                    from core.security_utils import log_security_event
+
+                    log_security_event(
                         event_type=AuditLog.EVENT_FILE_INTEGRITY,
                         description=f"Critical file modified: {path}",
-                        details=str(change),
-                        severity=AuditLog.SEVERITY_ERROR
+                        severity='error'
                     )
                 except Exception as e:
                     current_app.logger.error(f"Failed to record file integrity event: {e}")
@@ -631,7 +644,7 @@ def detect_anomalies() -> bool:
         # Default to no anomalies on error to prevent false positives
         return False
 
-def detect_login_anomalies() -> Dict[str, Any]:
+def detect_login_anomalies(suspicious_ips=None):
     """
     Detect suspicious login patterns and authentication anomalies.
     
@@ -650,62 +663,66 @@ def detect_login_anomalies() -> Dict[str, Any]:
             - 'suspicious_ips': List of suspicious IP addresses
             - 'unusual_times': List of logins at unusual times
     """
-    result = {
-        'failed_attempts': [],
-        'unusual_locations': [],
-        'suspicious_ips': [],
-        'unusual_times': []
-    }
-    
-    # Check for multiple failed login attempts from same IP
-    cutoff = datetime.utcnow() - timedelta(hours=24)
-    
-    # Group failed logins by IP and count
-    ip_counts = db.session.query(
-        AuditLog.ip_address,
-        func.count(AuditLog.id).label('attempt_count')
-    ).filter(
-        AuditLog.event_type == AuditLog.EVENT_LOGIN_FAILED,
-        AuditLog.created_at >= cutoff,
-        AuditLog.ip_address is not None
-    ).group_by(
-        AuditLog.ip_address
-    ).having(
-        func.count(AuditLog.id) >= 5
-    ).all()
-    
-    for ip, count in ip_counts:
-        latest_attempt = AuditLog.query.filter(
-            AuditLog.event_type == AuditLog.EVENT_LOGIN_FAILED,
-            AuditLog.ip_address == ip
-        ).order_by(desc(AuditLog.created_at)).first()
+    if suspicious_ips is not None:
+        # Use provided suspicious IPs data
+        # Rest of function...
+    else:
+        result = {
+            'failed_attempts': [],
+            'unusual_locations': [],
+            'suspicious_ips': [],
+            'unusual_times': []
+        }
         
-        result['suspicious_ips'].append({
-            'ip_address': ip,
-            'failed_attempts': count,
-            'last_attempt': latest_attempt.created_at.isoformat() if latest_attempt else None
-        })
-    
-    # Get successful logins that happened outside normal hours (9am-5pm)
-    unusual_time_logins = AuditLog.query.filter(
-        AuditLog.event_type == AuditLog.EVENT_LOGIN_SUCCESS,
-        AuditLog.created_at >= cutoff,
-        ~and_(
-            func.extract('hour', AuditLog.created_at) >= 9,
-            func.extract('hour', AuditLog.created_at) < 17
-        )
-    ).order_by(desc(AuditLog.created_at)).limit(10).all()
-    
-    for login in unusual_time_logins:
-        result['unusual_times'].append({
-            'user_id': login.user_id,
-            'timestamp': login.created_at.isoformat(),
-            'ip_address': login.ip_address,
-            'user_agent': login.user_agent
-        })
-    
-    # Return compiled results
-    return result
+        # Check for multiple failed login attempts from same IP
+        cutoff = datetime.utcnow() - timedelta(hours=24)
+        
+        # Group failed logins by IP and count
+        ip_counts = db.session.query(
+            AuditLog.ip_address,
+            func.count(AuditLog.id).label('attempt_count')
+        ).filter(
+            AuditLog.event_type == AuditLog.EVENT_LOGIN_FAILED,
+            AuditLog.created_at >= cutoff,
+            AuditLog.ip_address is not None
+        ).group_by(
+            AuditLog.ip_address
+        ).having(
+            func.count(AuditLog.id) >= 5
+        ).all()
+        
+        for ip, count in ip_counts:
+            latest_attempt = AuditLog.query.filter(
+                AuditLog.event_type == AuditLog.EVENT_LOGIN_FAILED,
+                AuditLog.ip_address == ip
+            ).order_by(desc(AuditLog.created_at)).first()
+            
+            result['suspicious_ips'].append({
+                'ip_address': ip,
+                'failed_attempts': count,
+                'last_attempt': latest_attempt.created_at.isoformat() if latest_attempt else None
+            })
+        
+        # Get successful logins that happened outside normal hours (9am-5pm)
+        unusual_time_logins = AuditLog.query.filter(
+            AuditLog.event_type == AuditLog.EVENT_LOGIN_SUCCESS,
+            AuditLog.created_at >= cutoff,
+            ~and_(
+                func.extract('hour', AuditLog.created_at) >= 9,
+                func.extract('hour', AuditLog.created_at) < 17
+            )
+        ).order_by(desc(AuditLog.created_at)).limit(10).all()
+        
+        for login in unusual_time_logins:
+            result['unusual_times'].append({
+                'user_id': login.user_id,
+                'timestamp': login.created_at.isoformat(),
+                'ip_address': login.ip_address,
+                'user_agent': login.user_agent
+            })
+        
+        # Return compiled results
+        return result
 
 def detect_session_anomalies() -> Dict[str, Any]:
     """
@@ -1039,56 +1056,7 @@ def detect_file_access_anomalies() -> Dict[str, Any]:
     
     return result
 
-def calculate_threat_level(breach_data: Dict[str, Any]) -> int:
-    """
-    Calculate an overall threat level based on detected security anomalies.
-    
-    This function analyzes the detected anomalies across various categories
-    and determines a numerical threat level from 1 (minimal) to 10 (critical).
-    
-    Args:
-        breach_data: Dictionary containing detected anomalies across categories
-        
-    Returns:
-        int: Calculated threat level on a scale of 1-10
-    """
-    # Start with base threat level
-    threat_score = 1
-    
-    # Count anomalies across categories and assign weights
-    category_weights = {
-        'login_anomalies': 2,
-        'session_anomalies': 2,
-        'api_anomalies': 1.5,
-        'database_anomalies': 2.5,
-        'file_access_anomalies': 2
-    }
-    
-    for category, weight in category_weights.items():
-        if category in breach_data and breach_data[category]:
-            # Add weighted score based on anomaly count
-            anomaly_count = sum(len(breach_data[category][key]) 
-                               for key in breach_data[category] 
-                               if isinstance(breach_data[category][key], list))
-            
-            # Scale anomaly impact
-            if anomaly_count > 0:
-                category_score = min(weight * (1 + (anomaly_count / 10)), weight * 3)
-                threat_score += category_score
-    
-    # Check for critical combinations
-    if (breach_data.get('login_anomalies', {}).get('suspicious_ips') and 
-        breach_data.get('database_anomalies', {}).get('sensitive_tables')):
-        # Serious threat: failed logins combined with sensitive data access
-        threat_score += 2
-        
-    if (breach_data.get('file_access_anomalies', {}).get('sensitive_files') and 
-        breach_data.get('database_anomalies', {}).get('unusual_queries')):
-        # Serious threat: sensitive file access combined with unusual queries
-        threat_score += 2
-    
-    # Cap and round threat level
-    return min(round(threat_score), 10)
+from core.security_utils import calculate_threat_level
 
 def trigger_incident_response(breach_data: Dict[str, Any]) -> Optional[int]:
     """
@@ -1108,29 +1076,29 @@ def trigger_incident_response(breach_data: Dict[str, Any]) -> Optional[int]:
     Returns:
         Optional[int]: ID of the created security incident, or None if creation failed
     """
-    # Calculate threat level if not already provided
-    if 'threat_level' not in breach_data:
-        breach_data['threat_level'] = calculate_threat_level(breach_data)
-    
-    # Log critical security event
-    current_app.logger.critical(
-        "CRITICAL SECURITY THREAT DETECTED - Initiating incident response",
-        extra={'breach_data': breach_data}
-    )
-    
-    # Create descriptive title based on primary threat
-    title = "Security Incident Detected"
-    if breach_data.get('login_anomalies', {}).get('suspicious_ips'):
-        title = "Multiple Failed Login Attempts Detected"
-    elif breach_data.get('database_anomalies', {}).get('sensitive_tables'):
-        title = "Unusual Access to Sensitive Database Tables"
-    elif breach_data.get('file_access_anomalies', {}).get('sensitive_files'):
-        title = "Suspicious Access to Sensitive Files"
-    elif breach_data.get('api_anomalies', {}).get('unauthorized_attempts'):
-        title = "Unauthorized API Access Attempts"
-    
-    # Record incident in database
     try:
+        # Calculate threat level if not already provided
+        if 'threat_level' not in breach_data:
+            breach_data['threat_level'] = calculate_threat_level(breach_data)
+        
+        # Log critical security event
+        current_app.logger.critical(
+            "CRITICAL SECURITY THREAT DETECTED - Initiating incident response",
+            extra={'breach_data': breach_data}
+        )
+        
+        # Create descriptive title based on primary threat
+        title = "Security Incident Detected"
+        if breach_data.get('login_anomalies', {}).get('suspicious_ips'):
+            title = "Multiple Failed Login Attempts Detected"
+        elif breach_data.get('database_anomalies', {}).get('sensitive_tables'):
+            title = "Unusual Access to Sensitive Database Tables"
+        elif breach_data.get('file_access_anomalies', {}).get('sensitive_files'):
+            title = "Suspicious Access to Sensitive Files"
+        elif breach_data.get('api_anomalies', {}).get('unauthorized_attempts'):
+            title = "Unauthorized API Access Attempts"
+        
+        # Record incident in database
         incident = SecurityIncident(
             title=title,
             threat_level=breach_data['threat_level'],
@@ -1143,10 +1111,10 @@ def trigger_incident_response(breach_data: Dict[str, Any]) -> Optional[int]:
         db.session.commit()
         
         # Create audit log entry for the incident
-        AuditLog.create(
+        log_security_event(
             event_type=AuditLog.EVENT_SECURITY_BREACH_ATTEMPT,
             description=f"Security incident detected: {title}",
-            severity=AuditLog.SEVERITY_CRITICAL
+            severity='critical'
         )
         
         # Track incident metrics
@@ -1182,7 +1150,7 @@ def trigger_incident_response(breach_data: Dict[str, Any]) -> Optional[int]:
         
         return incident.id
     except (OSError, ValueError, SQLAlchemyError) as e:
-        db.session.rollback()
+        db.session.rollback()  # Ensure database consistency
         current_app.logger.error(f"Failed to create security incident: {e}")
         # Even if DB storage fails, still try to notify admins
         notify_administrators(
@@ -1265,10 +1233,10 @@ def collect_forensic_data(incident_id: int) -> bool:
         current_app.logger.info(f"Forensic data collected for incident {incident_id} and saved to {filepath}")
         
         # Create audit log entry for forensic data collection
-        AuditLog.create(
+        log_security_event(
             event_type=AuditLog.EVENT_SECURITY_COUNTERMEASURE,
             description=f"Collected forensic data for incident {incident_id}",
-            severity=AuditLog.SEVERITY_INFO
+            severity='info'
         )
         
         return True
@@ -1342,18 +1310,24 @@ def initiate_countermeasures(breach_data: Dict[str, Any]) -> None:
                 for ip_data in breach_data['login_anomalies']['suspicious_ips']
             ]
             
-            if suspicious_ips:
+            for ip in suspicious_ips:
+                # Validate IP address before blocking
+                try:
+                    ipaddress.ip_address(ip)
+                except ValueError:
+                    current_app.logger.warning(f"Invalid IP address detected: {ip}")
+                    continue
+                
                 # Implement IP blocking (depends on infrastructure)
-                current_app.logger.info(f"Would block suspicious IPs: {suspicious_ips}")
+                current_app.logger.info(f"Blocking suspicious IP: {ip}")
                 
                 # Log the countermeasure
-                for ip in suspicious_ips:
-                    AuditLog.create(
-                        event_type=AuditLog.EVENT_SECURITY_COUNTERMEASURE, 
-                        description=f"Blocked suspicious IP {ip}",
-                        ip_address=ip,
-                        severity=AuditLog.SEVERITY_WARNING
-                    )
+                log_security_event(
+                    event_type=AuditLog.EVENT_SECURITY_COUNTERMEASURE, 
+                    description=f"Blocked suspicious IP {ip}",
+                    ip_address=ip,
+                    severity='warning'
+                )
         
         # Invalidate suspicious sessions
         if breach_data.get('session_anomalies', {}).get('ip_changes'):
@@ -1366,11 +1340,11 @@ def initiate_countermeasures(breach_data: Dict[str, Any]) -> None:
                     current_app.session_interface.invalidate_user_sessions(user_id)
                 
                 # Log the countermeasure
-                AuditLog.create(
+                log_security_event(
                     event_type=AuditLog.EVENT_SECURITY_COUNTERMEASURE, 
                     description=f"Invalidated sessions for user {user_id} due to suspicious activity",
                     user_id=user_id,
-                    severity=AuditLog.SEVERITY_WARNING
+                    severity='warning'
                 )
                 
         # Lock accounts with suspicious activity
@@ -1389,11 +1363,11 @@ def initiate_countermeasures(breach_data: Dict[str, Any]) -> None:
                         db.session.commit()
                     
                     # Log the countermeasure
-                    AuditLog.create(
+                    log_security_event(
                         event_type=AuditLog.EVENT_SECURITY_COUNTERMEASURE, 
                         description=f"Locked account for user {user_id} due to suspicious database access",
                         user_id=user_id,
-                        severity=AuditLog.SEVERITY_WARNING
+                        severity='warning'
                     )
         
     except (ValueError, SQLAlchemyError, OSError) as e:

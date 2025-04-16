@@ -232,108 +232,27 @@ Examples:
     ```
 """
 
-# Token blacklist and redis client
-class RedisClientManager:
-    """
-    Manages the Redis client instance.
-    
-    This class provides a centralized way to manage the application's Redis client,
-    using a class-level singleton pattern to ensure there's only one client
-    instance throughout the application's lifecycle.
-    
-    The Redis client is used for:
-    - Token blacklisting in JWT authentication
-    - Distributed rate limiting
-    - Session storage
-    - Cache backends
-    """
-    _redis_client = None
+# Private module-level variable
+_redis_client = None
 
-    @classmethod
-    def get_client(cls):
-        """
-        Retrieve the Redis client instance.
-        
-        Returns:
-            Redis client instance or None if not initialized
-            
-        Example:
-            ```
-            client = RedisClientManager.get_client()
-            if client:
-                client.set("key", "value")
-            ```
-        """
-        return cls._redis_client
-
-    @classmethod
-    def set_client(cls, client):
-        """
-        Set the Redis client instance.
-        
-        This method should be called during application initialization
-        to configure the shared Redis client.
-        
-        Args:
-            client: Redis client instance
-            
-        Example:
-            ```
-            redis_client = redis.from_url(app.config['REDIS_URL'])
-            RedisClientManager.set_client(redis_client)
-            ```
-        """
-        cls._redis_client = client
-
-# Update references to use RedisClientManager
 def get_redis_client():
     """
-    Retrieve the application's Redis client.
-    
-    This function provides a convenient way to access the shared Redis client
-    from anywhere in the application without directly accessing the
-    RedisClientManager class.
+    Get the application's Redis client instance.
     
     Returns:
-        Redis client instance or None if not initialized
-        
-    Example:
-        ```python
-        from extensions import get_redis_client
-        
-        def blacklist_token(token_jti, expires_in):
-            client = get_redis_client()
-            if client:
-                client.setex(f"blacklist:{token_jti}", expires_in, "1")
-        ```
+        Redis client or None if not initialized
     """
-    return RedisClientManager.get_client()
+    return _redis_client
 
 def set_redis_client(client):
     """
-    Set the application's shared Redis client.
-    
-    This function provides a convenient way to configure the shared Redis client
-    without directly accessing the RedisClientManager class.
+    Set the application's Redis client instance.
     
     Args:
-        client: Redis client instance to be used throughout the application
-        
-    Example:
-        ```python
-        from extensions import set_redis_client
-        import redis
-        
-        def configure_redis(app):
-            if app.config.get('REDIS_URL'):
-                client = redis.from_url(
-                    app.config['REDIS_URL'],
-                    decode_responses=True
-                )
-                set_redis_client(client)
-        ```
+        client: Redis client instance
     """
-    RedisClientManager.set_client(client)
+    global _redis_client
+    _redis_client = client
 
 # Initialize metrics counters
 request_counter = metrics.counter(
@@ -422,11 +341,11 @@ def init_extensions(app):
         cache.init_app(app, config=cache_config)
         
         # Initialize Redis client
-        redis_client_instance = redis.from_url(
+        client = redis.from_url(
             app.config['REDIS_URL'],
             decode_responses=True  # Store as strings not bytes
         )
-        set_redis_client(redis_client_instance)
+        set_redis_client(client)
     else:
         # Fallback to simple memory cache
         app.logger.warning("Redis URL not configured, using in-memory cache")

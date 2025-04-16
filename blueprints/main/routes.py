@@ -17,13 +17,15 @@ The routes are organized by functional area and include both page rendering
 for browser clients and API endpoints for AJAX and mobile integration.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Union, Dict, Any, List
 from flask import render_template, current_app, request, abort, jsonify, g
 from jinja2 import TemplateNotFound
 from auth.utils import login_required, require_role
 from monitoring.metrics import SystemMetrics, DatabaseMetrics, EnvironmentalData
 from extensions import limiter, cache, metrics, db
+from core.security_utils import get_security_metrics, check_config_integrity, calculate_risk_score
+
 from . import main_bp
 
 @main_bp.before_request
@@ -264,7 +266,7 @@ def environmental_data() -> Union[str, tuple]:
         start_time = datetime.utcnow()
 
         data = db.session.query(EnvironmentalData) \
-            .order_by(EnvironmentalData.timestamp.desc()) \
+            .order_by(EnvironmentalData.created_at.desc()) \
             .first()
 
         # Track request
@@ -313,187 +315,34 @@ def check_security_status() -> Dict[str, Any]:
     """
     Perform comprehensive security status check.
     
-    Analyzes system security status by checking:
-    - Recent failed login attempts
-    - User session validity
-    - Configuration integrity
-    - System file integrity
-    - Database connection security
-    
     Returns:
         Dict[str, Any]: Security status information
     """
-    security_data = {
-        'failed_logins_24h': get_failed_login_count(hours=24),
-        'account_lockouts_24h': get_account_lockout_count(hours=24),
-        'active_sessions': get_active_session_count(),
-        'suspicious_ips': get_suspicious_ips(),
-        'config_integrity': check_config_integrity(),
-        'file_integrity': check_critical_file_integrity()
-    }
-    
-    # Calculate risk score (1-10)
-    security_data['risk_score'] = calculate_risk_score(security_data)
-    security_data['last_checked'] = datetime.utcnow().isoformat()
-    
-    return security_data
+    return get_security_metrics()
 
-def get_failed_login_count(hours: int = 24) -> int:
-    """Get count of failed logins in the past hours."""
-    from models.audit_log import AuditLog
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
-    return AuditLog.query.filter(
-        AuditLog.event_type == 'login_failed',
-        AuditLog.created_at >= cutoff
-    ).count()
-
-def get_account_lockout_count(hours: int = 24) -> int:
-    """Get count of account lockouts in the past hours."""
-    from models.audit_log import AuditLog
-    cutoff = datetime.utcnow() - timedelta(hours=hours)
-    return AuditLog.query.filter(
-        AuditLog.event_type == 'account_lockout',
-        AuditLog.created_at >= cutoff
-    ).count()
-
-def get_active_session_count() -> int:
-    """Get count of active user sessions."""
-    # This would depend on how you're storing sessions
-    # If using Redis or database-backed sessions:
-    if cache.config['CACHE_TYPE'] == 'redis':
-        return len(cache.get('active_sessions') or [])
-    else:
-        # Placeholder for other session storage mechanisms
-        return 0
-
-def get_suspicious_ips() -> List[Dict[str, Any]]:
-    """Get list of suspicious IPs with their activity counts."""
-    from models.audit_log import AuditLog
-    from sqlalchemy import func
-    cutoff = datetime.utcnow() - timedelta(hours=24)
-    
-    # Subquery to count failed login attempts by IP
-    failed_login_counts = db.session.query(
-        AuditLog.ip_address,
-        func.count(AuditLog.id).label('count')
-    ).filter(
-        AuditLog.event_type == 'login_failed',
-        AuditLog.created_at >= cutoff,
-        AuditLog.ip_address != None
-    ).group_by(AuditLog.ip_address).subquery()
-    
-    # Get IPs with more than 5 failed attempts
-    suspicious = db.session.query(
-        failed_login_counts.c.ip_address,
-        failed_login_counts.c.count
-    ).filter(failed_login_counts.c.count > 5).all()
-    
-    return [{'ip': ip, 'count': count} for ip, count in suspicious]
-
-def check_config_integrity() -> bool:
-    """
-    Verify integrity of critical configuration files.
-    
-    Returns:
-        bool: True if all configuration files are unmodified, False otherwise
-    """
-    import os
-    import hashlib
-    
-    # Get expected hashes from application configuration
-    expected_hashes = current_app.config.get('CONFIG_FILE_HASHES', {})
-    
-    # Check critical configuration files
-    config_files = ['config.py', '.env', 'app.py']
-    
-    for file in config_files:
-        if os.path.exists(file):
-            # Calculate current file hash
-            with open(file, 'rb') as f:
-                file_hash = hashlib.sha256(f.read()).hexdigest()
-                
-            # Compare with expected hash if available
-            if file in expected_hashes and file_hash != expected_hashes[file]:
-                current_app.logger.warning(f"Configuration file modified: {file}")
-                return False
-    
-    return True
+import warnings
 
 def check_critical_file_integrity() -> bool:
     """
-    Verify integrity of critical application files.
-    
-    Returns:
-        bool: True if all critical files are unmodified, False otherwise
+    DEPRECATED: Use core.security_utils.check_critical_file_integrity instead
     """
-    import os
-    import hashlib
-    
-    # Get expected hashes from application configuration
-    expected_hashes = current_app.config.get('CRITICAL_FILE_HASHES', {})
-    
-    # Check critical files
-    critical_files = [
-        'app.py',
-        'wsgi.py',
-        'core/security.py',
-        'core/auth.py',
-        'extensions.py'
-    ]
-    
-    for file in critical_files:
-        if os.path.exists(file):
-            # Calculate current file hash
-            with open(file, 'rb') as f:
-                file_hash = hashlib.sha256(f.read()).hexdigest()
-                
-            # Compare with expected hash if available
-            if file in expected_hashes and file_hash != expected_hashes[file]:
-                current_app.logger.warning(f"Critical file modified: {file}")
-                return False
-    
-    return True
+    warnings.warn(
+        "This function is deprecated. Use core.security_utils.check_critical_file_integrity instead",
+        DeprecationWarning, 
+        stacklevel=2
+    )
+    return check_critical_file_integrity()
 
 def calculate_risk_score(security_data: Dict[str, Any]) -> int:
     """
-    Calculate security risk score based on collected security data.
-    
-    Args:
-        security_data: Dictionary containing security metrics
-        
-    Returns:
-        int: Risk score on a scale of 1-10
+    DEPRECATED: Use core.security_utils.calculate_risk_score instead
     """
-    score = 1  # Start with minimum risk
-    
-    # Check failed logins
-    if security_data['failed_logins_24h'] > 100:
-        score += 3
-    elif security_data['failed_logins_24h'] > 50:
-        score += 2
-    elif security_data['failed_logins_24h'] > 20:
-        score += 1
-    
-    # Check account lockouts
-    if security_data['account_lockouts_24h'] > 5:
-        score += 2
-    elif security_data['account_lockouts_24h'] > 0:
-        score += 1
-    
-    # Check suspicious IPs
-    if len(security_data['suspicious_ips']) > 10:
-        score += 3
-    elif len(security_data['suspicious_ips']) > 0:
-        score += 1
-    
-    # Check file integrity
-    if not security_data['config_integrity']:
-        score += 3
-    
-    if not security_data['file_integrity']:
-        score += 2
-    
-    return min(score, 10)  # Cap at maximum risk of 10
+    warnings.warn(
+        "This function is deprecated. Use core.security_utils.calculate_risk_score instead",
+        DeprecationWarning, 
+        stacklevel=2
+    )
+    return calculate_risk_score(security_data)
 
 def get_recent_security_events(limit: int = 5) -> List[Dict[str, Any]]:
     """

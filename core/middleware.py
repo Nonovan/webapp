@@ -21,6 +21,7 @@ from datetime import datetime
 import gzip
 import uuid
 from flask import g, request, current_app, abort
+from core.security_utils import log_security_event
 
 def setup_security_headers(response):
     """
@@ -161,7 +162,7 @@ def setup_response_context(response):
             from models.audit_log import AuditLog
             # Record server errors in audit log
             try:
-                AuditLog.create(
+                log_security_event(
                     event_type='server_error',
                     description=f"Server error {response.status_code} on {request.method} {request.path}",
                     user_id=g.get('user_id'),
@@ -197,7 +198,7 @@ def setup_response_context(response):
                 from models.audit_log import AuditLog
                 if response.status_code == 401:
                     # Unauthorized access attempts
-                    AuditLog.create(
+                    log_security_event(
                         event_type=AuditLog.EVENT_PERMISSION_DENIED,
                         description=f"Unauthorized access attempt to {request.path}",
                         user_id=g.get('user_id'),
@@ -206,7 +207,7 @@ def setup_response_context(response):
                     )
                 elif response.status_code == 403:
                     # Forbidden access attempts
-                    AuditLog.create(
+                    log_security_event(
                         event_type=AuditLog.EVENT_PERMISSION_DENIED,
                         description=f"Forbidden access attempt to {request.path}",
                         user_id=g.get('user_id'),
@@ -215,7 +216,7 @@ def setup_response_context(response):
                     )
                 elif response.status_code == 429:
                     # Rate limit exceeded
-                    AuditLog.create(
+                    log_security_event(
                         event_type='rate_limit_exceeded',
                         description=f"Rate limit exceeded for {request.path}",
                         user_id=g.get('user_id'),

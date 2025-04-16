@@ -28,6 +28,7 @@ from typing import Dict, Any, List, Optional
 from flask import current_app
 import psutil
 from models.audit_log import AuditLog
+from core.security_utils import log_security_event
 
 
 def generate_sri_hash(file_path: str) -> str:
@@ -93,31 +94,6 @@ def calculate_file_hash(file_path: str, algorithm: str = 'sha256') -> str:
             hash_func.update(chunk)
             
     return hash_func.hexdigest()
-
-
-def check_file_integrity(file_path: str, expected_hash: str, 
-                         algorithm: str = 'sha256') -> bool:
-    """
-    Verify file integrity by comparing its hash with an expected value.
-    
-    Args:
-        file_path: Path to the file
-        expected_hash: Expected hash value
-        algorithm: Hash algorithm to use (default: sha256)
-        
-    Returns:
-        bool: True if the file hash matches the expected hash, False otherwise
-        
-    Example:
-        is_valid = check_file_integrity('config.py', '1234...', 'sha256')
-    """
-    try:
-        actual_hash = calculate_file_hash(file_path, algorithm)
-        return actual_hash == expected_hash
-    except (FileNotFoundError, IOError, ValueError) as e:
-        current_app.logger.error(f"File integrity check failed: {e}")
-        return False
-
 
 def get_critical_file_hashes(files: List[str], 
                              algorithm: str = 'sha256') -> Dict[str, str]:
@@ -225,60 +201,6 @@ def safe_json_serialize(obj: Any) -> Any:
     else:
         # Let the JSON serializer handle the type error
         return str(obj)
-
-def log_event(event_type: str, description: str, level: Optional[int] = None, 
-             user_id: Optional[int] = None, ip_address: Optional[str] = None,
-             severity: str = 'info') -> bool:
-    """
-    Log an event with appropriate context to the application logger.
-    
-    This is a simplified wrapper around logging and audit log creation.
-    
-    Args:
-        event_type: Type of event (e.g., 'login_failed')
-        description: Human-readable description of the event
-        level: Log level (from logging module)
-        user_id: ID of the user associated with the event
-        ip_address: Source IP address
-        severity: Event severity ('info', 'warning', 'error', 'critical')
-        
-    Returns:
-        bool: True if event was successfully logged
-    """
-    
-    # Set default log level based on severity if not provided
-    if level is None:
-        level_map = {
-            'info': logging.INFO,
-            'warning': logging.WARNING, 
-            'error': logging.ERROR,
-            'critical': logging.CRITICAL
-        }
-        level = level_map.get(severity, logging.INFO)
-    
-    # Log to application logger
-    extra = {
-        'event_type': event_type,
-        'user_id': user_id,
-        'ip_address': ip_address
-    }
-    
-    current_app.logger.log(level, description, extra=extra)
-    
-    # Create audit log entry
-    try:
-        AuditLog.create(
-            event_type=event_type, 
-            description=description,
-            user_id=user_id,
-            ip_address=ip_address,
-            severity=severity
-        )
-        return True
-    except (psutil.Error, OSError, ValueError) as e:
-        current_app.logger.error(f"Failed to create audit log: {e}")
-        return False
-
 
 def get_system_resources() -> Dict[str, Any]:
     """
@@ -591,7 +513,7 @@ def log_file_integrity_event(changes: List[Dict[str, Any]]) -> None:
         
         # Create audit log entry
         try:
-            AuditLog.create(
+            log_security_event(
                 event_type=AuditLog.EVENT_FILE_INTEGRITY,
                 description=f"File integrity violation: {path} ({status})",
                  severity=severity

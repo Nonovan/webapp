@@ -29,7 +29,7 @@ from core.factory import create_app
 from extensions import db
 from models.audit_log import AuditLog
 from core.seeder import seed_database, seed_development_data
-from core.utils import log_event
+from core.utils import log_event, log_security_event
 
 # Security constants
 REQUIRED_ENV_VARS = [
@@ -96,11 +96,13 @@ def validate_session():
             last_active = datetime.fromisoformat(session['last_active'])
             if datetime.utcnow() - last_active > timedelta(minutes=30):
                 # Log session timeout
-                log_event('session_timeout', 
-                         f"Session timed out for user {session['user_id']}", 
-                         user_id=session.get('user_id'),
-                         ip_address=request.remote_addr,
-                         severity='info')
+                log_security_event(
+                    event_type='session_timeout',
+                    description=f"Session timed out for user {session['user_id']}",
+                    severity='info',
+                    user_id=session.get('user_id'),
+                    ip_address=request.remote_addr,
+                )
                 
                 # Session expired
                 session.clear()
@@ -110,19 +112,21 @@ def validate_session():
         # Check for IP address change
         if 'ip_address' in session and session['ip_address'] != request.remote_addr:
             # Potential session hijacking
-            log_event('session_ip_change', 
-                     f"IP address changed during session: {session['ip_address']} -> {request.remote_addr}", 
-                     user_id=session.get('user_id'),
-                     ip_address=request.remote_addr,
-                     severity='warning')
+            log_security_event(
+                event_type='session_ip_change',
+                description=f"IP address changed during session: {session['ip_address']} -> {request.remote_addr}",
+                severity='warning',
+                user_id=session.get('user_id'),
+                ip_address=request.remote_addr,
+            )
             
             # Record security audit event
-            AuditLog.create(
+            log_security_event(
                 event_type=AuditLog.EVENT_SESSION_ANOMALY,
                 description=f"IP address changed: {session['ip_address']} -> {request.remote_addr}",
                 user_id=session.get('user_id'),
                 ip_address=request.remote_addr,
-                severity=AuditLog.SEVERITY_WARNING
+                severity='warning'
             )
             
             # For critical systems, could invalidate the session here
@@ -183,17 +187,11 @@ def seed_db(dev_data: bool) -> None:
 @app.cli.command()
 def verify_integrity() -> None:
     """Verify the integrity of critical application files."""
-    from core.utils import detect_file_changes
-    
-    app_root = os.path.dirname(os.path.abspath(__file__))
-    ref_hashes = app.config.get('CRITICAL_FILE_HASHES', {})
+    from core.security_utils import check_critical_file_integrity
     
     try:
-        changes = detect_file_changes(app_root, ref_hashes)
-        if changes:
-            click.echo(f'WARNING: {len(changes)} critical files have been modified:')
-            for change in changes:
-                click.echo(f"  - {change['path']} ({change['status']})")
+        if not check_critical_file_integrity(app):
+            click.echo('WARNING: Critical file integrity check failed')
             exit(1)
         else:
             click.echo('All critical files verified. Integrity check passed.')

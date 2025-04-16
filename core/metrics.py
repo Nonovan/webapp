@@ -576,76 +576,9 @@ class SecurityMetrics:
     @staticmethod
     @cache.memoize(timeout=120)
     def get_security_metrics() -> Dict[str, Any]:
-        """
-        Collect security-related metrics.
-        
-        Gathers metrics related to authentication attempts, security incidents,
-        and potential breach indicators.
-        
-        Returns:
-            Dict[str, Any]: Dictionary containing security metrics:
-                - failed_logins_24h: Count of failed logins in last 24h
-                - account_lockouts_24h: Count of account lockouts in last 24h
-                - incidents_active: Count of active security incidents
-                - suspicious_ips: List of suspicious IP addresses
-                
-        Example:
-            metrics = SecurityMetrics.get_security_metrics()
-            print(f"Failed logins: {metrics['failed_logins_24h']}")
-        """
-        try:
-            # Import here to avoid circular imports
-            from models.audit_log import AuditLog
-            from models.security_incident import SecurityIncident
-            from sqlalchemy import func
-            
-            cutoff = datetime.utcnow() - timedelta(hours=24)
-            
-            # Get failed login count
-            failed_logins = AuditLog.query.filter(
-                AuditLog.event_type == AuditLog.EVENT_LOGIN_FAILED,
-                AuditLog.created_at >= cutoff
-            ).count()
-            
-            # Get account lockout count
-            account_lockouts = AuditLog.query.filter(
-                AuditLog.event_type == AuditLog.EVENT_ACCOUNT_LOCKOUT,
-                AuditLog.created_at >= cutoff
-            ).count()
-            
-            # Get active security incidents
-            active_incidents = SecurityIncident.query.filter(
-                SecurityIncident.status.in_(['open', 'investigating'])
-            ).count()
-            
-            # Get suspicious IPs (IPs with multiple failed logins)
-            suspicious_ips_query = db.session.query(
-                AuditLog.ip_address,
-                func.count(AuditLog.id).label('attempts')
-            ).filter(
-                AuditLog.event_type == AuditLog.EVENT_LOGIN_FAILED,
-                AuditLog.created_at >= cutoff
-            ).group_by(
-                AuditLog.ip_address
-            ).having(
-                func.count(AuditLog.id) > 5
-            ).all()
-            
-            suspicious_ips = [ip for ip, _ in suspicious_ips_query if ip]
-            
-            return {
-                'failed_logins_24h': failed_logins,
-                'account_lockouts_24h': account_lockouts,
-                'incidents_active': active_incidents,
-                'suspicious_ips': suspicious_ips,
-                'timestamp': datetime.utcnow().isoformat()
-            }
-        except (db.exc.SQLAlchemyError, AttributeError, ValueError) as e:
-            current_app.logger.error(f"Failed to collect security metrics: {e}")
-            return {
-                'error': str(e),
-                'timestamp': datetime.utcnow().isoformat()
-            }
+        """Get comprehensive security metrics."""
+        from core.security_utils import get_security_metrics
+        return get_security_metrics()
 
 
 @cache.memoize(timeout=60)
