@@ -16,11 +16,12 @@ multiple times without creating duplicate data.
 """
 
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List
 from flask import current_app
 import click
 from sqlalchemy.exc import SQLAlchemyError
+
 from extensions import db
 from models.user import User
 from models.audit_log import AuditLog
@@ -83,7 +84,7 @@ def seed_database() -> bool:
 
             db.session.add_all(test_users)
             bar.update(1)
-            
+
             # Create test audit log entries
             audit_logs = []
             event_types = [
@@ -93,7 +94,7 @@ def seed_database() -> bool:
                 AuditLog.EVENT_API_ACCESS,
                 AuditLog.EVENT_PERMISSION_DENIED
             ]
-            
+
             # Sample realistic IP addresses
             ip_addresses = [
                 "192.168.1.101",
@@ -101,7 +102,7 @@ def seed_database() -> bool:
                 "172.16.0.25",
                 "192.168.0.254"
             ]
-            
+
             # Sample user agents
             user_agents = [
                 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -109,30 +110,30 @@ def seed_database() -> bool:
                 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
                 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:89.0) Gecko/20100101 Firefox/89.0'
             ]
-            
+
             # Generate audit logs for the past 7 days
             for i in range(30):  # Generate 30 logs
                 # Randomize timestamps for realistic data
                 days_ago = random.randint(0, 7)
                 hours_ago = random.randint(0, 23)
                 minutes_ago = random.randint(0, 59)
-                
+
                 event_time = datetime.utcnow() - timedelta(
                     days=days_ago, 
                     hours=hours_ago, 
                     minutes=minutes_ago
                 )
-                
+
                 # Select random event type and user
                 event_type = random.choice(event_types)
                 user_id = random.choice([None, admin.id, test_users[0].id, test_users[1].id])
-                
+
                 # Determine severity based on event type
                 if event_type in (AuditLog.EVENT_LOGIN_FAILED, AuditLog.EVENT_PERMISSION_DENIED):
                     severity = random.choice([AuditLog.SEVERITY_WARNING, AuditLog.SEVERITY_ERROR])
                 else:
                     severity = AuditLog.SEVERITY_INFO
-                
+
                 # Generate appropriate details based on event type
                 if event_type == AuditLog.EVENT_LOGIN_SUCCESS:
                     details = "User login successful"
@@ -146,7 +147,7 @@ def seed_database() -> bool:
                     details = "Permission denied to access restricted resource"
                 else:
                     details = "System event logged"
-                
+
                 # Create audit log entry with realistic data
                 log = AuditLog(
                     event_type=event_type,
@@ -158,10 +159,10 @@ def seed_database() -> bool:
                     created_at=event_time
                 )
                 audit_logs.append(log)
-            
+
             db.session.add_all(audit_logs)
             bar.update(1)
-            
+
             # Create sample security incidents
             incidents = []
             incident_types = ["brute_force", "suspicious_access", "data_leak", "malware_detected"]
@@ -169,7 +170,7 @@ def seed_database() -> bool:
 
             for i in range(5):
                 incident_type = random.choice(incident_types)
-                
+
                 # Create realistic incident descriptions
                 if incident_type == "brute_force":
                     title = "Multiple Failed Login Attempts"
@@ -191,11 +192,11 @@ def seed_database() -> bool:
                     description = "Suspicious file upload detected and quarantined"
                     details = "File with potentially malicious code signature uploaded and automatically quarantined by security system."
                     severity = "high"
-                
+
                 # Randomize creation dates for realistic data
                 days_ago = random.randint(1, 30)
                 created_at = datetime.utcnow() - timedelta(days=days_ago)
-                
+
                 # More recent incidents are more likely to be open
                 if days_ago < 7:
                     status = random.choice(["open", "investigating"])
@@ -205,7 +206,7 @@ def seed_database() -> bool:
                     status = random.choice(["resolved", "closed"])
                     resolved_at = created_at + timedelta(hours=random.randint(12, 72))
                     resolution = "Issue investigated and addressed according to security protocols." if status == "resolved" else "Incident closed after investigation determined no further action required."
-                
+
                 # Create the incident
                 incident = SecurityIncident(
                     title=title,
@@ -227,7 +228,7 @@ def seed_database() -> bool:
 
             db.session.add_all(incidents)
             bar.update(1)
-            
+
             # Set up system configuration
             configs = [
                 SystemConfig(key="maintenance_mode", value="false", 
@@ -241,12 +242,12 @@ def seed_database() -> bool:
             ]
             db.session.add_all(configs)
             bar.update(1)
-        
+
         # Commit all changes
         db.session.commit()
         current_app.logger.info("Database successfully seeded with initial data")
         return True
-        
+
     except (SQLAlchemyError, ValueError) as e:
         db.session.rollback()
         current_app.logger.error(f"Database seeding failed: {e}")
@@ -274,112 +275,178 @@ def seed_development_data() -> bool:
         if current_app.config.get('ENVIRONMENT') != 'development':
             current_app.logger.info("Skipping development data seeding in non-development environment.")
             return False
-            
+
         # Skip if we already have development data
         if SecurityIncident.query.count() > 5:
             current_app.logger.info("Development data already seeded. Skipping.")
             return False
-            
+
         current_app.logger.info("Seeding development data...")
-        
+
         # Get existing users
         admin = User.query.filter_by(role='admin').first()
         if not admin:
             current_app.logger.warning("No admin user found. Run seed_database() first.")
             return False
-            
-        # Create more security incidents with various threat levels
+
+        # Create more security incidents with various severity levels
         incidents = []
-        
-        # High threat level incident
+
+        # High severity incident
         incidents.append(SecurityIncident(
             title="Potential Data Exfiltration Detected",
-            threat_level=9,
-            details="""Large data transfer detected to external IP.
-            User transferred 2.3GB of data to external FTP server.""",
+            incident_type="data_leak",
+            description="Large data transfer detected to external IP address",
+            details="User transferred 2.3GB of data to external FTP server from internal database.",
+            severity="critical",
             status="open",
-            detected_at=datetime.utcnow() - timedelta(hours=2),
-            source="system"
+            source="system",
+            ip_address="203.0.113.45",
+            created_at=datetime.now(timezone.utc) - timedelta(hours=2),
+            updated_at=datetime.now(timezone.utc) - timedelta(hours=2)
         ))
-        
-        # Medium threat level incident
+
+        # Medium severity incident
         incidents.append(SecurityIncident(
             title="Configuration File Modified",
-            threat_level=6,
-            details="""Critical configuration file was modified outside of change window.
-            File: config/security.ini""",
+            incident_type="suspicious_access",
+            description="Critical configuration file was modified outside of change window",
+            details="File: config/security.ini was modified by user without change approval",
+            severity="medium",
             status="investigating",
-            detected_at=datetime.utcnow() - timedelta(days=1),
-            source="file_monitor"
+            source="file_monitor",
+            ip_address="10.0.12.25",
+            assigned_to=admin.id,
+            created_at=datetime.now(timezone.utc) - timedelta(days=1),
+            updated_at=datetime.now(timezone.utc) - timedelta(days=1)
         ))
-        
-        # Low threat level incident (resolved)
+
+        # Low severity incident (resolved)
         incidents.append(SecurityIncident(
             title="Failed API Authentication Attempts",
-            threat_level=3,
-            details="""Multiple failed API authentication attempts from developer IP range.
-            10 failed attempts over 30 minutes.""",
+            incident_type="brute_force",
+            description="Multiple failed API authentication attempts from developer IP range",
+            details="10 failed attempts over 30 minutes from development subnet",
+            severity="low",
             status="resolved",
-            detected_at=datetime.utcnow() - timedelta(days=3),
             source="api_gateway",
-            resolution="Confirmed as developer testing new integration.",
-            resolved_at=datetime.utcnow() - timedelta(days=2),
-            assigned_to=admin.id
+            ip_address="192.168.15.10",
+            resolution="Confirmed as developer testing new integration. No security breach occurred.",
+            resolved_at=datetime.now(timezone.utc) - timedelta(days=2),
+            assigned_to=admin.id,
+            created_at=datetime.now(timezone.utc) - timedelta(days=3),
+            updated_at=datetime.now(timezone.utc) - timedelta(days=2)
         ))
-        
+
         db.session.add_all(incidents)
-        
+        current_app.logger.info(f"Created {len(incidents)} development security incidents")
+
         # Create more detailed audit logs covering common security scenarios
         audit_logs = []
-        
+
         # Suspicious activity pattern - multiple failed logins followed by success
         suspicious_ip = "45.33.22.85"
         base_time = datetime.utcnow() - timedelta(hours=8)
-        
-        # Failed login attempts
+
+        # Failed login attempts - create a realistic brute force pattern
         for i in range(4):
             log = AuditLog(
                 event_type=AuditLog.EVENT_LOGIN_FAILED,
                 user_id=None,  # Unknown user
+                description=f"Failed login attempt #{i+1} from suspicious IP",
                 ip_address=suspicious_ip,
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
-                details=f"Failed login attempt for username: admin",
-                severity=AuditLog.SEVERITY_WARNING
+                details="Failed login attempt for username: admin. Invalid password provided.",
+                severity=AuditLog.SEVERITY_WARNING,
+                created_at=base_time + timedelta(minutes=i*2)
             )
-            log.created_at = base_time + timedelta(minutes=i*2)
             audit_logs.append(log)
-        
-        # Successful login after failures
+
+        # Successful login after failures (potential credential stuffing success)
         success_log = AuditLog(
             event_type=AuditLog.EVENT_LOGIN_SUCCESS,
             user_id=admin.id,
+            description="Successful login after multiple failures",
             ip_address=suspicious_ip,
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
-            details="Successful login",
+            details="Successful login for user: admin. Note: Preceded by multiple failed attempts from same IP.",
             severity=AuditLog.SEVERITY_INFO,
             created_at=base_time + timedelta(minutes=10)
         )
         audit_logs.append(success_log)
-        
-        # Sensitive operation after suspicious login
+
+        # Sensitive operation after suspicious login - database access
         sensitive_log = AuditLog(
             event_type=AuditLog.EVENT_DATABASE_ACCESS,
             user_id=admin.id,
+            description="Sensitive database table accessed after suspicious login pattern",
             ip_address=suspicious_ip,
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
-            details="Access to users table with SELECT * query",
+            details="User admin executed query: SELECT * FROM users WHERE role='admin'",
             severity=AuditLog.SEVERITY_WARNING,
             created_at=base_time + timedelta(minutes=12)
         )
         audit_logs.append(sensitive_log)
-        
+
+        # Config change after suspicious access
+        config_change_log = AuditLog(
+            event_type=AuditLog.EVENT_CONFIG_CHANGE,
+            user_id=admin.id,
+            description="Configuration changed after suspicious login pattern",
+            ip_address=suspicious_ip,
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
+            details="User modified security settings: 'max_login_attempts' changed from 5 to 10",
+            severity=AuditLog.SEVERITY_ERROR,
+            created_at=base_time + timedelta(minutes=15)
+        )
+        audit_logs.append(config_change_log)
+
+        # Permission denied attempt (indicator of privilege escalation attempt)
+        permission_denied_log = AuditLog(
+            event_type=AuditLog.EVENT_PERMISSION_DENIED,
+            user_id=admin.id,
+            description="Access attempt to restricted resource",
+            ip_address=suspicious_ip,
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
+            details="User attempted to access /admin/system/settings without required permissions",
+            severity=AuditLog.SEVERITY_WARNING,
+            created_at=base_time + timedelta(minutes=18)
+        )
+        audit_logs.append(permission_denied_log)
+
+        # File integrity issue detected
+        file_integrity_log = AuditLog(
+            event_type=AuditLog.EVENT_FILE_INTEGRITY,
+            user_id=None,
+            description="Critical file modification detected",
+            ip_address=None,
+            user_agent=None,
+            details="File: config/security.py has been modified outside the deployment process",
+            severity=AuditLog.SEVERITY_CRITICAL,
+            created_at=base_time + timedelta(minutes=25)
+        )
+        audit_logs.append(file_integrity_log)
+
+        # Security countermeasure triggered
+        countermeasure_log = AuditLog(
+            event_type=AuditLog.EVENT_SECURITY_COUNTERMEASURE,
+            user_id=None,
+            description="Automated security response initiated",
+            ip_address=suspicious_ip,
+            user_agent=None,
+            details="IP address temporarily blocked due to suspicious activity pattern",
+            severity=AuditLog.SEVERITY_WARNING,
+            created_at=base_time + timedelta(minutes=28)
+        )
+        audit_logs.append(countermeasure_log)
+
         db.session.add_all(audit_logs)
         db.session.commit()
-        
+
         current_app.logger.info(f"Development data seeded with {len(incidents)} additional incidents " +
                                f"and {len(audit_logs)} additional audit logs")
         return True
-        
+
     except Exception as e:
         current_app.logger.error(f"Development data seeding failed: {e}")
         db.session.rollback()

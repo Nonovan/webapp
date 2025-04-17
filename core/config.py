@@ -1,6 +1,4 @@
 """
-Configuration management module for the myproject application.
-
 This module handles the loading, validation, and access of configuration settings
 from environment variables and configuration files. It provides a centralized
 configuration system that ensures all required settings are available before
@@ -18,10 +16,15 @@ Configuration priorities:
 3. Default values (lowest priority)
 """
 
-from datetime import timedelta
-from typing import Dict, Any, List
+from datetime import datetime, timedelta
+import ipaddress
+import logging
 import os
 import secrets
+import socket
+from typing import Dict, Any, List
+import subprocess
+
 
 class Config:
     """
@@ -37,7 +40,7 @@ class Config:
         ENV_DEFAULTS (Dict[str, Any]): Default values for environment settings
     """
 
-    # Required environment variables
+    # Required environment variables - must be set for application to run
     REQUIRED_VARS: List[str] = [
         'SECRET_KEY',
         'DATABASE_URL',
@@ -46,133 +49,327 @@ class Config:
         'SESSION_KEY'
     ]
 
-    # Environment defaults
+    # Environment defaults - used if not overridden
     ENV_DEFAULTS: Dict[str, Any] = {
         'ENVIRONMENT': 'development',
         'DEBUG': False,
         'TESTING': False,
-        'LOG_LEVEL': 'INFO'
+        'SERVER_NAME': None,
+        'APPLICATION_ROOT': '/',
+        'PREFERRED_URL_SCHEME': 'https',
+
+        # Database configuration
+        'SQLALCHEMY_TRACK_MODIFICATIONS': False,
+        'SQLALCHEMY_ENGINE_OPTIONS': {
+            'pool_recycle': 280,
+            'pool_pre_ping': True,
+            'pool_size': 10,
+            'max_overflow': 20
+        },
+
+        # Security settings
+        'SESSION_COOKIE_SECURE': True,
+        'SESSION_COOKIE_HTTPONLY': True,
+        'SESSION_COOKIE_SAMESITE': 'Lax',
+        'PERMANENT_SESSION_LIFETIME': timedelta(days=1),
+        'REMEMBER_COOKIE_DURATION': timedelta(days=14),
+        'REMEMBER_COOKIE_SECURE': True,
+        'REMEMBER_COOKIE_HTTPONLY': True,
+        'REMEMBER_COOKIE_SAMESITE': 'Lax',
+
+        # Security headers
+        'SECURITY_HEADERS_ENABLED': True,
+        'SECURITY_CSP_REPORT_URI': None,
+        'SECURITY_HSTS_MAX_AGE': 31536000,  # 1 year
+        'SECURITY_INCLUDE_SUBDOMAINS': True,
+        'SECURITY_PRELOAD': True,
+
+        # CSRF protection
+        'WTF_CSRF_ENABLED': True,
+        'WTF_CSRF_TIME_LIMIT': 3600,  # 1 hour
+
+        # Rate limiting
+        'RATELIMIT_DEFAULT': '200 per day, 50 per hour',
+        'RATELIMIT_STORAGE_URL': 'memory://',
+        'RATELIMIT_HEADERS_ENABLED': True,
+        'RATELIMIT_STRATEGY': 'fixed-window',
+
+        # JWT settings
+        'JWT_ACCESS_TOKEN_EXPIRES': timedelta(minutes=15),
+        'JWT_REFRESH_TOKEN_EXPIRES': timedelta(days=30),
+        'JWT_BLACKLIST_ENABLED': True,
+        'JWT_BLACKLIST_TOKEN_CHECKS': ['access', 'refresh'],
+
+        # Cache settings
+        'CACHE_TYPE': 'SimpleCache',
+        'CACHE_DEFAULT_TIMEOUT': 300,
+
+        # ICS system settings
+        'ICS_ENABLED': False,
+        'ICS_RESTRICTED_IPS': [],
+        'ICS_MONITOR_INTERVAL': 60,  # seconds
+        'ICS_ALERT_THRESHOLD': 0.8,  # 80%
+
+        # Cloud settings
+        'CLOUD_PROVIDERS': ['aws', 'azure', 'gcp'],
+        'CLOUD_METRICS_INTERVAL': 300,  # 5 minutes
+        'CLOUD_RESOURCES_CACHE_TTL': 600,  # 10 minutes
+
+        # Monitoring settings
+        'METRICS_ENABLED': True,
+        'SENTRY_TRACES_SAMPLE_RATE': 0.2,
+        'LOG_LEVEL': 'INFO',
+        'SECURITY_LOG_LEVEL': 'WARNING',
+
+        # File security settings
+        'SECURITY_CHECK_FILE_INTEGRITY': True,
+        'SECURITY_CRITICAL_FILES': [
+            'app.py',
+            'config.py',
+            'core/security_utils.py',
+            'core/middleware.py'
+        ],
+        'ALLOWED_EXTENSIONS': {'pdf', 'png', 'jpg', 'jpeg', 'csv', 'xlsx'},
+        'MAX_CONTENT_LENGTH': 16 * 1024 * 1024,  # 16 MB
+
+        # Feature flags
+        'FEATURE_DARK_MODE': True,
+        'FEATURE_ICS_CONTROL': True,
+        'FEATURE_CLOUD_MANAGEMENT': True,
+        'FEATURE_MFA': True
     }
 
-    # Security monitoring defaults
-    SECURITY_DEFAULTS: Dict[str, Any] = {
-        'ENABLE_AUTO_COUNTERMEASURES': False,
-        'SECURITY_ALERT_THRESHOLD': 7,
-        'CRITICAL_ALERT_THRESHOLD': 9,
-        'LOGIN_ATTEMPT_LIMIT': 5,
-        'ACCOUNT_LOCKOUT_DURATION': 30,  # minutes
-        'ALLOWED_ORIGINS': '*',
-        'HSTS_AGE': 31536000,  # 1 year in seconds
-        'PASSWORD_HASH_ALGORITHM': 'argon2',
-        'PASSWORD_MIN_LENGTH': 12,
-        'PASSWORD_REUSE_PREVENTION': 5,  # Remember last N passwords
-        'SESSION_TIMEOUT': 3600,  # 1 hour in seconds
-        'API_RATE_LIMIT': '60/minute',
-        'AUDIT_LOG_RETENTION': 90,  # days
-        'PASSWORD_EXPIRY': 90,  # days
-        'MFA_ENABLED': False
+    # Development-specific overrides
+    DEV_OVERRIDES: Dict[str, Any] = {
+        'DEBUG': True,
+        'SESSION_COOKIE_SECURE': False,
+        'REMEMBER_COOKIE_SECURE': False,
+        'WTF_CSRF_ENABLED': True,
+        'JWT_ACCESS_TOKEN_EXPIRES': timedelta(hours=1),
+        'SECURITY_HEADERS_ENABLED': True,
+        'METRICS_ENABLED': True,
+        'LOG_LEVEL': 'DEBUG',
     }
+
+    # Test-specific overrides
+    TEST_OVERRIDES: Dict[str, Any] = {
+        'TESTING': True,
+        'DEBUG': False,
+        'WTF_CSRF_ENABLED': False,
+        'SERVER_NAME': 'localhost',
+        'METRICS_ENABLED': False,
+        'SECURITY_CHECK_FILE_INTEGRITY': False,
+    }
+
+    # Production-specific security requirements
+    PROD_REQUIREMENTS: List[str] = [
+        'SESSION_COOKIE_SECURE',
+        'SESSION_COOKIE_HTTPONLY',
+        'REMEMBER_COOKIE_SECURE',
+        'REMEMBER_COOKIE_HTTPONLY',
+        'WTF_CSRF_ENABLED',
+        'SECURITY_HEADERS_ENABLED',
+    ]
 
     @classmethod
-    def load(cls) -> Dict[str, Any]:
+    def init_app(cls, app) -> None:
         """
-        Load and validate configuration from environment variables.
+        Initialize the application with configuration settings.
 
-        This method retrieves configuration from environment variables,
-        validates that all required variables are present, and returns
-        a complete configuration dictionary with appropriate defaults
-        for missing optional values.
-
-        Returns:
-            Dict[str, Any]: Complete application configuration dictionary
+        Args:
+            app: Flask application instance
 
         Raises:
-            RuntimeError: If any required configuration variables are missing
-
-        Example:
-            config = Config.load()
-            app.config.update(config)
+            ValueError: If required environment variables are missing in production
         """
-        # Validate required variables
-        missing = [var for var in cls.REQUIRED_VARS if not os.getenv(var)]
-        if missing:
-            raise RuntimeError(f"Missing required config vars: {', '.join(missing)}")
+        # Load environment-specific configuration
+        environment = os.environ.get('ENVIRONMENT', 'development').lower()
 
-        return {
-            # Environment
-            'ENVIRONMENT': os.getenv('ENVIRONMENT', cls.ENV_DEFAULTS['ENVIRONMENT']),
-            'DEBUG': os.getenv('FLASK_DEBUG', 'False').lower() == 'true',
-            'TESTING': cls.ENV_DEFAULTS['TESTING'],
-            'VERSION': os.getenv('APP_VERSION', '1.0.0'),
+        # Load default configuration
+        for key, value in cls.ENV_DEFAULTS.items():
+            app.config[key] = value
 
-            # Security
-            'SECRET_KEY': os.getenv('SECRET_KEY'),
-            'WTF_CSRF_SECRET_KEY': os.getenv('CSRF_SECRET_KEY'),
-            'JWT_SECRET_KEY': os.getenv('JWT_SECRET_KEY'),
-            'PERMANENT_SESSION_LIFETIME': timedelta(days=int(os.getenv('SESSION_DAYS', '1'))),
+        # Apply environment-specific overrides
+        if environment == 'development':
+            for key, value in cls.DEV_OVERRIDES.items():
+                app.config[key] = value
+        elif environment == 'testing':
+            for key, value in cls.TEST_OVERRIDES.items():
+                app.config[key] = value
 
-            # Database
-            'SQLALCHEMY_DATABASE_URI': os.getenv('DATABASE_URL'),
-            'SQLALCHEMY_TRACK_MODIFICATIONS': False,
-            'SQLALCHEMY_POOL_SIZE': int(os.getenv('DB_POOL_SIZE', '5')),
-            'SQLALCHEMY_POOL_TIMEOUT': int(os.getenv('DB_POOL_TIMEOUT', '30')),
+        # Load settings from environment variables (highest priority)
+        cls._load_from_environment(app)
 
-            # Cache
-            'REDIS_URL': os.getenv('REDIS_URL', 'redis://localhost:6379'),
-            'CACHE_TYPE': 'redis',
-            'CACHE_DEFAULT_TIMEOUT': int(os.getenv('CACHE_TIMEOUT', '300')),
+        # Validate configuration
+        cls._validate_configuration(app)
 
-            # Logging and Monitoring
-            'LOG_LEVEL': os.getenv('LOG_LEVEL', cls.ENV_DEFAULTS['LOG_LEVEL']),
-            'SENTRY_DSN': os.getenv('SENTRY_DSN'),
-            'SENTRY_TRACES_SAMPLE_RATE': float(os.getenv('SENTRY_TRACES_SAMPLE_RATE', '0.1')),
-            'SENTRY_SEND_PII': os.getenv('SENTRY_SEND_PII', 'False').lower() == 'true',
-            'METRICS_ENABLED': os.getenv('METRICS_ENABLED', 'True').lower() == 'true',
-            'STATSD_HOST': os.getenv('STATSD_HOST', 'localhost'),
-            'STATSD_PORT': int(os.getenv('STATSD_PORT', '8125')),
-            
-            # Security monitoring
-            'ENABLE_AUTO_COUNTERMEASURES': os.getenv('ENABLE_AUTO_COUNTERMEASURES', 'False').lower() == 'true',
-            'SECURITY_ALERT_THRESHOLD': int(os.getenv('SECURITY_ALERT_THRESHOLD', str(cls.SECURITY_DEFAULTS['SECURITY_ALERT_THRESHOLD']))),
-            'CRITICAL_ALERT_THRESHOLD': int(os.getenv('CRITICAL_ALERT_THRESHOLD', str(cls.SECURITY_DEFAULTS['CRITICAL_ALERT_THRESHOLD']))),
-            'LOGIN_ATTEMPT_LIMIT': int(os.getenv('LOGIN_ATTEMPT_LIMIT', str(cls.SECURITY_DEFAULTS['LOGIN_ATTEMPT_LIMIT']))),
-            'ACCOUNT_LOCKOUT_DURATION': int(os.getenv('ACCOUNT_LOCKOUT_DURATION', str(cls.SECURITY_DEFAULTS['ACCOUNT_LOCKOUT_DURATION']))),
-            'ALLOWED_ORIGINS': os.getenv('ALLOWED_ORIGINS', cls.SECURITY_DEFAULTS['ALLOWED_ORIGINS']),
-            'HSTS_AGE': int(os.getenv('HSTS_AGE', str(cls.SECURITY_DEFAULTS['HSTS_AGE']))),
-            'PASSWORD_HASH_ALGORITHM': os.getenv('PASSWORD_HASH_ALGORITHM', cls.SECURITY_DEFAULTS['PASSWORD_HASH_ALGORITHM']),
-            'PASSWORD_MIN_LENGTH': int(os.getenv('PASSWORD_MIN_LENGTH', str(cls.SECURITY_DEFAULTS['PASSWORD_MIN_LENGTH']))),
-            'PASSWORD_REUSE_PREVENTION': int(os.getenv('PASSWORD_REUSE_PREVENTION', str(cls.SECURITY_DEFAULTS['PASSWORD_REUSE_PREVENTION']))),
-            'SESSION_TIMEOUT': int(os.getenv('SESSION_TIMEOUT', str(cls.SECURITY_DEFAULTS['SESSION_TIMEOUT']))),
-            'API_RATE_LIMIT': os.getenv('API_RATE_LIMIT', cls.SECURITY_DEFAULTS['API_RATE_LIMIT']),
-            'AUDIT_LOG_RETENTION': int(os.getenv('AUDIT_LOG_RETENTION', str(cls.SECURITY_DEFAULTS['AUDIT_LOG_RETENTION']))),
-            'PASSWORD_EXPIRY': int(os.getenv('PASSWORD_EXPIRY', str(cls.SECURITY_DEFAULTS['PASSWORD_EXPIRY']))),
-            'MFA_ENABLED': os.getenv('MFA_ENABLED', 'False').lower() == 'true',
-            
-            # Security notification
-            'SECURITY_TEAM_EMAILS': os.getenv('SECURITY_TEAM_EMAILS', '').split(',') if os.getenv('SECURITY_TEAM_EMAILS') else [],
-            'SECURITY_NOTIFICATION_CHANNEL': os.getenv('SECURITY_NOTIFICATION_CHANNEL', 'email'),
+        # Setup derived values and special cases
+        cls._setup_derived_values(app)
 
-            # File integrity monitoring
-            'ENABLE_FILE_INTEGRITY_MONITORING': os.getenv('ENABLE_FILE_INTEGRITY_MONITORING', 'True').lower() == 'true',
-            'FILE_INTEGRITY_CHECK_INTERVAL': int(os.getenv('FILE_INTEGRITY_CHECK_INTERVAL', '3600')),  # 1 hour in seconds
-            'CONFIG_FILE_HASHES': {},  # Populated at startup by file integrity system
-            'CRITICAL_FILE_HASHES': {},  # Populated at startup by file integrity system
-            
-            # CSP Nonce generation
-            'CSP_NONCE_LENGTH': int(os.getenv('CSP_NONCE_LENGTH', '32')),
-            
-            # SRI hash settings 
-            'SRI_ALGORITHM': os.getenv('SRI_ALGORITHM', 'sha384'),
-            
-            # API security
-            'JWT_ACCESS_TOKEN_EXPIRES': timedelta(minutes=int(os.getenv('JWT_ACCESS_TOKEN_EXPIRES_MINUTES', '15'))),
-            'JWT_REFRESH_TOKEN_EXPIRES': timedelta(days=int(os.getenv('JWT_REFRESH_TOKEN_EXPIRES_DAYS', '7'))),
-            'JWT_BLACKLIST_ENABLED': True,
-            
-            # Additional security headers
-            'REFERRER_POLICY': os.getenv('REFERRER_POLICY', 'strict-origin-when-cross-origin'),
-            'PERMISSIONS_POLICY': os.getenv('PERMISSIONS_POLICY', 'geolocation=(), camera=(), microphone=(), payment=()'),
-        }
+        # Register config values to be accessible in the app context
+        @app.context_processor
+        def inject_config():
+            """Make selected config values available in templates."""
+            return {
+                'config': {
+                    'VERSION': app.config.get('VERSION', '1.0.0'),
+                    'ENVIRONMENT': app.config.get('ENVIRONMENT', 'development'),
+                    'FEATURE_DARK_MODE': app.config.get('FEATURE_DARK_MODE', True),
+                    'FEATURE_ICS_CONTROL': app.config.get('FEATURE_ICS_CONTROL', True),
+                    'FEATURE_CLOUD_MANAGEMENT': app.config.get('FEATURE_CLOUD_MANAGEMENT', True),
+                    'FEATURE_MFA': app.config.get('FEATURE_MFA', True),
+                }
+            }
+
+    @classmethod
+    def _load_from_environment(cls, app) -> None:
+        """
+        Load configuration from environment variables.
+
+        Environment variables take precedence over other settings.
+        The function handles type conversions for common data types.
+
+        Args:
+            app: Flask application instance
+        """
+        # Directly set Flask configuration from environment variables with prefix
+        for key, value in os.environ.items():
+            if key.startswith('FLASK_'):
+                app_key = key[6:]  # Remove FLASK_ prefix
+
+                # Handle boolean values
+                if value.lower() in ('true', 'yes', '1'):
+                    app.config[app_key] = True
+                elif value.lower() in ('false', 'no', '0'):
+                    app.config[app_key] = False
+                # Handle integer values
+                elif value.isdigit():
+                    app.config[app_key] = int(value)
+                # Handle float values
+                elif value.replace('.', '', 1).isdigit() and value.count('.') == 1:
+                    app.config[app_key] = float(value)
+                else:
+                    app.config[app_key] = value
+
+        # Set required variables and overrides
+        for var in cls.REQUIRED_VARS:
+            if var in os.environ:
+                app.config[var] = os.environ[var]
+
+        # Set database URL
+        if 'DATABASE_URL' in os.environ:
+            app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URL']
+
+        # Handle ICS restricted IPs - parse as valid IP addresses
+        if 'ICS_RESTRICTED_IPS' in os.environ:
+            try:
+                ips_str = os.environ['ICS_RESTRICTED_IPS']
+                ip_list = []
+
+                for ip_str in ips_str.split(','):
+                    ip_str = ip_str.strip()
+                    if ip_str:  # Skip empty strings
+                        try:
+                            # Validate IP address or CIDR
+                            ipaddress.ip_network(ip_str, strict=False)
+                            ip_list.append(ip_str)
+                        except ValueError:
+                            logging.warning("Invalid IP address or CIDR in ICS_RESTRICTED_IPS: %s", ip_str)
+
+                app.config['ICS_RESTRICTED_IPS'] = ip_list
+            except ValueError as e:
+                logging.error("Error parsing ICS_RESTRICTED_IPS: %s", str(e))
+
+    @classmethod
+    def _validate_configuration(cls, app) -> None:
+        """
+        Validate that all required configuration is present and properly formatted.
+
+        This method checks that all required environment variables are set and
+        that production security requirements are met in production environments.
+
+        Args:
+            app: Flask application instance
+
+        Raises:
+            ValueError: If configuration validation fails
+        """
+        environment = app.config.get('ENVIRONMENT', 'development')
+
+        # Skip strict validation for development and testing
+        if environment not in ('production', 'staging'):
+            return
+
+        # Check required variables in production
+        missing_vars = []
+        for var in cls.REQUIRED_VARS:
+            if var not in app.config or not app.config[var]:
+                missing_vars.append(var)
+
+        if missing_vars:
+            raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
+
+        # Check security settings in production
+        insecure_settings = []
+        for setting in cls.PROD_REQUIREMENTS:
+            if setting in app.config and not app.config[setting]:
+                insecure_settings.append(setting)
+
+        if insecure_settings:
+            raise ValueError(f"Insecure settings in production: {', '.join(insecure_settings)}")
+
+        # Check for development SECRET_KEY in production
+        if app.config.get('SECRET_KEY') == 'dev':
+            raise ValueError("Development SECRET_KEY used in production environment")
+
+    @classmethod
+    def _setup_derived_values(cls, app) -> None:
+        """
+        Set up derived configuration values based on other settings.
+
+        This sets up configuration values that are derived from or depend
+        on other configuration settings, including:
+        - Redis URL for caching when available
+        - Debug settings for development
+        - File paths based on application root
+        
+        Args:
+            app: Flask application instance
+        """
+        # Set up Redis for cache if REDIS_URL is provided
+        if 'REDIS_URL' in os.environ:
+            app.config['CACHE_TYPE'] = 'RedisCache'
+            app.config['CACHE_REDIS_URL'] = os.environ['REDIS_URL']
+            app.config['RATELIMIT_STORAGE_URL'] = os.environ['REDIS_URL']
+
+            # Also use Redis for session storage if available
+            app.config['SESSION_TYPE'] = 'redis'
+            app.config['SESSION_REDIS'] = os.environ['REDIS_URL']
+        else:
+            # Default to SimpleCache
+            app.config['CACHE_TYPE'] = 'SimpleCache'
+            app.config['SESSION_TYPE'] = 'filesystem'
+
+        # Set up upload folder
+        app.config['UPLOAD_FOLDER'] = os.path.join(app.root_path, 'uploads')
+        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+        # Generate a self-identification string for logs/metrics
+        hostname = socket.gethostname()
+        app.config['INSTANCE_IDENTIFIER'] = f"{hostname}-{os.getpid()}"
+
+        # Set application version (try to get from Git if available)
+        if 'VERSION' not in app.config:
+            try:
+                result = subprocess.run(
+                    ['git', 'describe', '--tags', '--always'], 
+                    stdout=subprocess.PIPE, 
+                    stderr=subprocess.PIPE, 
+                    check=True
+                )
+                app.config['VERSION'] = result.stdout.decode('utf-8').strip()
+            except subprocess.CalledProcessError:
+                app.config['VERSION'] = '1.0.0'
 
     @staticmethod
     def load_from_name(name: str) -> Dict[str, Any]:
@@ -225,7 +422,7 @@ class Config:
             raise ValueError(f"Unknown configuration name: {name}")
 
         return configs[name]
-    
+
     @staticmethod
     def generate_csp_nonce() -> str:
         """
@@ -235,7 +432,7 @@ class Config:
             str: Generated nonce as a URL-safe base64 string
         """
         return secrets.token_urlsafe(16)
-    
+
     @classmethod
     def initialize_file_hashes(cls, config: Dict[str, Any], app_root: str) -> Dict[str, Any]:
         """
@@ -257,11 +454,11 @@ class Config:
             app.config = Config.initialize_file_hashes(app.config, app_root_path)
         """
         from core.utils import calculate_file_hash
-        
+
         # Only compute hashes if file integrity monitoring is enabled
         if not config.get('ENABLE_FILE_INTEGRITY_MONITORING', True):
             return config
-            
+
         # Define critical configuration files
         config_files = [
             os.path.join(app_root, 'config.py'),
@@ -271,7 +468,7 @@ class Config:
             os.path.join(app_root, 'core', 'factory.py'),
             os.path.join(app_root, 'core', 'middleware.py')
         ]
-        
+
         # Define critical application files
         critical_files = [
             os.path.join(app_root, 'app.py'),
@@ -285,11 +482,11 @@ class Config:
             os.path.join(app_root, 'models', 'security_incident.py'),
             os.path.join(app_root, 'models', 'user.py')
         ]
-        
+
         # Compute hashes for config files - use algorithm based on file size
         config_hashes = {}
         algorithm = config.get('FILE_HASH_ALGORITHM', 'sha256')
-        
+
         for file_path in config_files:
             if os.path.exists(file_path):
                 try:
@@ -301,9 +498,8 @@ class Config:
                         # For larger files, use SHA-256 for better performance
                         config_hashes[file_path] = calculate_file_hash(file_path, 'sha256')
                 except (IOError, OSError) as e:
-                    import logging
                     logging.warning("Could not hash config file %s: %s", file_path, e)
-                    
+
         # Compute hashes for critical files
         critical_hashes = {}
         for file_path in critical_files:
@@ -311,9 +507,8 @@ class Config:
                 try:
                     critical_hashes[file_path] = calculate_file_hash(file_path, algorithm)
                 except (IOError, OSError) as e:
-                    import logging
                     logging.warning("Could not hash critical file %s: %s", file_path, e)
-        
+
         # Add monitored directories (these will be checked for unexpected files)
         monitored_directories = [
             os.path.join(app_root, 'core'),
@@ -333,5 +528,4 @@ class Config:
     @staticmethod
     def format_timestamp() -> str:
         """Format current datetime as ISO 8601 string."""
-        from datetime import datetime
         return datetime.utcnow().isoformat()

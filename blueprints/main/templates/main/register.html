@@ -146,6 +146,7 @@
         </div>
     </div>
 </div>
+
 <!-- Terms and Conditions Modal -->
 <div class="modal fade" id="termsModal" tabindex="-1" aria-labelledby="termsModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
@@ -155,42 +156,65 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <p>Insert your terms and conditions here...</p>
+                <h6>Cloud Service Platform Terms</h6>
+                <p>
+                    By using this platform, you agree to the processing of your personal data 
+                    according to our privacy policy and to abide by our security guidelines for
+                    proper use of cloud infrastructure and ICS systems.
+                </p>
+                <h6>Security Requirements</h6>
+                <p>
+                    You must maintain the confidentiality of your account credentials and 
+                    immediately notify us of any unauthorized access or security concerns.
+                </p>
+                <h6>Data Protection</h6>
+                <p>
+                    We implement industry-standard security measures to protect your data, but
+                    you retain responsibility for securing your account credentials and any data
+                    you upload to our platform.
+                </p>
             </div>
         </div>
     </div>
 </div>
+
 {% block scripts %}
 <script src="https://www.google.com/recaptcha/api.js" async defer></script>
 
-<!-- Local static files with SRI -->
-<link rel="stylesheet" 
-      href="{{ url_for('static', filename='css/style.css') }}"
-      integrity="{{ sri_hash('css/style.css') }}" 
-      crossorigin="anonymous">
+<!-- Password requirements list -->
+<ul id="passwordRequirements" class="list-unstyled small mt-2 d-none"></ul>
 
 <script src="{{ url_for('static', filename='js/auth-common.js') }}"
         integrity="{{ sri_hash('js/auth-common.js') }}" 
         crossorigin="anonymous"></script>
 
 <script nonce="{{ csp_nonce }}">
-    // Your inline JavaScript
-</script>
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Use shared functions
-    togglePasswordVisibility('password', 'togglePassword');
-    setupPasswordStrengthMeter('password', '#passwordStrength .progress-bar', '#passwordStrengthText');
-    setupPasswordMatchValidation('password', 'confirm');
-    setupFormValidation();
-    
-    // reCAPTCHA callback defined globally for Google API usage
-    window.onRecaptchaVerified = onRecaptchaVerified;
-
-    document.querySelector("#registerBtn").addEventListener("click", function () {
-        const spinner = this.querySelector(".spinner-border");
-        spinner.classList.remove("d-none");
+    document.addEventListener('DOMContentLoaded', function() {
+        // Security-focused form handling
+        togglePasswordVisibility('password', 'togglePassword');
+        setupPasswordStrengthMeter('password', '#passwordStrength .progress-bar', '#passwordStrengthText');
+        setupPasswordMatchValidation('password', 'confirm');
+        setupPasswordRequirementsFeedback('password', 'passwordRequirements');
+        
+        // Enable visible requirements list
+        document.getElementById('passwordRequirements').classList.remove('d-none');
+        
+        // Form validation with security logging
+        setupFormValidation();
+        setupBruteForceProtection(document.querySelector('form'), 'registerButton');
+        
+        // Track form submission attempts for security monitoring
+        document.querySelector('form').addEventListener('submit', function(e) {
+            if (!this.checkValidity()) {
+                e.preventDefault();
+                try {
+                    // Log validation failures for security monitoring
+                    console.warn('Registration validation failed');
+                } catch (error) {
+                    // Silent catch to prevent errors affecting UX
+                }
+            }
+        });
     });
-});
 </script>
 {% endblock %}

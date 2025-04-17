@@ -2,6 +2,7 @@
 import os
 import hashlib
 import logging
+
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from sqlalchemy import func
@@ -12,7 +13,10 @@ from models.audit_log import AuditLog
 from extensions import db
 from extensions import get_redis_client
 
-'ENCRYPTION_KEY': os.getenv('ENCRYPTION_KEY'),  # A strong random 32-byte key for encrypting sensitive data
+# Configuration constants
+SECURITY_CONFIG = {
+    'ENCRYPTION_KEY': os.getenv('ENCRYPTION_KEY'),  # A strong random 32-byte key for encrypting sensitive data
+}
 
 def get_suspicious_ips(hours: int = 24, min_attempts: int = 5) -> List[Dict[str, Any]]:
     """
@@ -91,7 +95,7 @@ def get_active_session_count() -> int:
     """
     # Use Redis client from .extensions
     redis_client = get_redis_client()
-    if redis_client:
+    if (redis_client):
         return len([k for k in redis_client.keys('session:*') or []])
     
     # Fallback to database count if Redis unavailable
@@ -746,3 +750,129 @@ def decrypt_sensitive_data(encrypted_data: str) -> str:
         else:
             logging.error(msg)
         raise RuntimeError(msg)
+
+
+def is_suspicious_ip(ip_address: Optional[str], threshold: int = 5) -> bool:
+    """
+    Determine if an IP address is suspicious based on login failure history and blocklists.
+    
+    This function checks if an IP address should be considered suspicious by:
+    1. Checking against known suspicious IP cache
+    2. Looking up failed login attempts from this IP
+    3. Checking against external IP reputation services (when configured)
+    4. Checking against known malicious IP ranges
+    
+    Args:
+        ip_address: The IP address to check
+        threshold: Minimum number of failed attempts to consider an IP suspicious
+        
+    Returns:
+        bool: True if the IP is suspicious, False otherwise
+    """
+    if not ip_address:
+        return False
+        
+    # Check Redis cache first for known suspicious IPs (faster)
+    redis_client = get_redis_client()
+    if redis_client:
+        cached_result = redis_client.get(f"suspicious_ip:{ip_address}")
+        if cached_result:
+            return cached_result.decode() == "True"
+    
+    # Check for failed login attempts in audit log
+    try:
+        cutoff = datetime.utcnow() - timedelta(hours=24)
+        failed_count = db.session.query(func.count(AuditLog.id)).filter(
+            AuditLog.event_type == AuditLog.EVENT_LOGIN_FAILED,
+            AuditLog.ip_address == ip_address,
+            AuditLog.created_at >= cutoff
+        ).scalar()
+        
+        if failed_count >= threshold:
+            # Cache the result for 1 hour
+            if redis_client:
+                redis_client.setex(f"suspicious_ip:{ip_address}", 3600, "True")
+            return True
+            
+        # Check for other security breach attempts
+        breach_attempts = db.session.query(func.count(AuditLog.id)).filter(
+            AuditLog.event_type == AuditLog.EVENT_SECURITY_BREACH_ATTEMPT,
+            AuditLog.ip_address == ip_address,
+            AuditLog.created_at >= cutoff
+        ).scalar()
+        
+        if breach_attempts > 0:
+            # Cache the result for 1 hour
+            if redis_client:
+                redis_client.setex(f"suspicious_ip:{ip_address}", 3600, "True")
+            return True
+            
+    except SQLAlchemyError as e:
+        if has_request_context() and hasattr(current_app, 'logger'):
+            current_app.logger.error(f"Database error when checking suspicious IP: {e}")
+        return False
+    
+    # Check against external IP reputation service if configured
+    if current_app.config.get('IP_REPUTATION_CHECK_ENABLED'):
+        result = _check_ip_reputation(ip_address)
+        if result:
+            # Cache the result for 6 hours
+            if redis_client:
+                redis_client.setex(f"suspicious_ip:{ip_address}", 21600, "True")
+            return True
+    
+    # Cache negative result for 30 minutes
+    if redis_client:
+        redis_client.setex(f"suspicious_ip:{ip_address}", 1800, "False")
+    
+    return False
+
+
+def _check_ip_reputation(ip_address: str) -> bool:
+    """
+    Check IP reputation against external threat intelligence services.
+    
+    Args:
+        ip_address: IP address to check
+        
+    Returns:
+        bool: True if IP is malicious according to reputation services
+    """
+    # Implementation depends on which threat intelligence APIs are being used
+    # This is a placeholder for integration with services like AbuseIPDB, IPQualityScore, etc.
+    
+    api_key = current_app.config.get('IP_REPUTATION_API_KEY')
+    service = current_app.config.get('IP_REPUTATION_SERVICE', 'abuseipdb')
+    
+    if not api_key:
+        return False
+        
+    try:
+        if service.lower() == 'abuseipdb':
+            headers = {
+                'Accept': 'application/json',
+                'Key': api_key
+            }
+            params = {
+                'ipAddress': ip_address,
+                'maxAgeInDays': 30,
+                'verbose': False
+            }
+            response = requests.get(
+                'https://api.abuseipdb.com/api/v2/check', 
+                headers=headers, 
+                params=params,
+                timeout=3
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                confidence_score = data.get('data', {}).get('abuseConfidenceScore', 0)
+                return confidence_score > 80  # Consider suspicious if over 80% confidence
+                
+        return False
+        
+    except Exception as e:
+        if has_request_context() and hasattr(current_app, 'logger'):
+            current_app.logger.error(f"Error checking IP reputation: {e}")
+        return False

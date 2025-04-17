@@ -23,8 +23,8 @@ import os
 from datetime import datetime
 from flask import Flask, g, request
 from core.factory import create_app as core_create_app
-from views import register_blueprints
 from core.utils import generate_request_id
+from views import register_blueprints
 
 __version__ = '1.0.0'
 
@@ -62,7 +62,7 @@ def create_app() -> Flask:
 
         # Set version
         app.config['VERSION'] = __version__
-        
+
         # Store application startup time for uptime tracking
         app.uptime = datetime.utcnow()
 
@@ -73,10 +73,10 @@ def create_app() -> Flask:
             # Generate unique request ID
             g.request_id = request.headers.get('X-Request-ID', generate_request_id())
             g.start_time = datetime.utcnow()
-            
+
             # Make CSP nonce available for this request
             g.csp_nonce = os.urandom(16).hex()
-        
+
         # Set up file integrity monitoring if enabled
         if app.config.get('ENABLE_FILE_INTEGRITY_MONITORING', True):
             from core.config import Config

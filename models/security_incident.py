@@ -15,7 +15,10 @@ from typing import Dict, Any, Optional, List
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy import desc
 from extensions import db
+from models.audit_log import AuditLog
 from models.base import BaseModel
+from core.security_utils import log_security_event
+
 
 class SecurityIncident(BaseModel):
     """
@@ -54,21 +57,21 @@ class SecurityIncident(BaseModel):
     details = db.Column(db.Text, nullable=True)
     severity = db.Column(db.String(20), nullable=False, index=True) 
     status = db.Column(db.String(20), default='open', index=True)
-    
+
     # Relations and references
     user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
     ip_address = db.Column(db.String(45), nullable=True)
     source = db.Column(db.String(50), default='system')  # system, user_report, security_scan
     assigned_to = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
-    
+
     # Resolution information
     resolution = db.Column(db.Text, nullable=True)
     resolved_at = db.Column(db.DateTime(timezone=True), nullable=True)
-    
+
     # Metadata
     notes = db.Column(db.Text, nullable=True)  # Internal notes on investigation
     external_references = db.Column(db.String(255), nullable=True)  # External tracking IDs
-    
+
     # Relationships
     user = db.relationship('User', foreign_keys=[user_id], 
                           backref=db.backref('security_incidents', lazy='dynamic'))
@@ -116,7 +119,7 @@ class SecurityIncident(BaseModel):
         self.resolution = resolution
         self.resolved_at = resolved_at
         self.external_references = external_references
-        
+
         # Handle any legacy fields from kwargs
         for key, value in kwargs.items():
             if hasattr(self, key):
@@ -126,13 +129,13 @@ class SecurityIncident(BaseModel):
     def is_resolved(self) -> bool:
         """Check if the incident has been resolved."""
         return self.status in ('resolved', 'closed')
-    
+
     @hybrid_property
     def time_to_resolution(self) -> Optional[int]:
         """Calculate time to resolution in hours, if resolved."""
         if self.resolved_at and self.created_at:
-            delta = (self.resolved_at() if callable(self.resolved_at) else self.resolved_at) - \
-                    (self.created_at() if callable(self.created_at) else self.created_at)
+            # No need to check if callable - these are datetime attributes
+            delta = self.resolved_at - self.created_at
             return int(delta.total_seconds() / 3600)
         return None
 
@@ -146,7 +149,7 @@ class SecurityIncident(BaseModel):
         self.assigned_to = user_id
         self.status = 'investigating' if self.status == 'open' else self.status
         self.updated_at = datetime.now(timezone.utc)
-    
+
     def resolve(self, resolution: str, user_id: Optional[int] = None) -> None:
         """
         Mark the incident as resolved.
@@ -159,19 +162,16 @@ class SecurityIncident(BaseModel):
         self.resolution = resolution
         self.resolved_at = datetime.now(timezone.utc)
         self.updated_at = self.resolved_at
-        
+
         if user_id:
             # Track who resolved it if provided
-            from models.audit_log import AuditLog
-            from core.security_utils import log_security_event
-            
             log_security_event(
                 event_type=AuditLog.EVENT_SECURITY_COUNTERMEASURE,
                 description=f"Security incident #{self.id} resolved",
                 user_id=user_id,
                 details=f"Resolution: {resolution[:50]}..."
             )
-    
+
     def close(self, reason: Optional[str] = None) -> None:
         """
         Close the incident (final state).
@@ -183,19 +183,19 @@ class SecurityIncident(BaseModel):
         if reason:
             self.notes = f"{self.notes or ''}\nClosure reason: {reason}"
         self.updated_at = datetime.now(timezone.utc)
-    
+
     @classmethod
     def get_active_incidents(cls) -> List['SecurityIncident']:
         """Get all active (non-closed) security incidents."""
         return cls.query.filter(
             cls.status.in_(['open', 'investigating'])
         ).order_by(desc(cls.severity), desc(cls.created_at)).all()
-    
+
     @classmethod
     def get_incidents_by_severity(cls, severity: str) -> List['SecurityIncident']:
         """Get incidents with the specified severity level."""
         return cls.query.filter_by(severity=severity).order_by(desc(cls.created_at)).all()
-    
+
     @classmethod
     def count_by_status(cls) -> Dict[str, int]:
         """Count incidents by status."""
@@ -203,7 +203,7 @@ class SecurityIncident(BaseModel):
             cls.status, 
             db.func.count(cls.id)
         ).group_by(cls.status).all()
-        
+
         return {status: count for status, count in result}
 
     def to_dict(self) -> Dict[str, Any]:

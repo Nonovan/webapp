@@ -21,14 +21,34 @@
 
         <title>{% block title %}Cloud Service{% endblock %}</title>
 
-        <!-- Resource hints -->
+        <!-- Resource hints for performance -->
         <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
         <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
         <link rel="dns-prefetch" href="https://cdn.jsdelivr.net" />
 
-        <!-- Critical CSS -->
+        <!-- Critical CSS for immediate rendering -->
         <style>
-            :root { color-scheme: light dark; }
+            :root { 
+                color-scheme: light dark; 
+                --primary: #0066cc;
+                --background: #f8f9fa;
+                --text: #212529;
+            }
+            [data-bs-theme="dark"] {
+                --background: #212529;
+                --text: #f8f9fa;
+            }
+            body {
+                background-color: var(--background);
+                color: var(--text);
+            }
+            .invisible-until-load {
+                opacity: 0;
+                transition: opacity 0.3s ease;
+            }
+            .page-loaded .invisible-until-load {
+                opacity: 1;
+            }
         </style>
 
         <!-- External stylesheets with SRI -->

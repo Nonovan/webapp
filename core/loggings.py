@@ -23,12 +23,99 @@ import logging
 import logging.handlers
 import json
 import os
-from datetime import datetime
-from typing import Any, Dict
-from flask import Flask, request, g
+import sys
+import socket
+import traceback
+from datetime import datetime, timezone
+from typing import Optional
+from flask import Flask, request, g, has_request_context
 import sentry_sdk
+from sentry_sdk.integrations.flask import FlaskIntegration
+from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+from sentry_sdk.integrations.redis import RedisIntegration
 
-def setup_app_loggings(app: Flask) -> None:
+
+class SecurityAwareJsonFormatter(logging.Formatter):
+    """
+    Custom JSON formatter for structured logging with security context.
+    
+    This formatter generates structured JSON logs that include application
+    context, request details, and security information when available.
+    """
+    def __init__(self, include_sensitive: bool = False):
+        """
+        Initialize the JSON formatter.
+        
+        Args:
+            include_sensitive: Whether to include potentially sensitive details like 
+                              full URLs and headers. Should be False in production.
+        """
+        super().__init__()
+        self.include_sensitive = include_sensitive
+        self.hostname = socket.gethostname()
+
+    def format(self, record: logging.LogRecord) -> str:
+        """Format a log record as JSON with additional context."""
+        # Base log data
+        log_data = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "module": record.module,
+            "function": record.funcName,
+            "line": record.lineno,
+            "host": self.hostname
+        }
+
+        # Add process and thread info for diagnosing concurrency issues
+        log_data["process"] = record.process
+        log_data["process_name"] = record.processName
+        log_data["thread"] = record.thread
+        log_data["thread_name"] = record.threadName
+
+        # Include exception info if present
+        if record.exc_info:
+            log_data["exception"] = {
+                "type": record.exc_info[0].__name__ if record.exc_info and record.exc_info[0] else None,
+                "value": str(record.exc_info[1]),
+                "traceback": traceback.format_exception(*record.exc_info)
+            }
+
+        # Add Flask request context if available
+        if has_request_context():
+            log_data["request"] = {
+                "id": getattr(g, 'request_id', 'unknown'),
+                "method": request.method,
+                "endpoint": request.endpoint,
+                "path": request.path,
+                "remote_addr": request.remote_addr,
+                "user_agent": request.user_agent.string
+            }
+
+            # Include user ID if authenticated
+            if hasattr(g, 'user_id'):
+                log_data["user_id"] = g.user_id
+
+            # Include sensitive information only if explicitly enabled
+            if self.include_sensitive:
+                log_data["request"]["url"] = request.url
+                log_data["request"]["args"] = dict(request.args)
+                # Don't include form/JSON data as it may contain credentials
+
+        # Include any additional attributes added to the record
+        for key, value in record.__dict__.items():
+            if key not in ["args", "asctime", "created", "exc_info", "exc_text", 
+                           "filename", "funcName", "id", "levelname", "levelno", 
+                           "lineno", "module", "msecs", "message", "msg", "name", 
+                           "pathname", "process", "processName", "relativeCreated", 
+                           "stack_info", "thread", "threadName"]:
+                log_data[key] = value
+
+        return json.dumps(log_data)
+
+
+def setup_app_logging(app: Flask) -> None:
     """
     Configure centralized application logging.
 
@@ -44,160 +131,182 @@ def setup_app_loggings(app: Flask) -> None:
 
     Example:
         app = Flask(__name__)
-        setup_app_loggings(app)
+        setup_app_logging(app)
         app.logger.info("Application logging initialized")
     """
     # Create logs directory
-    log_dir = 'logs'
+    log_dir = os.path.join(app.root_path, 'logs')
     os.makedirs(log_dir, exist_ok=True)
 
-    class JsonFormatter(logging.Formatter):
-        """
-        Custom formatter that outputs log records as JSON objects.
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
 
-        This formatter converts log records to structured JSON format with
-        additional context information from the current request and application
-        state, enabling better log parsing and analysis.
-        """
-        def format(self, record) -> str:
-            """
-            Format log record as JSON string.
+    # Clear existing handlers to avoid duplicates when reloading in development
+    if root_logger.handlers:
+        for handler in root_logger.handlers[:]:
+            root_logger.removeHandler(handler)
 
-            Args:
-                record: The log record to format
+    # Determine if this is a development environment
+    is_dev = app.config.get('ENV', 'production').lower() == 'development'
 
-            Returns:
-                str: JSON-formatted log entry
-            """
-            log_data: Dict[str, Any] = {
-                'timestamp': datetime.utcnow().isoformat(),
-                'level': record.levelname,
-                'message': record.getMessage(),
-                'logger': record.name,
-                'request_id': getattr(g, 'request_id', None),
-                'user_id': getattr(g, 'user_id', None),
-                'path': request.path if request else None,
-                'method': request.method if request else None,
-                'ip': request.remote_addr if request else None,
-                'user_agent': request.user_agent.string if request and request.user_agent else None,
-                'environment': app.config.get('ENV', 'production'),
-                'version': app.config.get('VERSION', '1.0.0')
-            }
+    # Create console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    if is_dev:
+        # Use a more readable format for development
+        console_handler.setFormatter(logging.Formatter(
+            '[%(asctime)s] %(levelname)s in %(module)s: %(message)s'
+        ))
+    else:
+        # Use structured JSON in production for better parsing
+        console_handler.setFormatter(SecurityAwareJsonFormatter())
 
-            # Add error info if present
-            if record.exc_info:
-                log_data['error'] = {
-                    'type': record.exc_info[0].__name__ if record.exc_info and record.exc_info[0] else None,
-                    'message': str(record.exc_info[1]),
-                    'traceback': self.formatException(record.exc_info)
-                }
+    # Set appropriate level
+    console_handler.setLevel(logging.DEBUG if is_dev else logging.INFO)
+    root_logger.addHandler(console_handler)
 
-            return json.dumps(log_data)
+    # Create file handlers with rotation
+    # Main application log - 10MB files, keep 10 backups
+    app_log_path = os.path.join(log_dir, 'application.log')
+    app_handler = logging.handlers.RotatingFileHandler(
+        app_log_path, maxBytes=10*1024*1024, backupCount=10
+    )
+    app_handler.setFormatter(SecurityAwareJsonFormatter())
+    app_handler.setLevel(logging.INFO)
+    root_logger.addHandler(app_handler)
 
-    # Configure handlers with size-based rotation
-    handlers = [
-        # Console output
-        logging.StreamHandler(),
-
-        # Main log file
-        logging.handlers.RotatingFileHandler(
-            filename=f'{log_dir}/app.log',
-            maxBytes=10485760,  # 10MB
-            backupCount=10,
-            encoding='utf-8'
-        ),
-
-        # Error-specific log
-        logging.handlers.RotatingFileHandler(
-            filename=f'{log_dir}/error.log',
-            maxBytes=10485760,
-            backupCount=10,
-            encoding='utf-8'
-        ),
-
-        # Security events log
-        logging.handlers.RotatingFileHandler(
-            filename=f'{log_dir}/security.log',
-            maxBytes=10485760,
-            backupCount=10,
-            encoding='utf-8'
-        )
-    ]
-
-    # Create and configure error handler separately
+    # Error log - separate for critical errors, 5MB files, keep 20 backups
+    error_log_path = os.path.join(log_dir, 'error.log')
     error_handler = logging.handlers.RotatingFileHandler(
-        filename=f'{log_dir}/error.log',
-        maxBytes=10485760,
-        backupCount=10,
-        encoding='utf-8'
+        error_log_path, maxBytes=5*1024*1024, backupCount=20
     )
-    error_handler.setLevel(logging.ERROR)  # Set level correctly on the handler
+    error_handler.setFormatter(SecurityAwareJsonFormatter())
+    error_handler.setLevel(logging.ERROR)
+    root_logger.addHandler(error_handler)
 
-    # Configure formatters
-    console_formatter = logging.Formatter(
-        '%(asctime)s [%(request_id)s] %(levelname)s: %(message)s'
+    # Security log - for security-specific events, 10MB files, keep 30 backups
+    security_log_path = os.path.join(log_dir, 'security.log')
+    security_handler = logging.handlers.RotatingFileHandler(
+        security_log_path, maxBytes=10*1024*1024, backupCount=30
     )
-    json_formatter = JsonFormatter()
+    security_handler.setFormatter(SecurityAwareJsonFormatter())
+    security_logger = logging.getLogger('security')
+    security_logger.setLevel(logging.INFO)
+    security_logger.addHandler(security_handler)
 
-    # Apply configuration
-    app.logger.handlers = []
+    # Make security logger propagate to root logger
+    security_logger.propagate = True
 
-    for handler in handlers:
-        if isinstance(handler, logging.StreamHandler):
-            handler.setFormatter(console_formatter)
-        else:
-            handler.setFormatter(json_formatter)
-        app.logger.addHandler(handler)
+    # Set Flask app logger level
+    app.logger.setLevel(logging.DEBUG if is_dev else logging.INFO)
 
-    # Add error handler separately
-    error_handler.setFormatter(json_formatter)
-    app.logger.addHandler(error_handler)
-
-    app.logger.setLevel(app.config['LOG_LEVEL'])
-
-    # Configure Sentry if DSN provided
-    if app.config.get('SENTRY_DSN'):
+    # Configure Sentry for error reporting in production
+    if not is_dev and app.config.get('SENTRY_DSN'):
         sentry_sdk.init(
-            dsn=app.config['SENTRY_DSN'],
-            environment=app.config['ENV'],
-            traces_sample_rate=1.0
+            dsn=app.config.get('SENTRY_DSN'),
+            integrations=[
+                FlaskIntegration(),
+                SqlalchemyIntegration(),
+                RedisIntegration()
+            ],
+            environment=app.config.get('ENV'),
+            release=app.config.get('VERSION', 'unknown'),
+            send_default_pii=False,  # Don't send PII by default
+            traces_sample_rate=app.config.get('SENTRY_TRACES_SAMPLE_RATE', 0.1)
+        )
+        app.logger.info("Sentry error reporting initialized")
+
+    # Log the configuration
+    app.logger.info("Application logging initialized", extra={
+        "log_dir": log_dir,
+        "environment": app.config.get('ENV'),
+        "level": "DEBUG" if is_dev else "INFO"
+    })
+
+def get_security_logger() -> logging.Logger:
+    """
+    Get the security logger instance.
+    
+    Returns:
+        logging.Logger: The security logger instance
+    """
+    return logging.getLogger('security')
+
+def log_security_event(event_type: str, description: str, severity: str = 'info',
+                      user_id: Optional[int] = None, ip_address: Optional[str] = None,
+                      details: Optional[str] = None) -> None:
+    """
+    Log a security-related event.
+    
+    This function logs security events to both the security log file and the
+    audit log database table for searchability and compliance.
+    
+    Args:
+        event_type: Type of security event (login_attempt, permission_change, etc.)
+        description: Human-readable description of the event
+        severity: Severity level (info, warning, error, critical)
+        user_id: ID of the user who performed the action (if known)
+        ip_address: IP address where the action originated
+        details: Additional details about the event
+    """
+    # Get context info if not provided
+    if has_request_context():
+        ip_address = ip_address or request.remote_addr
+        user_id = user_id or getattr(g, 'user_id', None)
+
+    # Log to the security logger
+    logger = get_security_logger()
+    log_level = {
+        'info': logging.INFO,
+        'warning': logging.WARNING,
+        'error': logging.ERROR,
+        'critical': logging.CRITICAL
+    }.get(severity.lower(), logging.INFO)
+
+    logger.log(log_level, description, extra={
+        'event_type': event_type,
+        'user_id': user_id,
+        'ip_address': ip_address,
+        'details': details,
+        'security_event': True  # Flag for filtering
+    })
+
+    # Also record in the database audit log
+    # Import here to avoid circular imports
+    from models.audit_log import AuditLog
+    from extensions import db
+    try:
+
+        # Map severity to AuditLog severity constants
+        severity_map = {
+            'info': AuditLog.SEVERITY_INFO,
+            'warning': AuditLog.SEVERITY_WARNING,
+            'error': AuditLog.SEVERITY_ERROR,
+            'critical': AuditLog.SEVERITY_CRITICAL
+        }
+
+        # Create audit log entry
+        log_entry = AuditLog(
+            event_type=event_type,
+            description=description,
+            user_id=user_id,
+            ip_address=ip_address,
+            details=details,
+            severity=severity_map.get(severity.lower(), AuditLog.SEVERITY_INFO),
+            created_at=datetime.now(timezone.utc)
         )
 
-def get_logger(app: Flask) -> logging.Logger:
-    """
-    Get configured application logger.
+        # Add user agent if available
+        if has_request_context():
+            log_entry.user_agent = request.user_agent.string
 
-    Provides access to the properly configured logger for the application,
-    ensuring consistent logging format and behavior throughout the codebase.
+        # Save to database
+        db.session.add(log_entry)
+        db.session.commit()
 
-    Args:
-        app (Flask): Flask application instance
-
-    Returns:
-        logging.Logger: Configured application logger
-
-    Example:
-        app = Flask(__name__)
-        logger = get_logger(app)
-        logger.info("Application started")
-    """
-    return app.logger
-
-def get_sentry_client() -> sentry_sdk.Client:
-    """
-    Get configured Sentry client.
-
-    Provides access to the Sentry client for additional error reporting
-    or configuration at runtime.
-
-    Returns:
-        sentry_sdk.Client: Current Sentry client instance or None if not configured
-
-    Raises:
-        RuntimeError: If Sentry is not properly configured
-
-    Example:
-        client = get_sentry_client()
-        client.capture_message("Error occurred")
-    """
-    return sentry_sdk.Hub.current.client
+    except (db.exc.SQLAlchemyError, AttributeError) as e:
+        # Don't let a database failure stop the application, but log it
+        logging.getLogger('security').error(
+            "Failed to write security event to database: %s", str(e),
+            exc_info=True
+        )

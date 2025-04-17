@@ -106,7 +106,7 @@
                             </div>
     
                             <div class="d-grid gap-2">
-                                <button type="submit" class="btn btn-primary btn-lg" id="submitBtn" disabled>
+                                <button type="submit" class="btn btn-primary btn-lg" id="loginButton" disabled>
                                     <span class="spinner-border spinner-border-sm d-none" role="status"></span>
                                     <i class="bi bi-box-arrow-in-right me-2"></i>Login
                                 </button>
@@ -161,19 +161,25 @@
             // Use shared functions
             togglePasswordVisibility('password', 'togglePassword');
             setupFormValidation();
-            setupBruteForceProtection(document.querySelector('form'), 'submitBtn');
+            setupBruteForceProtection(document.querySelector('form'), 'loginButton');
             
             // reCAPTCHA callback defined globally for Google API usage
             window.onRecaptchaVerified = onRecaptchaVerified;
 
-            document.querySelector("#submitBtn").addEventListener("click", function () {
-                const spinner = this.querySelector(".spinner-border");
-                spinner.classList.remove("d-none");
-            });
+            const submitBtn = document.querySelector("#loginButton");
+            if (submitBtn) {
+                submitBtn.addEventListener("click", function() {
+                    if (document.querySelector('form').checkValidity()) {
+                        const spinner = this.querySelector(".spinner-border");
+                        if (spinner) {
+                            spinner.classList.remove("d-none");
+                        }
+                    }
+                });
+            }
 
             // Add lockout detection
             {% if lockout %}
-            const submitBtn = document.querySelector('#submitBtn');
             if (submitBtn) {
                 submitBtn.disabled = true;
                 setTimeout(() => {
@@ -182,5 +188,56 @@
             }
             {% endif %}
         });
+
+        function updateStrengthMeter(password) {
+            const strength = checkPasswordStrength(password);
+            const strengthLabels = ["Very Weak", "Weak", "Moderate", "Strong", "Very Strong"];
+            
+            progressBar.style.width = `${strength * 25}%`;
+            progressBar.className = `progress-bar bg-${getStrengthColor(strength)}`;
+            strengthText.textContent = `Password strength: ${strengthLabels[strength] || "Very Weak"}`;
+            
+            // Add ARIA attributes for accessibility
+            progressBar.setAttribute('aria-valuenow', strength * 25);
+            progressBar.setAttribute('aria-valuetext', strengthLabels[strength] || "Very Weak");
+            
+            // Add more descriptive feedback for screen readers
+            progressBar.setAttribute('aria-description', `Password strength level ${strength + 1} out of 5`);
+        }
+
+        /**
+         * Sets up password matching validation for registration forms
+         * @param {string} passwordId - ID of password input
+         * @param {string} confirmId - ID of confirm password input
+         */
+        function setupPasswordMatchValidation(passwordId, confirmId) {
+            const passwordInput = document.getElementById(passwordId);
+            const confirmInput = document.getElementById(confirmId);
+            
+            if (!passwordInput || !confirmInput) return;
+            
+            // Check match on input to both fields
+            const checkMatch = () => {
+                if (confirmInput.value && confirmInput.value !== passwordInput.value) {
+                    confirmInput.setCustomValidity('Passwords do not match');
+                    confirmInput.classList.add('is-invalid');
+                    
+                    // Add a data attribute for custom styling
+                    confirmInput.setAttribute('data-validation-state', 'invalid');
+                    
+                    // Update feedback message if a feedback element exists
+                    const feedbackElement = confirmInput.nextElementSibling?.classList.contains('invalid-feedback') ? 
+                        confirmInput.nextElementSibling : document.querySelector(`[data-feedback-for="${confirmId}"]`);
+                    
+                    if (feedbackElement) {
+                        feedbackElement.textContent = 'The passwords you entered do not match.';
+                    }
+                } else {
+                    confirmInput.setCustomValidity('');
+                    confirmInput.classList.remove('is-invalid');
+                    confirmInput.removeAttribute('data-validation-state');
+                }
+            };
+        }
         </script>
         {% endblock %}

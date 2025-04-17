@@ -13,6 +13,7 @@ These utilities are designed to be stateless, reusable components that
 encapsulate common operations to reduce code duplication and ensure
 consistent behavior throughout the application.
 """
+
 import hashlib
 import base64
 import os
@@ -46,12 +47,19 @@ def generate_sri_hash(file_path: str) -> str:
         FileNotFoundError: If the specified file does not exist
         IOError: If the file cannot be read
     """
-    with open(file_path, 'rb') as f:
-        file_contents = f.read()
-        
-    digest = hashlib.sha384(file_contents).digest()
-    b64_digest = base64.b64encode(digest).decode('utf-8')
-    return f"sha384-{b64_digest}"
+    try:
+        with open(file_path, 'rb') as f:
+            file_contents = f.read()
+            
+        digest = hashlib.sha384(file_contents).digest()
+        b64_hash = base64.b64encode(digest).decode('utf-8')
+        return f"sha384-{b64_hash}"
+    except FileNotFoundError:
+        current_app.logger.error(f"SRI hash generation failed: File not found: {file_path}")
+        raise
+    except IOError as e:
+        current_app.logger.error(f"SRI hash generation failed: I/O error: {str(e)}")
+        raise
 
 
 def calculate_file_hash(file_path: str, algorithm: str = 'sha256') -> str:
@@ -71,7 +79,7 @@ def calculate_file_hash(file_path: str, algorithm: str = 'sha256') -> str:
     """
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
-    
+
     hash_algorithms = {
         'md5': hashlib.md5,
         'sha1': hashlib.sha1,
@@ -80,17 +88,17 @@ def calculate_file_hash(file_path: str, algorithm: str = 'sha256') -> str:
         'sha384': hashlib.sha384,
         'sha512': hashlib.sha512,
     }
-    
+
     if algorithm not in hash_algorithms:
         raise ValueError(f"Unsupported hash algorithm: {algorithm}")
-        
+
     hash_func = hash_algorithms[algorithm]()
-    
+
     with open(file_path, 'rb') as f:
         # Read and update hash in chunks for memory efficiency
         for chunk in iter(lambda: f.read(4096), b""):
             hash_func.update(chunk)
-            
+
     return hash_func.hexdigest()
 
 def get_critical_file_hashes(files: List[str], 
@@ -109,13 +117,40 @@ def get_critical_file_hashes(files: List[str],
     """
     hashes = {}
     for file_path in files:
-        if os.path.exists(file_path):
+        # Normalize the path for consistency
+        normalized_path = os.path.normpath(file_path)
+
+        if os.path.exists(normalized_path):
             try:
-                hashes[file_path] = calculate_file_hash(file_path, algorithm)
-            except (IOError, ValueError) as e:
-                current_app.logger.error(f"Failed to hash {file_path}: {e}")
-                hashes[file_path] = None
-                
+                file_hash = calculate_file_hash(normalized_path, algorithm)
+                hashes[normalized_path] = file_hash
+
+                # Check if this is a security-critical file
+                if current_app and current_app.config.get('SECURITY_CHECK_FILE_INTEGRITY'):
+                    critical_files = current_app.config.get('SECURITY_CRITICAL_FILES', [])
+                    if normalized_path in critical_files:
+                        # Log the hash calculation for audit purposes
+                        log_security_event(
+                            event_type=AuditLog.EVENT_FILE_INTEGRITY,
+                            description=f"Integrity hash calculated for critical file: {normalized_path}",
+                            severity=AuditLog.SEVERITY_INFO,
+                            details=f"Algorithm: {algorithm}, Hash: {file_hash[:8]}..."
+                        )
+            except (IOError, ValueError, PermissionError) as e:
+                current_app.logger.error(f"Failed to hash {normalized_path}: {e}")
+                hashes[normalized_path] = None
+
+                # Log file access errors for security-critical files
+                if current_app and current_app.config.get('SECURITY_CHECK_FILE_INTEGRITY'):
+                    critical_files = current_app.config.get('SECURITY_CRITICAL_FILES', [])
+                    if normalized_path in critical_files:
+                        log_security_event(
+                            event_type=AuditLog.EVENT_FILE_INTEGRITY,
+                            description=f"Failed to verify integrity of critical file: {normalized_path}",
+                            severity=AuditLog.SEVERITY_WARNING,
+                            details=f"Error: {str(e)}"
+                        )
+
     return hashes
 
 
@@ -127,24 +162,34 @@ def generate_request_id() -> str:
     - UUID v4 for global uniqueness
     - Timestamp component for chronological sorting
     - Process ID to differentiate between application instances
+    - Host identifier to track across distributed systems
     
     The resulting ID is useful for:
     - Request tracing across microservices
     - Security event correlation
     - Log analysis and filtering
     - Performance monitoring
+    - Distributed tracing in cloud environments
     
     Returns:
-        str: Unique request ID in format: 'ts-{timestamp}-{uuid}-{pid}'
+        str: Unique request ID in format: 'req-{timestamp}-{uuid}-{host}-{pid}'
     """
     timestamp = int(time.time() * 1000)  # Millisecond precision
-    unique_id = uuid.uuid4().hex[:16]    # Use first half of UUID for brevity
+    unique_id = uuid.uuid4().hex[:12]    # Use first 12 chars of UUID for brevity
     process_id = os.getpid() % 10000     # Include process ID (truncated)
-    
-    # Format: ts-{timestamp}-{uuid}-{pid}
-    # Example: ts-1635789042513-a7de31f8b4c21e9c-3478
-    request_id = f"ts-{timestamp}-{unique_id}-{process_id}"
-    
+
+    # Get a host identifier (first 4 chars of hostname hash)
+    try:
+        import socket
+        hostname = socket.gethostname()
+        host_id = hashlib.md5(hostname.encode()).hexdigest()[:4]
+    except (OSError, ImportError):
+        host_id = "0000"  # Fallback if hostname can't be retrieved
+
+    # Format: req-{timestamp}-{uuid}-{host}-{pid}
+    # Example: req-1635789042513-a7de31f8b4c2-1a2b-3478
+    request_id = f"req-{timestamp}-{unique_id}-{host_id}-{process_id}"
+
     return request_id
 
 
@@ -284,13 +329,13 @@ def detect_file_changes(basedir: str,
             log_security_event('file_integrity_violation', f"Detected {len(changes)} modified files")
     """
 
-    
+
     if critical_patterns is None:
         critical_patterns = ['*.py', 'config.*', '.env*', '*.ini', 'requirements.txt']
-    
+
     modified_files = []
     permission_cache = {}
-    
+
     # Check files with known hashes
     for filepath, expected_hash in reference_hashes.items():
         if not os.path.exists(filepath):
@@ -301,7 +346,7 @@ def detect_file_changes(basedir: str,
                 'timestamp': format_timestamp()
             })
             continue
-        
+
         try:
             current_hash = calculate_file_hash(filepath)
             if current_hash != expected_hash:
@@ -313,17 +358,17 @@ def detect_file_changes(basedir: str,
                     'new_hash': current_hash,
                     'timestamp': format_timestamp()
                 })
-            
+
             # Check for permission changes if requested
             if detect_permissions:
                 current_mode = os.stat(filepath).st_mode
                 # Store permission mode to track changes
                 permission_cache[filepath] = current_mode
-                
+
                 # Check if file has unusual permissions
                 is_executable = bool(current_mode & stat.S_IXUSR)
                 is_world_writable = bool(current_mode & stat.S_IWOTH)
-                
+
                 if filepath.endswith('.py') and is_executable:
                     modified_files.append({
                         'path': filepath,
@@ -332,7 +377,7 @@ def detect_file_changes(basedir: str,
                         'current_mode': oct(current_mode),
                         'timestamp': format_timestamp()
                     })
-                
+
                 if is_world_writable:
                     modified_files.append({
                         'path': filepath,
@@ -341,7 +386,7 @@ def detect_file_changes(basedir: str,
                         'current_mode': oct(current_mode),
                         'timestamp': format_timestamp()
                     })
-                
+
         except (IOError, ValueError, OSError) as e:
             modified_files.append({
                 'path': filepath,
@@ -350,7 +395,7 @@ def detect_file_changes(basedir: str,
                 'error': str(e),
                 'timestamp': format_timestamp()
             })
-    
+
     # Check modification times of critical files
     for pattern in critical_patterns:
         for filepath in glob.glob(os.path.join(basedir, pattern)):
@@ -358,12 +403,12 @@ def detect_file_changes(basedir: str,
                 try:
                     mtime = os.path.getmtime(filepath)
                     mtime_dt = datetime.fromtimestamp(mtime, tz=timezone.utc)
-                    
+
                     # Check if modified in last 24 hours
                     if (now_utc() - mtime_dt).total_seconds() < 86400:
                         # Calculate hash for new/changed file
                         current_hash = calculate_file_hash(filepath)
-                        
+
                         modified_files.append({
                             'path': filepath,
                             'status': 'recent_change',
@@ -372,7 +417,7 @@ def detect_file_changes(basedir: str,
                             'current_hash': current_hash,
                             'timestamp': format_timestamp()
                         })
-                    
+
                     # Check for hidden files that match our patterns
                     basename = os.path.basename(filepath)
                     if basename.startswith('.') and not basename in ['.env', '.gitignore']:
@@ -383,12 +428,12 @@ def detect_file_changes(basedir: str,
                             'modified_time': mtime_dt.isoformat(),
                             'timestamp': format_timestamp()
                         })
-                        
+
                     # Check for unusual file ownership
                     try:
                         stat_info = os.stat(filepath)
                         owner = pwd.getpwuid(stat_info.st_uid).pw_name
-                        
+
                         # Detection logic depends on deployment environment
                         # This example assumes files should be owned by 'www-data'
                         expected_owner = os.environ.get('EXPECTED_FILE_OWNER', 'www-data')
@@ -404,7 +449,7 @@ def detect_file_changes(basedir: str,
                     except (ImportError, KeyError):
                         # pwd module not available or owner lookup failed
                         pass
-                    
+
                 except (IOError, ValueError, OSError) as e:
                     modified_files.append({
                         'path': filepath,
@@ -412,7 +457,7 @@ def detect_file_changes(basedir: str,
                         'error': str(e),
                         'timestamp': format_timestamp()
                     })
-    
+
     # Check digital signatures if requested
     if check_signatures:
         executable_patterns = ['*.so', '*.dll', '*.exe', '*.bin']
@@ -425,7 +470,7 @@ def detect_file_changes(basedir: str,
                         'severity': 'critical',
                         'timestamp': format_timestamp()
                     })
-    
+
     return modified_files
 
 
@@ -445,13 +490,13 @@ def verify_file_signature(filepath: str) -> bool:
     """
     # Use the filepath argument to log the file being checked
     current_app.logger.info(f"Verifying file signature for: {filepath}")
-    
+
     # This is a stub implementation. In production code, you would implement
     # platform-specific signature verification:
     # - On Windows, using WinVerifyTrust
     # - On macOS, using Security framework
     # - On Linux, using GPG or other verification methods
-    
+
     # Example implementation using a hypothetical platform-specific module:
     try:
         # Platform-specific signature checking would go here
@@ -461,7 +506,7 @@ def verify_file_signature(filepath: str) -> bool:
         # elif platform.system() == 'Darwin':  # macOS
         #    import mac_verify
         #    return mac_verify.verify_code_signature(filepath)
-        
+
         # For now, just return True to avoid false positives
         return True
     except (OSError, ValueError):
@@ -479,12 +524,12 @@ def log_file_integrity_event(changes: List[Dict[str, Any]]) -> None:
     """
     if not changes:
         return
-        
+
     # Group changes by severity
     critical = [c for c in changes if c.get('severity') == 'critical']
     high = [c for c in changes if c.get('severity') == 'high']
     medium = [c for c in changes if c.get('severity') == 'medium']
-    
+
     # Determine overall severity
     if critical:
         severity = AuditLog.SEVERITY_CRITICAL
@@ -494,21 +539,21 @@ def log_file_integrity_event(changes: List[Dict[str, Any]]) -> None:
         severity = AuditLog.SEVERITY_WARNING
     else:
         severity = AuditLog.SEVERITY_INFO
-        
+
     # Create summary
     summary = f"File integrity violations detected: {len(critical)} critical, {len(high)} high, {len(medium)} medium"
-    
+
     # Log to application log
     if critical or high:
         current_app.logger.error(summary)
     else:
         current_app.logger.warning(summary)
-    
+
     # Log detailed information for each changed file
     for change in changes:
         path = change.get('path', 'unknown')
         status = change.get('status', 'unknown')
-        
+
         # Create audit log entry
         try:
             log_security_event(
@@ -518,3 +563,50 @@ def log_file_integrity_event(changes: List[Dict[str, Any]]) -> None:
             )
         except (psutil.Error, OSError, ValueError) as e:
             current_app.logger.error(f"Failed to create audit log for file integrity event: {e}")
+
+
+def get_file_metadata(file_path: str) -> Dict[str, Any]:
+    """
+    Get metadata about a file for security and integrity checks.
+    
+    This function collects detailed metadata about a file that can be used
+    for security analysis, integrity monitoring, and compliance purposes.
+    Particularly useful for ICS and critical infrastructure files.
+    
+    Args:
+        file_path: Path to the file to analyze
+        
+    Returns:
+        Dictionary containing file metadata including:
+        - size: File size in bytes
+        - created_at: Creation timestamp
+        - modified_at: Last modification timestamp
+        - accessed_at: Last access timestamp
+        - owner: File owner username
+        - permissions: File permissions as octal string
+        - hash: SHA-256 hash of the file content
+    """
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    stat_info = os.stat(file_path)
+
+    try:
+        # Get owner name (Unix-specific)
+        owner = pwd.getpwuid(stat_info.st_uid).pw_name
+    except (KeyError, ImportError):
+        # Fallback for Windows or if user lookup fails
+        owner = str(stat_info.st_uid)
+
+    metadata = {
+        'path': os.path.abspath(file_path),
+        'size': stat_info.st_size,
+        'created_at': datetime.fromtimestamp(stat_info.st_ctime, tz=timezone.utc),
+        'modified_at': datetime.fromtimestamp(stat_info.st_mtime, tz=timezone.utc),
+        'accessed_at': datetime.fromtimestamp(stat_info.st_atime, tz=timezone.utc),
+        'owner': owner,
+        'permissions': oct(stat_info.st_mode & 0o777),
+        'hash': calculate_file_hash(file_path)
+    }
+
+    return metadata
