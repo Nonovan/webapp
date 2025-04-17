@@ -23,6 +23,8 @@ SQLAlchemy==2.0.22
 alembic==1.12.0
 redis==4.6.0  # Pinned to specific version for stability
 # psycopg2-binary==2.9.9  # Added for PostgreSQL support
+sqlalchemy-utils==0.41.1  # Added for advanced SQLAlchemy utilities
+python-dateutil==2.8.2  # Added for date handling
 
 # Security
 PyJWT==2.8.0
@@ -47,6 +49,23 @@ psutil==5.9.5
 datadog==0.48.0  # Added for additional monitoring
 statsd==4.0.1  # Added for metrics collection
 APScheduler==3.10.4  # Added for scheduled monitoring tasks
+python-dotenv==1.0.0
+influxdb-client==1.36.1  # Added for time-series metrics storage
+grafana-api-client==0.2.0  # Added for dashboard management
+# timeseriesdb==0.1.5  # Added for time series data management
+
+# Cloud Provider SDKs
+boto3==1.34.1  # AWS SDK
+botocore==1.34.1  # AWS Core Library
+google-cloud-storage==2.13.0  # GCP Storage
+google-cloud-compute==1.15.0  # Added for GCP compute resources
+google-cloud-monitoring==2.16.0  # Added for GCP metrics
+azure-mgmt-resource==23.0.1  # Azure Resource Management
+azure-mgmt-compute==30.3.0  # Azure Compute Management
+azure-mgmt-monitor==6.0.2  # Added for Azure metrics
+azure-mgmt-network==25.1.0  # Added for Azure network resources
+azure-identity==1.15.0  # Added for Azure authentication
+azure-storage-blob==12.19.0  # Added for Azure blob storage
 
 # Testing
 pytest==7.4.2
@@ -56,6 +75,8 @@ pytest-mock==3.11.1
 pytest-asyncio==0.21.1
 pytest-timeout==2.1.0
 pytest-xdist==3.3.1  # Added for parallel testing
+moto==4.2.7  # Added for AWS service mocking
+responses==0.24.1  # Added for HTTP mocking
 
 # Development
 python-dotenv==1.0.0
