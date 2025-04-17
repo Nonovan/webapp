@@ -1,0 +1,75 @@
+# AppArmor profile for NGINX web server
+# Place at /etc/apparmor.d/usr.sbin.nginx
+
+#include <tunables/global>
+
+profile nginx /usr/sbin/nginx {
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+  #include <abstractions/openssl>
+
+  # Capabilities
+  capability setuid,
+  capability setgid,
+  capability net_bind_service,
+  capability dac_override,
+  capability chown,
+
+  # Network access
+  network inet stream,
+  network inet6 stream,
+
+  # Binary and modules
+  /usr/sbin/nginx mr,
+  /usr/lib{,32,64}/nginx/modules/* mr,
+  /etc/nginx/modules-enabled/*.conf r,
+
+  # Configuration files
+  /etc/nginx/nginx.conf r,
+  /etc/nginx/mime.types r,
+  /etc/nginx/conf.d/ r,
+  /etc/nginx/conf.d/** r,
+  /etc/nginx/sites-enabled/ r,
+  /etc/nginx/sites-enabled/** r,
+  /etc/nginx/snippets/ r,
+  /etc/nginx/snippets/** r,
+  /etc/ssl/certs/* r,
+  /etc/ssl/private/** r,
+  /etc/nginx/modsecurity.d/ r,
+  /etc/nginx/modsecurity.d/** r,
+
+  # Cloud Platform specific configs
+  /opt/cloud-platform/deployment/security/nginx-*.conf r,
+
+  # Log files
+  /var/log/nginx/* w,
+  /var/log/nginx/*.log rw,
+
+  # PID
+  /var/run/nginx.pid rw,
+
+  # Temp files
+  /var/lib/nginx/** rw,
+
+  # Web content
+  /var/www/ r,
+  /var/www/** r,
+
+  # Cloud Platform specific content
+  /opt/cloud-platform/static/** r,
+  /opt/cloud-platform/uploads/** r,
+
+  # Unix sockets
+  /var/run/php*.sock rw,
+  /var/run/cloud-platform/*.sock rw,
+
+  # System information
+  @{PROC}/sys/kernel/random/uuid r,
+  @{PROC}/sys/net/core/somaxconn r,
+  @{PROC}/sys/net/ipv4/ip_local_port_range r,
+
+  # Allow monitoring
+  /run/nginx.pid r,
+  @{PROC}/*/stat r,
+  @{PROC}/*/status r,
+}

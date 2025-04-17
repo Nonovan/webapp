@@ -1,0 +1,24 @@
+# Crontab entries for security patching and updates
+# Add to /etc/cron.d/cloud-platform-security
+
+# Environment variables
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=security@example.com
+
+# Run security updates at 3 AM every day
+0 3 * * * root /usr/bin/apt-get update && /usr/bin/apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" dist-upgrade >> /var/log/cloud-platform/auto-security-update.log 2>&1
+
+# Update ModSecurity rules at 4 AM every Monday
+0 4 * * 1 root /usr/local/bin/update-modsecurity-rules.sh >> /var/log/cloud-platform/modsec-update.log 2>&1
+
+# Renew SSL certificates twice daily
+0 1,13 * * * root /opt/cloud-platform/deployment/security/certificate-renew.sh >> /var/log/cloud-platform/cert-renewal.log 2>&1
+
+# Run security audit every Sunday at 2 AM
+0 2 * * 0 root /opt/cloud-platform/deployment/security/security-audit.sh >> /var/log/cloud-platform/security-audit.log 2>&1
+
+# Check file integrity daily
+0 5 * * * root /usr/bin/aide --check >> /var/log/cloud-platform/file-integrity.log 2>&1
+
+# Update IP blocklist daily at 1 AM
+0 1 * * * root /opt/cloud-platform/scripts/update-blocklist.sh >> /var/log/cloud-platform/blocklist-update.log 2>&1

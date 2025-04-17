@@ -1,0 +1,65 @@
+# Fail2ban configuration for Cloud Infrastructure Platform
+# Place this file at /etc/fail2ban/jail.local
+
+[DEFAULT]
+# Ban hosts for 1 hour
+bantime = 3600
+# Check for ban every 5 minutes
+findtime = 300
+# Ban after 5 failed attempts
+maxretry = 5
+
+# Destination email for notifications
+destemail = security@example.com
+sendername = Fail2Ban
+sender = fail2ban@example.com
+mta = sendmail
+action = %(action_mwl)s
+
+# SSH protection
+[sshd]
+enabled = true
+port = ssh
+filter = sshd
+logpath = /var/log/auth.log
+maxretry = 3
+
+# Web server protection
+[nginx-http-auth]
+enabled = true
+filter = nginx-http-auth
+port = http,https
+logpath = /var/log/nginx/error.log
+
+# API rate limiting
+[nginx-limit-req]
+enabled = true
+filter = nginx-limit-req
+port = http,https
+logpath = /var/log/nginx/error.log
+maxretry = 10
+
+# API authentication failures
+[cloud-platform-api-auth]
+enabled = true
+filter = cloud-platform-api-auth
+port = http,https
+logpath = /var/log/cloud-platform/api.log
+maxretry = 5
+
+# Web application firewall
+[nginx-modsecurity]
+enabled = true
+filter = nginx-modsecurity
+port = http,https
+logpath = /var/log/nginx/modsecurity_audit.log
+maxretry = 3
+
+# Admin login failures
+[cloud-platform-admin-auth]
+enabled = true
+filter = cloud-platform-admin-auth
+port = http,https
+logpath = /var/log/cloud-platform/auth.log
+maxretry = 3
+bantime = 7200
