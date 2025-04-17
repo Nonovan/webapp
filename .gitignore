@@ -46,7 +46,7 @@ pyvenv.cfg
 # Project
 #instance/
 #logs/
-*.log
+*.log*
 uploads/
 media/
 static/
