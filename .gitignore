@@ -44,7 +44,7 @@ pyvenv.cfg
 *.sublime-workspace
 
 # Project
-#logs/
+logs/
 *.log*
 uploads/
 media/
@@ -52,8 +52,10 @@ static/
 .webassets-cache/
 
 # Instance folder - contains environment-specific configuration
-instance/
-instance/*
+#instance/
+#instance/*
+instance/temporary/
+instance/ssl/
 !instance/.gitkeep
 
 # Testing
