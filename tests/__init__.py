@@ -1,5 +1,5 @@
 """
-Test configuration and fixtures package for myproject.
+Test configuration and fixtures package for the cloud services platform.
 
 This package contains pytest fixtures and configuration for the application's test suite.
 It provides the testing infrastructure needed to run isolated, repeatable tests against
@@ -9,7 +9,9 @@ Key elements provided by this package:
 - Application test fixtures with controlled configurations
 - Database fixtures with isolated test databases
 - User authentication fixtures with different permission levels
-- Mock data for various test scenarios
+- Cloud provider and resource mocking
+- Security testing helpers and vulnerability scanners
+- Mock metrics and monitoring data
 - Test client configuration for API testing
 
 The fixtures are designed to be modular, allowing tests to request only the
@@ -17,17 +19,32 @@ dependencies they need, and are automatically cleaned up after each test to
 maintain isolation between test cases.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
+import json
 import logging
-from typing import Any, Dict
+import os
+import random
+from typing import Any, Dict, List, Optional
+from unittest.mock import MagicMock, patch
+
 import pytest
+from flask import Flask, current_app
+from flask.testing import FlaskClient
+import jwt
+
 from app import create_app
-from extensions import db
+from extensions import db, cache, metrics
 from models.user import User
+from models.cloud_resource import CloudResource
+from models.cloud_provider import CloudProvider
+from models.cloud_metric import CloudMetric
+from models.cloud_alert import CloudAlert
+from models.security_incident import SecurityIncident
+from models.audit_log import AuditLog
 
 # Application Fixtures
 @pytest.fixture
-def app() -> Any:
+def app() -> Flask:
     """
     Create an application instance configured for testing.
 
@@ -36,7 +53,7 @@ def app() -> Any:
     logging for test visibility.
 
     Returns:
-        Any: Flask application instance configured for testing
+        Flask: Flask application instance configured for testing
 
     Example:
         def test_app_config(app):
@@ -49,8 +66,19 @@ def app() -> Any:
         'SQLALCHEMY_DATABASE_URI': 'sqlite:///:memory:',
         'WTF_CSRF_ENABLED': False,
         'SERVER_NAME': 'localhost.localdomain',
-        'SECRET_KEY': 'test-key'
+        'CLOUD_PROVIDERS_ENABLED': True,
+        'METRICS_ENABLED': False,  # Disable metrics during tests
+        'JWT_SECRET_KEY': 'test-jwt-secret',
+        'SECURITY_LOG_LEVEL': 'INFO',  # Lower security log level for testing
+        'CACHE_TYPE': 'simple',  # Use simple cache for testing
+        'MAIL_SUPPRESS_SEND': True  # Don't actually send emails during tests
     })
+    
+    with test_app.app_context():
+        db.create_all()
+        yield test_app
+        db.session.remove()
+        db.drop_all()
 
     # Setup test logging
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -289,6 +317,6 @@ def mock_cache(mocker) -> Any:
             mock_cache.set.return_value = True
             # Test function that uses cache
     """
-    cache = mocker.MagicMock()
-    mocker.patch('extensions.cache', cache)
-    return cache
+    mock_cache_instance = mocker.MagicMock()
+    mocker.patch('extensions.cache', mock_cache_instance)
+    return mock_cache_instance
