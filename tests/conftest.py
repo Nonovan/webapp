@@ -1,7 +1,7 @@
 """
-Test fixtures for the myproject application.
+Test fixtures for the cloud infrastructure platform.
 
-This module provides a collection of pytest fixtures used across the test suite,
+This module provides a comprehensive collection of pytest fixtures used across the test suite,
 enabling consistent test setup and dependency injection. These fixtures include:
 
 - Application configuration and initialization
@@ -10,21 +10,36 @@ enabling consistent test setup and dependency injection. These fixtures include:
 - JWT token generation for API testing
 - Mock data generation for various test scenarios
 - Test client configuration
+- Cloud provider and resource mocking
+- Metrics and monitoring test helpers
 
 The fixtures are designed to be composable, allowing tests to request only the
 dependencies they need while maintaining isolation between test cases.
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
+import json
+import os
+import random
+import uuid
+from unittest.mock import MagicMock, patch
+
 import jwt
 import pytest
+from flask import Flask
+from flask.testing import FlaskClient
+
 from app import create_app
-from extensions import db
+from extensions import db, cache, metrics
 from models.user import User
+from models.cloud_resource import CloudResource
+from models.cloud_provider import CloudProvider
+from models.cloud_metric import CloudMetric
+from models.cloud_alert import CloudAlert
 
 @pytest.fixture
-def test_app() -> Any:
+def test_app() -> Flask:
     """
     Create test application instance.
 
@@ -40,7 +55,10 @@ def test_app() -> Any:
         'SERVER_NAME': 'localhost.localdomain',
         'SECRET_KEY': 'test-secret-key',
         'JWT_SECRET_KEY': 'test-jwt-key',
-        'CACHE_TYPE': 'simple'
+        'CACHE_TYPE': 'simple',
+        'METRICS_ENABLED': False,
+        'CLOUD_PROVIDERS_ENABLED': True,
+        'CLOUD_METRICS_RETENTION_DAYS': 7
     })
 
     with app.app_context():

@@ -240,6 +240,11 @@ def test_token_expiration(test_db) -> None:
     token = u.generate_token(expires_in=1)
     time.sleep(2)
     assert User.verify_token(token) is None
+    
+    # Test token with cloud access scope
+    cloud_token = u.generate_token(expires_in=1)
+    time.sleep(2)
+    assert User.verify_token(cloud_token) is None
 
 def test_password_validation() -> None:
     """
@@ -261,6 +266,20 @@ def test_password_validation() -> None:
 
     with pytest.raises(ValueError):
         u.set_password('NoSpecials123')  # No special chars
+        
+    # Test common password pattern rejection
+    with pytest.raises(ValueError):
+        u.set_password('Password123!')  # Common pattern
+        
+    # Test password history enforcement
+    u.set_password('ValidPassword1!')
+    with pytest.raises(ValueError):
+        # Should not be able to reuse the same password
+        u.set_password('ValidPassword1!')
+        
+    # Valid complex password should work
+    u.set_password('Tr0ub4dor&3Xample!')
+    assert u.check_password('Tr0ub4dor&3Xample!')
 
 def test_profile_updates(test_db) -> None:
     """
@@ -283,13 +302,18 @@ def test_profile_updates(test_db) -> None:
     u.last_name = 'User'
     u.bio = 'Test bio'
     u.avatar_url = 'https://example.com/avatar.jpg'
+    u.cloud_preferences = {'default_region': 'us-west-2', 'theme': 'dark'}
+    u.notification_preferences = {'email_alerts': True, 'sms_alerts': False}
     test_db.session.commit()
 
-    # Verify profile attributes were set correctly
-    assert u.first_name == 'Test'
-    assert u.last_name == 'User'
-    assert u.bio == 'Test bio'
-    assert u.avatar_url == 'https://example.com/avatar.jpg'
+    # Retrieve from database to verify persistence
+    user_from_db = User.query.filter_by(username='test').first()
+    assert user_from_db.first_name == 'Test'
+    assert user_from_db.last_name == 'User'
+    assert user_from_db.bio == 'Test bio'
+    assert user_from_db.avatar_url == 'https://example.com/avatar.jpg'
+    assert user_from_db.cloud_preferences.get('default_region') == 'us-west-2'
+    assert user_from_db.notification_preferences.get('email_alerts') is True
 
 def test_role_management(test_db) -> None:
     """
@@ -395,3 +419,78 @@ def test_last_login_update(test_db: Session) -> None:
     test_db.refresh(u)
     assert u.last_login is not None
     assert u.login_count == 2
+
+
+def test_user_roles_and_permissions(test_db) -> None:
+    """
+    Test user roles and permissions.
+    
+    Verifies that users with different roles have appropriate
+    permissions for the cloud infrastructure platform.
+    
+    Args:
+        test_db: Database session fixture
+    """
+    # Create users with different roles
+    admin = User(username='admin', email='admin@example.com', role='admin')
+    operator = User(username='operator', email='operator@example.com', role='operator')
+    user = User(username='user', email='user@example.com', role='user')
+    
+    test_db.session.add_all([admin, operator, user])
+    test_db.session.commit()
+    
+    # Test admin permissions
+    assert admin.has_permission('admin:access')
+    assert admin.has_permission('cloud:create')
+    assert admin.has_permission('cloud:delete')
+    assert admin.has_permission('metrics:view')
+    
+    # Test operator permissions
+    assert not operator.has_permission('admin:access')
+    assert operator.has_permission('cloud:view')
+    assert operator.has_permission('cloud:update')
+    assert not operator.has_permission('cloud:delete')
+    assert operator.has_permission('metrics:view')
+    
+    # Test regular user permissions
+    assert not user.has_permission('admin:access')
+    assert user.has_permission('cloud:view')
+    assert not user.has_permission('cloud:update')
+    assert not user.has_permission('cloud:delete')
+    assert user.has_permission('metrics:view:own')
+
+
+def test_user_api_key_management(test_db) -> None:
+    """
+    Test API key generation and validation.
+    
+    Verifies that users can generate and validate API keys for programmatic
+    access to cloud resources.
+    
+    Args:
+        test_db: Database session fixture
+    """
+    u = User(username='apiuser', email='api@example.com')
+    test_db.session.add(u)
+    test_db.session.commit()
+    
+    # Generate API key with specific scope and expiration
+    api_key = u.generate_api_key(
+        name="Test API Key",
+        scopes=["cloud:read", "metrics:read"],
+        expires_in_days=30
+    )
+    
+    assert api_key is not None
+    assert len(api_key) > 32  # Should be reasonably long
+    
+    # Verify API key is valid and has correct scopes
+    key_info = User.verify_api_key(api_key)
+    assert key_info is not None
+    assert key_info['user_id'] == u.id
+    assert 'cloud:read' in key_info['scopes']
+    assert 'metrics:read' in key_info['scopes']
+    
+    # Test API key revocation
+    u.revoke_api_key(api_key)
+    assert User.verify_api_key(api_key) is None
