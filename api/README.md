@@ -1,4 +1,4 @@
-Collecting workspace information# API Reference - Cloud Infrastructure Platform
+# API Reference - Cloud Infrastructure Platform
 
 ## Overview
 
