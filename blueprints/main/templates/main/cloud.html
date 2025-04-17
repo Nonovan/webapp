@@ -3,50 +3,80 @@
 {% block title %}Cloud Services Dashboard{% endblock %}
 
 {% block content %}
-<div class="container py-5">
+<div class="container-fluid container-lg py-4">
     <!-- Status Overview -->
     <div class="row mb-4">
         <div class="col-md-6">
-            <h1>Cloud Services Dashboard</h1>
+            <h1 class="h2">Cloud Services Dashboard</h1>
+            <p class="text-muted">Real-time system monitoring and management</p>
         </div>
-        <div class="col-md-6 text-end">
-            <button class="btn btn-primary" id="refreshData">
-                <i class="bi bi-arrow-clockwise"></i> Refresh
+        <div class="col-md-6 d-flex justify-content-md-end align-items-center mt-3 mt-md-0">
+            <div class="form-check form-switch me-3" role="switch" aria-checked="true">
+                <input class="form-check-input" type="checkbox" id="autoRefreshToggle" checked aria-labelledby="autoRefreshLabel">
+                <label class="form-check-label" for="autoRefreshToggle" id="autoRefreshLabel">Auto refresh</label>
+            </div>
+            <button class="btn btn-primary" id="refreshData" aria-label="Refresh dashboard data">
+                <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Refresh
             </button>
-            <span class="ms-3">Last updated: <span id="lastUpdate"></span></span>
+            <span class="ms-3 d-none d-md-inline">Last updated: <span id="lastUpdate" aria-live="polite">{{ last_updated|default('Never') }}</span></span>
         </div>
     </div>
 
     <!-- System Metrics -->
     <div class="row mb-4">
-        <div class="col-md-3">
-            <div class="card">
+        <div class="col-md-6 col-lg-3 mb-3 mb-lg-0">
+            <div class="card h-100 border-start border-4 {% if cpu_usage|default(0) > 80 %}border-danger{% elif cpu_usage|default(0) > 50 %}border-warning{% else %}border-success{% endif %}">
                 <div class="card-body text-center">
-                    <h5 class="card-title">CPU Usage</h5>
-                    <div class="gauge-container" id="cpuGauge"></div>
-                    <h3 id="cpuValue">{{ cpu_usage }}%</h3>
+                    <h5 class="card-title d-flex align-items-center justify-content-center">
+                        <i class="bi bi-cpu me-2" aria-hidden="true"></i>CPU Usage
+                    </h5>
+                    <div class="gauge-container" id="cpuGauge" role="img" aria-label="CPU usage gauge showing {{ cpu_usage|default('0') }}%"></div>
+                    <h3 id="cpuValue">{{ cpu_usage|default('0') }}%</h3>
+                    <div class="d-flex align-items-center justify-content-center" id="cpuTrend">
+                        {% if cpu_trend|default(0) > 0 %}
+                            <span class="badge bg-danger me-1">
+                                <i class="bi bi-arrow-up-right" aria-hidden="true"></i>
+                            </span>
+                            <span>+{{ cpu_trend }}% in last hour</span>
+                        {% elif cpu_trend|default(0) < 0 %}
+                            <span class="badge bg-success me-1">
+                                <i class="bi bi-arrow-down-right" aria-hidden="true"></i>
+                            </span>
+                            <span>{{ cpu_trend }}% in last hour</span>
+                        {% else %}
+                            <span class="badge bg-secondary me-1">
+                                <i class="bi bi-dash" aria-hidden="true"></i>
+                            </span>
+                            <span>Stable</span>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card">
+        <div class="col-md-6 col-lg-3 mb-3 mb-lg-0">
+            <div class="card h-100 border-start border-4 {% if memory_usage|default(0) > 80 %}border-danger{% elif memory_usage|default(0) > 50 %}border-warning{% else %}border-success{% endif %}">
                 <div class="card-body text-center">
-                    <h5 class="card-title">Memory Usage</h5>
-                    <div class="gauge-container" id="memoryGauge"></div>
-                    <h3 id="memoryValue">{{ memory_usage }}%</h3>
+                    <h5 class="card-title d-flex align-items-center justify-content-center">
+                        <i class="bi bi-memory me-2" aria-hidden="true"></i>Memory Usage
+                    </h5>
+                    <div class="gauge-container" id="memoryGauge" role="img" aria-label="Memory usage gauge showing {{ memory_usage|default('0') }}%"></div>
+                    <h3 id="memoryValue">{{ memory_usage|default('0') }}%</h3>
+                    <small class="text-muted" id="memoryAvailable">{{ memory_available|default('8') }} GB available</small>
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card">
+        <div class="col-md-6 col-lg-3 mb-3 mb-lg-0">
+            <div class="card h-100">
                 <div class="card-body text-center">
                     <h5 class="card-title">Storage</h5>
                     <div class="gauge-container" id="storageGauge"></div>
-                    <h3 id="storageValue">{{ storage_usage }}%</h3>
+                    <h3 id="storageValue">{{ storage_usage|default('0') }}%</h3>
+                    <small class="text-muted" id="storageFree">{{ storage_free|default('120') }} GB free</small>
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-md-6 col-lg-3">
             <div class="card">
                 <div class="card-body text-center">
                     <h5 class="card-title">Network</h5>
@@ -61,16 +91,49 @@
     <div class="row">
         <div class="col-md-8">
             <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">Active Users</h5>
-                    <span class="badge bg-primary" id="userCount">{{ users|length }}</span>
+                <div class="card-header d-flex justify-content-between align-items-center bg-light">
+                    <div>
+                        <h5 class="mb-0">Active Users</h5>
+                        <small class="text-muted">Real-time system access</small>
+                    </div>
+                    <div>
+                        <span class="badge bg-primary" id="userCount">{{ users|length }}</span>
+                        <button class="btn btn-sm btn-outline-secondary ms-2" id="refreshUsers" aria-label="Refresh users list">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
+                    </div>
                 </div>
-                <div class="card-body">
-                    <div class="list-group" id="userList">
+                <div class="card-body p-0">
+                    <div class="list-group list-group-flush" id="userList">
                         {% for user in users %}
                             <div class="list-group-item d-flex justify-content-between align-items-center">
-                                {{ user.username }}
-                                <span class="text-muted">Last active: {{ user.last_active }}</span>
+                                <div>
+                                    <i class="bi bi-person-circle me-2"></i>
+                                    {{ user.username }}
+                                    {% if user.role == 'admin' %}
+                                        <span class="badge bg-danger ms-2">Admin</span>
+                                    {% elif user.role == 'operator' %}
+                                        <span class="badge bg-warning ms-2">Operator</span>
+                                    {% endif %}
+                                </div>
+                                <div>
+                                    <span class="text-muted">
+                                        <i class="bi bi-clock me-1"></i>
+                                        {{ user.last_active }}
+                                    </span>
+                                    {% if current_user.is_admin %}
+                                        <button class="btn btn-sm btn-outline-danger ms-2 user-logout-btn" 
+                                                data-user-id="{{ user.id }}"
+                                                aria-label="Force logout user"
+                                                title="Force logout user">
+                                            <i class="bi bi-box-arrow-right"></i>
+                                        </button>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        {% else %}
+                            <div class="list-group-item text-center text-muted">
+                                <i class="bi bi-people me-2"></i>No active users
                             </div>
                         {% endfor %}
                     </div>
@@ -78,96 +141,178 @@
             </div>
         </div>
         <div class="col-md-4">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0">System Alerts</h5>
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center bg-light">
+                    <div>
+                        <h5 class="mb-0">System Alerts</h5>
+                        <small class="text-muted">Security notifications</small>
+                    </div>
+                    <span class="badge {% if alerts|length > 0 %}bg-warning{% else %}bg-success{% endif %}" id="alertCount">
+                        {{ alerts|length }}
+                    </span>
                 </div>
-                <div class="card-body{% extends "base.html" %}
+                <div class="card-body p-0">
+                    <div class="list-group list-group-flush" id="alertList">
+                        {% for alert in alerts %}
+                            <div class="list-group-item list-group-item-{{ alert.severity }}">
+                                <div class="d-flex w-100 justify-content-between">
+                                    <h6 class="mb-1">
+                                        {% if alert.severity == 'danger' %}
+                                            <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                                        {% elif alert.severity == 'warning' %}
+                                            <i class="bi bi-exclamation-triangle me-1"></i>
+                                        {% else %}
+                                            <i class="bi bi-info-circle me-1"></i>
+                                        {% endif %}
+                                        {{ alert.title }}
+                                    </h6>
+                                    <small class="text-muted">{{ alert.timestamp }}</small>
+                                </div>
+                                <p class="mb-1">{{ alert.message }}</p>
+                                {% if alert.severity == 'danger' or alert.severity == 'warning' %}
+                                    <div class="d-flex justify-content-end mt-2">
+                                        <button class="btn btn-sm btn-outline-secondary me-2 acknowledge-alert" 
+                                                data-alert-id="{{ alert.id }}"
+                                                aria-label="Acknowledge alert">
+                                            <i class="bi bi-check2 d-sm-none"></i>
+                                            <span class="d-none d-sm-inline">Acknowledge</span>
+                                        </button>
+                                        <button class="btn btn-sm btn-primary investigate-alert" 
+                                                data-alert-id="{{ alert.id }}"
+                                                aria-label="Investigate alert">
+                                            <i class="bi bi-search d-sm-none"></i>
+                                            <span class="d-none d-sm-inline">Investigate</span>
+                                        </button>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        {% else %}
+                            <div class="list-group-item text-center text-muted">
+                                <i class="bi bi-shield-check me-2"></i>No active alerts
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 
 {% block title %}Cloud Services Dashboard{% endblock %}
 
 {% block content %}
-<div class="container py-5">
+<div class="container-fluid container-lg py-4">
     <!-- Status Overview -->
     <div class="row mb-4">
         <div class="col-md-6">
-            <h1>Cloud Services Dashboard</h1>
+            <h1 class="h2">Cloud Services Dashboard</h1>
         </div>
-        <div class="col-md-6 text-end">
+        <div class="col-md-6 d-flex justify-content-md-end align-items-center mt-3 mt-md-0">
+            <div class="form-check form-switch me-3">
+                <input class="form-check-input" type="checkbox" id="autoRefreshToggle" checked>
+                <label class="form-check-label" for="autoRefreshToggle">Auto refresh</label>
+            </div>
             <button class="btn btn-primary" id="refreshData">
+                <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
                 <i class="bi bi-arrow-clockwise"></i> Refresh
             </button>
-            <span class="ms-3">Last updated: <span id="lastUpdate"></span></span>
+            <span class="ms-3 d-none d-md-inline">Last updated: <span id="lastUpdate"></span></span>
         </div>
     </div>
 
-    <!-- System Metrics -->
-    <div class="row mb-4">
-        <div class="col-md-3">
-            <div class="card">
-                <div class="card-body text-center">
-                    <h5 class="card-title">CPU Usage</h5>
-                    <div class="gauge-container" id="cpuGauge"></div>
-                    <h3 id="cpuValue">{{ cpu_usage }}%</h3>
-                </div>
+<!-- System Metrics -->
+<div class="row mb-4">
+    <div class="col-md-6 col-lg-3 mb-3 mb-lg-0">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <h5 class="card-title">CPU Usage</h5>
+                <div class="gauge-container" id="cpuGauge"></div>
+                <h3 id="cpuValue">{{ cpu_usage }}%</h3>
+                <small class="text-muted" id="cpuTrend">
+                    {% if cpu_trend > 0 %}
+                        <i class="bi bi-arrow-up-right text-danger"></i> +{{ cpu_trend }}%
+                    {% elif cpu_trend < 0 %}
+                        <i class="bi bi-arrow-down-right text-success"></i> {{ cpu_trend }}%
+                    {% else %}
+                        <i class="bi bi-dash"></i> Stable
+                    {% endif %}
+                </small>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card">
-                <div class="card-body text-center">
-                    <h5 class="card-title">Memory Usage</h5>
-                    <div class="gauge-container" id="memoryGauge"></div>
-                    <h3 id="memoryValue">{{ memory_usage }}%</h3>
-                </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <h5 class="card-title">Memory Usage</h5>
+                <div class="gauge-container" id="memoryGauge"></div>
+                <h3 id="memoryValue">{{ memory_usage }}%</h3>
+                <small class="text-muted" id="memoryAvailable">{{ memory_available|default('8') }} GB available</small>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card">
-                <div class="card-body text-center">
-                    <h5 class="card-title">Storage</h5>
-                    <div class="gauge-container" id="storageGauge"></div>
-                    <h3 id="storageValue">{{ storage_usage }}%</h3>
-                </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <h5 class="card-title">Storage</h5>
+                <div class="gauge-container" id="storageGauge"></div>
+                <h3 id="storageValue">{{ storage_usage }}%</h3>
+                <small class="text-muted" id="storageFree">{{ storage_free|default('120') }} GB free</small>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card">
-                <div class="card-body text-center">
-                    <h5 class="card-title">Network</h5>
-                    <div id="networkChart"></div>
-                    <div id="networkStats"></div>
+    </div>
+    <div class="col-md-3">
+        <div class="card h-100">
+            <div class="card-body text-center">
+                <h5 class="card-title">Network</h5>
+                <div id="networkChart"></div>
+                <div id="networkStats" class="d-flex justify-content-between mt-2">
+                    <small class="text-muted">
+                        <i class="bi bi-arrow-down"></i> {{ network_in|default('4.2') }} Mbps
+                    </small>
+                    <small class="text-muted">
+                        <i class="bi bi-arrow-up"></i> {{ network_out|default('1.8') }} Mbps
+                    </small>
                 </div>
             </div>
         </div>
     </div>
+</div>
 
-    <!-- Active Users and Alerts -->
-    <div class="row">
-        <div class="col-md-8">
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
+<!-- Active Users and Alerts -->
+<div class="row">
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center bg-light">
+                <div>
                     <h5 class="mb-0">Active Users</h5>
-                    <span class="badge bg-primary" id="userCount">{{ users|length }}</span>
+                    <small class="text-muted">Real-time system access</small>
                 </div>
-                <div class="card-body">
-                    <div class="list-group" id="userList">
-                        {% for user in users %}
-                            <div class="list-group-item d-flex justify-content-between align-items-center">
-                                {{ user.username }}
-                                <span class="text-muted">Last active: {{ user.last_active }}</span>
-                            </div>
-                        {% endfor %}
-                    </div>
+                <div>
+                    <span class="badge bg-primary" id="userCount">{{ users|length }}</span>
+                    <button class="btn btn-sm btn-outline-secondary ms-2" id="refreshUsers">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="list-group" id="userList">
+                    {% for user in users %}
+                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                            {{ user.username }}
+                            <span class="text-muted">Last active: {{ user.last_active }}</span>
+                        </div>
+                    {% endfor %}
                 </div>
             </div>
         </div>
-        <div class="col-md-4">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0">System Alerts</h5>
-                </div>
-                <div class="card-body
-
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">System Alerts</h5>
+            </div>
+        <div class="card-body>
+    
     <!-- User List Card -->
     <div class="list-group" id="userList">
         {% for user in users %}
@@ -202,73 +347,133 @@
     </div>
                 
 {% block scripts %}
+<script src="https://cdn.plot.ly/plotly-latest.min.js"
+        integrity="sha384-z2YmZA5+3T9NzVQJ1xYj6hKvUM+BhbfHKu9p3RMEIcLbTHG4T0zYg0ZO5NWDg1TP4" 
+        crossorigin="anonymous"></script>
+
 <script nonce="{{ csp_nonce }}">
-    // Your inline JavaScript
-</script>
-<script>
-function updateDashboard(data) {
-    // Update gauges
-    updateGauge('cpuGauge', data.cpu_usage);
-    updateGauge('memoryGauge', data.memory_usage);
-    updateGauge('storageGauge', data.storage_usage);
+    let autoRefreshInterval;
+    const AUTO_REFRESH_INTERVAL = 60000; // 60 seconds
     
-    // Update values
-    document.getElementById('cpuValue').textContent = `${data.cpu_usage}%`;
-    document.getElementById('memoryValue').textContent = `${data.memory_usage}%`;
-    document.getElementById('storageValue').textContent = `${data.storage_usage}%`;
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize dashboard
+        updateLastUpdated();
+        setupRefreshButton();
+        setupAutoRefresh();
+        setupAlertHandlers();
+    });
     
-    // Update network chart
-    updateNetworkChart(data.network);
-    
-    // Update user list
-    updateUserList(data.users);
-    
-    // Update alerts
-    updateAlertList(data.alerts);
-}
-
-// Refresh functionality
-document.getElementById('refreshData').addEventListener('click', async () => {
-    const button = document.getElementById('refreshData');
-    const icon = button.querySelector('i');
-    const spinner = button.querySelector('.spinner-border');
-    
-    button.disabled = true;
-    icon.classList.add('bi-arrow-clockwise-spin');
-    if (spinner) spinner.classList.remove('d-none');
-    
-    try {
-        const response = await fetch('/api/cloud/metrics', {
-            headers: {
-                'X-CSRFToken': '{{ csrf_token() }}'
-            }
-        });
-        if (!response.ok) throw new Error('Failed to fetch metrics');
-        const data = await response.json();
-        updateDashboard(data);
-        document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
-    } catch (error) {
-        console.error('Error:', error);
-        showToast('Failed to refresh data', 'danger');
-    } finally {
-        button.disabled = false;
-        icon.classList.remove('bi-arrow-clockwise-spin');
-        if (spinner) spinner.classList.add('d-none');
+    function setupRefreshButton() {
+        const refreshBtn = document.getElementById('refreshData');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', performRefresh);
+        }
     }
-});
-
-function showToast(message, type) {
-    const toast = document.createElement('div');
-    toast.classList.add('toast', 'show');
-    toast.innerHTML = `
-        <div class="toast-header bg-${type}">
-            <strong class="me-auto">Notification</strong>
-            <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
-        </div>
-        <div class="toast-body">${message}</div>
-    `;
-    document.querySelector('.toast-container').appendChild(toast);
-    setTimeout(() => toast.remove(), 3000);
-}
+    
+    function setupAutoRefresh() {
+        const toggle = document.getElementById('autoRefreshToggle');
+        if (toggle) {
+            toggle.addEventListener('change', function() {
+                if (this.checked) {
+                    startAutoRefresh();
+                } else {
+                    stopAutoRefresh();
+                }
+            });
+            
+            // Initialize auto-refresh if checked by default
+            if (toggle.checked) {
+                startAutoRefresh();
+            }
+        }
+    }
+    
+    function startAutoRefresh() {
+        stopAutoRefresh(); // Clear any existing interval
+        autoRefreshInterval = setInterval(performRefresh, AUTO_REFRESH_INTERVAL);
+    }
+    
+    function stopAutoRefresh() {
+        if (autoRefreshInterval) {
+            clearInterval(autoRefreshInterval);
+        }
+    }
+    
+    async function performRefresh() {
+        const button = document.getElementById('refreshData');
+        const spinner = button.querySelector('.spinner-border');
+        const icon = button.querySelector('.bi-arrow-clockwise');
+        
+        // Show loading state
+        button.disabled = true;
+        spinner.classList.remove('d-none');
+        icon.classList.add('d-none');
+        
+        try {
+            const response = await secureFetch('/api/cloud/metrics');
+            if (!response.ok) throw new Error('Failed to fetch metrics');
+            
+            const data = await response.json();
+            updateDashboard(data);
+            updateLastUpdated();
+        } catch (error) {
+            showToastIfAvailable('Error', 'Failed to refresh dashboard data', 'danger');
+            console.error('Dashboard refresh error:', error);
+        } finally {
+            // Reset button state
+            button.disabled = false;
+            spinner.classList.add('d-none');
+            icon.classList.remove('d-none');
+        }
+    }
+    
+    function setupAlertHandlers() {
+        // Handle alert acknowledgement
+        document.querySelectorAll('.acknowledge-alert').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const alertId = this.getAttribute('data-alert-id');
+                await handleAlert(alertId, 'acknowledge');
+            });
+        });
+        
+        // Handle alert investigation
+        document.querySelectorAll('.investigate-alert').forEach(btn => {
+            btn.addEventListener('click', async function() {
+                const alertId = this.getAttribute('data-alert-id');
+                await handleAlert(alertId, 'investigate');
+            });
+        });
+    }
+    
+    async function handleAlert(alertId, action) {
+        try {
+            const response = await secureFetch(`/api/security/alerts/${alertId}/${action}`, {
+                method: 'POST'
+            });
+            
+            if (!response.ok) throw new Error(`Failed to ${action} alert`);
+            
+            // Handle successful action
+            const alertElement = document.querySelector(`.list-group-item[data-alert-id="${alertId}"]`);
+            if (alertElement) {
+                if (action === 'acknowledge') {
+                    alertElement.classList.add('alert-acknowledged');
+                    showToastIfAvailable('Alert Acknowledged', 'The alert has been acknowledged', 'success');
+                } else {
+                    window.location.href = `/security/alerts/${alertId}`;
+                }
+            }
+        } catch (error) {
+            showToastIfAvailable('Error', `Failed to ${action} alert: ${error.message}`, 'danger');
+            console.error(`Alert ${action} error:`, error);
+        }
+    }
+    
+    function updateLastUpdated() {
+        const lastUpdateEl = document.getElementById('lastUpdate');
+        if (lastUpdateEl) {
+            lastUpdateEl.textContent = new Date().toLocaleTimeString();
+        }
+    }
 </script>
 {% endblock %}

@@ -1,14 +1,14 @@
 {% extends "base.html" %}
 
-{% block title %}About Us - Cloud Services{% endblock %}
+{% block title %}About Our Cloud Infrastructure Platform{% endblock %}
 
 {% block content %}
 <div class="container py-5">
     <!-- Hero Section -->
     <div class="row mb-5">
         <div class="col-lg-8">
-            <h1 class="display-4 mb-4">About Our Service</h1>
-            <p class="lead">Empowering businesses since 2020. Please enjoy this app!</p>
+            <h1 class="display-4 mb-4">About Our Platform</h1>
+            <p class="lead">Delivering enterprise-grade cloud infrastructure with industry-leading security since 2020</p>
         </div>
     </div>
 
@@ -16,61 +16,150 @@
     <div class="row mb-5">
         <div class="col-md-6">
             <h2>Our Mission</h2>
-            <p>Our team is dedicated to delivering reliable and secure cloud infrastructure.</p>
-            <p>Join the community today and gain access to resources to help you grow professionally!</p>
-            <p>Thanks for using the app!</p>
+            <p>Our team is dedicated to providing secure, scalable cloud infrastructure solutions specifically designed for critical systems and industrial control applications.</p>
+            <p>With a focus on advanced security controls, compliance, and operational integrity, we help organizations maintain resilient infrastructure while protecting against emerging threats.</p>
+            
             <div class="mt-4">
                 <h4>Key Statistics</h4>
                 <div class="row g-4 mt-2">
                     <div class="col-6">
                         <div class="border rounded p-3 text-center">
-                            <h3 class="text-primary">99.9%</h3>
-                            <p class="mb-0">Uptime</p>
+                            <h3 class="text-primary">99.995%</h3>
+                            <p class="mb-0">Uptime SLA</p>
                         </div>
                     </div>
                     <div class="col-6">
                         <div class="border rounded p-3 text-center">
-                            <h3 class="text-primary">1000+</h3>
-                            <p class="mb-0">Clients</p>
+                            <h3 class="text-primary">24/7</h3>
+                            <p class="mb-0">Security Monitoring</p>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
         <div class="col-md-6">
-            <img src="{{ url_for('static', filename='images/office.jpg') }}" class="img-fluid rounded" alt="Our Office">
+            <img src="{{ url_for('static', filename='images/datacenter.jpg') }}" 
+                 class="img-fluid rounded shadow" 
+                 alt="Secure Data Center Environment"
+                 width="540" height="360"
+                 loading="lazy">
         </div>
     </div>
 
-    <!-- Contact Section -->
-    <div class="row mt-5">
-        <div class="col-md-6">
-            <h3>Contact Us</h3>
-            <form id="contactForm" class="needs-validation" novalidate>
-                <div class="mb-3">
-                    <label for="name" class="form-label">Name</label>
-                    <input type="text" class="form-control" id="name" required>
+<!-- Architecture Section -->
+<div class="row mb-5">
+    <div class="col-12">
+        <h2 class="border-bottom pb-2">Our Architecture</h2>
+    </div>
+    <div class="col-lg-6">
+        <h4 class="mt-4">Infrastructure Security</h4>
+        <ul class="list-unstyled">
+            <li><i class="bi bi-shield-check text-success me-2"></i> Multi-layered network security architecture</li>
+            <li><i class="bi bi-shield-check text-success me-2"></i> Automated vulnerability scanning and patching</li>
+            <li><i class="bi bi-shield-check text-success me-2"></i> End-to-end encryption for data in transit and at rest</li>
+            <li><i class="bi bi-shield-check text-success me-2"></i> AI-powered anomaly detection</li>
+        </ul>
+    </div>
+    <div class="col-lg-6">
+        <h4 class="mt-4">Compliance & Standards</h4>
+        <ul class="list-unstyled">
+            <li><i class="bi bi-check-circle text-primary me-2"></i> ISO 27001 certified</li>
+            <li><i class="bi bi-check-circle text-primary me-2"></i> SOC 2 Type II compliant</li>
+            <li><i class="bi bi-check-circle text-primary me-2"></i> GDPR compliant</li>
+            <li><i class="bi bi-check-circle text-primary me-2"></i> NIST Cybersecurity Framework</li>
+        </ul>
+    </div>
+</div>
+
+<!-- Contact Section -->
+<div class="row mt-5">
+    <div class="col-md-6">
+        <h3>Contact Us</h3>
+        <form id="contactForm" class="needs-validation" novalidate>
+            {{ csrf_field() }}
+            <div class="mb-3">
+                <label for="name" class="form-label">Your Name</label>
+                <input type="text" class="form-control" id="name" name="name" required maxlength="100">
+                <div class="invalid-feedback">
+                    Please provide your name.
                 </div>
-                <div class="mb-3">
-                    <label for="email" class="form-label">Email</label>
-                    <input type="email" class="form-control" id="email" required>
-                </div>
-                <div class="mb-3">
-                    <label for="message" class="form-label">Message</label>
-                    <textarea class="form-control" id="message" rows="4" required></textarea>
-                </div>
-                <button type="submit" class="btn btn-primary">Send Message</button>
-            </form>
-        </div>
-        <div class="col-md-6">
-            <h3>Find Us</h3>
-            <div class="ratio ratio-16x9">
-                <iframe src="https://www.google.com/maps/embed?pb=..." allowfullscreen></iframe>
             </div>
-            <div class="mt-3">
-                <p><i class="bi bi-geo-alt"></i> 123 Tech Street, Silicon Valley, CA</p>
-                <p><i class="bi bi-envelope"></i> support@example.com</p>
-                <p><i class="bi bi-telephone"></i> (555) 123-4567</p>
+            <div class="mb-3">
+                <label for="email" class="form-label">Email Address</label>
+                <input type="email" class="form-control" id="email" name="email" required maxlength="150">
+                <div class="invalid-feedback">
+                    Please provide a valid email address.
+                </div>
+            </div>
+            <div class="mb-3">
+                <label for="company" class="form-label">Company</label>
+                <input type="text" class="form-control" id="company" name="company" maxlength="150">
+            </div>
+            <div class="mb-3">
+                <label for="inquiryType" class="form-label">Inquiry Type</label>
+                <select class="form-select" id="inquiryType" name="inquiryType">
+                    <option value="general">General Information</option>
+                    <option value="sales">Sales Inquiry</option>
+                    <option value="support">Technical Support</option>
+                    <option value="security">Security Information</option>
+                </select>
+            </div>
+            <div class="mb-3">
+                <label for="message" class="form-label">Message</label>
+                <textarea class="form-control" id="message" name="message" rows="4" required maxlength="1000"></textarea>
+                <div class="invalid-feedback">
+                    Please enter your message.
+                </div>
+            </div>
+            <div class="mb-3 form-check">
+                <input type="checkbox" class="form-check-input" id="privacyConsent" name="privacyConsent" required>
+                <label class="form-check-label" for="privacyConsent">
+                    I consent to the processing of my data as described in our <a href="/privacy" target="_blank">Privacy Policy</a>
+                </label>
+                <div class="invalid-feedback">
+                    You must agree to our Privacy Policy to proceed.
+                </div>
+            </div>
+            <div class="mb-3">
+                <div class="g-recaptcha" data-sitekey="{{ recaptcha_site_key }}"></div>
+                <div id="recaptchaError" class="invalid-feedback">
+                    Please complete the reCAPTCHA verification.
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary" id="submitContactForm">
+                <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                Send Message
+            </button>
+            <div class="alert alert-success mt-3 d-none" id="contactSuccess" role="alert">
+                <i class="bi bi-check-circle-fill me-2"></i>
+                Your message has been sent successfully! Our team will contact you soon.
+            </div>
+        </form>
+    </div>
+    <div class="col-md-6 mt-4 mt-md-0">
+        <div class="card h-100 border-0 shadow-sm">
+            <div class="card-body">
+                <h4>Our Security Commitment</h4>
+                <p>At the core of our platform is a commitment to security and resilience. Our infrastructure is designed with:</p>
+                <ul class="list-unstyled">
+                    <li><i class="bi bi-shield-lock me-2 text-primary"></i>Defense in depth architecture</li>
+                    <li><i class="bi bi-graph-up me-2 text-primary"></i>Continuous security monitoring</li>
+                    <li><i class="bi bi-search me-2 text-primary"></i>Regular penetration testing and security audits</li>
+                    <li><i class="bi bi-arrow-repeat me-2 text-primary"></i>Comprehensive disaster recovery capabilities</li>
+                </ul>
+                <hr>
+                <h5>Security Certifications</h5>
+                <div class="d-flex justify-content-between align-items-center mt-3">
+                    <img src="{{ url_for('static', filename='images/iso27001.png') }}" alt="ISO 27001 Certified" height="40" width="40" loading="lazy">
+                    <img src="{{ url_for('static', filename='images/soc2.png') }}" alt="SOC 2 Type II Compliant" height="40" width="40" loading="lazy">
+                    <img src="{{ url_for('static', filename='images/gdpr.png') }}" alt="GDPR Compliant" height="40" width="40" loading="lazy">
+                    <img src="{{ url_for('static', filename='images/nist.png') }}" alt="NIST Framework Aligned" height="40" width="40" loading="lazy">
+                </div>
+                
+                <div class="alert alert-info mt-4 mb-0" role="alert">
+                    <i class="bi bi-info-circle me-2"></i>
+                    <strong>Security incident?</strong> For urgent security matters, contact our dedicated security response team at <strong>security@cloudplatform.com</strong>
+                </div>
             </div>
         </div>
     </div>
@@ -78,13 +167,117 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="https://www.google.com/recaptcha/api.js" async defer></script>
 <script nonce="{{ csp_nonce }}">
-    // Your inline JavaScript
-</script>
-<script>
-document.getElementById('contactForm').addEventListener('submit', function(e) {
-    e.preventDefault();
-    // Add form submission logic here
+    document.addEventListener('DOMContentLoaded', function() {
+        const contactForm = document.getElementById('contactForm');
+        
+        // Form validation with enhanced security
+        if (contactForm) {
+            contactForm.addEventListener('submit', async function(event) {
+                event.preventDefault();
+                
+                // Validate form
+                if (!contactForm.checkValidity()) {
+                    event.stopPropagation();
+                    contactForm.classList.add('was-validated');
+                    return;
+                }
+                
+                // Check reCAPTCHA
+                if (typeof grecaptcha !== 'undefined') {
+                    const recaptchaResponse = grecaptcha.getResponse();
+                    if (!recaptchaResponse) {
+                        const recaptchaError = document.getElementById('recaptchaError');
+                        if (recaptchaError) {
+                            recaptchaError.style.display = 'block';
+                        }
+                        return;
+                    }
+                }
+                
+                // Check privacy consent checkbox
+                const privacyConsent = document.getElementById('privacyConsent');
+                if (privacyConsent && !privacyConsent.checked) {
+                    const consentLabel = document.querySelector('[for="privacyConsent"]');
+                    if (consentLabel) {
+                        consentLabel.classList.add('text-danger');
+                    }
+                    return;
+                }
+    
+                // Show loading state
+                const submitButton = document.getElementById('submitContactForm');
+                if (!submitButton) return;
+                
+                const spinner = submitButton.querySelector('.spinner-border');
+                submitButton.disabled = true;
+                if (spinner) spinner.classList.remove('d-none');
+                
+                try {
+                    // Submit the form using secure fetch
+                    const response = await fetch('{{ url_for("api.contact_submit") }}', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-CSRF-Token': document.querySelector('input[name="_csrf_token"]')?.value || ''
+                        },
+                        body: JSON.stringify({
+                            name: document.getElementById('name')?.value || '',
+                            email: document.getElementById('email')?.value || '',
+                            company: document.getElementById('company')?.value || '',
+                            inquiryType: document.getElementById('inquiryType')?.value || 'general',
+                            message: document.getElementById('message')?.value || '',
+                            recaptchaToken: grecaptcha?.getResponse() || ''
+                        })
+                    });
+                    
+                    let data;
+                    try {
+                        data = await response.json();
+                    } catch (parseError) {
+                        console.error('Error parsing response:', parseError);
+                        throw new Error('Invalid server response');
+                    }
+                
+                if (response.ok) {
+                    // Show success message
+                    document.getElementById('contactSuccess').classList.remove('d-none');
+                    document.getElementById('contactForm').classList.add('d-none');
+                    
+                    // Reset form for future use
+                    contactForm.reset();
+                    contactForm.classList.remove('was-validated');
+                    
+                    // Scroll to success message
+                    document.getElementById('contactSuccess').scrollIntoView({behavior: 'smooth'});
+                } else {
+                    throw new Error(data.message || 'Failed to send message');
+                }
+            } catch (error) {
+                console.error('Contact form error:', error);
+                showToastIfAvailable('Error', 'There was a problem sending your message. Please try again later.', 'danger');
+            } finally {
+                submitButton.disabled = false;
+                if (spinner) spinner.classList.add('d-none');
+            }
+        });
+        
+        // Add live validation feedback
+        const inputs = contactForm.querySelectorAll('input, textarea, select');
+        inputs.forEach(input => {
+            input.addEventListener('blur', function() {
+                if (this.checkValidity()) {
+                    this.classList.add('is-valid');
+                    this.classList.remove('is-invalid');
+                } else if (this.value) {
+                    this.classList.add('is-invalid');
+                    this.classList.remove('is-valid');
+                }
+            });
+        });
+    }
 });
 </script>
 {% endblock %}

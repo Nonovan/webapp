@@ -89,21 +89,21 @@ def register_api(app: Flask) -> None:
         """Start timer for request timing"""
         request.start_time = time.time()
 
-    @api_bp.after_request
-    def record_request_metrics(response: Any) -> Any:
-        """Record request timing metrics"""
-        request_latency = time.time() - getattr(request, 'start_time', time.time())
-        api_request_latency.observe(request_latency)
-
-        # Add security headers to all API responses
-        response.headers['X-Content-Type-Options'] = 'nosniff'
-        response.headers['X-Frame-Options'] = 'DENY'
-        response.headers['Cache-Control'] = 'no-store'
-
-        return response
-
     # Register the main API blueprint with the app
     app.register_blueprint(api_bp)
+
+@api_bp.after_request
+def record_request_metrics(response: Any) -> Any:
+    """Record request timing metrics"""
+    request_latency = time.time() - getattr(request, 'start_time', time.time())
+    api_request_latency.observe(request_latency)
+
+    # Add security headers to all API responses
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Cache-Control'] = 'no-store'
+
+    return response
 
 # Export public interface
 __all__ = ['api_bp', 'register_api']

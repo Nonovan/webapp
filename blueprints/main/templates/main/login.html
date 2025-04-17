@@ -15,8 +15,6 @@
                             {% for category, message in messages %}
                                 <div class="alert alert-{{ category }}" role="alert">{{ message }}</div>
                             {% endfor %}
-                               
-                            {% endfor %}
                         {% endif %}
                     {% endwith %}
 
@@ -33,6 +31,54 @@
                         8. Input sanitization protects against XSS/injection attempts
                         -->
 
+                        <!-- CSRF protection -->
+                        {{ form.csrf_token }}
+                        
+                        <!-- Username/Email field -->
+                        <div class="mb-3">
+                            <label for="username" class="form-label">Username or Email</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-person"></i></span>
+                                <input type="text" 
+                                       class="form-control {% if form.username.errors %}is-invalid{% endif %}"
+                                       id="username" 
+                                       name="username" 
+                                       autocomplete="username"
+                                       required>
+                                <div class="invalid-feedback">
+                                    {% if form.username.errors %}
+                                        {{ form.username.errors[0] }}
+                                    {% else %}
+                                        Please enter your username or email address.
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Password field with toggle visibility -->
+                        <div class="mb-3">
+                            <label for="password" class="form-label">Password</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-lock"></i></span>
+                                <input type="password"
+                                       class="form-control {% if form.password.errors %}is-invalid{% endif %}"
+                                       id="password" 
+                                       name="password" 
+                                       autocomplete="current-password"
+                                       required>
+                                <button class="btn btn-outline-secondary" type="button" id="togglePassword" aria-label="Toggle password visibility">
+                                    <i class="bi bi-eye" aria-hidden="true"></i>
+                                </button>
+                                <div class="invalid-feedback">
+                                    {% if form.password.errors %}
+                                        {{ form.password.errors[0] }}
+                                    {% else %}
+                                        Please enter your password.
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Remember me option -->
                         <div class="mb-3 form-check">
                             <input type="checkbox" class="form-check-input" id="remember" name="remember">
@@ -45,128 +91,57 @@
                             <div>For security reasons, login attempts are limited to 5 per minute.</div>
                         </div>
 
-                        <!-- Make CSRF token visible in the code but not to the user -->
-                        {{ form.csrf_token }}
-                        <!-- Add CSRF token explanation in a comment -->
-                        <!-- CSRF protection prevents cross-site request forgery attacks -->
-
-                        <div class="mb-3">
-                            <label for="username" class="form-label">Username</label>
-                            <input type="text" 
-                                class="form-control {% if form.username.errors %}is-invalid{% endif %}"
-                                id="username" 
-                                name="username" 
-                                required>
-                            {% if form.username.errors %}
-                                <div class="invalid-feedback">{{ form.username.errors[0] }}</div>
-                            {% endif %}
+                        <!-- Submit button -->
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary" id="loginButton">
+                                <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                                Login
+                            </button>
                         </div>
-
-                        <div class="mb-3">
-                            <label for="password" class="form-label">Password</label>
-                            <div class="input-group">
-                                <input type="password"
-                                    class="form-control {% if form.password.errors %}is-invalid{% endif %}"
-                                    id="password" 
-                                    name="password" 
-                                    autocomplete="current-password"
-                                    required>
-                                    <button class="btn btn-outline-secondary" type="button" id="togglePassword" aria-label="Toggle password visibility">
-                                        <i class="bi bi-eye" aria-hidden="true"></i>
-                                    </button>
-                                </div>
-                                {% if form.password.errors %}
-                                    <div class="invalid-feedback">{{ form.password.errors[0] }}</div>
-                                {% endif %}
-                            </div>
-    
-                            {% if requires_2fa %}
-                                    <div class="mb-3">
-                                        <label for="totp" class="form-label">Two-Factor Authentication Code</label>
-                                        <input type="text" 
-                                            class="form-control" 
-                                            id="totp" 
-                                            name="totp" 
-                                            pattern="[0-9]{6}" 
-                                            maxlength="6" 
-                                            inputmode="numeric" 
-                                            autocomplete="one-time-code" 
-                                            placeholder="Enter 6-digit code"
-                                            aria-label="Two-Factor Authentication Code"
-                                            required>
-                                        <div class="form-text">
-                                            <i class="bi bi-shield-lock"></i> 
-                                            Enter the 6-digit code from your authenticator app for additional security.
-                                        </div>
-                                    </div>
-                            {% endif %}
-    
-                            <div class="mb-3">
-                                <div class="g-recaptcha" data-sitekey="{{ recaptcha_site_key }}" data-callback="onRecaptchaVerified"></div>
-                            </div>
-    
-                            <div class="d-grid gap-2">
-                                <button type="submit" class="btn btn-primary btn-lg" id="loginButton" disabled>
-                                    <span class="spinner-border spinner-border-sm d-none" role="status"></span>
-                                    <i class="bi bi-box-arrow-in-right me-2"></i>Login
-                                </button>
-                                <div class="text-center my-3">
-                                    <span class="text-muted">Or continue with</span>
-                                </div>
-                                <div class="d-flex gap-2">
-                                    <a href="{{ url_for('auth.google_login') }}" class="btn btn-outline-danger flex-grow-1">
-                                        <i class="bi bi-google me-2"></i>Google
-                                    </a>
-                                    <a href="{{ url_for('auth.github_login') }}" class="btn btn-outline-dark flex-grow-1">
-                                        <i class="bi bi-github me-2"></i>GitHub
-                                    </a>
-                                </div>
-                            </div>
                         
-                        <div class="text-center mt-4">
-                            <p class="mb-2">Don't have an account? 
-                                <a href="{{ url_for('auth.register') }}" class="text-primary">Register here.</a></p>
-                            <p class="text-center mt-3">
-                                <a href="{{ url_for('auth.reset_password') }}" class="text-muted">Forgot your password?</a></p>
+                        <!-- Additional options -->
+                        <div class="mt-3 text-center">
+                            <a href="{{ url_for('auth.forgot_password') }}" class="text-decoration-none">Forgot password?</a>
+                            <span class="mx-2">|</span>
+                            <a href="{{ url_for('auth.register') }}" class="text-decoration-none">Create an account</a>
                         </div>
-                    </div>
+                    </form>
                 </div>
             </div>
         </div>
     </div>
 
     {% if lockout %}
-    <div class="alert alert-danger mt-3">
+    <div class="alert alert-danger mt-3" data-lockout="true">
         <h5><i class="bi bi-lock-fill me-2"></i>Account Temporarily Locked</h5>
         <p>{{ lockout_message }}</p>
         <p class="mb-0">For security reasons, this account has been temporarily locked due to multiple failed login attempts. Please try again later or contact support if you need immediate assistance.</p>
     </div>
     {% endif %}
-       
-        {% block scripts %}
-        <script src="https://www.google.com/recaptcha/api.js" async defer></script>
-        <link rel="stylesheet" 
-              href="{{ url_for('static', filename='css/style.css') }}"
-              integrity="{{ sri_hash('css/style.css') }}" 
-              crossorigin="anonymous">
+</div>
+        
+{% block scripts %}
+    <script src="{{ url_for('static', filename='js/auth-common.js') }}"
+            integrity="{{ sri_hash('js/auth-common.js') }}" 
+            crossorigin="anonymous"></script>
 
-        <script src="{{ url_for('static', filename='js/auth-common.js') }}"
-                integrity="{{ sri_hash('js/auth-common.js') }}" 
-                crossorigin="anonymous"></script>
-        <script nonce="{{ csp_nonce }}">
-            // Your inline JavaScript
-        </script>
-        <script>
+    <script nonce="{{ csp_nonce }}">
         document.addEventListener('DOMContentLoaded', function() {
-            // Use shared functions
+            // Initialize auth components
             togglePasswordVisibility('password', 'togglePassword');
             setupFormValidation();
             setupBruteForceProtection(document.querySelector('form'), 'loginButton');
             
             // reCAPTCHA callback defined globally for Google API usage
-            window.onRecaptchaVerified = onRecaptchaVerified;
+            window.onRecaptchaVerified = function() {
+                const loginButton = document.getElementById('loginButton');
+                if (loginButton) {
+                    loginButton.disabled = false;
+                }
+            };
 
-            const submitBtn = document.querySelector("#loginButton");
+            // Add login button loading state
+            const submitBtn = document.getElementById("loginButton");
             if (submitBtn) {
                 submitBtn.addEventListener("click", function() {
                     if (document.querySelector('form').checkValidity()) {
@@ -177,67 +152,6 @@
                     }
                 });
             }
-
-            // Add lockout detection
-            {% if lockout %}
-            if (submitBtn) {
-                submitBtn.disabled = true;
-                setTimeout(() => {
-                    submitBtn.disabled = false;
-                }, 5000); // Short delay to prevent rapid retries
-            }
-            {% endif %}
         });
-
-        function updateStrengthMeter(password) {
-            const strength = checkPasswordStrength(password);
-            const strengthLabels = ["Very Weak", "Weak", "Moderate", "Strong", "Very Strong"];
-            
-            progressBar.style.width = `${strength * 25}%`;
-            progressBar.className = `progress-bar bg-${getStrengthColor(strength)}`;
-            strengthText.textContent = `Password strength: ${strengthLabels[strength] || "Very Weak"}`;
-            
-            // Add ARIA attributes for accessibility
-            progressBar.setAttribute('aria-valuenow', strength * 25);
-            progressBar.setAttribute('aria-valuetext', strengthLabels[strength] || "Very Weak");
-            
-            // Add more descriptive feedback for screen readers
-            progressBar.setAttribute('aria-description', `Password strength level ${strength + 1} out of 5`);
-        }
-
-        /**
-         * Sets up password matching validation for registration forms
-         * @param {string} passwordId - ID of password input
-         * @param {string} confirmId - ID of confirm password input
-         */
-        function setupPasswordMatchValidation(passwordId, confirmId) {
-            const passwordInput = document.getElementById(passwordId);
-            const confirmInput = document.getElementById(confirmId);
-            
-            if (!passwordInput || !confirmInput) return;
-            
-            // Check match on input to both fields
-            const checkMatch = () => {
-                if (confirmInput.value && confirmInput.value !== passwordInput.value) {
-                    confirmInput.setCustomValidity('Passwords do not match');
-                    confirmInput.classList.add('is-invalid');
-                    
-                    // Add a data attribute for custom styling
-                    confirmInput.setAttribute('data-validation-state', 'invalid');
-                    
-                    // Update feedback message if a feedback element exists
-                    const feedbackElement = confirmInput.nextElementSibling?.classList.contains('invalid-feedback') ? 
-                        confirmInput.nextElementSibling : document.querySelector(`[data-feedback-for="${confirmId}"]`);
-                    
-                    if (feedbackElement) {
-                        feedbackElement.textContent = 'The passwords you entered do not match.';
-                    }
-                } else {
-                    confirmInput.setCustomValidity('');
-                    confirmInput.classList.remove('is-invalid');
-                    confirmInput.removeAttribute('data-validation-state');
-                }
-            };
-        }
-        </script>
-        {% endblock %}
+    </script>
+{% endblock %}

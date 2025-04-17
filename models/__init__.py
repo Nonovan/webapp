@@ -14,18 +14,19 @@ The models implement the Active Record pattern through SQLAlchemy, where each mo
 instance represents a row in the database and provides methods for CRUD operations.
 This approach encapsulates database operations within the models themselves, promoting
 code organization and reusability.
-
-The models form the foundation of the application's domain logic, encapsulating both
-data structure and business rules in a single location.
 """
-import logging
+
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, List, Type, TypeVar, TYPE_CHECKING
-from flask import current_app, abort
-from flask_sqlalchemy import SQLAlchemy
+from typing import Dict, Any, Optional, List, Type, TypeVar, TYPE_CHECKING, Union, cast
+
+from flask import current_app, abort, g, request, has_request_context
+from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.declarative import declared_attr
+
 from extensions import db
+from models.audit_log import AuditLog
+
 
 # Import models - these should be imported after Base/TimestampMixin definitions
 # to avoid circular imports, but are placed here for type checking
@@ -36,8 +37,12 @@ if TYPE_CHECKING:
     from .notification import Notification
     from .security_incident import SecurityIncident
     from .audit_log import AuditLog
+    from .cloud_resource import CloudResource
+    from .cloud_provider import CloudProvider
+    from .cloud_metric import CloudMetric
+    from .cloud_alert import CloudAlert
 
-# Define TypeVar with proper constraints using PEP 8 naming
+# Define TypeVar with proper constraints
 T_Model = TypeVar('T_Model', bound='BaseModel')
 
 
@@ -349,80 +354,125 @@ from .security_incident import SecurityIncident
 from .audit_log import AuditLog
 from .system_config import SystemConfig
 
+# Import cloud infrastructure specific models
+from .cloud_resource import CloudResource
+from .cloud_provider import CloudProvider
+from .cloud_metric import CloudMetric
+from .cloud_alert import CloudAlert
+
 # Import secondary models with relationships to main models
-__all__ = []  # Initialize __all__ as an empty list
 from .user_session import UserSession
 from .user_activity import UserActivity
 from .file_upload import FileUpload
 
-try:
-    __all__.extend(['UserSession', 'UserActivity', 'FileUpload'])
-except ImportError:
-    # These models might not exist in all installations
-    pass
+# ICS-specific models for industrial control systems
+from .ics_device import ICSDevice
+from .ics_reading import ICSReading
+from .ics_control_log import ICSControlLog
 
-# Export public interface
+# Build the __all__ list for proper exports
 __all__ = [
+    # Core components
     'db', 'BaseModel', 'TimestampMixin', 'AuditableMixin',
+    
+    # Primary models
     'User', 'Post', 'Subscriber', 'Notification', 
-    'SecurityIncident', 'AuditLog', 'SystemConfig'
+    'SecurityIncident', 'AuditLog', 'SystemConfig',
+    
+    # Cloud infrastructure models
+    'CloudResource', 'CloudProvider', 'CloudMetric', 'CloudAlert',
+    
+    # Secondary user-related models
+    'UserSession', 'UserActivity', 'FileUpload',
+    
+    # ICS models
+    'ICSDevice', 'ICSReading', 'ICSControlLog',
 ]
 
 # Set up model event listeners for security auditing
-from sqlalchemy import event
-
 def _setup_audit_listeners():
     """Set up SQLAlchemy event listeners for security auditing."""
-    models_to_audit = [User, SecurityIncident, SystemConfig]
+    # Add models that need security audit logging
+    models_to_audit = [
+        User, SecurityIncident, SystemConfig, 
+        CloudResource, CloudProvider, CloudMetric, CloudAlert,
+        ICSDevice
+    ]
 
     for model in models_to_audit:
-        # Use unique function names for each listener to avoid overwriting
-        def make_before_update(model_cls):
-            @event.listens_for(model_cls, 'before_update')
-            def before_update(_mapper, _connection, target):
-                """Event handler for before_update events.
-                
-                Args:
-                    mapper: SQLAlchemy mapper that is the target of the event
-                    connection: SQLAlchemy connection in use for the update
-                    target: The model instance being updated
-                """
-                if hasattr(target, 'mark_modified'):
-                    target.mark_modified()
-            return before_update
+        # Set up listeners for each audit event type
+        event.listen(model, 'after_insert', _log_model_insert)
+        event.listen(model, 'after_update', _log_model_update)
+        event.listen(model, 'after_delete', _log_model_delete)
 
-        def make_before_delete(model_cls):
-            @event.listens_for(model_cls, 'before_delete')
-            def before_delete(_mapper, _connection, target):
-                """Event handler for before_delete events.
-                
-                Args:
-                    mapper: SQLAlchemy mapper that is the target of the event
-                    connection: SQLAlchemy connection in use for the delete
-                    target: The model instance being deleted
-                """
-                if isinstance(target, AuditableMixin):
-                    # For deletion, we want to log before the instance is removed
-                    # from the database to ensure we capture all its information
-                    try:
-                        modified_fields = ['DELETE']
-                        target.log_change(modified_fields, f"Record deleted: {target}")
-                    except (AttributeError, RuntimeError) as e:
-                        # Log errors but don't interrupt the delete operation
-                        logging.error("Error logging deletion event: %s", e)
-            return before_delete
-
-        # Register the listeners with unique function instances
-        make_before_update(model)
-        make_before_delete(model)
-
-# Initialize listeners if not in test mode
-import sys
-if 'pytest' not in sys.modules:
+def _log_model_insert(_mapper, _connection, target):
+    """Log when a model instance is created."""
+    if not has_request_context():
+        return
+    
     try:
-        _setup_audit_listeners()
-    except RuntimeError as e:
+        # Get user information if available
+        user_id = getattr(g, 'user_id', None)
+        ip_address = request.remote_addr if request else None
+        
+        AuditLog.create(
+            event_type=AuditLog.EVENT_OBJECT_CREATED,
+            user_id=user_id,
+            object_type=target.__class__.__name__,
+            object_id=target.id,
+            description=f"Created {target.__class__.__name__} with ID {target.id}",
+            ip_address=ip_address
+        )
+    except (RuntimeError, ValueError, AttributeError) as e:  # Replace with specific exceptions
         if current_app:
-            current_app.logger.error(f"Failed to set up audit listeners: {e}")
-        else:
-            logging.error("Failed to set up audit listeners: %s", e)
+            current_app.logger.error(f"Failed to log model insert: {str(e)}")
+
+def _log_model_update(_mapper, _connection, target):
+    """Log when a model instance is updated."""
+    from flask import current_app, g, has_request_context, request
+    
+    if not has_request_context():
+        return
+    
+    try:
+        # Get user information if available
+        user_id = getattr(g, 'user_id', None)
+        ip_address = request.remote_addr if request else None
+        
+        AuditLog.create(
+            event_type=AuditLog.EVENT_OBJECT_UPDATED,
+            user_id=user_id,
+            object_type=target.__class__.__name__,
+            object_id=target.id,
+            description=f"Updated {target.__class__.__name__} with ID {target.id}",
+            ip_address=ip_address
+        )
+    except (RuntimeError, ValueError, AttributeError) as e:
+        if current_app:
+            current_app.logger.error(f"Failed to log model update: {str(e)}")
+
+def _log_model_delete(mapper, connection, target):
+    """Log when a model instance is deleted."""
+    if not has_request_context():
+        return
+    
+    try:
+        # Get user information if available
+        user_id = getattr(g, 'user_id', None)
+        ip_address = request.remote_addr if request else None
+        
+        AuditLog.create(
+            event_type=AuditLog.EVENT_OBJECT_DELETED,
+            user_id=user_id,
+            object_type=target.__class__.__name__,
+            object_id=target.id,
+            description=f"Deleted {target.__class__.__name__} with ID {target.id}",
+            ip_address=ip_address,
+            severity=AuditLog.SEVERITY_WARNING  # Deletions get higher severity
+        )
+    except (RuntimeError, ValueError, AttributeError) as e:
+        if current_app:
+            current_app.logger.error(f"Failed to log model delete: {str(e)}")
+
+# Initialize audit listeners
+_setup_audit_listeners()
