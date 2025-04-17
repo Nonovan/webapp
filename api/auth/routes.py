@@ -11,7 +11,7 @@ REST best practices. Authentication is handled via JWT tokens for stateless API 
 Routes:
     /login: Authenticate user and issue JWT token
     /register: Create new user account
-    /extend-session: Extend existing session lifetime
+    /extend_session: Extend existing session lifetime
     /verify: Verify token validity
     /refresh: Refresh an existing JWT token
     /logout: Invalidate current token
@@ -142,7 +142,7 @@ def register():
         status_code = 409 if "exists" in error_message.lower() else 400
         return jsonify({"error": error_message}), status_code
 
-@auth_api.route('/extend-session', methods=['POST'])
+@auth_api.route('/extend_session', methods=['POST'])
 @limiter.limit("30/minute")
 def extend_session():
     """

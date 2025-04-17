@@ -8,7 +8,7 @@ programmatic authentication with the application's cloud infrastructure and ICS 
 Key endpoints:
 - /api/auth/login: Authenticate and obtain JWT token with proper role validation
 - /api/auth/register: Create new user accounts with secure password handling
-- /api/auth/extend-session: Extend existing session duration with device fingerprinting
+- /api/auth/extend_session: Extend existing session duration with device fingerprinting
 - /api/auth/verify: Verify token validity and authorization scope
 - /api/auth/logout: Invalidate current token and terminate active sessions
 - /api/auth/mfa/setup: Configure multi-factor authentication

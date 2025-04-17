@@ -510,17 +510,17 @@
                 warningTimeout = setTimeout(() => {
                     const toast = showToast(
                         "Session Timeout",
-                        "Your session will expire soon. <button class='btn btn-sm btn-primary' id='extend-session'>Extend Session</button>",
+                        "Your session will expire soon. <button class='btn btn-sm btn-primary' id='extend_session'>Extend Session</button>",
                         "warning",
                         false
                     );
 
                     // Attach event listener after the element is added to the DOM
-                    const extendButton = toast.querySelector("#extend-session");
+                    const extendButton = toast.querySelector("#extend_session");
                     if (extendButton) {
                         extendButton.addEventListener("click", async () => {
                             try {
-                                const response = await secureFetch("/api/auth/extend-session", { method: "POST" });
+                                const response = await secureFetch("/api/auth/extend_session", { method: "POST" });
                                 if (response.ok) {
                                     const bsToast = new bootstrap.Toast(toast);
                                     bsToast.hide();
