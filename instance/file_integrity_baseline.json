@@ -1,0 +1,10 @@
+{
+    "created_at": "2023-06-20T14:30:00Z",
+    "baseline_version": "1.2",
+    "critical_file_hashes": {
+      "app.py": "5a7a95c5e9b5d64d81dd9720983caa0bd4d2055746dc3c5619a90360f78291ce",
+      "core/config.py": "2c7c822957ed63b797af7547c217e09732c79c64fbf2c41c7c68ec44e9d8e262",
+      "core/security_utils.py": "40f7b9e29c1e87a8fdb217c3ab48b3d74b57d6ec5df03ff1bda00ee8c2b30218",
+      "blueprints/auth/routes.py": "1b4f0e9851971998e732078544c96b36c3d01cedf7caa332359d6f1d83567014"
+    }
+  }
