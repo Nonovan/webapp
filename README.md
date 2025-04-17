@@ -1,4 +1,4 @@
-# Cloud Infrastructure Management Platform Documentation
+# Cloud Infrastructure Management Platform
 
 ## Overview
 
@@ -56,83 +56,83 @@ Key configuration options:
 | `ENVIRONMENT` | Application environment | `development` |
 | `CLOUD_PROVIDERS_ENABLED` | Enable cloud provider integrations | `True` |
 
-## Core Features
+## Features
 
-### Cloud Resource Management
+- **Cloud Resource Management**
+  - Multi-provider support (AWS, Azure, GCP)
+  - Resource provisioning, monitoring, and lifecycle management
+  - Real-time metrics collection and visualization
+  - Centralized cloud inventory and cost tracking
 
-The platform supports multiple cloud providers (AWS, Azure, GCP) and allows you to:
+- **Security & Compliance**
+  - Role-based access control with fine-grained permissions
+  - Multi-factor authentication and secure password policies
+  - Comprehensive audit logging and security incident tracking
+  - File integrity monitoring and anomaly detection
 
-- **Provision Resources**: Create virtual machines, storage, and network resources
-- **Monitor Performance**: Track CPU, memory, and network metrics in real-time
-- **Manage Lifecycle**: Start, stop, restart, and terminate resources
-- **Track Costs**: Monitor and optimize cloud spending
+- **Monitoring & Alerts**
+  - Real-time cloud resource metrics visualization
+  - Anomaly detection with configurable thresholds
+  - Alert management and notification system
+  - Historical metrics analysis and trend reporting
 
-### Security & Compliance
+- **Industrial Control Systems (ICS) Integration**
+  - Environmental control system monitoring
+  - ICS device management and metrics collection
+  - Secure control interface with access controls
+  - Historical data collection for ICS equipment
 
-Built with security in mind, the platform includes:
+- **Webhook Integration**
+  - Real-time event notifications to external systems
+  - Secure delivery with HMAC-SHA256 signatures
+  - Multiple event types across different resource categories
+  - Reliable delivery with automatic retries
+  - Comprehensive delivery tracking and history
 
-- **Role-Based Access Control**: Granular permissions for users and groups
-- **Multi-Factor Authentication**: Enhanced login security
-- **Audit Logging**: Comprehensive tracking of all user actions
-- **File Integrity Monitoring**: Detection of unauthorized file modifications
+## Project Structure
 
-### Monitoring & Alerts
-
-Stay informed about your infrastructure with:
-
-- **Real-Time Dashboards**: Visual representation of system metrics
-- **Anomaly Detection**: ML-based identification of unusual patterns
-- **Alert Management**: Configurable notifications across multiple channels
-- **Historical Analysis**: Long-term trend visualization and reporting
-
-### Industrial Control Systems (ICS) Integration
-
-Connect and monitor industrial systems:
-
-- **Environmental Controls**: Monitor temperature, humidity, and air quality
-- **Device Management**: Track and control ICS devices
-- **Secure Controls**: Role-based access to physical systems
-- **Historical Data**: Long-term storage of ICS metrics
+```
+├── api/                # RESTful API endpoints
+├── app.py              # Application entry point
+├── blueprints/         # Flask blueprints for main app components
+├── cli/                # Command-line interface tools
+├── config.py           # Configuration management
+├── core/               # Core utility functions and security tools
+├── extensions/         # Flask extensions and shared components
+├── models/             # Database models and ORM definitions
+├── services/           # Business logic and service layer
+├── static/             # Static assets (CSS, JS, images)
+├── tests/              # Automated tests
+└── views/              # View helpers and template utilities
+```
 
 ## API Reference
 
-The platform provides a comprehensive RESTful API for integrating with other systems:
+See the API Reference documentation for detailed information about the available API endpoints.
 
-```
-/api/auth/      - Authentication endpoints
-/api/cloud/     - Cloud resource management
-/api/metrics/   - Metrics collection and retrieval
-/api/alerts/    - Alert configuration and management
-/api/ics/       - Industrial control systems integration
-```
+## Security Features
 
-All API endpoints are secured with JWT authentication and support rate limiting.
+- Content Security Policy (CSP) with nonce-based script validation
+- CSRF protection for all forms and API endpoints
+- Subresource Integrity (SRI) checks for static assets
+- Secure cookie handling and session management
+- Password security with strength requirements and history checks
+- Input validation and sanitization against XSS and injection attacks
 
-## Security Considerations
+## Webhook System
 
-The platform implements numerous security features:
+The platform includes a webhook system allowing external systems to receive real-time notifications about events:
 
-- **Content Security Policy**: Prevents XSS attacks
-- **CSRF Protection**: Secures all form submissions
-- **Secure Cookies**: Protects session data
-- **Input Validation**: Prevents injection attacks
-- **Password Security**: Enforces strong password policies
-- **Regular Security Updates**: Maintained dependency versions
+| Event Category | Description | Examples |
+|---------------|-------------|----------|
+| Cloud Resources | Resource lifecycle events | `resource.created`, `resource.updated` |
+| Alerts | Alert state changes | `alert.triggered`, `alert.resolved` |
+| Security | Security-related events | `security.incident`, `security.scan.completed` |
+| ICS | Industrial control system events | `ics.reading`, `ics.state.change` |
+| System | Platform system events | `system.backup.completed` |
 
-## Troubleshooting
-
-Common issues and solutions:
-
-1. **Database Connection Errors**: Verify your DATABASE_URL is correct and the database server is running.
-
-2. **Redis Connection Issues**: Ensure Redis is running and accessible at the configured REDIS_URL.
-
-3. **Cloud Provider Authentication Failures**: Verify your cloud provider credentials are correct and have appropriate permissions.
-
-4. **Performance Issues**: Check system resources, database query performance, and Redis cache hit rates.
-
-For additional help, check the application logs in the `logs/` directory or enable debug mode during development.
+For detailed documentation on using webhooks, see the Webhook Reference.
 
 ## License
 
-This platform is released under the MIT License. See LICENSE file for details.
+MIT License

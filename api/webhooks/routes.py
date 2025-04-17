@@ -1,226 +1,292 @@
 """
-Webhook API routes for subscription management and webhook testing.
+Webhook API routes for Cloud Infrastructure Platform.
+
+This module defines the REST API endpoints for webhook subscription
+management and delivery status tracking.
 """
 
-from flask import Blueprint, request, jsonify, current_app, g, abort
-from flask_jwt_extended import jwt_required
-from sqlalchemy.exc import SQLAlchemyError
-from uuid import uuid4
-from datetime import datetime
+from flask import Blueprint, request, jsonify, current_app, g
+from werkzeug.exceptions import BadRequest, NotFound
 import json
+from typing import Dict, Any
 
-from extensions import db, metrics
-from models.audit_log import AuditLog
-from api.webhooks.models import WebhookSubscription, WebhookDeliveryAttempt
-from api.webhooks.services import trigger_webhook, validate_subscription_data
-from api.webhooks import EventType, generate_webhook_signature
-from core.utils import log_security_event
-from api.decorators import permission_required
+from extensions import db, limiter
+from models.webhook import WebhookSubscription, WebhookDelivery
+from . import EVENT_TYPES, EVENT_CATEGORIES
+from .subscription import create_subscription
+from .delivery import deliver_webhook
+from core.auth import login_required, require_role
 
-webhooks_bp = Blueprint('webhooks', __name__)
+# Create webhook blueprint
+webhooks_api = Blueprint('webhooks', __name__, url_prefix='/webhooks')
 
-@webhooks_bp.route('', methods=['GET'])
-@jwt_required()
-@permission_required('webhooks:view')
-def list_subscriptions():
-    """List webhook subscriptions."""
+@webhooks_api.route('/', methods=['POST'])
+@limiter.limit("30/minute")
+@login_required
+def create_webhook_subscription():
+    """
+    Create a new webhook subscription.
+    
+    Request body:
+    {
+        "target_url": "https://example.com/webhook",
+        "event_types": ["resource.created", "alert.triggered"],
+        "description": "My webhook subscription",
+        "headers": {"X-Custom-Header": "value"}
+    }
+    
+    Returns:
+        New webhook subscription details with secret
+    """
     try:
-        # Filter by user if not admin
-        user_id = g.user_id
-        if not g.user.has_permission('webhooks:view_all'):
-            subscriptions = WebhookSubscription.query.filter_by(created_by_id=user_id).all()
-        else:
-            subscriptions = WebhookSubscription.query.all()
+        data = request.get_json()
+        if not data:
+            raise BadRequest("Missing request body")
+            
+        required_fields = ['target_url', 'event_types']
+        for field in required_fields:
+            if field not in data:
+                raise BadRequest(f"Missing required field: {field}")
         
-        return jsonify({
-            'status': 'success',
-            'data': [sub.to_dict() for sub in subscriptions]
-        }), 200
-    except SQLAlchemyError as e:
-        current_app.logger.error(f"Database error in list_subscriptions: {e}")
-        return jsonify({
-            'status': 'error',
-            'message': 'Database error occurred while retrieving webhooks'
-        }), 500
-
-@webhooks_bp.route('', methods=['POST'])
-@jwt_required()
-@permission_required('webhooks:create')
-def create_subscription():
-    """Create a new webhook subscription."""
-    try:
-        data = request.json
-        error = validate_subscription_data(data)
-        if error:
-            return jsonify({
-                'status': 'error',
-                'message': error
-            }), 400
-        
-        # Generate a secure webhook secret if not provided
-        if not data.get('secret'):
-            import secrets
-            data['secret'] = secrets.token_hex(32)
-        
-        subscription = WebhookSubscription(
-            name=data['name'],
-            url=data['url'],
-            description=data.get('description', ''),
-            created_by_id=g.user_id,
+        # Create subscription
+        result = create_subscription(
+            target_url=data['target_url'],
             event_types=data['event_types'],
-            headers=data.get('headers', {}),
-            secret=data['secret'],
-            max_retries=data.get('max_retries', 3),
-            retry_interval=data.get('retry_interval', 60)
+            description=data.get('description'),
+            headers=data.get('headers'),
+            user_id=g.user.id
         )
         
-        db.session.add(subscription)
-        db.session.commit()
+        return jsonify(result), 201
         
-        # Log the creation
-        log_security_event(
-            event_type=AuditLog.EVENT_WEBHOOK_CREATED,
-            description=f"Webhook subscription '{subscription.name}' created",
-            severity=AuditLog.SEVERITY_INFO
-        )
-        
-        # Note: Return the secret only on creation
-        result = subscription.to_dict()
-        result['secret'] = data['secret']
-        
-        metrics.counter('webhook_subscriptions_created_total').inc()
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'Webhook subscription created successfully',
-            'data': result
-        }), 201
-    except SQLAlchemyError as e:
-        db.session.rollback()
-        current_app.logger.error(f"Database error in create_subscription: {e}")
-        return jsonify({
-            'status': 'error',
-            'message': 'Database error occurred while creating webhook subscription'
-        }), 500
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        current_app.logger.error(f"Error creating webhook subscription: {e}")
+        return jsonify({"error": "Failed to create webhook subscription"}), 500
 
-@webhooks_bp.route('/<int:subscription_id>', methods=['GET'])
-@jwt_required()
-@permission_required('webhooks:view')
-def get_subscription(subscription_id):
-    """Get a specific webhook subscription."""
+@webhooks_api.route('/', methods=['GET'])
+@limiter.limit("60/minute")
+@login_required
+def list_webhook_subscriptions():
+    """
+    List webhook subscriptions for the current user.
+    
+    Query parameters:
+    - page: Page number (default: 1)
+    - per_page: Items per page (default: 20)
+    
+    Returns:
+        List of webhook subscriptions
+    """
     try:
-        subscription = WebhookSubscription.query.get(subscription_id)
-        if not subscription:
-            return jsonify({
-                'status': 'error',
-                'message': 'Webhook subscription not found'
-            }), 404
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 20))
         
-        # Check ownership unless admin
-        if not g.user.has_permission('webhooks:view_all') and subscription.created_by_id != g.user_id:
-            return jsonify({
-                'status': 'error',
-                'message': 'You do not have permission to view this webhook subscription'
-            }), 403
+        query = WebhookSubscription.query.filter_by(user_id=g.user.id)
         
-        return jsonify({
-            'status': 'success',
-            'data': subscription.to_dict()
-        }), 200
-    except SQLAlchemyError as e:
-        current_app.logger.error(f"Database error in get_subscription: {e}")
-        return jsonify({
-            'status': 'error',
-            'message': 'Database error occurred while retrieving webhook subscription'
-        }), 500
-
-@webhooks_bp.route('/<int:subscription_id>/deliveries', methods=['GET'])
-@jwt_required()
-@permission_required('webhooks:view')
-def list_deliveries(subscription_id):
-    """List webhook delivery attempts for a subscription."""
-    try:
-        subscription = WebhookSubscription.query.get(subscription_id)
-        if not subscription:
-            return jsonify({
-                'status': 'error',
-                'message': 'Webhook subscription not found'
-            }), 404
+        pagination = query.paginate(page=page, per_page=per_page)
         
-        # Check ownership unless admin
-        if not g.user.has_permission('webhooks:view_all') and subscription.created_by_id != g.user_id:
-            return jsonify({
-                'status': 'error',
-                'message': 'You do not have permission to view this webhook subscription'
-            }), 403
-        
-        # Get delivery attempts, newest first
-        deliveries = WebhookDeliveryAttempt.query.filter_by(
-            subscription_id=subscription_id
-        ).order_by(WebhookDeliveryAttempt.created_at.desc()).limit(100).all()
-        
-        return jsonify({
-            'status': 'success',
-            'data': [delivery.to_dict() for delivery in deliveries]
-        }), 200
-    except SQLAlchemyError as e:
-        current_app.logger.error(f"Database error in list_deliveries: {e}")
-        return jsonify({
-            'status': 'error',
-            'message': 'Database error occurred while retrieving webhook deliveries'
-        }), 500
-
-@webhooks_bp.route('/<int:subscription_id>/test', methods=['POST'])
-@jwt_required()
-@permission_required('webhooks:manage')
-def test_webhook(subscription_id):
-    """Send a test webhook to verify the subscription is working."""
-    try:
-        subscription = WebhookSubscription.query.get(subscription_id)
-        if not subscription:
-            return jsonify({
-                'status': 'error',
-                'message': 'Webhook subscription not found'
-            }), 404
-        
-        # Check ownership unless admin
-        if not g.user.has_permission('webhooks:manage_all') and subscription.created_by_id != g.user_id:
-            return jsonify({
-                'status': 'error',
-                'message': 'You do not have permission to test this webhook subscription'
-            }), 403
-        
-        # Create test payload
-        test_payload = {
-            'event': 'test',
-            'test': True,
-            'timestamp': datetime.utcnow().isoformat(),
-            'subscription_id': subscription_id
+        result = {
+            "items": [subscription.to_dict(exclude_secret=True) for subscription in pagination.items],
+            "total": pagination.total,
+            "page": page,
+            "per_page": per_page,
+            "pages": pagination.pages
         }
         
-        # Send test webhook
-        success, result = trigger_webhook(
-            subscription=subscription,
-            event_type='test',
-            payload=test_payload,
-            is_test=True
+        return jsonify(result)
+        
+    except Exception as e:
+        current_app.logger.error(f"Error listing webhook subscriptions: {e}")
+        return jsonify({"error": "Failed to list webhook subscriptions"}), 500
+
+@webhooks_api.route('/<subscription_id>', methods=['GET'])
+@limiter.limit("60/minute")
+@login_required
+def get_webhook_subscription(subscription_id):
+    """
+    Get details for a specific webhook subscription.
+    
+    Args:
+        subscription_id: ID of the subscription to retrieve
+        
+    Returns:
+        Webhook subscription details
+    """
+    try:
+        subscription = WebhookSubscription.query.filter_by(
+            id=subscription_id, 
+            user_id=g.user.id
+        ).first()
+        
+        if not subscription:
+            return jsonify({"error": "Webhook subscription not found"}), 404
+            
+        return jsonify(subscription.to_dict(exclude_secret=True))
+        
+    except Exception as e:
+        current_app.logger.error(f"Error retrieving webhook subscription: {e}")
+        return jsonify({"error": "Failed to retrieve webhook subscription"}), 500
+
+@webhooks_api.route('/<subscription_id>', methods=['DELETE'])
+@limiter.limit("30/minute")
+@login_required
+def delete_webhook_subscription(subscription_id):
+    """
+    Delete a webhook subscription.
+    
+    Args:
+        subscription_id: ID of the subscription to delete
+        
+    Returns:
+        Success confirmation
+    """
+    try:
+        subscription = WebhookSubscription.query.filter_by(
+            id=subscription_id, 
+            user_id=g.user.id
+        ).first()
+        
+        if not subscription:
+            return jsonify({"error": "Webhook subscription not found"}), 404
+            
+        db.session.delete(subscription)
+        db.session.commit()
+            
+        return jsonify({"success": True, "message": "Webhook subscription deleted"}), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error deleting webhook subscription: {e}")
+        return jsonify({"error": "Failed to delete webhook subscription"}), 500
+
+@webhooks_api.route('/<subscription_id>/deliveries', methods=['GET'])
+@limiter.limit("60/minute")
+@login_required
+def list_webhook_deliveries(subscription_id):
+    """
+    List delivery history for a webhook subscription.
+    
+    Args:
+        subscription_id: ID of the subscription
+        
+    Query parameters:
+    - page: Page number (default: 1)
+    - per_page: Items per page (default: 20)
+    - status: Filter by status (optional)
+    
+    Returns:
+        List of webhook deliveries
+    """
+    try:
+        # Verify subscription ownership
+        subscription = WebhookSubscription.query.filter_by(
+            id=subscription_id, 
+            user_id=g.user.id
+        ).first()
+        
+        if not subscription:
+            return jsonify({"error": "Webhook subscription not found"}), 404
+        
+        # Parse query parameters
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 20))
+        status = request.args.get('status')
+        
+        # Build query
+        query = WebhookDelivery.query.filter_by(subscription_id=subscription_id)
+        
+        if status:
+            query = query.filter_by(status=status)
+            
+        # Order by newest first
+        query = query.order_by(WebhookDelivery.created_at.desc())
+        
+        # Paginate results
+        pagination = query.paginate(page=page, per_page=per_page)
+        
+        result = {
+            "items": [delivery.to_dict() for delivery in pagination.items],
+            "total": pagination.total,
+            "page": page,
+            "per_page": per_page,
+            "pages": pagination.pages
+        }
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        current_app.logger.error(f"Error listing webhook deliveries: {e}")
+        return jsonify({"error": "Failed to list webhook deliveries"}), 500
+
+@webhooks_api.route('/test', methods=['POST'])
+@limiter.limit("10/minute")
+@login_required
+def test_webhook():
+    """
+    Test a webhook by sending a test event.
+    
+    Request body:
+    {
+        "subscription_id": "uuid-here",
+        "payload": {"key": "value"} // Optional custom payload
+    }
+    
+    Returns:
+        Delivery result details
+    """
+    try:
+        data = request.get_json()
+        if not data or 'subscription_id' not in data:
+            return jsonify({"error": "Missing subscription_id"}), 400
+            
+        subscription_id = data['subscription_id']
+        
+        # Verify subscription ownership
+        subscription = WebhookSubscription.query.filter_by(
+            id=subscription_id, 
+            user_id=g.user.id
+        ).first()
+        
+        if not subscription:
+            return jsonify({"error": "Webhook subscription not found"}), 404
+            
+        # Create test payload
+        payload = data.get('payload', {
+            "message": "This is a test webhook event",
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        
+        # Deliver test webhook
+        results = deliver_webhook(
+            event_type="test.event",
+            payload=payload,
+            subscription_id=subscription_id
         )
         
-        if success:
-            return jsonify({
-                'status': 'success',
-                'message': 'Test webhook sent successfully',
-                'data': result
-            }), 200
-        else:
-            return jsonify({
-                'status': 'error',
-                'message': 'Failed to send test webhook',
-                'data': result
-            }), 500
+        if not results:
+            return jsonify({"error": "Failed to initiate webhook delivery"}), 500
+            
+        return jsonify({"success": True, "delivery": results[0]})
+        
     except Exception as e:
-        current_app.logger.error(f"Error in test_webhook: {e}")
-        return jsonify({
-            'status': 'error',
-            'message': f'Error testing webhook: {str(e)}'
-        }), 500
+        current_app.logger.error(f"Error testing webhook: {e}")
+        return jsonify({"error": "Failed to test webhook"}), 500
+
+@webhooks_api.route('/events', methods=['GET'])
+@limiter.limit("30/minute")
+@login_required
+def list_webhook_events():
+    """
+    List available webhook event types and categories.
+    
+    Returns:
+        Event types and categories information
+    """
+    result = {
+        "event_types": EVENT_TYPES,
+        "categories": EVENT_CATEGORIES
+    }
+    
+    return jsonify(result)

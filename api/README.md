@@ -1,4 +1,4 @@
-# API Reference - Cloud Infrastructure Platform
+Collecting workspace information# API Reference - Cloud Infrastructure Platform
 
 ## Overview
 
@@ -112,6 +112,18 @@ When rate limits are exceeded, the API returns a `429 Too Many Requests` status 
 | `/api/newsletter/subscribe` | POST | Subscribe to newsletter |
 | `/api/newsletter/unsubscribe` | POST | Unsubscribe from newsletter |
 
+### Webhooks
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| webhooks | POST | Create a new webhook subscription |
+| webhooks | GET | List your webhook subscriptions |
+| `/api/webhooks/{id}` | GET | Get details of a specific subscription |
+| `/api/webhooks/{id}` | DELETE | Delete a subscription |
+| `/api/webhooks/{id}/deliveries` | GET | View delivery history |
+| `/api/webhooks/test` | POST | Test a webhook delivery |
+| `/api/webhooks/events` | GET | List available event types |
+
 ## Query Parameters
 
 Many endpoints support standard query parameters:
@@ -135,18 +147,40 @@ Many endpoints support standard query parameters:
 | 429 | Too Many Requests - Rate limit exceeded |
 | 500 | Internal Server Error - Server-side error |
 
-## Webhooks
+## Webhook Event Types
 
-The API supports webhooks for real-time event notifications. Configure webhooks at `/api/webhooks`.
+The API supports these event categories:
 
-Available event types:
-- `resource.created`
-- `resource.updated`
-- `resource.deleted`
-- `alert.triggered`
-- `alert.acknowledged`
-- `alert.resolved`
-- `security.incident`
+1. **Cloud Resources**
+   - `resource.created` - When a new cloud resource is provisioned
+   - `resource.updated` - When a cloud resource is modified
+   - `resource.deleted` - When a cloud resource is deleted
+   - `resource.started` - When a cloud resource is started
+   - `resource.stopped` - When a cloud resource is stopped
+   - `resource.error` - When a cloud resource enters an error state
+   - `resource.scaled` - When a cloud resource is scaled up or down
+
+2. **Alerts**
+   - `alert.triggered` - When a new alert is generated
+   - `alert.acknowledged` - When an alert is acknowledged
+   - `alert.resolved` - When an alert is resolved
+   - `alert.escalated` - When an alert is escalated
+   - `alert.comment` - When a comment is added to an alert
+
+3. **Security**
+   - `security.incident` - When a security incident is detected
+   - `security.scan.completed` - When a security scan completes
+   - `security.vulnerability` - When a vulnerability is discovered
+   - `security.brute_force` - When a brute force attempt is detected
+   - `security.file_integrity` - When file integrity validation fails
+   - `security.audit` - When security audit events occur
+
+4. **ICS Systems**
+   - `ics.reading` - When a new reading is recorded from an ICS device
+   - `ics.state.change` - When an ICS device changes state
+   - `ics.alarm` - When an ICS device triggers an alarm
+   - `ics.maintenance_required` - When maintenance is required
+   - `ics.calibration` - When a device is calibrated
 
 ## SDK Libraries
 
