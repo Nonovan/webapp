@@ -113,3 +113,6 @@ site/
 *~
 .DS_Store
 Thumbs.db
+
+# Ignore local configuration overrides
+config/local.py
