@@ -1,0 +1,85 @@
+# Alertmanager configuration for Cloud Infrastructure Platform
+global:
+  resolve_timeout: 5m
+  # The smarthost and SMTP sender used for email notifications
+  smtp_smarthost: 'smtp.example.com:587'
+  smtp_from: 'alertmanager@example.com'
+  smtp_auth_username: '${SMTP_USERNAME}'
+  smtp_auth_password: '${SMTP_PASSWORD}'
+  smtp_require_tls: true
+  
+# Notification templates
+templates:
+  - '/etc/alertmanager/template/*.tmpl'
+
+# Route notifications based on alert labels
+route:
+  group_by: ['alertname', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'team-default'
+  routes:
+    - match:
+        severity: critical
+      receiver: 'team-ops'
+      continue: true
+    - match:
+        category: security
+      receiver: 'team-security'
+      continue: true
+    - match:
+        category: database
+      receiver: 'team-db'
+    - match:
+        category: cloud
+      receiver: 'team-cloud'
+    - match:
+        category: application
+      receiver: 'team-app'
+
+# Receivers
+receivers:
+  - name: 'team-default'
+    email_configs:
+      - to: 'alerts@example.com'
+        send_resolved: true
+    
+  - name: 'team-ops'
+    email_configs:
+      - to: 'ops@example.com'
+        send_resolved: true
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_KEY}'
+        send_resolved: true
+    
+  - name: 'team-security'
+    email_configs:
+      - to: 'security@example.com'
+        send_resolved: true
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_SECURITY_KEY}'
+        send_resolved: true
+    
+  - name: 'team-db'
+    email_configs:
+      - to: 'db-team@example.com'
+        send_resolved: true
+    
+  - name: 'team-cloud'
+    email_configs:
+      - to: 'cloud-team@example.com'
+        send_resolved: true
+    
+  - name: 'team-app'
+    email_configs:
+      - to: 'app-team@example.com'
+        send_resolved: true
+
+# Inhibition rules prevent multiple alerts from being sent for the same issue
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'instance']
