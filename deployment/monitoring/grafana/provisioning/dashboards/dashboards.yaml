@@ -1,0 +1,14 @@
+# Grafana dashboard auto-provisioning configuration
+apiVersion: 1
+
+providers:
+  - name: 'Cloud Platform Dashboards'
+    orgId: 1
+    folder: 'Cloud Platform'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: true

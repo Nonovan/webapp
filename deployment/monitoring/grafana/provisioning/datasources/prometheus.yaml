@@ -1,0 +1,15 @@
+# Grafana datasource configuration for Prometheus
+apiVersion: 1
+
+# List of datasources to insert/update
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 15s
+      httpMethod: POST
+    version: 1
+    editable: false

@@ -1,0 +1,78 @@
+groups:
+  - name: cloud-platform-alerts
+    rules:
+      # System resource alerts
+      - alert: HighCPULoad
+        expr: 100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU load (instance {{ $labels.instance }})"
+          description: "CPU load is > 80%\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+      - alert: HighMemoryLoad
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory load (instance {{ $labels.instance }})"
+          description: "Memory load is > 85%\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+      - alert: HighDiskUsage
+        expr: (node_filesystem_size_bytes{mountpoint="/"} - node_filesystem_free_bytes{mountpoint="/"}) / node_filesystem_size_bytes{mountpoint="/"} * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High disk usage (instance {{ $labels.instance }})"
+          description: "Disk usage is > 85%\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+      # Application alerts
+      - alert: HighErrorRate
+        expr: rate(error_counter_total[5m]) > 5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High application error rate"
+          description: "Application is experiencing a high rate of errors: {{ $value }} errors/s"
+
+      - alert: SlowResponseTime
+        expr: rate(request_latency_seconds_sum[5m]) / rate(request_latency_seconds_count[5m]) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow response times"
+          description: "Application response time is above 2 seconds: {{ $value }}s"
+
+      - alert: SecurityIncident
+        expr: security_incidents_total > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Security incident detected"
+          description: "A security incident has been detected in the platform"
+
+      # Database alerts
+      - alert: DatabaseConnectionFailures
+        expr: rate(db_connection_failures_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database connection failures detected"
+          description: "The application is experiencing database connection failures"
+
+      # Cloud resource alerts
+      - alert: CloudResourceProvisioningFailure
+        expr: cloud_resource_provisioning_failures_total > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cloud resource provisioning failure"
+          description: "Failed to provision cloud resources: {{ $value }} failures"

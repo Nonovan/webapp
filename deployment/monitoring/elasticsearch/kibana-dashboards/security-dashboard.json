@@ -1,0 +1,22 @@
+{
+    "attributes": {
+      "title": "Cloud Platform Security Events",
+      "hits": 0,
+      "description": "Dashboard for monitoring security events in the Cloud Infrastructure Platform",
+      "panelsJSON": "[{\"panelIndex\":\"1\",\"gridData\":{\"x\":0,\"y\":0,\"w\":24,\"h\":12,\"i\":\"1\"},\"version\":\"7.16.0\",\"type\":\"visualization\",\"id\":\"security-events-over-time\"},{\"panelIndex\":\"2\",\"gridData\":{\"x\":0,\"y\":12,\"w\":12,\"h\":8,\"i\":\"2\"},\"version\":\"7.16.0\",\"type\":\"visualization\",\"id\":\"security-events-by-severity\"},{\"panelIndex\":\"3\",\"gridData\":{\"x\":12,\"y\":12,\"w\":12,\"h\":8,\"i\":\"3\"},\"version\":\"7.16.0\",\"type\":\"visualization\",\"id\":\"security-events-by-type\"},{\"panelIndex\":\"4\",\"gridData\":{\"x\":0,\"y\":20,\"w\":24,\"h\":12,\"i\":\"4\"},\"version\":\"7.16.0\",\"type\":\"search\",\"id\":\"security-events-search\"}]",
+      "optionsJSON": "{\"useMargins\":true,\"hidePanelTitles\":false}",
+      "version": 1,
+      "timeRestore": true,
+      "timeTo": "now",
+      "timeFrom": "now-24h",
+      "refreshInterval": {
+        "pause": false,
+        "value": 300000
+      },
+      "kibanaSavedObjectMeta": {
+        "searchSourceJSON": "{\"query\":{\"query\":\"tags: security\",\"language\":\"kuery\"},\"filter\":[]}"
+      }
+    },
+    "type": "dashboard",
+    "id": "security-dashboard"
+  }
