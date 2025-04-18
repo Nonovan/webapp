@@ -114,10 +114,10 @@ cd deployment/infrastructure
 terraform apply -var-file=dr-recovery.tfvars
 
 # 2. Restore configuration
-./deployment/scripts/config_restore.sh --env production --source s3://backup-bucket/configs/
+./scripts/deployment/config_restore.sh --env production --source s3://backup-bucket/configs/
 
 # 3. Deploy application
-./deployment/scripts/deploy.sh production --from-backup
+./scripts/deployment/deploy.sh production --from-backup
 
 ```
 
@@ -128,10 +128,10 @@ terraform apply -var-file=dr-recovery.tfvars
 ls -la /var/backups/cloud-platform/database/
 
 # 2. Restore database
-./deployment/scripts/restore_db.sh /var/backups/cloud-platform/database/cloud_platform_production_YYYYMMDD.sql.gz production
+./scripts/database/restore_db.sh /var/backups/cloud-platform/database/cloud_platform_production_YYYYMMDD.sql.gz production
 
 # 3. Verify database integrity
-./deployment/scripts/db_verify.sh production
+./scripts/database/db_verify.sh production
 
 ```
 
@@ -139,13 +139,13 @@ ls -la /var/backups/cloud-platform/database/
 
 ```bash
 # 1. Roll back to last known good version
-./deployment/scripts/rollback.sh production --version v2.1.0
+./scripts/deployment/rollback.sh production --version v2.1.0
 
 # 2. If rollback fails, perform fresh deployment
-./deployment/scripts/deploy.sh production --clean
+./scripts/deployment/deploy.sh production --clean
 
 # 3. Run post-deployment checks
-./deployment/scripts/post_deploy_check.sh production
+./scripts/deployment/post_deploy_check.sh production
 
 ```
 
@@ -163,16 +163,19 @@ The Cloud Infrastructure Platform uses a multi-region architecture to support di
 
 ```bash
 # 1. Verify primary region failure
-./deployment/scripts/health-check.sh production --region primary
+./scripts/monitoring/health-check.sh production --region primary --dr-mode
 
 # 2. Activate secondary region
-./deployment/scripts/dr-failover.sh --activate-region secondary
+./scripts/deployment/dr-failover.sh --activate-region secondary
 
 # 3. Update DNS and routing
-./deployment/scripts/update-dns.sh --point-to secondary
+./scripts/deployment/update-dns.sh --point-to secondary
 
 # 4. Verify secondary region functionality
-./deployment/scripts/smoke-test.sh production --region secondary
+./scripts/monitoring/health-check.sh production --region secondary --dr-mode
+
+# 5. Run additional smoke tests for complete validation (optional)
+./scripts/testing/smoke-test.sh production --region secondary
 
 ```
 
