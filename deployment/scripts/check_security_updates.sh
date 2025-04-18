@@ -1,6 +1,6 @@
 #!/bin/bash
 # Check for security updates on the system
-# Usage: ./scripts/check_security_updates.sh
+# Usage: ./check_security_updates.sh
 
 set -e
 
@@ -9,6 +9,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 LOG_FILE="/var/log/cloud-platform/security.log"
 EMAIL_RECIPIENT="security@example.com"
 UPDATE_COUNT=0
+CRITICAL_UPDATES=0
 
 # Ensure log directory exists
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -30,6 +31,7 @@ if command -v apt-get &>/dev/null; then
     apt-get update -qq
     
     # Count security updates
+    log "Checking for security updates"
     UPDATE_COUNT=$(apt-get --just-print upgrade | grep -c "^Inst.*security")
     
     if [ $UPDATE_COUNT -gt 0 ]; then
@@ -52,6 +54,10 @@ elif command -v yum &>/dev/null; then
     log "Detected RHEL/CentOS system"
     
     # Update package lists
+    log "Updating package lists"
+    yum check-update -q
+    
+    # Count security updates
     log "Checking for security updates"
     UPDATE_COUNT=$(yum check-update --security | grep -c "^[a-zA-Z0-9]")
     

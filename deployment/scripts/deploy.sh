@@ -1,6 +1,6 @@
 #!/bin/bash
-# Deploy Cloud Infrastructure Platform to production environment
-# Usage: ./scripts/deploy.sh [environment]
+# Deployment script for Cloud Infrastructure Platform
+# Usage: ./deploy.sh [environment]
 
 set -e
 
@@ -8,25 +8,21 @@ set -e
 ENVIRONMENT=${1:-production}
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-LOG_FILE="${PROJECT_ROOT}/logs/deployment_$(date +%Y%m%d_%H%M%S).log"
 
-# Ensure logs directory exists
-mkdir -p "$(dirname "$LOG_FILE")"
-
+# Function to log messages
 log() {
     local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
-    echo "[$timestamp] $1" | tee -a "$LOG_FILE"
+    echo "[$timestamp] $1"
 }
 
 log "Starting deployment to ${ENVIRONMENT} environment"
 
-# Load environment-specific variables
-if [ -f "${PROJECT_ROOT}/deployment/environments/${ENVIRONMENT}.env" ]; then
-    log "Loading ${ENVIRONMENT} environment variables"
-    source "${PROJECT_ROOT}/deployment/environments/${ENVIRONMENT}.env"
-else
-    log "ERROR: Environment file ${PROJECT_ROOT}/deployment/environments/${ENVIRONMENT}.env not found"
-    exit 1
+# Check for required tools
+for cmd in git python pip; do
+    if ! command -v $cmd &>/dev/null; then
+        log "ERROR: Required command '$cmd' not found"
+        exit 1
+    fi
 fi
 
 # Activate virtual environment

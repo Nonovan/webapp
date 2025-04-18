@@ -1,6 +1,6 @@
 #!/bin/bash
 # Security setup and hardening script for Cloud Infrastructure Platform
-# Usage: ./scripts/security_setup.sh [environment]
+# Usage: ./security_setup.sh [environment]
 
 set -e
 
@@ -136,5 +136,69 @@ fi
 # Setup security update cron jobs
 log "Setting up security update cron jobs"
 cp "${PROJECT_ROOT}/deployment/security/security-update-cron" /etc/cron.d/cloud-platform-security
+
+# Apply special hardening for production
+if [ "$ENVIRONMENT" == "production" ]; then
+    log "Applying production-specific security hardening"
+    
+    # Ensure sensitive files have proper permissions
+    chmod 640 /etc/cloud-platform/config.ini 2>/dev/null || log "WARNING: Could not set permissions on config.ini"
+    chmod 600 /opt/cloud-platform/.env 2>/dev/null || log "WARNING: Could not set permissions on .env"
+    
+    # Set proper ownership
+    chown root:www-data /etc/cloud-platform/config.ini 2>/dev/null || log "WARNING: Could not set ownership on config.ini"
+    chown www-data:www-data /opt/cloud-platform/.env 2>/dev/null || log "WARNING: Could not set ownership on .env"
+    
+    # Apply additional sysctl hardening
+    cat > /etc/sysctl.d/99-security-hardening.conf <<EOF
+# IP Spoofing protection
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
+
+# Block SYN attacks
+net.ipv4.tcp_syncookies = 1
+net.ipv4.tcp_max_syn_backlog = 2048
+net.ipv4.tcp_synack_retries = 2
+net.ipv4.tcp_syn_retries = 5
+
+# Log Martians
+net.ipv4.conf.all.log_martians = 1
+net.ipv4.icmp_ignore_bogus_error_responses = 1
+
+# Ignore ICMP redirects
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.all.secure_redirects = 0
+net.ipv4.conf.default.secure_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv6.conf.default.accept_redirects = 0
+
+# Ignore ICMP broadcasts
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+
+# Don't act as a router
+net.ipv4.ip_forward = 0
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.send_redirects = 0
+
+# Disable IPv6 if not needed
+net.ipv6.conf.all.disable_ipv6 = 0
+net.ipv6.conf.default.disable_ipv6 = 0
+
+# Protect against tcp time-wait assassination
+net.ipv4.tcp_rfc1337 = 1
+
+# Decrease the time default value for tcp_fin_timeout connection
+net.ipv4.tcp_fin_timeout = 15
+
+# Decrease the time default value for connections to keep alive
+net.ipv4.tcp_keepalive_time = 300
+net.ipv4.tcp_keepalive_probes = 5
+net.ipv4.tcp_keepalive_intvl = 15
+EOF
+
+    # Apply sysctl settings
+    sysctl -p /etc/sysctl.d/99-security-hardening.conf
+fi
 
 log "Security setup completed successfully"
