@@ -1,4 +1,3 @@
-```markdown
 # Cloud Infrastructure Management Platform
 
 ## Overview
