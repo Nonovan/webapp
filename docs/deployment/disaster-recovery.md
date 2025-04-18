@@ -4,7 +4,7 @@ This document outlines the procedures and strategies for recovering the Cloud In
 
 ## Overview
 
-The disaster recovery (DR) plan provides a structured approach for responding to incidents that cause significant disruption to the Cloud Infrastructure Platform. It ensures business continuity by defining clear recovery procedures, roles, and responsibilities.
+The disaster recovery (DR) plan provides a structured approach for responding to incidents that cause significant disruption to the Cloud Infrastructure Platform. It ensures business continuity by defining clear recovery procedures, roles, and responsibilities for both cloud infrastructure and integrated industrial control systems (ICS).
 
 ## Objectives
 
@@ -12,82 +12,73 @@ The disaster recovery (DR) plan provides a structured approach for responding to
 - Provide clear recovery procedures for different types of disasters
 - Define roles and responsibilities during recovery operations
 - Ensure regular testing and improvement of recovery processes
-- Meet compliance requirements for business continuity
+- Meet compliance requirements for business continuity (ISO 27001, SOC 2, NIST)
+- Maintain security controls throughout the recovery process
 
 ## Recovery Metrics
 
 ### Recovery Time Objective (RTO)
 
 | Environment | RTO Target |
-|-------------|------------|
-| Production  | 2 hours    |
-| Staging     | 4 hours    |
-| Development | 8 hours    |
+| --- | --- |
+| Production | 2 hours |
+| Staging | 4 hours |
+| Development | 8 hours |
 
 ### Recovery Point Objective (RPO)
 
 | Environment | RPO Target |
-|-------------|------------|
-| Production  | 15 minutes |
-| Staging     | 1 hour     |
-| Development | 24 hours   |
+| --- | --- |
+| Production | 15 minutes |
+| Staging | 1 hour |
+| Development | 24 hours |
 
 ## Disaster Recovery Team
 
-| Role                | Responsibilities |
-|---------------------|-----------------|
-| DR Coordinator      | Oversees recovery efforts, coordinates team members, communicates with leadership |
+| Role | Responsibilities |
+| --- | --- |
+| DR Coordinator | Oversees recovery efforts, coordinates team members, communicates with leadership |
 | System Administrators | Perform system recovery, manage infrastructure restoration |
-| Database Administrators | Handle database backup and restoration |
-| Network Engineers   | Restore network connectivity and configurations |
-| Security Team       | Verify security controls during recovery, investigate security incidents |
-| Application Team    | Validate application functionality after recovery |
+| Database Administrators | Handle database backup and restoration using scripts in database |
+| Network Engineers | Restore network connectivity and configurations |
+| Security Team | Verify security controls during recovery, investigate security incidents |
+| Application Team | Validate application functionality after recovery |
+| ICS Specialists | Recover and validate industrial control system components |
+| Cloud Providers Team | Coordinate with cloud providers for infrastructure recovery |
 | Communications Lead | Manage stakeholder communications throughout recovery process |
 
 ## Disaster Scenarios and Response
 
 ### Infrastructure Failure
 
-#### Symptoms
+### Symptoms
+
 - Complete loss of access to cloud provider resources
 - Multiple service alerts from monitoring systems
 - Inability to access application endpoints
 
-#### Response
+### Response
+
 1. Activate DR team and establish command center
 2. Assess scope of failure across regions and services
 3. Initiate failover to secondary region if primary region is affected
 4. Restore core infrastructure using Infrastructure as Code (IaC) templates
-5. Restore databases from latest backups
-6. Verify system integrity and functionality
+5. Restore databases from latest backups using restore_db.sh
+6. Verify system integrity and functionality using [health-check.sh](see `scripts/monitoring/health-check.sh`)
 7. Update DNS and routing to point to recovered systems
-
-### Data Corruption or Loss
-
-#### Symptoms
-- Application errors related to data integrity
-- Database consistency check failures
-- Unexpected data discrepancies reported by users
-
-#### Response
-1. Identify scope and cause of corruption
-2. Stop affected services to prevent further corruption
-3. Determine appropriate backup restore point
-4. Restore database from selected backup using `restore_db.sh`
-5. Validate data integrity after restoration
-6. Restart services and verify application functionality
-7. Document incident and update data validation processes
 
 ### Security Breach
 
-#### Symptoms
+### Symptoms
+
 - Security monitoring alerts indicating unauthorized access
 - Unexpected system behavior or modifications
 - Evidence of data exfiltration or tampering
 
-#### Response
+### Response
+
 1. Isolate affected systems to prevent further compromise
-2. Initiate security incident response plan (see `incident-response.md`)
+2. Initiate security incident response plan (see `docs/security/incident-response.md`)
 3. Create forensic copies of affected systems before recovery
 4. Restore systems from known-clean backups
 5. Apply security patches and update configurations
@@ -97,15 +88,17 @@ The disaster recovery (DR) plan provides a structured approach for responding to
 
 ### Application Failure
 
-#### Symptoms
+### Symptoms
+
 - Critical application components unresponsive
 - High error rates in application logs
 - Services failing health checks
 
-#### Response
+### Response
+
 1. Identify failed components through monitoring dashboards
 2. Attempt service restart using standard procedures
-3. If restart fails, roll back to last known good version using `rollback.sh`
+3. If restart fails, roll back to last known good version using [rollback.sh](see `scripts/deployment/rollback.sh`)
 4. If rollback is unsuccessful, rebuild application environment
 5. Restore application data if necessary
 6. Verify application functionality through smoke tests

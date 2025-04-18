@@ -1,13 +1,19 @@
 #!/bin/bash
-# Deployment script for Cloud Infrastructure Platform
+#
+# Script: deploy.sh
+# Description: Deploys the Cloud Infrastructure Platform to the specified environment
 # Usage: ./deploy.sh [environment]
+#
+# Copyright (c) 2025 My Company
+# Licensed under MIT License
+#
 
-set -e
+set -e  # Exit immediately if a command fails
 
-# Default to production if no environment specified
+# Default settings
 ENVIRONMENT=${1:-production}
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
 # Function to log messages
 log() {

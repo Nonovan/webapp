@@ -347,3 +347,11 @@ jobs:
       
       - name: Run security audit
         run: python deployment/scripts/security_audit.py --environment production
+
+  deploy:
+    steps:
+      - name: Run pre-deployment checks
+        run: bash scripts/deployment/pre_deploy_check.sh staging
+      
+      - name: Deploy to staging
+        run: bash scripts/deployment/deploy.sh staging

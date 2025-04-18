@@ -7,7 +7,7 @@
 15 2 * * * /path/to/cloud-platform/scripts/rotate_logs.sh >> /path/to/cloud-platform/logs/cron.log 2>&1
 
 # Database backup daily at 3:00 AM
-0 3 * * * /path/to/cloud-platform/scripts/backup_db.sh >> /path/to/cloud-platform/logs/cron.log 2>&1
+0 3 * * * /opt/cloud-platform/scripts/maintenance/backup_db.sh >> /var/log/cloud-platform/cron.log 2>&1
 
 # Security checks
 # Verify file integrity every 2 hours
