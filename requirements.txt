@@ -27,7 +27,7 @@ Flask-JWT-Extended==4.6.0  # Added for better JWT support
 SQLAlchemy==2.0.22
 alembic==1.12.0
 redis==4.6.0  # Pinned to specific version for stability
-# psycopg2-binary==2.9.9  # Added for PostgreSQL support
+psycopg2-binary  # Added for PostgreSQL support
 sqlalchemy-utils==0.41.1  # Added for advanced SQLAlchemy utilities
 python-dateutil==2.8.2  # Added for date handling
 
@@ -81,17 +81,17 @@ azure-storage-blob==12.19.0  # Added for Azure blob storage
 
 # Cloud provider SDKs (completing what you have)
 azure-keyvault-secrets==4.7.0  # Azure Key Vault for secrets management
-azure-mgmt-containerservice==25.1.0  # Azure AKS management
+azure-mgmt-containerservice==26.0.0  # Azure AKS management
 google-cloud-secret-manager==2.16.4  # GCP Secret Manager
-google-cloud-iam==2.12.3  # GCP IAM management
+google-cloud-iam==2.13.0  # GCP IAM management
 kubernetes-asyncio==24.2.3  # Async client for Kubernetes
 
 # Industrial Control Systems (ICS) support
 pymodbus==3.5.4  # Modbus protocol implementation
-opcua-asyncio==1.0.5  # OPC UA protocol implementation
+#opcua-asyncio==1.0.5  # OPC UA protocol implementation
 pycomm3==1.2.11  # Allen-Bradley PLC communication
-pytcp==0.0.14  # TCP client-server implementation for custom protocols
-paho-mqtt==2.2.1  # MQTT protocol for ICS messaging
+pytcp==2.7.5  # TCP client-server implementation for custom protocols
+paho-mqtt==2.1.0  # MQTT protocol for ICS messaging
 
 # Testing
 pytest==7.4.2
@@ -105,7 +105,7 @@ moto==4.2.7  # Added for AWS service mocking
 responses==0.24.1  # Added for HTTP mocking
 
 # Additional testing tools
-playwright==1.40.0  # End-to-end testing
+playwright  # End-to-end testing
 locust==2.19.1  # Load testing
 faker==20.1.0  # Generate fake data for testing
 hypothesis==6.88.1  # Property-based testing
@@ -121,7 +121,7 @@ pre-commit==3.4.0
 isort==5.12.0  # Added for import sorting
 pylint==3.0.1
 bandit==1.7.5  # Added for security scanning
-# safety==2.3.5  # Added for dependency checking
+#safety  # Added for dependency checking
 
 # Type Stubs
 types-PyJWT>=0.1.3
@@ -169,7 +169,7 @@ pypdf2==3.0.1
 # File processing and validation
 python-docx==1.0.1  # Word document processing
 openpyxl==3.1.2  # Excel spreadsheet processing
-pillow==10.1.0  # Image processing
+pillow  # Image processing
 jsonschema==4.20.0  # JSON schema validation
 filelock==3.13.1  # File locking mechanism
 
@@ -207,14 +207,15 @@ watchdog==3.0.0
 bleach==6.1.0  # HTML sanitization
 html-sanitizer==2.3.0  # Additional HTML sanitizing
 cssutils==2.9.0  # CSS parsing and sanitization
-content-security-policy-builder==0.5.0  # CSP header management
+#content-security-policy-builder==0.5.0  # CSP header management
 secure==0.3.0  # Security headers helper
 
 # Distributed systems
 dramatiq==1.15.0  # Task processing system (alternative to Celery)
 apscheduler==3.10.4  # Advanced Python Scheduler
 fastapi==0.104.1  # For high-performance microservices
-grpcio==1.59.3  # gRPC framework
+grpcio  # gRPC framework
+##grpcui    # ???
 protobuf==4.24.4  # Protocol buffers for gRPC
 
 # Monitoring and metrics
@@ -222,21 +223,21 @@ opentelemetry-api==1.22.0  # OpenTelemetry API
 opentelemetry-sdk==1.22.0  # OpenTelemetry SDK
 opentelemetry-exporter-otlp==1.22.0  # OpenTelemetry exporters
 prometheus-client==0.18.0  # Prometheus monitoring
-elasticapm==6.18.0  # Elastic APM monitoring
+#elasticapm==6.18.0  # Elastic APM monitoring
 
 # Data processing and analysis
-pandas==2.1.1  # Data analysis
-numpy==1.26.1  # Numerical computing
-scipy==1.11.3  # Scientific computing
-SQLAlchemy-DataTables==0.3.2  # DataTables integration
+pandas  # Data analysis
+numpy  # Numerical computing
+scipy  # Scientific computing
+SQLAlchemy-DataTables==0.4.0  # DataTables integration
 networkx==3.2.1  # Network analysis for infrastructure graphs
 
 # Infrastructure as code support
 ansible-core==2.15.6  # Infrastructure automation
-terraform-validate==2.4.2  # Terraform validation
+terraform-validate==2.5.0  # Terraform validation
 cfn-lint==0.83.2  # CloudFormation linting
 pykube-ng==23.6.0  # Kubernetes Python client
-pulumi==3.92.0  # Infrastructure as code in Python
+pulumi  # Infrastructure as code in Python
 
 # Development and documentation
 sphinx-material==0.0.36  # Material theme for documentation
