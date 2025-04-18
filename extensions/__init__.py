@@ -1,23 +1,15 @@
 """
-Flask extensions module for the myproject application.
+Flask extensions for Cloud Infrastructure Platform.
 
-This module initializes and configures all Flask extensions used throughout the application,
-establishing the core infrastructure components needed for the application to function.
-It includes:
-- Database connections and migrations (SQLAlchemy, Alembic)
-- Security features (CSRF protection, rate limiting, CORS)
-- Caching infrastructure (Redis)
-- Email and session handling
-- Metrics collection and reporting (Prometheus)
-
-All extensions are instantiated here but configured and initialized during application
-factory setup. This separation allows for proper context binding and testing isolation.
+This module initializes and configures all Flask extensions used by the application.
+It provides a centralized way to manage extension dependencies and configuration.
 """
 
 from typing import Dict, Any
 from flask import request, g, current_app
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
+from flask_jwt_extended import JWTManager
 from flask_wtf.csrf import CSRFProtect
 from flask_caching import Cache
 from flask_session import Session
@@ -25,15 +17,22 @@ from flask_mail import Mail
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from flask_talisman import Talisman
 from prometheus_flask_exporter import PrometheusMetrics
 
 
-# Database extensions
-db = SQLAlchemy()  # SQLAlchemy database ORM instance
-migrate = Migrate()  # Flask-Migrate for database migrations
+# Initialize extensions
+db = SQLAlchemy()
+migrate = Migrate()
+jwt = JWTManager()
+csrf = CSRFProtect()
+limiter = Limiter(key_func=get_remote_address)
+cache = Cache()
+session = Session()
+mail = Mail()
+talisman = Talisman()
 
 # Security extensions
-csrf = CSRFProtect()  # CSRF protection for forms
 limiter = Limiter(
     key_func=get_remote_address,
     default_limits=["200 per day", "50 per hour"]
@@ -47,10 +46,6 @@ CACHE_CONFIG: Dict[str, Any] = {
     'CACHE_KEY_PREFIX': 'myapp_'
 }
 cache = Cache(config=CACHE_CONFIG)  # Application cache using Redis
-
-# Email and session
-mail = Mail()  # Email sending capabilities
-session = Session()  # Server-side session management
 
 # Metrics configuration
 metrics = PrometheusMetrics.for_app_factory(
@@ -159,15 +154,38 @@ cloud_resource_gauge = metrics.gauge(
     registry=metrics.registry
 )  # Gauge for cloud resources
 
+def init_extensions(app):
+    """Initialize all Flask extensions with the app."""
+    db.init_app(app)
+    migrate.init_app(app, db)
+    jwt.init_app(app)
+    csrf.init_app(app)
+    limiter.init_app(app)
+    cache.init_app(app)
+    session.init_app(app)
+    mail.init_app(app)
+    
+    # Only enable Talisman in production or if explicitly configured
+    if app.config.get('SECURITY_HEADERS_ENABLED', False) or app.config.get('ENV') == 'production':
+        talisman.init_app(
+            app,
+            content_security_policy=app.config.get('CONTENT_SECURITY_POLICY'),
+            force_https=app.config.get('FORCE_HTTPS', True),
+            session_cookie_secure=app.config.get('SESSION_COOKIE_SECURE', True),
+            strict_transport_security=app.config.get('STRICT_TRANSPORT_SECURITY', True),
+        )
+
 __all__ = [
     'db',
     'migrate',
+    'jwt',
     'csrf',
     'limiter',
     'cors',
     'cache',
     'mail',
     'session',
+    'talisman',
     'metrics',
     'request_counter',
     'endpoint_counter',

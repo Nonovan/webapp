@@ -1,23 +1,8 @@
 """
-Application factory module for myproject.
+Cloud Infrastructure Management Platform entry point.
 
-This module provides the central application factory function that creates and
-configures Flask application instances. It implements the factory pattern to
-enable flexible application creation with different configurations for various
-environments including development, testing, and production.
-
-The factory handles all aspects of application initialization:
-- Configuration loading and validation
-- Extension initialization (database, cache, CSRF, etc.)
-- Middleware setup for request/response processing
-- Error handling and logging configuration
-- Route registration
-- Health check endpoints
-- Security monitoring and compliance
-- ICS system integration
-
-This architecture allows for better testing isolation, prevents circular
-imports, and provides a single entry point for application configuration.
+This module provides the application factory function for creating Flask application
+instances with the appropriate configuration and extension setup.
 """
 
 import os
@@ -29,59 +14,50 @@ from jinja2 import TemplateNotFound
 from flask_wtf.csrf import CSRFError
 from werkzeug.exceptions import HTTPException
 
-from blueprints import register_all_blueprints
+from blueprints import register_blueprints
 from extensions import jwt, init_extensions
 from core.config import Config
 from core.loggings import setup_app_logging, get_security_logger
 from core.middleware import init_middleware
 from core.utils import generate_sri_hash
 from core.health import register_health_endpoints
-from api import register_api
+from api import register_api_routes
 from config import get_config
+from cli import register_cli_commands
 
 
 logger = get_security_logger()
 
 def create_app(config_name=None):
-    """
-    Create and configure a Flask application instance.
-
-    This factory function is the central point for creating application instances.
-    It handles all aspects of application initialization including configuration
-    loading, extension setup, middleware registration, and error handling.
-
-    Args:
-        config_name (Optional[str]): Configuration name to load
-
-    Returns:
-        Flask: Configured Flask application instance
-    """
-    # Create the Flask application instance
+    """Create Flask application."""
     app = Flask(__name__, instance_relative_config=True)
-
-    # Load the right config based on environment
-    config_class = get_config(config_name)
-
-    # Initialize the app with the configuration
-    config_class.init_app(app)
-
-    # Initialize logging first so other init functions can log
-    setup_app_logging(app)
-
-    # Register all components
-    register_extensions(app)
+    
+    # Load configuration
+    config_obj = get_config(config_name)
+    config_obj.init_app(app)
+    
+    # Ensure instance folder exists
+    try:
+        os.makedirs(app.instance_path, exist_ok=True)
+    except OSError:
+        pass
+    
+    # Initialize extensions
+    init_extensions(app)
+    
+    # Register blueprints and API routes
+    register_blueprints(app)
+    register_api_routes(app)
+    
+    # Register error handlers
     register_error_handlers(app)
-    register_context_processors(app)
-    register_all_blueprints(app)
-    register_api(app)
-    register_health_endpoints(app)
-
-    # Initialize middleware (security headers, request tracking, etc.)
+    
+    # Initialize middleware
     init_middleware(app)
-
-    # Log application startup
-    log_startup_info(app)
-
+    
+    # Register CLI commands
+    register_cli_commands(app)
+    
     return app
 
 
