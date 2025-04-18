@@ -6,10 +6,13 @@ settings and proper handling of sensitive information.
 """
 
 from .base import Config
-from .development import DevelopmentConfig 
-from .production import ProductionConfig
-from .testing import TestingConfig
-from .staging import StagingConfig
+from .environments import (
+    DevelopmentConfig, 
+    ProductionConfig,
+    TestingConfig,
+    StagingConfig,
+    CIConfig
+)
 
 # Configuration registry
 config_registry = {
@@ -17,6 +20,7 @@ config_registry = {
     'production': ProductionConfig,
     'testing': TestingConfig,
     'staging': StagingConfig,
+    'ci': CIConfig,
     'default': DevelopmentConfig
 }
 
@@ -42,5 +46,6 @@ __all__ = [
     'ProductionConfig', 
     'TestingConfig', 
     'StagingConfig',
+    'CIConfig',
     'get_config'
 ]

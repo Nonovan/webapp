@@ -1,4 +1,14 @@
-# Cloud Infrastructure Management Platform
+# Cloud Infrastructure Platform Documentation
+
+## Table of Contents
+
+- [Architecture](architecture/architecture-overview.md)
+- [Deployment](deployment/deployment-overview.md)
+  - [Disaster Recovery](deployment/disaster-recovery.md)
+  - [Scaling Strategy](deployment/scaling.md)
+- [Operations](operations/operations-overview.md)
+- [API Reference](api/api-overview.md)
+- [Security](security/security-overview.md)
 
 ## Overview
 

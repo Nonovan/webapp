@@ -37,11 +37,12 @@ from core.middleware import init_middleware
 from core.utils import generate_sri_hash
 from core.health import register_health_endpoints
 from api import register_api
+from config import get_config
 
 
 logger = get_security_logger()
 
-def create_app(config_object=None):
+def create_app(config_name=None):
     """
     Create and configure a Flask application instance.
 
@@ -50,16 +51,19 @@ def create_app(config_object=None):
     loading, extension setup, middleware registration, and error handling.
 
     Args:
-        config_object (Optional[object]): Configuration object or path to load
+        config_name (Optional[str]): Configuration name to load
 
     Returns:
         Flask: Configured Flask application instance
     """
     # Create the Flask application instance
-    app = Flask(__name__)
+    app = Flask(__name__, instance_relative_config=True)
 
-    # Configure the application
-    configure_app(app, config_object)
+    # Load the right config based on environment
+    config_class = get_config(config_name)
+
+    # Initialize the app with the configuration
+    config_class.init_app(app)
 
     # Initialize logging first so other init functions can log
     setup_app_logging(app)
