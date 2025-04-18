@@ -1,0 +1,349 @@
+# GitHub Actions CI/CD Workflow for Cloud Infrastructure Platform
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop, 'release/**' ]
+    tags: [ 'v*.*.*' ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  PYTHON_VERSION: '3.9'
+  NODE_VERSION: '16'
+  DOCKER_REGISTRY: 'registry.example.com'
+  DOCKER_IMAGE: 'cloud-platform'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Fetch all history for proper versioning
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+          if [ -f "package.json" ]; then
+            npm ci
+          fi
+      
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/pip
+            node_modules
+          key: ${{ runner.os }}-deps-${{ hashFiles('**/requirements.txt', '**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-deps-
+
+  test:
+    needs: prepare
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cloud_platform_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:6
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Restore cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/pip
+            node_modules
+          key: ${{ runner.os }}-deps-${{ hashFiles('**/requirements.txt', '**/package-lock.json') }}
+      
+      - name: Run unit tests
+        env:
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/cloud_platform_test"
+          REDIS_URL: "redis://localhost:6379/0"
+        run: |
+          mkdir -p test-results
+          pytest tests/unit --cov=. --cov-report=xml --junitxml=test-results/unit-tests.xml
+      
+      - name: Run integration tests
+        env:
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/cloud_platform_test"
+          REDIS_URL: "redis://localhost:6379/0"
+        run: |
+          pytest tests/integration --cov=. --cov-report=xml --junitxml=test-results/integration-tests.xml
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results
+          path: |
+            test-results/
+            coverage.xml
+        if: always()
+
+  security:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Restore cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/pip
+            node_modules
+          key: ${{ runner.os }}-deps-${{ hashFiles('**/requirements.txt', '**/package-lock.json') }}
+      
+      - name: Create security reports directory
+        run: mkdir -p security-reports
+      
+      - name: Run Bandit security check
+        run: |
+          pip install bandit
+          bandit -r . -x tests/,venv/ -o security-reports/bandit-report.json -f json
+      
+      - name: Run Safety check
+        run: |
+          pip install safety
+          safety check -r requirements.txt --json > security-reports/safety-report.json
+      
+      - name: Run dependency check
+        run: python deployment/ci/scripts/dependency_check.py
+      
+      - name: Run SAST scan
+        run: python deployment/ci/scripts/sast_scan.py
+      
+      - name: Upload security reports
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-reports
+          path: security-reports/
+      
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.projectKey=cloud-platform
+            -Dsonar.organization=your-organization
+            -Dsonar.python.coverage.reportPaths=coverage.xml
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+
+  build:
+    needs: [test, security]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Fetch all history for proper versioning
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Restore cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/pip
+            node_modules
+          key: ${{ runner.os }}-deps-${{ hashFiles('**/requirements.txt', '**/package-lock.json') }}
+      
+      - name: Collect static files
+        run: bash deployment/scripts/collect_static.sh
+      
+      - name: Build deployment package
+        run: python deployment/ci/scripts/build_package.py
+      
+      - name: Upload deployment package
+        uses: actions/upload-artifact@v3
+        with:
+          name: deployment-package
+          path: dist/
+      
+      - name: Build and push Docker image
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/tags/')
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE }}:${{ github.sha }}
+            ${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_IMAGE }}:latest
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+  deploy-staging:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://staging.example.com
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      
+      - name: Download deployment package
+        uses: actions/download-artifact@v3
+        with:
+          name: deployment-package
+          path: dist/
+      
+      - name: Run pre-deployment checks
+        run: bash deployment/scripts/pre_deploy_check.sh staging
+      
+      - name: Deploy to staging
+        run: bash deployment/scripts/deploy.sh staging
+        env:
+          # Add any necessary environment variables for staging deployment
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.STAGING_REDIS_URL }}
+      
+      - name: Run post-deployment checks
+        run: bash deployment/scripts/post_deploy_check.sh staging
+
+  verify-staging:
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://staging.example.com
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      
+      - name: Run smoke tests
+        run: bash deployment/scripts/smoke-test.sh staging
+      
+      - name: Run health checks
+        run: bash deployment/scripts/health-check.sh staging
+      
+      - name: Run performance tests
+        run: bash deployment/scripts/performance-test.sh staging --duration 30
+
+  deploy-production:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [verify-staging]
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://cloud-platform.example.com
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      
+      - name: Download deployment package
+        uses: actions/download-artifact@v3
+        with:
+          name: deployment-package
+          path: dist/
+      
+      - name: Run pre-deployment checks
+        run: bash deployment/scripts/pre_deploy_check.sh production
+      
+      - name: Deploy to production
+        run: bash deployment/scripts/deploy.sh production
+        env:
+          # Add any necessary environment variables for production deployment
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.PROD_REDIS_URL }}
+      
+      - name: Run post-deployment checks
+        run: bash deployment/scripts/post_deploy_check.sh production
+
+  verify-production:
+    needs: deploy-production
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://cloud-platform.example.com
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      
+      - name: Run smoke tests
+        run: bash deployment/scripts/smoke-test.sh production
+      
+      - name: Run health checks
+        run: bash deployment/scripts/health-check.sh production
+      
+      - name: Run security audit
+        run: python deployment/scripts/security_audit.py --environment production

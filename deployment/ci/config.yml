@@ -1,0 +1,109 @@
+# CI/CD Configuration for Cloud Infrastructure Platform
+
+# Environment-specific CI/CD settings
+environments:
+  development:
+    allow_deploy_branches:
+      - develop
+      - feature/*
+    notifications:
+      slack_channel: "#dev-deploys"
+      email_recipients:
+        - dev-team@example.com
+    test_settings:
+      skip_integration_tests: true
+      skip_e2e_tests: true
+      coverage_threshold: 60
+    security_settings:
+      vulnerability_threshold:
+        critical: 0
+        high: 0
+        medium: 5
+        low: 15
+
+  staging:
+    allow_deploy_branches:
+      - main
+      - release/*
+    require_approvals: 1
+    notifications:
+      slack_channel: "#staging-deploys"
+      email_recipients:
+        - qa-team@example.com
+        - dev-leads@example.com
+    test_settings:
+      skip_integration_tests: false
+      skip_e2e_tests: false
+      coverage_threshold: 75
+    security_settings:
+      vulnerability_threshold:
+        critical: 0
+        high: 0
+        medium: 2
+        low: 10
+
+  production:
+    allow_deploy_branches:
+      - main
+      - tags:
+          - v*.*.*
+    require_approvals: 2
+    notifications:
+      slack_channel: "#prod-deploys"
+      email_recipients:
+        - devops@example.com
+        - product-team@example.com
+    test_settings:
+      skip_integration_tests: false
+      skip_e2e_tests: false
+      coverage_threshold: 80
+    security_settings:
+      vulnerability_threshold:
+        critical: 0
+        high: 0
+        medium: 0
+        low: 5
+
+# Common CI/CD settings
+settings:
+  docker:
+    registry: "registry.example.com"
+    base_image: "cloud-platform-base:latest"
+    build_args:
+      PYTHON_VERSION: "3.9"
+      NODE_VERSION: "16"
+  
+  tests:
+    unit_test_command: "pytest tests/unit"
+    integration_test_command: "pytest tests/integration"
+    e2e_test_command: "pytest tests/e2e"
+    coverage_command: "pytest --cov=. --cov-report=xml"
+    
+  security:
+    scan_commands:
+      - "bandit -r . -x tests/,venv/ -o security-reports/bandit-report.json -f json"
+      - "safety check -r requirements.txt --json > security-reports/safety-report.json"
+      - "semgrep --config=p/security-audit --json > security-reports/semgrep-report.json"
+
+  artifact:
+    package_name: "cloud-platform"
+    keep_builds: 10
+    
+  deploy:
+    timeout: 1800  # 30 minutes
+    healthcheck_retries: 5
+    healthcheck_delay: 30
+    rollback_on_failure: true
+
+# Access control
+access_control:
+  admin_groups:
+    - DevOps
+    - SecurityTeam
+  deploy_production_groups:
+    - DevOps
+    - ReleaseManagers
+  deploy_staging_groups:
+    - Developers
+    - QATeam
+    - DevOps

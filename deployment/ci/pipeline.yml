@@ -1,0 +1,173 @@
+# CI/CD Pipeline Configuration for Cloud Infrastructure Platform
+# This file defines the continuous integration and deployment workflow
+
+version: "2.0"
+
+environment:
+  PYTHON_VERSION: "3.9"
+  NODE_VERSION: "16"
+  PYTEST_ARGS: "--cov=. --cov-report=xml"
+
+stages:
+  - prepare
+  - test
+  - security
+  - build
+  - deploy
+  - verify
+
+prepare:
+  stage: prepare
+  steps:
+    - checkout
+    - setup_python:
+        version: ${PYTHON_VERSION}
+    - setup_node:
+        version: ${NODE_VERSION}
+    - run:
+        name: Install dependencies
+        command: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+    - save_cache:
+        key: deps-{{ checksum "requirements.txt" }}
+        paths:
+          - venv/
+    - persist_to_workspace:
+        root: .
+        paths:
+          - .
+
+test:
+  stage: test
+  steps:
+    - attach_workspace:
+        at: .
+    - run:
+        name: Run unit tests
+        command: pytest ${PYTEST_ARGS} tests/unit/
+    - run:
+        name: Run integration tests
+        command: pytest ${PYTEST_ARGS} tests/integration/
+    - store_test_results:
+        path: test-results/
+    - store_artifacts:
+        path: test-results/
+        destination: test-results
+
+security:
+  stage: security
+  steps:
+    - attach_workspace:
+        at: .
+    - run:
+        name: Run security checks
+        command: |
+          python -m bandit -r . -x tests/,venv/
+          python -m safety check
+    - run:
+        name: Run dependency vulnerability scan
+        command: |
+          python deployment/ci/scripts/dependency_check.py
+    - run:
+        name: Run SAST scan
+        command: |
+          python deployment/ci/scripts/sast_scan.py
+    - store_artifacts:
+        path: security-reports/
+        destination: security-reports
+
+build:
+  stage: build
+  steps:
+    - attach_workspace:
+        at: .
+    - run:
+        name: Collect static files
+        command: bash deployment/scripts/collect_static.sh
+    - run:
+        name: Build deployment package
+        command: |
+          python deployment/ci/scripts/build_package.py
+    - store_artifacts:
+        path: dist/
+        destination: packages
+    - persist_to_workspace:
+        root: .
+        paths:
+          - dist/
+
+deploy_staging:
+  stage: deploy
+  environment: staging
+  only:
+    - main
+  steps:
+    - attach_workspace:
+        at: .
+    - run:
+        name: Run pre-deployment checks
+        command: bash deployment/scripts/pre_deploy_check.sh staging
+    - run:
+        name: Deploy to staging
+        command: bash deployment/scripts/deploy.sh staging
+    - run:
+        name: Run post-deployment checks
+        command: bash deployment/scripts/post_deploy_check.sh staging
+
+deploy_production:
+  stage: deploy
+  environment: production
+  only:
+    - tags
+  when: manual
+  steps:
+    - attach_workspace:
+        at: .
+    - run:
+        name: Run pre-deployment checks
+        command: bash deployment/scripts/pre_deploy_check.sh production
+    - run:
+        name: Deploy to production
+        command: bash deployment/scripts/deploy.sh production
+    - run:
+        name: Run post-deployment checks
+        command: bash deployment/scripts/post_deploy_check.sh production
+
+verify_staging:
+  stage: verify
+  environment: staging
+  only:
+    - main
+  steps:
+    - run:
+        name: Run smoke tests
+        command: bash deployment/scripts/smoke-test.sh staging
+    - run:
+        name: Run security audit
+        command: python deployment/scripts/security_audit.py --environment staging
+    - run:
+        name: Run performance tests
+        command: bash deployment/scripts/performance-test.sh staging --duration 30
+
+verify_production:
+  stage: verify
+  environment: production
+  only:
+    - tags
+  steps:
+    - run:
+        name: Run smoke tests
+        command: bash deployment/scripts/smoke-test.sh production
+    - run:
+        name: Run health checks
+        command: bash deployment/scripts/health-check.sh production
+
+notifications:
+  slack:
+    channel: "#deployments"
+    events: ["success", "failure"]
+  email:
+    recipients:
+      - devops@example.com
+    events: ["failure"]

@@ -1,0 +1,350 @@
+// Jenkinsfile for Cloud Infrastructure Platform CI/CD pipeline
+
+pipeline {
+    agent {
+        docker {
+            image 'python:3.9'
+            args '-v /var/run/docker.sock:/var/run/docker.sock'
+        }
+    }
+
+    environment {
+        PYTHON_VERSION = '3.9'
+        NODE_VERSION = '16'
+        DOCKER_REGISTRY = 'registry.example.com'
+        DOCKER_IMAGE = "${DOCKER_REGISTRY}/cloud-platform"
+        SONARQUBE_HOME = tool 'SonarQube Scanner'
+    }
+
+    options {
+        timeout(time: 1, unit: 'HOURS')
+        ansiColor('xterm')
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+    }
+
+    stages {
+        stage('Prepare') {
+            steps {
+                echo 'Setting up environment...'
+                sh '''
+                    python -m venv venv
+                    . venv/bin/activate
+                    pip install --upgrade pip setuptools wheel
+                    pip install -r requirements.txt
+                    pip install -r requirements-dev.txt
+                '''
+                
+                // Install Node.js and npm dependencies if needed
+                sh '''
+                    if [ -f "package.json" ]; then
+                        curl -sL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash -
+                        apt-get install -y nodejs
+                        npm ci
+                    fi
+                '''
+            }
+        }
+
+        stage('Test') {
+            parallel {
+                stage('Unit Tests') {
+                    steps {
+                        sh '''
+                            . venv/bin/activate
+                            mkdir -p test-results
+                            pytest tests/unit/ --cov=. --cov-report=xml --junitxml=test-results/unit-tests.xml
+                        '''
+                    }
+                    post {
+                        always {
+                            junit 'test-results/unit-tests.xml'
+                            cobertura coberturaReportFile: 'coverage.xml'
+                        }
+                    }
+                }
+                
+                stage('Integration Tests') {
+                    when {
+                        anyOf {
+                            branch 'main'
+                            branch 'develop'
+                            branch pattern: 'release/*', comparator: 'REGEXP'
+                        }
+                    }
+                    agent {
+                        docker {
+                            image 'python:3.9'
+                            args '-v /var/run/docker.sock:/var/run/docker.sock'
+                        }
+                    }
+                    steps {
+                        sh '''
+                            . venv/bin/activate
+                            mkdir -p test-results
+                            
+                            # Start test database and Redis
+                            docker run --name pg-test -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=cloud_platform_test -d -p 5432:5432 postgres:13
+                            docker run --name redis-test -d -p 6379:6379 redis:6
+                            
+                            # Wait for services to start
+                            sleep 5
+                            
+                            # Run integration tests
+                            DATABASE_URL="postgresql://postgres:postgres@localhost:5432/cloud_platform_test" \\
+                            REDIS_URL="redis://localhost:6379/0" \\
+                            pytest tests/integration/ --cov=. --cov-report=xml --junitxml=test-results/integration-tests.xml
+                        '''
+                    }
+                    post {
+                        always {
+                            junit 'test-results/integration-tests.xml'
+                            sh '''
+                                docker stop pg-test redis-test || true
+                                docker rm pg-test redis-test || true
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Security') {
+            parallel {
+                stage('Dependency Check') {
+                    steps {
+                        sh '''
+                            . venv/bin/activate
+                            mkdir -p security-reports
+                            pip install safety
+                            safety check -r requirements.txt --json > security-reports/safety-report.json
+                        '''
+                    }
+                }
+                
+                stage('SAST Scan') {
+                    steps {
+                        sh '''
+                            . venv/bin/activate
+                            mkdir -p security-reports
+                            pip install bandit
+                            bandit -r . -x tests/,venv/ -o security-reports/bandit-report.json -f json
+                            
+                            # Run custom SAST scan script
+                            python deployment/ci/scripts/sast_scan.py
+                        '''
+                    }
+                }
+                
+                stage('SonarQube Scan') {
+                    steps {
+                        withSonarQubeEnv('SonarQube') {
+                            sh """
+                                ${env.SONARQUBE_HOME}/bin/sonar-scanner \
+                                -Dsonar.projectKey=cloud-platform \
+                                -Dsonar.projectName='Cloud Infrastructure Platform' \
+                                -Dsonar.python.coverage.reportPaths=coverage.xml \
+                                -Dsonar.sources=. \
+                                -Dsonar.exclusions=tests/**,venv/**
+                            """
+                        }
+                    }
+                }
+            }
+            
+            post {
+                always {
+                    archiveArtifacts artifacts: 'security-reports/**', allowEmptyArchive: true
+                }
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh '''
+                    . venv/bin/activate
+                    
+                    # Collect static files
+                    bash deployment/scripts/collect_static.sh
+                    
+                    # Build deployment package
+                    python deployment/ci/scripts/build_package.py
+                '''
+                
+                // Build Docker image if on main branch or a tag
+                script {
+                    if (env.BRANCH_NAME == 'main' || env.BRANCH_NAME ==~ /^release\/.*/ || env.TAG_NAME) {
+                        docker.withRegistry("https://${env.DOCKER_REGISTRY}", 'docker-registry-credentials') {
+                            def dockerImage = docker.build("${env.DOCKER_IMAGE}:${env.BUILD_ID}")
+                            dockerImage.push()
+                            
+                            if (env.TAG_NAME) {
+                                // Also push with the tag name for releases
+                                dockerImage.push(env.TAG_NAME)
+                            }
+                            
+                            // Always push as 'latest' for main branch
+                            if (env.BRANCH_NAME == 'main') {
+                                dockerImage.push('latest')
+                            }
+                        }
+                    }
+                }
+            }
+            
+            post {
+                success {
+                    archiveArtifacts artifacts: 'dist/**', allowEmptyArchive: true
+                }
+            }
+        }
+
+        stage('Deploy to Staging') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    // Ask for confirmation before deploying to staging
+                    timeout(time: 15, unit: 'MINUTES') {
+                        input message: 'Deploy to staging?', ok: 'Deploy'
+                    }
+                }
+                
+                sh '''
+                    . venv/bin/activate
+                    
+                    # Run pre-deployment checks
+                    bash deployment/scripts/pre_deploy_check.sh staging
+                    
+                    # Deploy to staging
+                    bash deployment/scripts/deploy.sh staging
+                    
+                    # Run post-deployment checks
+                    bash deployment/scripts/post_deploy_check.sh staging
+                '''
+            }
+            post {
+                success {
+                    echo 'Deployment to staging successful!'
+                }
+                failure {
+                    echo 'Deployment to staging failed!'
+                    // Send notifications about failed deployment
+                    mail to: 'devops@example.com',
+                         subject: "Failed Staging Deployment: ${currentBuild.fullDisplayName}",
+                         body: "Something went wrong with the staging deployment. Check the build log: ${env.BUILD_URL}"
+                }
+            }
+        }
+
+        stage('Verify Staging') {
+            when {
+                branch 'main'
+            }
+            steps {
+                sh '''
+                    . venv/bin/activate
+                    
+                    # Run smoke tests on staging
+                    bash deployment/scripts/smoke-test.sh staging
+                    
+                    # Run health checks on staging
+                    bash deployment/scripts/health-check.sh staging
+                    
+                    # Run performance tests on staging
+                    bash deployment/scripts/performance-test.sh staging --duration 30
+                '''
+                
+                // Archive performance test results
+                archiveArtifacts artifacts: '/var/www/reports/performance/performance-staging-*.html', allowEmptyArchive: true
+            }
+        }
+
+        stage('Deploy to Production') {
+            when {
+                tag pattern: 'v\\d+\\.\\d+\\.\\d+', comparator: 'REGEXP'
+            }
+            steps {
+                script {
+                    // Ask for confirmation before deploying to production
+                    timeout(time: 60, unit: 'MINUTES') {
+                        input message: 'Deploy to production?', ok: 'Deploy'
+                    }
+                }
+                
+                sh '''
+                    . venv/bin/activate
+                    
+                    # Run pre-deployment checks
+                    bash deployment/scripts/pre_deploy_check.sh production
+                    
+                    # Deploy to production
+                    bash deployment/scripts/deploy.sh production
+                    
+                    # Run post-deployment checks
+                    bash deployment/scripts/post_deploy_check.sh production
+                '''
+            }
+            post {
+                success {
+                    echo 'Deployment to production successful!'
+                }
+                failure {
+                    echo 'Deployment to production failed!'
+                    // Send notifications about failed deployment
+                    mail to: 'devops@example.com,oncall@example.com',
+                         subject: "Failed Production Deployment: ${currentBuild.fullDisplayName}",
+                         body: "Something went wrong with the production deployment. Check the build log: ${env.BUILD_URL}"
+                }
+            }
+        }
+
+        stage('Verify Production') {
+            when {
+                tag pattern: 'v\\d+\\.\\d+\\.\\d+', comparator: 'REGEXP'
+            }
+            steps {
+                sh '''
+                    . venv/bin/activate
+                    
+                    # Run smoke tests on production
+                    bash deployment/scripts/smoke-test.sh production
+                    
+                    # Run health checks on production
+                    bash deployment/scripts/health-check.sh production
+                    
+                    # Run security audit on production
+                    python deployment/scripts/security_audit.py --environment production
+                '''
+                
+                // Archive security audit report
+                archiveArtifacts artifacts: '/var/www/reports/security-audit-*.html', allowEmptyArchive: true
+            }
+        }
+    }
+    
+    post {
+        always {
+            // Clean up workspace
+            cleanWs()
+        }
+        
+        success {
+            echo 'Pipeline completed successfully!'
+            // Send Slack notification for successful builds on important branches
+            script {
+                if (env.BRANCH_NAME == 'main' || env.BRANCH_NAME ==~ /^release\/.*/ || env.TAG_NAME) {
+                    slackSend color: 'good',
+                              message: "Build Succeeded: ${env.JOB_NAME} ${env.BUILD_NUMBER} (<${env.BUILD_URL}|Open>)"
+                }
+            }
+        }
+        
+        failure {
+            echo 'Pipeline failed!'
+            slackSend color: 'danger',
+                      message: "Build Failed: ${env.JOB_NAME} ${env.BUILD_NUMBER} (<${env.BUILD_URL}|Open>)"
+        }
+    }
+}
