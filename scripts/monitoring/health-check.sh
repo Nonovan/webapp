@@ -183,12 +183,12 @@ else
     COMPONENTS_STATUS+=("{\"component\":\"DB Replication\",\"status\":\"SKIPPED\",\"time\":\"0\",\"critical\":true}")
 fi
 
-# 6. File synchronization status
-if [ -x "${PROJECT_ROOT}/scripts/storage/check_file_sync.sh" ]; then
-    check_component "File Synchronization" "${PROJECT_ROOT}/scripts/storage/check_file_sync.sh --region ${REGION} --environment ${ENVIRONMENT}" "false"
+# 6. Check file integrity
+if [ -x "${PROJECT_ROOT}/scripts/security/verify_files.py" ]; then
+    check_component "File Integrity" "python3 ${PROJECT_ROOT}/scripts/security/verify_files.py --environment ${ENVIRONMENT} --region ${REGION}" "true"
 else
-    echo "⚠️ File synchronization check skipped: No script available" | tee -a "$REPORT_FILE"
-    COMPONENTS_STATUS+=("{\"component\":\"File Synchronization\",\"status\":\"SKIPPED\",\"time\":\"0\",\"critical\":false}")
+    echo "⚠️ WARNING: File integrity verification script not found, skipping integrity test" | tee -a "$REPORT_FILE"
+    COMPONENTS_STATUS+=("{\"component\":\"File Integrity\",\"status\":\"SKIPPED\",\"time\":\"0\",\"critical\":true}")
 fi
 
 # 7. Region DNS resolution
@@ -281,13 +281,6 @@ if [ "$DR_MODE" = true ]; then
     mkdir -p "/var/log/cloud-platform"
     echo "$(date '+%Y-%m-%d %H:%M:%S'),HEALTH_CHECK,${ENVIRONMENT},${REGION},${OVERALL_STATUS}" >> "/var/log/cloud-platform/dr-events.log"
     log "Health check result logged to DR events log"
-    
-    # Automatically exit with appropriate code for use in DR scripts
-    if [ "$OVERALL_STATUS" = "HEALTHY" ]; then
-        exit 0
-    else
-        exit 1
-    fi
 fi
 
 # Cleanup temporary files unless we want to keep them

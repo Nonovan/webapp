@@ -14,6 +14,7 @@ encapsulate common operations to reduce code duplication and ensure
 consistent behavior throughout the application.
 """
 
+import logging
 import hashlib
 import base64
 import os
@@ -610,3 +611,21 @@ def get_file_metadata(file_path: str) -> Dict[str, Any]:
     }
 
     return metadata
+
+def setup_logging(log_file: str, level: str = 'INFO') -> None:
+    """
+    Set up application logging to a specified file with a given log level.
+
+    Args:
+        log_file: Path to the log file
+        level: Logging level (e.g., 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')
+    """
+
+    log_level = getattr(logging, level.upper(), logging.INFO)
+    logging.basicConfig(
+        filename=log_file,
+        level=log_level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    logging.getLogger().addHandler(logging.StreamHandler())

@@ -145,15 +145,45 @@ activate_region() {
     
     # Step 5: Update monitoring and alerting for new active region
     log "Step 5: Updating monitoring configuration"
-    ${PROJECT_ROOT}/scripts/monitoring/update-monitoring.sh --primary-region "$region" || {
-        log "WARNING: Failed to update monitoring configuration"
-    }
+    if [ -x "${PROJECT_ROOT}/scripts/monitoring/update-monitoring.sh" ]; then
+        ${PROJECT_ROOT}/scripts/monitoring/update-monitoring.sh --primary-region "$region" || {
+            log "WARNING: Failed to update monitoring configuration"
+        }
+    else
+        log "WARNING: Monitoring update script not found, skipping this step"
+    fi
     
-    # Step 6: Verify the failover
-    log "Step 6: Verifying failover completion"
-    ${PROJECT_ROOT}/scripts/monitoring/health-check.sh production --region "$region" --dr-mode || {
-        log "WARNING: Health checks failed after failover"
-    }
+    # Step 6: Verify file integrity in the region
+    log "Step 6: Verifying file integrity in $region region"
+    if [ -x "${PROJECT_ROOT}/scripts/security/verify_files.py" ]; then
+        python3 "${PROJECT_ROOT}/scripts/security/verify_files.py" --environment production --region "$region" || {
+            log "WARNING: File integrity verification failed"
+        }
+    else
+        log "WARNING: File integrity verification script not found, skipping this verification"
+    fi
+    
+    # Step 7: Verify the failover with health check
+    log "Step 7: Verifying failover completion with health checks"
+    if [ -x "${PROJECT_ROOT}/scripts/monitoring/health-check.sh" ]; then
+        ${PROJECT_ROOT}/scripts/monitoring/health-check.sh production --region "$region" --dr-mode || {
+            log "WARNING: Health checks failed after failover"
+        }
+    else
+        log "WARNING: Health check script not found, skipping health verification"
+    fi
+    
+    # For additional validation
+    if [ "${COMPREHENSIVE_CHECK:-false}" = "true" ]; then
+        log "Running comprehensive smoke tests"
+        if [ -x "${PROJECT_ROOT}/scripts/testing/smoke-test.sh" ]; then
+            ${PROJECT_ROOT}/scripts/testing/smoke-test.sh production --region "$region" --dr-mode || {
+                log "WARNING: Smoke tests failed after failover"
+            }
+        else
+            log "WARNING: Smoke test script not found, skipping comprehensive testing"
+        fi
+    fi
     
     log "Region $region has been successfully activated as the primary region"
     return 0
@@ -238,9 +268,12 @@ if activate_region "$REGION_ID"; then
             --message "Disaster recovery failover to $TARGET_REGION region ($REGION_ID) has been completed successfully at $(date)."
     fi
     
-    # Log the failover event for audit purposes
-    echo "$(date '+%Y-%m-%d %H:%M:%S'),DR_FAILOVER,$TARGET_REGION,$REGION_ID,SUCCESS" >> /var/log/cloud-platform/audit.log
+    # Ensure DR events log directory exists
+    mkdir -p "/var/log/cloud-platform"
     
+    # Log the failover event
+    echo "$(date '+%Y-%m-%d %H:%M:%S'),DR_FAILOVER,$TARGET_REGION,$REGION_ID,SUCCESS" >> /var/log/cloud-platform/dr-events.log    
+
     exit 0
 else
     log "ERROR: Failover to $TARGET_REGION region ($REGION_ID) failed"
