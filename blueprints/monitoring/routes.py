@@ -33,16 +33,20 @@ from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_
 from extensions import db, cache, limiter
 from models.security_incident import SecurityIncident
 from models.audit_log import AuditLog
-from models.user import User  # Added for user account locking
+from models.user import User
+from models.notification import Notification
+from services.email_service import send_email
 from core.security_utils import (
-    get_security_metrics, 
-    calculate_threat_level, 
+    check_for_anomalies,
     log_security_event,
-     check_critical_file_integrity
+    validate_admin_access,
+    get_security_metrics,
+    analyze_login_patterns,
+    is_ip_suspicious
 )
 
-# Configure monitoring blueprint
-monitoring_bp = Blueprint('monitoring', __name__, url_prefix='/monitoring')
+# Create blueprint
+security_monitor_bp = Blueprint('security_monitor', __name__, url_prefix='/monitoring')
 
 # Set up CSRF protection
 csrf = CSRFProtect()
@@ -101,7 +105,7 @@ def format_response(data: Any, status: int = 200) -> Tuple[Response, int]:
 
 # --- Security Monitoring Endpoints ---
 
-@monitoring_bp.after_request
+@security_monitor_bp.after_request
 def apply_security_headers(response):
     """Apply security headers to all responses."""
     response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -111,7 +115,7 @@ def apply_security_headers(response):
     response.headers['Content-Security-Policy'] = "default-src 'self'"
     return response
 
-@monitoring_bp.route('/health')
+@security_monitor_bp.route('/health')
 @measure_latency
 def health_check():
     """
@@ -124,29 +128,53 @@ def health_check():
         # Check database connection
         db_healthy = False
         try:
-            try:
-                db.session.execute("SELECT 1")
-                db_healthy = True
-            except SQLAlchemyError:
-                db_healthy = False
-        except SQLAlchemyError:
+            db.session.execute("SELECT 1").scalar()
+            db_healthy = True
+        except SQLAlchemyError as e:
+            current_app.logger.warning(f"Database health check failed: {e}")
             db_healthy = False
         
         # Check cache connection
-        cache_healthy = cache.get('health_check') is not None
+        cache_healthy = False
+        try:
+            test_key = f"health_check_{datetime.utcnow().timestamp()}"
+            cache.set(test_key, 'ok', timeout=10)
+            cache_healthy = cache.get(test_key) == 'ok'
+            cache.delete(test_key)  # Clean up after check
+        except Exception as e:
+            current_app.logger.warning(f"Cache health check failed: {e}")
+            cache_healthy = False
         
+        # Optional: check file system access
+        fs_healthy = True
+        try:
+            temp_dir = current_app.config.get('TEMP_FOLDER', '/tmp')
+            test_file = os.path.join(temp_dir, f"health_check_{int(time.time())}.txt")
+            with open(test_file, "w") as f:
+                f.write("health check")
+            os.remove(test_file)
+        except IOError as e:
+            current_app.logger.warning(f"Filesystem health check failed: {e}")
+            fs_healthy = False
+        
+        # Determine overall health status
         health_status = {
-            'status': 'healthy' if db_healthy and cache_healthy else 'degraded',
+            'status': 'healthy' if (db_healthy and cache_healthy and fs_healthy) else 'degraded',
             'timestamp': datetime.utcnow().isoformat(),
             'components': {
                 'database': 'healthy' if db_healthy else 'unhealthy',
                 'cache': 'healthy' if cache_healthy else 'unhealthy',
+                'filesystem': 'healthy' if fs_healthy else 'unhealthy',
                 'app': 'healthy'
             }
         }
         
+        # Add version information
+        health_status['version'] = current_app.config.get('VERSION', 'unknown')
+        
         status_code = 200 if health_status['status'] == 'healthy' else 503
         return jsonify(health_status), status_code
+    
     except (SQLAlchemyError, OSError) as e:
         current_app.logger.error(f"Health check error: {e}")
         return jsonify({
@@ -155,7 +183,7 @@ def health_check():
             'error': str(e)
         }), 500
 
-@monitoring_bp.route('/status')
+@security_monitor_bp.route('/status')
 @limiter.limit("10/minute")
 @admin_required
 @measure_latency
@@ -188,10 +216,10 @@ def security_status():
         )
         return format_response({'error': str(e)}, 500)
 
-@monitoring_bp.route('/anomalies', methods=['GET'])
+@security_monitor_bp.route('/anomalies', methods=['GET'])
 @limiter.limit('10/hour')
 @admin_required
-def detect_anomalies():
+def detect_system_anomalies():
     """
     Detect security anomalies across the system.
     
@@ -300,10 +328,9 @@ def _determine_severity(threat_level):
     elif threat_level >= 3:
         return 'medium'
     else:
-        pass
         return 'low'
 
-@monitoring_bp.route('/metrics')
+@security_monitor_bp.route('/metrics')
 @limiter.limit("10/minute")
 @admin_required
 def prometheus_metrics():
@@ -315,7 +342,7 @@ def prometheus_metrics():
     """
     return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
 
-@monitoring_bp.route('/incidents')
+@security_monitor_bp.route('/incidents')
 @limiter.limit("20/minute")
 @admin_required
 @measure_latency
@@ -378,7 +405,7 @@ def list_incidents():
         )
         return format_response({'error': str(e)}, 500)
 
-@monitoring_bp.route('/incidents/<int:incident_id>')
+@security_monitor_bp.route('/incidents/<int:incident_id>')
 @limiter.limit("30/minute")
 @admin_required
 def get_incident(incident_id):
@@ -401,7 +428,7 @@ def get_incident(incident_id):
         )
         return format_response({'error': str(e)}, 500)
 
-@monitoring_bp.route('/incidents/<int:incident_id>', methods=['PUT'])
+@security_monitor_bp.route('/incidents/<int:incident_id>', methods=['PUT'])
 @csrf.exempt  # For API usage
 @limiter.limit("10/minute")
 @admin_required
@@ -453,7 +480,7 @@ def update_incident(incident_id):
         )
         return format_response({'error': str(e)}, 500)
 
-@monitoring_bp.route('/forensics/<int:incident_id>')
+@security_monitor_bp.route('/forensics/<int:incident_id>')
 @limiter.limit("5/minute")
 @admin_required
 def get_forensic_data(incident_id):
@@ -858,7 +885,12 @@ def detect_database_anomalies() -> Dict[str, Any]:
     Detect unusual database access patterns and potential data exfiltration.
     
     This function examines database activity to identify anomalous patterns
-    that may indicate security breaches.
+    that may indicate security breaches. It checks for:
+    - Unusual access hours
+    - Large result set queries
+    - Access to sensitive tables
+    - Abnormal modification patterns
+    - Suspicious query patterns
     
     Returns:
         Dict[str, Any]: Dictionary containing database anomalies
@@ -867,65 +899,101 @@ def detect_database_anomalies() -> Dict[str, Any]:
         'large_queries': [],
         'sensitive_tables': [],
         'modification_patterns': [],
-        'unusual_queries': []
+        'unusual_queries': [],
+        'brute_force_attempts': []
     }
+    
+    # Define business hours (UTC time)
+    business_hours_start = 9
+    business_hours_end = 17
     
     # Check for database access outside normal hours
     off_hours_queries = AuditLog.query.filter(
         AuditLog.event_type == 'database_access',
         AuditLog.created_at >= datetime.utcnow() - timedelta(days=1),
         ~and_(
-            func.extract('hour', AuditLog.created_at) >= 9,
-            func.extract('hour', AuditLog.created_at) < 17
+            func.extract('hour', AuditLog.created_at) >= business_hours_start,
+            func.extract('hour', AuditLog.created_at) < business_hours_end
         )
     ).order_by(
         desc(AuditLog.created_at)
     ).limit(10).all()
     
     for query in off_hours_queries:
+        details = json.loads(query.details) if isinstance(query.details, str) else query.details
         result['unusual_queries'].append({
             'user_id': query.user_id,
-            'query_type': query.details,
-            'timestamp': query.created_at.isoformat()
+            'query_type': details.get('query_type', 'unknown'),
+            'timestamp': query.created_at.isoformat(),
+            'ip_address': query.ip_address,
+            'tables': details.get('tables', []),
+            'severity': 'medium'
         })
     
-    # Check for access to sensitive tables
-    sensitive_tables = ['users', 'security_incidents', 'audit_logs', 'notifications']
-    sensitive_accesses = AuditLog.query.filter(
+    # Check for large result set queries (potential data exfiltration)
+    large_queries = AuditLog.query.filter(
         AuditLog.event_type == 'database_access',
-        AuditLog.created_at >= datetime.utcnow() - timedelta(days=1),
-        # Check if any sensitive table is mentioned in the details
-        or_(*[AuditLog.details.op('ilike')(f'%{table}%') for table in sensitive_tables])
+        AuditLog.created_at >= datetime.utcnow() - timedelta(days=1)
     ).order_by(
         desc(AuditLog.created_at)
-    ).limit(10).all()
+    ).limit(100).all()
     
-    for access in sensitive_accesses:
-        result['sensitive_tables'].append({
-            'user_id': access.user_id,
-            'query_details': access.details,
-            'timestamp': access.created_at.isoformat()
-        })
+    for query in large_queries:
+        details = json.loads(query.details) if isinstance(query.details, str) else query.details
+        rows_returned = details.get('rows_returned', 0)
+        if rows_returned > 1000:  # Threshold for large result sets
+            result['large_queries'].append({
+                'user_id': query.user_id,
+                'query_type': details.get('query_type', 'unknown'),
+                'timestamp': query.created_at.isoformat(),
+                'rows_returned': rows_returned,
+                'tables': details.get('tables', []),
+                'query_duration': details.get('duration_ms', 0),
+                'severity': 'high' if rows_returned > 10000 else 'medium'
+            })
     
-    # Check for unusual data modification patterns
-    modification_patterns = db.session.query(
-        AuditLog.user_id,
-        func.count(AuditLog.id).label('delete_count')
-    ).filter(
+    # Check for access to sensitive tables
+    sensitive_table_list = ['users', 'security_incidents', 'audit_logs', 'ics_devices', 'ics_readings']
+    sensitive_access = AuditLog.query.filter(
         AuditLog.event_type == 'database_access',
-        AuditLog.details.op('ilike')('%DELETE%'),
-        AuditLog.created_at >= datetime.utcnow() - timedelta(hours=1)
+        AuditLog.created_at >= datetime.utcnow() - timedelta(days=1)
+    ).order_by(
+        desc(AuditLog.created_at)
+    ).limit(50).all()
+    
+    for access in sensitive_access:
+        details = json.loads(access.details) if isinstance(access.details, str) else access.details
+        tables = details.get('tables', [])
+        
+        if any(table in sensitive_table_list for table in tables):
+            result['sensitive_tables'].append({
+                'user_id': access.user_id,
+                'timestamp': access.created_at.isoformat(),
+                'ip_address': access.ip_address,
+                'tables': [table for table in tables if table in sensitive_table_list],
+                'query_type': details.get('query_type', 'unknown'),
+                'severity': 'high'
+            })
+    
+    # Check for brute force login attempts
+    brute_force_attempts = db.session.query(
+        AuditLog.ip_address,
+        func.count(AuditLog.id).label('attempt_count')
+    ).filter(
+        AuditLog.event_type == 'login_failed',
+        AuditLog.created_at >= datetime.utcnow() - timedelta(minutes=30)
     ).group_by(
-        AuditLog.user_id
+        AuditLog.ip_address
     ).having(
-        func.count(AuditLog.id) > 5  # More than 5 deletes in an hour
+        func.count(AuditLog.id) > 5  # Threshold for brute force detection
     ).all()
     
-    for user_id, count in modification_patterns:
-        result['modification_patterns'].append({
-            'user_id': user_id,
-            'delete_operations': count,
-            'time_period': '1 hour'
+    for ip_address, attempt_count in brute_force_attempts:
+        result['brute_force_attempts'].append({
+            'ip_address': ip_address,
+            'attempt_count': attempt_count,
+            'timestamp': datetime.utcnow().isoformat(),
+            'severity': 'critical' if attempt_count > 20 else 'high'
         })
     
     return result
@@ -1083,11 +1151,13 @@ def trigger_incident_response(breach_data: Dict[str, Any]) -> Optional[int]:
         # Record incident in database
         incident = SecurityIncident(
             title=title,
-            threat_level=breach_data['threat_level'],
-            details=str(breach_data),
+            threat_level=breach_data.get('threat_level', 0),
+            incident_type=breach_data.get('incident_type', 'unknown'),
+            description=breach_data.get('description', 'No description provided'),
+            details=json.dumps(breach_data, default=str),
             status='open',
             detected_at=datetime.utcnow(),
-            source='system'
+            source=breach_data.get('source', 'system')
         )
         db.session.add(incident)
         db.session.commit()
