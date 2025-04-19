@@ -1,4 +1,3 @@
-```markdown
 # Security Components - Cloud Infrastructure Platform
 
 This directory contains security-related configurations, hardening scripts, and documentation used to secure the Cloud Infrastructure Platform in various environments.
