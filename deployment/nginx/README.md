@@ -71,52 +71,105 @@ To install the NGINX configuration files:
 To generate configurations for different environments:
 
 ```bash
-# Generate configuration for a specific environment
-./scripts/generate-config.py --environment staging --output-dir /etc/nginx/
+# Generate configuration for development environment
+python scripts/generate-config.py --environment development
+
+# Generate configuration for staging environment
+python scripts/generate-config.py --environment staging
+
+# Generate configuration for production environment
+python scripts/generate-config.py --environment production
 
 ```
 
 ### Testing Configuration
 
-Before applying changes, test the configuration:
+Before applying changes to your NGINX server, verify the configuration:
 
 ```bash
 # Test the configuration
-./scripts/test-config.sh /etc/nginx/nginx.conf
+./scripts/test-config.sh --environment production
 
 ```
 
-## Environments
-
-The configuration supports the following environments:
-
-- **Production**: High-performance, strict security settings
-- **Staging**: Nearly identical to production for pre-deployment validation
-- **Development**: Relaxed settings for local development with debugging enabled
-
-## Integration with Other Components
-
-- **Security**: Works with security configurations for centralized security management
-- **SSL Certificates**: Integrates with certificate management from [ssl-setup.sh](http://ssl-setup.sh/)
-- **WAF Rules**: Uses ModSecurity rules from modsecurity-rules.conf
-- **Application Backend**: Proxies to the Flask application running as a WSGI service
-
 ## Maintenance
 
-Regular tasks for maintaining this configuration:
+### Updating Security Settings
 
-1. **SSL Certificate Renewal**: Automated with Let's Encrypt or manual with [ssl-setup.sh](http://ssl-setup.sh/)
-2. **Security Header Updates**: Update the security headers configuration when new best practices emerge
-3. **Performance Tuning**: Adjust worker processes, connection limits, and buffer sizes based on traffic
-4. **Log Rotation**: Ensure log files are properly rotated to prevent disk space issues
+The security settings can be updated by modifying the appropriate configuration files:
 
-## Troubleshooting
+```bash
+# Update TLS configuration
+vim includes/ssl-params.conf
 
-Common issues and resolutions:
+# Update security headers
+vim includes/security-headers.conf
 
-- **502 Bad Gateway**: Check if the backend application is running
-- **SSL Certificate Errors**: Verify certificate paths and permissions
-- **Permission Denied**: Check NGINX user and file ownership/permissions
-- **Rate Limiting Too Strict**: Adjust burst and rate settings in rate-limiting.conf
+```
 
-For more detailed information, refer to the Cloud Infrastructure Platform Deployment Documentation.
+### Adding New Domains
+
+To add a new domain:
+
+1. Create a new server block configuration in `sites-available/`
+2. Generate the environment-specific configurations
+3. Test the configuration
+4. Install the updated configuration
+
+```bash
+# Example for adding a new domain
+cp templates/server.conf.template sites-available/new-domain.conf
+vim sites-available/new-domain.conf
+python scripts/generate-config.py --environment production --domain new-domain
+./scripts/test-config.sh
+./scripts/install-configs.sh --environment production
+
+```
+
+## Monitoring and Troubleshooting
+
+### Viewing Logs
+
+Access logs are in a standardized JSON format for easy parsing:
+
+```bash
+# View access logs
+tail -f /var/log/nginx/access.log | jq
+
+# View error logs
+tail -f /var/log/nginx/error.log
+
+```
+
+### Common Issues
+
+1. **403 Forbidden**: Check file permissions and ownership
+2. **502 Bad Gateway**: Check upstream server connectivity
+3. **Unable to restart NGINX**: Verify configuration syntax
+
+```bash
+# Quick syntax check
+nginx -t
+
+# Check specific config
+nginx -t -c /path/to/nginx.conf
+
+```
+
+## Performance Optimization
+
+The configuration includes several performance optimizations:
+
+- **Caching**: Static content caching with appropriate Cache-Control headers
+- **Compression**: GZIP/Brotli compression for text-based resources
+- **Connection Pooling**: Optimized keepalive connection settings
+- **Worker Processes**: Automatically scaled based on CPU cores
+
+## Contributing
+
+When contributing to the NGINX configuration:
+
+1. Test changes in development environment first
+2. Document any non-standard configurations
+3. Update this README if adding new features
+4. Follow the established naming conventions
