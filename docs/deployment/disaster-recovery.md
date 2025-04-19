@@ -259,35 +259,41 @@ After recovery operations are complete, perform these validation steps:
     - Verify database consistency and integrity
     - Confirm no data loss or corruption
     - Validate data replication is functioning
+    - Run data integrity checks using `scripts/database/db_verify.sh --full-check`
 3. **Application Validation**
-    - Run comprehensive smoke tests
-    - Verify all critical business functions
+    - Run comprehensive smoke tests with `scripts/testing/smoke-test.sh production`
+    - Verify all critical business functions using the validation checklist
     - Test integration points with external systems
     - Conduct performance tests to ensure acceptable response times
 4. **Infrastructure Validation**
     - Verify all components are properly deployed
-    - Confirm monitoring and alerting is operational
+    - Confirm monitoring and alerting is operational using `scripts/monitoring/health-check.sh`
     - Validate backup systems are functioning
+    - Verify security controls with `deployment/security/security-audit.sh --quick`
 
 ## Post-Incident Procedures
 
 1. **Incident Documentation**
-    - Complete DR incident report using standard template
+    - Complete DR incident report using the template in `/docs/templates/dr-incident-report.md`
     - Document timeline of events and actions taken
     - Record recovery metrics achieved (actual RTO/RPO)
+    - Log the DR event with `scripts/logging/log-dr-event.sh --type recovery --status completed`
 2. **Root Cause Analysis**
     - Identify and document root cause of the incident
     - Assess effectiveness of response procedures
     - Document lessons learned
+    - Schedule post-incident review meeting within 48 hours of resolution
 3. **Process Improvement**
     - Update DR plan based on lessons learned
     - Implement preventive measures where applicable
     - Enhance monitoring for earlier detection
     - Update training materials and conduct refresher training
+    - Revise automation scripts for improved recovery
 4. **Compliance Reporting**
-    - Generate reports required for compliance purposes
+    - Generate reports required for compliance purposes using `scripts/compliance/generate-report.sh --type dr-incident`
     - Document deviations from established procedures
     - Update risk assessment and control documentation
+    - Notify relevant regulatory bodies if required
 
 ## Appendices
 
@@ -299,8 +305,8 @@ After recovery operations are complete, perform these validation steps:
 | System Admin Lead | John Doe | +1-555-123-4568 | [sysadmin@example.com](mailto:sysadmin@example.com) |
 | Database Admin | Sarah Johnson | +1-555-123-4569 | [dbadmin@example.com](mailto:dbadmin@example.com) |
 | Security Lead | Michael Brown | +1-555-123-4570 | [security@example.com](mailto:security@example.com) |
-| Communications Lead | Lisa Davis | +1-555-123-4571 | [communications@example.com](mailto:communications@example.com) |
-| Cloud Provider Support | AWS/Azure/GCP | See service portal | [support@cloudprovider.com](mailto:support@cloudprovider.com) |
+| Network Admin | Robert Wilson | +1-555-123-4571 | [netadmin@example.com](mailto:netadmin@example.com) |
+| Cloud Operations | Emily Davis | +1-555-123-4572 | [cloudops@example.com](mailto:cloudops@example.com) |
 
 ### B. Related Documentation
 
@@ -309,6 +315,18 @@ After recovery operations are complete, perform these validation steps:
 - Business Continuity Plan
 - Cloud Infrastructure Architecture
 - Rollback Guide
+
+### B. Recovery Validation Checklist
+
+| System Component | Validation Method | Success Criteria | 
+| --- | --- | --- |
+| Web Application | Smoke test & manual verification | All critical paths operational |
+| API Services | Health checks & integration tests | 200 responses with valid data |
+| Database | Integrity checks & query tests | No corruption, all data accessible |
+| Authentication | Login tests with sample accounts | Successful authentication flows |
+| File Storage | Access tests & integrity checks | Files accessible and uncorrupted |
+| Monitoring | Dashboard verification | All metrics reporting correctly |
+| Backup Systems | Verification jobs | Successful post-recovery backup completion |
 
 ### C. Recovery Checklist
 
