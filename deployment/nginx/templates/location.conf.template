@@ -1,0 +1,120 @@
+# Location block template for Cloud Infrastructure Platform
+# Template variables:
+# - {{APP_ROOT}}: Application root directory
+# - {{STATIC_PATH}}: Path to static files
+# - {{API_UPSTREAM}}: Name of the API upstream
+# - {{ENVIRONMENT}}: Environment name (development, staging, production)
+# - {{RATE_LIMIT}}: Rate limit value based on environment
+# - {{CACHE_DURATION}}: Cache duration based on environment
+# - {{ICS_RESTRICTED_IPS}}: Comma-separated list of IPs for ICS restrictions
+
+# Main application location
+location / {
+    root {{APP_ROOT}}/public;
+    index index.html index.htm;
+    try_files $uri $uri/ /index.html;
+
+    # Security headers for main application
+    include conf.d/security-headers.conf;
+    
+    # Environment-specific cache control
+    add_header Cache-Control "{{CACHE_CONTROL}}";
+    
+    # Set environment indicator for the frontend
+    add_header X-Environment "{{ENVIRONMENT}}" always;
+}
+
+# Static files
+location /static/ {
+    alias {{STATIC_PATH}}/;
+    expires {{CACHE_DURATION}};
+    add_header Cache-Control "public, max-age={{STATIC_MAX_AGE}}, immutable";
+    
+    # Basic security headers
+    add_header X-Content-Type-Options "nosniff" always;
+    
+    # Disable directory listing
+    autoindex off;
+    
+    # Access control
+    location ~ \.(env|config|ini|conf|md|sql|json|yml|yaml)$ {
+        deny all;
+        return 404;
+    }
+}
+
+# API endpoint
+location /api/ {
+    proxy_pass http://{{API_UPSTREAM}};
+    include conf.d/proxy-params.conf;
+    
+    # Rate limiting
+    limit_req zone=api burst={{RATE_LIMIT_BURST}} {{RATE_LIMIT_MODE}};
+    
+    # Security headers
+    include conf.d/security-headers.conf;
+    
+    # API-specific headers
+    add_header X-API-Version "{{API_VERSION}}" always;
+    
+    # Override timeout for API requests
+    proxy_read_timeout {{API_TIMEOUT}}s;
+    proxy_connect_timeout {{API_CONNECT_TIMEOUT}}s;
+}
+
+# Industrial Control Systems endpoint
+location /api/ics/ {
+    # IP restriction based on environment configuration
+    {{#ICS_RESTRICTED_IPS}}
+    allow {{.}};
+    {{/ICS_RESTRICTED_IPS}}
+    deny all;
+    
+    proxy_pass http://{{API_UPSTREAM}};
+    include conf.d/proxy-params.conf;
+    
+    # Extended timeout for ICS operations
+    proxy_read_timeout {{ICS_TIMEOUT}}s;
+}
+
+# Authentication endpoints
+location /api/auth/ {
+    proxy_pass http://{{API_UPSTREAM}};
+    include conf.d/proxy-params.conf;
+    
+    # Apply stricter rate limiting for auth endpoints
+    limit_req zone=auth_limit burst={{AUTH_RATE_LIMIT_BURST}} nodelay;
+    
+    # Specific security headers for auth endpoints
+    include conf.d/security-headers.conf;
+    add_header X-Auth-Protection "strict" always;
+}
+
+# Health check endpoint
+location = /health {
+    {{#INTERNAL_HEALTH_CHECK}}
+    # Restrict to internal networks in production
+    allow 127.0.0.1;
+    allow 10.0.0.0/8;
+    allow 172.16.0.0/12;
+    allow 192.168.0.0/16;
+    deny all;
+    {{/INTERNAL_HEALTH_CHECK}}
+    
+    # Return status directly from NGINX
+    return 200 "OK\nEnvironment: {{ENVIRONMENT}}\nVersion: {{APP_VERSION}}\n";
+    add_header Content-Type text/plain;
+}
+
+# Error pages
+error_page 404 /404.html;
+location = /404.html {
+    root {{STATIC_PATH}}/error;
+    internal;
+}
+
+error_page 500 502 503 504 /50x.html;
+location = /50x.html {
+    root {{STATIC_PATH}}/error;
+    internal;
+}
