@@ -2,10 +2,12 @@
 # Place this file at /etc/fail2ban/jail.local
 
 [DEFAULT]
-# Ban hosts for 1 hour
+# Ban hosts for 1 hour (3600 seconds)
 bantime = 3600
-# Check for ban every 5 minutes
+
+# Check for ban every 5 minutes (300 seconds)
 findtime = 300
+
 # Ban after 5 failed attempts
 maxretry = 5
 
@@ -16,50 +18,82 @@ sender = fail2ban@example.com
 mta = sendmail
 action = %(action_mwl)s
 
-# SSH protection
+# Ignore private networks and trusted hosts
+ignoreip = 127.0.0.1/8 ::1 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+
+# Use more efficient backend where available
+backend = auto
+
+# SSH protection - secure shell login attempts
 [sshd]
 enabled = true
 port = ssh
 filter = sshd
 logpath = /var/log/auth.log
 maxretry = 3
+bantime = 7200  # Ban for 2 hours (more strict for SSH)
 
-# Web server protection
+# Web server protection - HTTP authentication failures
 [nginx-http-auth]
 enabled = true
 filter = nginx-http-auth
 port = http,https
 logpath = /var/log/nginx/error.log
+maxretry = 5
+findtime = 300
 
-# API rate limiting
+# API rate limiting - protect against API abuse
 [nginx-limit-req]
 enabled = true
 filter = nginx-limit-req
 port = http,https
 logpath = /var/log/nginx/error.log
 maxretry = 10
+findtime = 60  # More frequent checks for rate limiting
 
-# API authentication failures
+# API authentication failures - malicious login attempts
 [cloud-platform-api-auth]
 enabled = true
 filter = cloud-platform-api-auth
 port = http,https
 logpath = /var/log/cloud-platform/api.log
 maxretry = 5
+findtime = 300
 
-# Web application firewall
-[nginx-modsecurity]
+# Web application firewall - ModSecurity triggered rules
+[modsecurity]
 enabled = true
-filter = nginx-modsecurity
+filter = modsecurity
 port = http,https
-logpath = /var/log/nginx/modsecurity_audit.log
+logpath = /var/log/nginx/modsec_audit.log
 maxretry = 3
+bantime = 14400  # Ban for 4 hours
 
-# Admin login failures
-[cloud-platform-admin-auth]
+# Protect against password brute force in application logs
+[cloud-platform-login]
 enabled = true
-filter = cloud-platform-admin-auth
+filter = cloud-platform-login
 port = http,https
-logpath = /var/log/cloud-platform/auth.log
-maxretry = 3
+logpath = /var/log/cloud-platform/app.log
+maxretry = 5
 bantime = 7200
+
+# Protect against repeated probing of sensitive paths 
+[nginx-botsearch]
+enabled = true
+filter = nginx-botsearch
+port = http,https
+logpath = /var/log/nginx/access.log
+maxretry = 2
+findtime = 60
+bantime = 86400  # Ban for 1 day
+
+# ICS-specific protection (industrial control systems)
+[cloud-platform-ics]
+enabled = true
+filter = cloud-platform-ics
+port = http,https
+logpath = /var/log/cloud-platform/ics.log
+maxretry = 2
+findtime = 300
+bantime = 43200  # Ban for 12 hours - stricter for ICS

@@ -4,21 +4,41 @@
 # Environment variables
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 MAILTO=security@example.com
+SHELL=/bin/bash
+LOG_DIR=/var/log/cloud-platform
 
-# Run security updates at 3 AM every day
-0 3 * * * root /usr/bin/apt-get update && /usr/bin/apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" dist-upgrade >> /var/log/cloud-platform/auto-security-update.log 2>&1
+# Make sure log directory exists
+15 2 * * * root mkdir -p ${LOG_DIR} && chmod 750 ${LOG_DIR}
+
+# Run security updates at 3 AM every day (with proper error handling)
+0 3 * * * root /usr/bin/apt-get update && /usr/bin/apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" dist-upgrade 2>&1 | tee -a ${LOG_DIR}/auto-security-update.log || echo "Security update failed with exit code $?" >> ${LOG_DIR}/auto-security-update.log
+
+# Check for specific security updates daily at 6 AM
+0 6 * * * root /opt/cloud-platform/scripts/security/check_security_updates.sh --notify security@example.com >> ${LOG_DIR}/security-updates-check.log 2>&1
 
 # Update ModSecurity rules at 4 AM every Monday
-0 4 * * 1 root /usr/local/bin/update-modsecurity-rules.sh >> /var/log/cloud-platform/modsec-update.log 2>&1
+0 4 * * 1 root /opt/cloud-platform/deployment/security/update-modsecurity-rules.sh >> ${LOG_DIR}/modsec-update.log 2>&1
 
-# Renew SSL certificates twice daily
-0 1,13 * * * root /opt/cloud-platform/deployment/security/certificate-renew.sh >> /var/log/cloud-platform/cert-renewal.log 2>&1
+# Renew SSL certificates at 1 AM on Monday and Thursday
+0 1 * * 1,4 root /opt/cloud-platform/deployment/security/certificate-renew.sh >> ${LOG_DIR}/cert-renewal.log 2>&1
 
 # Run security audit every Sunday at 2 AM
-0 2 * * 0 root /opt/cloud-platform/deployment/security/security-audit.sh >> /var/log/cloud-platform/security-audit.log 2>&1
+0 2 * * 0 root /opt/cloud-platform/deployment/security/security-audit.sh --email=security@example.com >> ${LOG_DIR}/security-audit.log 2>&1
 
-# Check file integrity daily
-0 5 * * * root /usr/bin/aide --check >> /var/log/cloud-platform/file-integrity.log 2>&1
+# Check file integrity daily at 5 AM
+0 5 * * * root /usr/bin/aide --check >> ${LOG_DIR}/file-integrity.log 2>&1
+
+# Update AIDE database weekly on Saturday at 4 AM
+0 4 * * 6 root /usr/bin/aide --update && cp /var/lib/aide/aide.db.new /var/lib/aide/aide.db >> ${LOG_DIR}/aide-update.log 2>&1
 
 # Update IP blocklist daily at 1 AM
-0 1 * * * root /opt/cloud-platform/scripts/update-blocklist.sh >> /var/log/cloud-platform/blocklist-update.log 2>&1
+0 1 * * * root /opt/cloud-platform/scripts/security/update-blocklist.sh >> ${LOG_DIR}/blocklist-update.log 2>&1
+
+# Cleanup old log files weekly
+30 3 * * 0 root find ${LOG_DIR} -name "*.log.*" -type f -mtime +30 -delete
+
+# Verify critical file permissions daily
+15 6 * * * root /opt/cloud-platform/scripts/security/verify_permissions.sh >> ${LOG_DIR}/permissions-check.log 2>&1
+
+# Update system blacklist/whitelist files weekly
+0 2 * * 3 root /opt/cloud-platform/scripts/security/update-system-blacklists.sh >> ${LOG_DIR}/blacklist-update.log 2>&1

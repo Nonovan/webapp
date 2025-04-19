@@ -1,6 +1,7 @@
 # Kubernetes Network Policies for Cloud Infrastructure Platform
 # These policies define allowed network traffic between application components
 
+# Default policy to deny all traffic for maximum security posture
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -12,6 +13,7 @@ spec:
   - Ingress
   - Egress
 ---
+# Allow external web traffic to the frontend
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -48,8 +50,8 @@ spec:
   - to:
     - namespaceSelector:
         matchLabels:
-          name: kube-system
-      podSelector:
+          kubernetes.io/metadata.name: kube-system
+    - podSelector:
         matchLabels:
           k8s-app: kube-dns
     ports:
@@ -58,6 +60,7 @@ spec:
     - protocol: TCP
       port: 53
 ---
+# API server network policy
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -75,9 +78,6 @@ spec:
     - podSelector:
         matchLabels:
           app: web-frontend
-    - podSelector:
-        matchLabels:
-          app: monitoring
     ports:
     - protocol: TCP
       port: 8080
@@ -97,17 +97,10 @@ spec:
     - protocol: TCP
       port: 6379
   - to:
-    - podSelector:
-        matchLabels:
-          app: rabbitmq
-    ports:
-    - protocol: TCP
-      port: 5672
-  - to:
     - namespaceSelector:
         matchLabels:
-          name: kube-system
-      podSelector:
+          kubernetes.io/metadata.name: kube-system
+    - podSelector:
         matchLabels:
           k8s-app: kube-dns
     ports:
@@ -116,6 +109,7 @@ spec:
     - protocol: TCP
       port: 53
 ---
+# Database network policy
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -133,9 +127,6 @@ spec:
     - podSelector:
         matchLabels:
           app: api-server
-    - podSelector:
-        matchLabels:
-          app: backup-service
     ports:
     - protocol: TCP
       port: 5432
@@ -143,8 +134,8 @@ spec:
   - to:
     - namespaceSelector:
         matchLabels:
-          name: kube-system
-      podSelector:
+          kubernetes.io/metadata.name: kube-system
+    - podSelector:
         matchLabels:
           k8s-app: kube-dns
     ports:
@@ -153,41 +144,16 @@ spec:
     - protocol: TCP
       port: 53
 ---
+# Redis network policy
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: monitoring-policy
+  name: redis-policy
   namespace: cloud-platform
 spec:
   podSelector:
     matchLabels:
-      app: monitoring
-  policyTypes:
-  - Ingress
-  - Egress
-  ingress:
-  - from:
-    - podSelector:
-        matchLabels:
-          role: admin
-    ports:
-    - protocol: TCP
-      port: 3000  # Grafana
-    - protocol: TCP
-      port: 9090  # Prometheus
-  egress:
-  - to:
-    - podSelector: {}  # Allow to all pods within namespace for metrics collection
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: ics-gateway-policy
-  namespace: cloud-platform
-spec:
-  podSelector:
-    matchLabels:
-      app: ics-gateway
+      app: redis
   policyTypes:
   - Ingress
   - Egress
@@ -198,37 +164,17 @@ spec:
           app: api-server
     ports:
     - protocol: TCP
-      port: 8443
+      port: 6379
   egress:
   - to:
-    - ipBlock:
-        cidr: 10.100.0.0/16  # ICS network
-    ports:
-    - protocol: TCP
-      port: 502  # Modbus
-    - protocol: TCP
-      port: 44818  # EtherNet/IP
-  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
     - podSelector:
         matchLabels:
-          app: api-server
+          k8s-app: kube-dns
     ports:
+    - protocol: UDP
+      port: 53
     - protocol: TCP
-      port: 8080
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: security-audit-policy
-  namespace: cloud-platform
-spec:
-  podSelector:
-    matchLabels:
-      app: security-audit
-  policyTypes:
-  - Egress
-  egress:
-  - to:
-    - podSelector: {}  # Allow to all pods within namespace for security scanning
-    ports:
-    - protocol: TCP
+      port: 53

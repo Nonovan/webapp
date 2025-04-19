@@ -1,218 +1,175 @@
 # List of known malicious user agents to block
 # Used in conjunction with ModSecurity rules
+# Last updated: 2023
 
-# Common malicious bots
-Baiduspider
-80legs
+# =====================================================
+# SCAN/ATTACK TOOLS
+# =====================================================
 Acunetix
+Acunetix Web Vulnerability Scanner
+Advanced Email Extractor
+Ahrefs
+Arachni
+AWVS
+Backdoor
+BackDoorBot
+Backlink-Ceck
+BlackWidow
+BlexBot
+Bolt
+Bot mailto:craftbot@yahoo.com
+Buddybot
+Butch_Coolguard
+ccbot
+CFNetwork
+Check Point Intrusion Prevention
+Comodo Spider
+Core-Project
+CriteoBot
+CSHttp
+curl
+Cybeye
+DISCo
+dirbuster
+dirsearch
+Domotex
+DotBot
+Download Demon
+DTS Agent
+Embed PHP
+Exabot
+Express WebPictures
+Extractor
+extractorpro
+
+# =====================================================
+# SCRAPERS AND EMAIL HARVESTERS
+# =====================================================
 admantx
+Atomic_Email_Hunter
 aiHitBot
 Alligator
 AllSubmitter
 Apexoo
 asterias
-Atomic_Email_Hunter
 Barkrowler
-
-# Scanner/attack tools
-Acunetix
-Arachni
-AWVS
-B-Root
-BackDoorBot
-Backlink-Ceck
-BlackWidow
-Bolt
-Bot <mailto:craftbot@yahoo.com>
-Buddybot
 Bytespider
 CazoodleBot
 CCBot
 checkprivacy
 Cogentbot
 CrunchBot
-curl
 diavol
-dirbuster
-Discobot
 DIIbot
-DISCo
-dotbot
-Download Demon
-DTS Agent
+DataCha0s
 ecollector
 EmailCollector
 EmailSiphon
 EmailWolf
-Exabot
-Express WebPictures
-Extractor
-extractorpro
-EyeNetIE
-Fetch
-Fetch API Request
-FHscan
-Fimap
-Findx Crawler
-FlashGet
-Flunky
-GetRight
-GetWeb!
-Go-Ahead-Got-It
-Go!Zilla
-GrabNet
-Grafula
-GT::WWW
-Harvest
-Havij
+
+# =====================================================
+# AGGRESSIVE CRAWLERS
+# =====================================================
+80legs
+Baiduspider
+BLEXBot
+DeuSu
+evc-batch
+FemtosearchBot
+GetIntent
+GrapeshotCrawler
+grub-client
 heritrix
-HMView
-HTTP::Lite
 HTTrack
 ia_archiver
-IDBot
-id-search
-id-search.org
-Indy Library
-InfoNaviRobot
-InfoTekies
-intruder
-IUPUI Research Bot
-kmccrew
 larbin
-LeechFTP
-libwww-perl
 libwww
-libwww-perl
-Lightspeedsystems
-linkwalker
+Lingewoud-550
 LinkextractorPro
-LinkScan
+LinkpadBot
 LinkWalker
-LNSpiderguy
-looksmart
-lwp-trivial
-magpie
-Mata Hari
-MaxPointCrawler
-MFC_Tear_Sample
-microsoft.url
-Microsoft URL Control
-Missigua Locator
-Morfeus Fucking Scanner
-mongoose
-Mozilla/3.0 (compatible)
-Mozilla/4.0 (compatible)
-Mozilla/4.0 (Hydra)
-Mozilla/5.0 (compatible; Indy Library)
-Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US) Speedy Spider
-MyGetRight
-n8crawl-1.0.0
-nessus
-NetAnts
-NetLyzer
-NetMechanic
-Nikto
-NimbleCrawler
-Nimbostratus
-Ninja
-Nmap
-NPbot
-Octopus
-Offline Explorer
-Offline Navigator
-OpenLinkProfiler
-PageGrabber
-Papa Foto
-pcBrowser
-PHP version tracker
-Pockey
-ProPowerBot
-ProWebWalker
-psbot
-Python-urllib
-REL Link Checker
-ScanAlert
-scalaj-http
-Scooter.3.3
-SecurityQuestBot
-silk
-SiteSucker
-SiteTruth
-SlySearch
-SmartDownload
-SpaceBison
-Spammen
-SpankBot
-spanner
-SpiderMan
-sqlmap
-Sqworm
-Steeler
-Stripper
-Sucker
-SuperBot
-SuperHTTP
-Surfbot
-tAkeOut
-Teleport Pro
-Toata
-tractors
-True_Robot
-turingos
-turnit
-Ultimate+Scraper
-URLy.Warning
-VCI
-VoidEYE
-Web Image Collector
-Web Sucker
-WebAuto
-WebBandit
-WebCopier
-WebEMailExtrac
-WebEnhancer
-WebFetch
-WebGo+IS
-WebLeacher
-WebmasterWorldForumBot
-WebReaper
-WebSauger
-Website+Quester
-Webster+Pro
-WebStripper
-WebWhacker
-WebZIP
-Wells+Search+II
-WEP+Search
-WFDownloader
-Wget
-Widow
-Wotbox
-WWW-Collector-E
-WWW-Mechanize
-WWWOFFLE
-Xaldon+WebSpider
-Yandex
-Zeus
-ZmEu
-Zyborg
+masscan
+Megaindex
+MJ12bot
+Morfeus
 
-# Browser automation tools that can be used maliciously
-PhantomJS
-Headless Chrome
-Selenium
-Puppeteer
-
-# Known vulnerability scanners
-w3af
-OpenVAS
-Nexpose
-GCrawler
+# =====================================================
+# VULNERABILITY SCANNERS
+# =====================================================
+Abonti
+Aboundex
+Aboundexbot
+aiohttp
+Apexoo
+AppleWebKit
+Aqua_Products
+archive.org_bot
+argus
+Aspiegel
+AspiegelBot
+ASPSeek
+BDFetch
+Brutus
+Chilkat
+ChmodBPP
+cognitiveseo
+ContentSmartz
+Curious George
+DataForSeoBot
+Demon
+Deepnet Explorer 
+DomainAppender
+DomainSigmaCrawler
+Download Master
+DTS Agent
+EasyDL
+Elmer
+Evidon
+FAST MetaWeb Crawler
+Fetch API Request
+FHscan
+findlinks
+Flexum
 Grabber
-wfuzz
-JBroFuzz
-QualysGuard
-Shodan
-ZAP
-Vega
+
+# =====================================================
+# ANONYMIZERS
+# =====================================================
+Anonym
+Anonymous
+Anonmouse
+Anonymouse.org
+Anonymizer
+Breaker
+cloaking
+connresist
+CyberPatrol
+Dissembler
+Elite Proxy Checker
+Fimap
+HMView
+HTTP Navigator
+HTTrack
+HttpExplorer
+Offline Explorer
+PHPCrawl
+SuperBot
+suzuran
+Teleport
+TightTwatBot
+
+# =====================================================
+# KNOWN MALWARE USER-AGENTS
+# =====================================================
+black.widow
+BlackWidow
+ChinaClaw
+Cliqzbot
+Clickagy
+CopyRightCheck
+DareBoost
+DataForSeoBot
+Demon
+Detector
+Digimind
+Digout4uAgent

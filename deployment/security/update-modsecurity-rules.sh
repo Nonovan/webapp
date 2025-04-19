@@ -97,91 +97,130 @@ fi
 log "Setting up CRS configuration..."
 if [ -f "$CRS_DIR/crs-setup.conf.example" ]; then
     cp -f "$CRS_DIR/crs-setup.conf.example" "$CRS_DIR/crs-setup.conf"
+    log "Created CRS setup configuration from example"
+elif [ ! -f "$CRS_DIR/crs-setup.conf" ]; then
+    log "ERROR: CRS setup configuration example not found"
+    exit 1
 fi
 
 # Copy custom WAF rules from source directory
 log "Setting up custom WAF rules directory..."
 SOURCE_WAF_DIR="/opt/cloud-platform/deployment/security/waf-rules"
 
-if [ -d "$SOURCE_WAF_DIR" ]; then
+# Ensure WAF rules directory exists
+mkdir -p "$WAF_RULES_DIR" || {
+    log "ERROR: Failed to create WAF rules directory"
+    exit 1
+}
+
+# Handle custom WAF rules
+if [ -d "$SOURCE_WAF_DIR" ] && [ "$(ls -A "$SOURCE_WAF_DIR" 2>/dev/null)" ]; then
     log "Copying custom WAF rules from $SOURCE_WAF_DIR to $WAF_RULES_DIR..."
     
-    # Create WAF rules directory if it doesn't exist
-    mkdir -p "$WAF_RULES_DIR"
-    
-    # Copy all rule files from the source directory
-    cp -f "$SOURCE_WAF_DIR"/*.conf "$WAF_RULES_DIR/" 2>/dev/null || {
-        log "WARNING: No rule files found in $SOURCE_WAF_DIR"
+    # Copy all rule files and preserve attributes
+    find "$SOURCE_WAF_DIR" -name "*.conf" -type f -exec cp -f {} "$WAF_RULES_DIR/" \; || {
+        log "WARNING: Failed to copy some rule files from $SOURCE_WAF_DIR"
     }
     
-    log "Custom WAF rules copied successfully"
-else
-    log "Custom WAF rules source directory not found at $SOURCE_WAF_DIR"
-    
-    # Check for single file for backward compatibility
-    if [ -f "/opt/cloud-platform/deployment/security/waf-rules.conf" ]; then
-        log "WARNING: Found legacy waf-rules.conf file. Consider migrating to the directory structure."
-        cp -f "/opt/cloud-platform/deployment/security/waf-rules.conf" "$CRS_DIR/rules/cloud-platform-rules.conf"
+    # Verify successful copy
+    RULE_COUNT=$(find "$WAF_RULES_DIR" -name "*.conf" -type f | wc -l)
+    if [ "$RULE_COUNT" -gt 0 ]; then
+        log "Successfully copied $RULE_COUNT custom WAF rule files"
+    else
+        log "WARNING: No custom rule files found or copied"
     fi
-fi
-
-# Update file ownership and permissions
-log "Setting correct permissions..."
-find "$CRS_DIR" -type f -exec chmod 644 {} \;
-find "$CRS_DIR" -type d -exec chmod 755 {} \;
-find "$WAF_RULES_DIR" -type f -exec chmod 644 {} \;
-find "$WAF_RULES_DIR" -type d -exec chmod 755 {} \;
-
-# Test NGINX configuration
-log "Testing NGINX configuration..."
-nginx -t
-
-if [ $? -eq 0 ]; then
-    log "NGINX configuration test passed"
-
-    # Reload NGINX to apply changes
-    log "Reloading NGINX to apply new rules..."
-    systemctl reload nginx || {
-        log "ERROR: Failed to reload NGINX"
+else
+    log "Custom WAF rules source directory not found or empty at $SOURCE_WAF_DIR"
+        
+        # Check for single file for backward compatibility
+        if [ -f "/opt/cloud-platform/deployment/security/waf-rules.conf" ]; then
+            log "Found legacy waf-rules.conf file. Copying to rules directory..."
+            cp -f "/opt/cloud-platform/deployment/security/waf-rules.conf" "$CRS_DIR/rules/cloud-platform-rules.conf" || {
+                log "ERROR: Failed to copy legacy WAF rules file"
+            }
+            log "Legacy WAF rules file copied. Consider migrating to the directory structure."
+        else
+            log "WARNING: No custom WAF rules found. Using default CRS rules only."
+        fi
+    fi
+    
+    # Update file ownership and permissions
+    log "Setting correct permissions..."
+    find "$CRS_DIR" -type f -exec chmod 644 {} \; || log "WARNING: Failed to set permissions on some CRS files"
+    find "$CRS_DIR" -type d -exec chmod 755 {} \; || log "WARNING: Failed to set permissions on some CRS directories"
+    find "$WAF_RULES_DIR" -type f -exec chmod 644 {} \; || log "WARNING: Failed to set permissions on some WAF rule files" 
+    find "$WAF_RULES_DIR" -type d -exec chmod 755 {} \; || log "WARNING: Failed to set permissions on some WAF rule directories"
+    
+    # Check file ownership if running as root
+    if [ "$(id -u)" -eq 0 ]; then
+        find "$CRS_DIR" -exec chown root:root {} \; 2>/dev/null || log "WARNING: Failed to set ownership on some CRS files"
+        find "$WAF_RULES_DIR" -exec chown root:root {} \; 2>/dev/null || log "WARNING: Failed to set ownership on some WAF files"
+    fi
+    
+    # Test NGINX configuration
+    log "Testing NGINX configuration..."
+    if nginx -t &>/tmp/nginx-test.log; then
+        log "NGINX configuration test passed"
+    
+        # Reload NGINX to apply changes
+        log "Reloading NGINX to apply new rules..."
+        if systemctl reload nginx; then
+            log "NGINX reloaded successfully"
+            log "ModSecurity CRS update completed successfully"
+            # Cleanup temporary files
+            rm -f /tmp/nginx-test.log
+        else
+            log "ERROR: Failed to reload NGINX"
+            cat /tmp/nginx-test.log
+            # Keep the log file for troubleshooting
+            log "Test output saved to /tmp/nginx-test.log"
+            exit 1
+        fi
+    else
+        log "ERROR: NGINX configuration test failed. Restoring backup..."
+        # Save the test output for troubleshooting
+        log "Test output:"
+        cat /tmp/nginx-test.log
+        
+        # Restore CRS from backup
+        if [ -n "$backup_file" ] && [ -f "$backup_file" ]; then
+            log "Restoring from backup: $backup_file"
+            # Create temporary directory for restoration
+            tmp_restore_dir=$(mktemp -d)
+            if tar -xzf "$backup_file" -C "$tmp_restore_dir"; then
+                # Remove failed configuration
+                if [ -d "$CRS_DIR" ]; then
+                    rm -rf "$CRS_DIR"
+                fi
+                
+                # Restore from backup
+                if [ -d "$tmp_restore_dir" ]; then
+                    mv "$tmp_restore_dir"/* "$(dirname "$CRS_DIR")/" 2>/dev/null || log "WARNING: Error moving restored files"
+                    log "Backup restoration completed"
+                    
+                    # Verify NGINX config after restoration
+                    if nginx -t &>/dev/null; then
+                        log "NGINX configuration valid after restore"
+                    else
+                        log "ERROR: NGINX configuration still invalid after restore"
+                    fi
+                fi
+            else
+                log "ERROR: Failed to extract backup file"
+            fi
+            
+            # Clean up temporary directory regardless of success
+            if [ -d "$tmp_restore_dir" ]; then
+                rm -rf "$tmp_restore_dir"
+            fi
+        else
+            log "ERROR: Backup file not found or not specified. Cannot restore."
+        fi
+        
+        # Exit with failure status
         exit 1
-    }
-
-    log "ModSecurity CRS update completed successfully"
-else
-    log "ERROR: NGINX configuration test failed. Restoring backup..."
-
-    # Restore CRS from backup
-    if [ -f "$backup_file" ]; then
-        rm -rf "$CRS_DIR"
-        mkdir -p "$(dirname $CRS_DIR)"
-        tar -xzf "$backup_file" -C "$(dirname $CRS_DIR)" || {
-            log "ERROR: Failed to restore CRS backup. Manual intervention required!"
-            exit 1
-        }
-        log "CRS backup restored."
-    else
-        log "ERROR: CRS backup file not found. Manual intervention required!"
     fi
     
-    # Restore WAF rules from backup
-    if [ -f "$waf_backup_file" ]; then
-        rm -rf "$WAF_RULES_DIR"
-        mkdir -p "$(dirname $WAF_RULES_DIR)"
-        tar -xzf "$waf_backup_file" -C "$(dirname $WAF_RULES_DIR)" || {
-            log "ERROR: Failed to restore WAF rules backup. Manual intervention required!"
-            exit 1
-        }
-        log "WAF rules backup restored. NGINX not reloaded."
-    else
-        log "ERROR: WAF rules backup file not found. Manual intervention may be required!"
-    fi
-    
-    exit 1
-fi
-
-# Cleanup old backups (keep last 5)
-log "Cleaning up old backups..."
-ls -tp "$BACKUP_DIR"/crs-backup-*.tar.gz 2>/dev/null | grep -v '/$' | tail -n +6 | xargs -I {} rm -- {} 2>/dev/null
-ls -tp "$BACKUP_DIR"/waf-rules-backup-*.tar.gz 2>/dev/null | grep -v '/$' | tail -n +6 | xargs -I {} rm -- {} 2>/dev/null
-
-log "ModSecurity CRS and custom WAF rules update process completed"
+    # Final cleanup - only executed on success path
+    log "Cleaning up temporary files..."
+    rm -f /tmp/nginx-test.log

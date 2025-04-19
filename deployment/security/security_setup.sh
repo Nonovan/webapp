@@ -2,61 +2,89 @@
 # Security setup and hardening script for Cloud Infrastructure Platform
 # Usage: ./security_setup.sh [environment]
 
-set -e
+set -euo pipefail
 
 # Default to production if no environment specified
 ENVIRONMENT=${1:-production}
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 LOG_FILE="/var/log/cloud-platform/security_setup.log"
+BACKUP_DIR="/var/backups/cloud-platform/security"
 
-# Ensure log directory exists
+# Ensure log and backup directories exist
 mkdir -p "$(dirname "$LOG_FILE")"
+mkdir -p "$BACKUP_DIR"
 
 log() {
     local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
     echo "[$timestamp] $1" | tee -a "$LOG_FILE"
 }
 
+error() {
+    log "ERROR: $1"
+    exit 1
+}
+
+# Function to back up a file before modifying it
+backup_file() {
+    local file=$1
+    if [[ -f "$file" ]]; then
+        local backup_name="$(basename "$file").$(date +%Y%m%d%H%M%S).bak"
+        cp "$file" "${BACKUP_DIR}/${backup_name}"
+        log "Backed up $file to ${BACKUP_DIR}/${backup_name}"
+    fi
+}
+
 log "Starting security setup for ${ENVIRONMENT} environment"
 
 # Check for root permissions
 if [ "$(id -u)" -ne 0 ]; then
-    log "ERROR: This script must be run as root"
-    exit 1
+    error "This script must be run as root"
 fi
 
 # Load environment-specific variables
-if [ -f "${PROJECT_ROOT}/deployment/environments/${ENVIRONMENT}.env" ]; then
+ENV_FILE="${PROJECT_ROOT}/deployment/environments/${ENVIRONMENT}.env"
+if [ -f "$ENV_FILE" ]; then
     log "Loading ${ENVIRONMENT} environment variables"
-    source "${PROJECT_ROOT}/deployment/environments/${ENVIRONMENT}.env"
+    source "$ENV_FILE"
 else
-    log "ERROR: Environment file ${PROJECT_ROOT}/deployment/environments/${ENVIRONMENT}.env not found"
-    exit 1
+    error "Environment file $ENV_FILE not found"
 fi
 
 # Apply NGINX security configuration
 if [ -d "/etc/nginx" ]; then
     log "Applying NGINX security configuration"
     
+    # Backup existing configuration files
+    if [ -f "/etc/nginx/nginx.conf" ]; then
+        backup_file "/etc/nginx/nginx.conf"
+    fi
+    
+    # Create security configuration directory if it doesn't exist
+    mkdir -p /etc/nginx/conf.d/
+    
     # Copy security configuration files
     cp "${PROJECT_ROOT}/deployment/security/nginx-hardening.conf" /etc/nginx/conf.d/
     cp "${PROJECT_ROOT}/deployment/security/security-headers.conf" /etc/nginx/conf.d/
     cp "${PROJECT_ROOT}/deployment/security/ssl-params.conf" /etc/nginx/conf.d/
+    
+    # Set proper permissions
+    chmod 644 /etc/nginx/conf.d/nginx-hardening.conf
+    chmod 644 /etc/nginx/conf.d/security-headers.conf
+    chmod 644 /etc/nginx/conf.d/ssl-params.conf
     
     # Reload NGINX to apply changes
     if nginx -t; then
         systemctl reload nginx
         log "NGINX configuration applied successfully"
     else
-        log "ERROR: NGINX configuration test failed"
-        exit 1
+        error "NGINX configuration test failed. Changes not applied."
     fi
 else
     log "NGINX not installed, skipping NGINX security configuration"
 fi
 
-# Setup ModSecurity WAF
+# Setup ModSecurity WAF if installed
 if [ -d "/etc/nginx/modsecurity" ]; then
     log "Setting up ModSecurity WAF"
     
@@ -69,6 +97,9 @@ if [ -d "/etc/nginx/modsecurity" ]; then
     # Copy custom WAF rules
     cp "${PROJECT_ROOT}/deployment/security/waf-rules/"*.conf /etc/nginx/modsecurity.d/waf-rules/
     
+    # Set proper permissions
+    chmod 644 /etc/nginx/modsecurity.d/waf-rules/*.conf
+    
     log "ModSecurity WAF setup complete"
 else
     log "ModSecurity not installed, skipping WAF setup"
@@ -78,34 +109,58 @@ fi
 if command -v aide &>/dev/null; then
     log "Setting up AIDE file integrity monitoring"
     
+    # Backup existing configuration
+    if [ -f "/etc/aide/aide.conf" ]; then
+        backup_file "/etc/aide/aide.conf"
+    fi
+    
     # Copy AIDE configuration
     cp "${PROJECT_ROOT}/deployment/security/aide.conf" /etc/aide/
+    chmod 644 /etc/aide/aide.conf
     
     # Initialize AIDE database
+    log "Initializing AIDE database (this may take a while)..."
     aide --init
     
     # Move the newly created database into place
-    mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
-    
-    log "AIDE setup complete"
+    if [ -f "/var/lib/aide/aide.db.new" ]; then
+        mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+        log "AIDE database initialized"
+    else
+        log "WARNING: AIDE database initialization may have failed"
+    fi
 else
     log "AIDE not installed, skipping file integrity monitoring setup"
 fi
 
 # Setup firewall rules
 log "Setting up firewall rules"
-"${PROJECT_ROOT}/deployment/security/iptables-rules.sh"
+if [ -x "${PROJECT_ROOT}/deployment/security/iptables-rules.sh" ]; then
+    "${PROJECT_ROOT}/deployment/security/iptables-rules.sh"
+    log "Firewall rules applied"
+else
+    log "WARNING: Firewall rules script not found or not executable"
+fi
 
 # Setup Fail2ban
 if [ -d "/etc/fail2ban" ]; then
     log "Setting up Fail2ban"
     
+    # Backup existing configuration
+    if [ -f "/etc/fail2ban/jail.local" ]; then
+        backup_file "/etc/fail2ban/jail.local"
+    fi
+    
     # Copy Fail2ban configuration
     cp "${PROJECT_ROOT}/deployment/security/fail2ban.local" /etc/fail2ban/jail.local
+    chmod 644 /etc/fail2ban/jail.local
     
     # Copy custom filters
     mkdir -p /etc/fail2ban/filter.d
-    cp "${PROJECT_ROOT}/deployment/security/fail2ban-filters/"*.conf /etc/fail2ban/filter.d/
+    if [ -d "${PROJECT_ROOT}/deployment/security/fail2ban-filters" ]; then
+        cp "${PROJECT_ROOT}/deployment/security/fail2ban-filters/"*.conf /etc/fail2ban/filter.d/
+        chmod 644 /etc/fail2ban/filter.d/*.conf
+    fi
     
     # Restart Fail2ban to apply changes
     systemctl restart fail2ban
@@ -120,10 +175,19 @@ if [ -f "/etc/ssh/sshd_config" ]; then
     log "Setting up SSH hardening"
     
     # Backup original sshd_config
-    cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak.$(date +%Y%m%d)
+    backup_file "/etc/ssh/sshd_config"
+    
+    # Create config.d directory if it doesn't exist
+    mkdir -p /etc/ssh/sshd_config.d/
     
     # Apply SSH hardening configuration
     cp "${PROJECT_ROOT}/deployment/security/ssh-hardening.conf" /etc/ssh/sshd_config.d/hardening.conf
+    chmod 644 /etc/ssh/sshd_config.d/hardening.conf
+    
+    # Ensure config.d directory is included in main config
+    if ! grep -q "Include /etc/ssh/sshd_config.d/\*.conf" "/etc/ssh/sshd_config"; then
+        echo "Include /etc/ssh/sshd_config.d/*.conf" >> /etc/ssh/sshd_config
+    fi
     
     # Restart SSH service to apply changes
     systemctl restart sshd
@@ -136,69 +200,66 @@ fi
 # Setup security update cron jobs
 log "Setting up security update cron jobs"
 cp "${PROJECT_ROOT}/deployment/security/security-update-cron" /etc/cron.d/cloud-platform-security
+chmod 644 /etc/cron.d/cloud-platform-security
+
+# Apply AppArmor profiles if AppArmor is enabled
+if command -v apparmor_status &>/dev/null && apparmor_status --enabled; then
+    log "Setting up AppArmor profiles"
+    
+    # Copy AppArmor profiles
+    if [ -f "${PROJECT_ROOT}/deployment/security/apparmor-profile-nginx" ]; then
+        cp "${PROJECT_ROOT}/deployment/security/apparmor-profile-nginx" /etc/apparmor.d/usr.sbin.nginx
+        chmod 644 /etc/apparmor.d/usr.sbin.nginx
+        
+        # Reload profile
+        apparmor_parser -r /etc/apparmor.d/usr.sbin.nginx
+        log "AppArmor profile for nginx loaded"
+    fi
+    
+    # Add more profiles as needed
+else
+    log "AppArmor not enabled, skipping AppArmor profiles setup"
+fi
 
 # Apply special hardening for production
 if [ "$ENVIRONMENT" == "production" ]; then
     log "Applying production-specific security hardening"
     
     # Ensure sensitive files have proper permissions
-    chmod 640 /etc/cloud-platform/config.ini 2>/dev/null || log "WARNING: Could not set permissions on config.ini"
-    chmod 600 /opt/cloud-platform/.env 2>/dev/null || log "WARNING: Could not set permissions on .env"
+    log "Setting secure permissions for sensitive files"
+    find /etc/ssl/private -type f -name "*.key" -exec chmod 600 {} \;
+    find /etc/ssl/private -type f -name "*.key" -exec chown root:root {} \;
     
-    # Set proper ownership
-    chown root:www-data /etc/cloud-platform/config.ini 2>/dev/null || log "WARNING: Could not set ownership on config.ini"
-    chown www-data:www-data /opt/cloud-platform/.env 2>/dev/null || log "WARNING: Could not set ownership on .env"
+    # Set secure umask for all users
+    if ! grep -q "umask 027" /etc/profile; then
+        echo "umask 027" >> /etc/profile
+        log "Set secure umask for all users"
+    fi
     
-    # Apply additional sysctl hardening
-    cat > /etc/sysctl.d/99-security-hardening.conf <<EOF
-# IP Spoofing protection
-net.ipv4.conf.all.rp_filter = 1
-net.ipv4.conf.default.rp_filter = 1
-
-# Block SYN attacks
-net.ipv4.tcp_syncookies = 1
-net.ipv4.tcp_max_syn_backlog = 2048
-net.ipv4.tcp_synack_retries = 2
-net.ipv4.tcp_syn_retries = 5
-
-# Log Martians
-net.ipv4.conf.all.log_martians = 1
-net.ipv4.icmp_ignore_bogus_error_responses = 1
-
-# Ignore ICMP redirects
-net.ipv4.conf.all.accept_redirects = 0
-net.ipv4.conf.default.accept_redirects = 0
-net.ipv4.conf.all.secure_redirects = 0
-net.ipv4.conf.default.secure_redirects = 0
-net.ipv6.conf.all.accept_redirects = 0
-net.ipv6.conf.default.accept_redirects = 0
-
-# Ignore ICMP broadcasts
-net.ipv4.icmp_echo_ignore_broadcasts = 1
-
-# Don't act as a router
-net.ipv4.ip_forward = 0
-net.ipv4.conf.all.send_redirects = 0
-net.ipv4.conf.default.send_redirects = 0
-
-# Disable IPv6 if not needed
-net.ipv6.conf.all.disable_ipv6 = 0
-net.ipv6.conf.default.disable_ipv6 = 0
-
-# Protect against tcp time-wait assassination
-net.ipv4.tcp_rfc1337 = 1
-
-# Decrease the time default value for tcp_fin_timeout connection
-net.ipv4.tcp_fin_timeout = 15
-
-# Decrease the time default value for connections to keep alive
-net.ipv4.tcp_keepalive_time = 300
-net.ipv4.tcp_keepalive_probes = 5
-net.ipv4.tcp_keepalive_intvl = 15
-EOF
-
-    # Apply sysctl settings
-    sysctl -p /etc/sysctl.d/99-security-hardening.conf
+    # Disable core dumps
+    if ! grep -q "* hard core 0" /etc/security/limits.conf; then
+        echo "* hard core 0" >> /etc/security/limits.conf
+        log "Disabled core dumps"
+    fi
+    
+    # Set more restrictive file permissions
+    if [ -d "${PROJECT_ROOT}/instance" ]; then
+        chown -R root:www-data "${PROJECT_ROOT}/instance"
+        chmod -R 750 "${PROJECT_ROOT}/instance"
+        log "Set secure permissions for instance directory"
+    fi
+    
+    # Additional hardening steps can be added here
 fi
 
-log "Security setup completed successfully"
+# Run initial security audit
+log "Running initial security audit"
+if [ -x "${PROJECT_ROOT}/deployment/security/security-audit.sh" ]; then
+    "${PROJECT_ROOT}/deployment/security/security-audit.sh"
+    log "Security audit complete"
+else
+    log "WARNING: Security audit script not found or not executable"
+fi
+
+log "Security setup for ${ENVIRONMENT} environment completed successfully"
+exit 0

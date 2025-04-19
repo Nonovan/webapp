@@ -7,6 +7,8 @@ profile nginx /usr/sbin/nginx {
   #include <abstractions/base>
   #include <abstractions/nameservice>
   #include <abstractions/openssl>
+  #include <abstractions/nis>
+  #include <abstractions/php>
 
   # Capabilities
   capability setuid,
@@ -14,17 +16,21 @@ profile nginx /usr/sbin/nginx {
   capability net_bind_service,
   capability dac_override,
   capability chown,
+  capability kill,
+  capability sys_resource,
 
   # Network access
   network inet stream,
   network inet6 stream,
+  network unix stream,
 
   # Binary and modules
   /usr/sbin/nginx mr,
-  /usr/lib{,32,64}/nginx/modules/* mr,
+  /usr/lib{,32,64}/nginx/modules/*.so mr,
   /etc/nginx/modules-enabled/*.conf r,
 
   # Configuration files
+  /etc/nginx/** r,
   /etc/nginx/nginx.conf r,
   /etc/nginx/mime.types r,
   /etc/nginx/conf.d/ r,
@@ -33,43 +39,85 @@ profile nginx /usr/sbin/nginx {
   /etc/nginx/sites-enabled/** r,
   /etc/nginx/snippets/ r,
   /etc/nginx/snippets/** r,
+  
+  # SSL/TLS certificates and keys
   /etc/ssl/certs/* r,
   /etc/ssl/private/** r,
+  /etc/letsencrypt/live/** r,
+  /etc/letsencrypt/archive/** r,
+  
+  # ModSecurity WAF configuration
   /etc/nginx/modsecurity.d/ r,
   /etc/nginx/modsecurity.d/** r,
+  /etc/nginx/modsecurity-crs/ r,
+  /etc/nginx/modsecurity-crs/** r,
 
   # Cloud Platform specific configs
   /opt/cloud-platform/deployment/security/nginx-*.conf r,
+  /opt/cloud-platform/deployment/nginx/conf.d/** r,
 
   # Log files
-  /var/log/nginx/* w,
-  /var/log/nginx/*.log rw,
+  /var/log/nginx/ rw,
+  /var/log/nginx/** rw,
+  /var/log/cloud-platform/nginx-*.log rw,
 
-  # PID
+  # Runtime files
   /var/run/nginx.pid rw,
-
-  # Temp files
-  /var/lib/nginx/** rw,
-
+  /run/nginx.pid rw,
+  
+  # Cache directories
+  /var/cache/nginx/ rw,
+  /var/cache/nginx/** rw,
+  
   # Web content
   /var/www/ r,
   /var/www/** r,
-
-  # Cloud Platform specific content
   /opt/cloud-platform/static/** r,
-  /opt/cloud-platform/uploads/** r,
-
-  # Unix sockets
-  /var/run/php*.sock rw,
-  /var/run/cloud-platform/*.sock rw,
-
-  # System information
-  @{PROC}/sys/kernel/random/uuid r,
-  @{PROC}/sys/net/core/somaxconn r,
-  @{PROC}/sys/net/ipv4/ip_local_port_range r,
-
-  # Allow monitoring
-  /run/nginx.pid r,
-  @{PROC}/*/stat r,
-  @{PROC}/*/status r,
+  /opt/cloud-platform/instance/static/** r,
+  
+  # Temporary files
+  /tmp/ rw,
+  /tmp/** rw,
+  /var/tmp/ rw,
+  /var/tmp/** rw,
+  
+  # System files that NGINX might need to read
+  /proc/sys/kernel/random/uuid r,
+  /proc/*/net/if_inet6 r,
+  /proc/*/net/ipv6_route r,
+  /proc/*/net/dev r,
+  /proc/*/net/tcp r,
+  /proc/*/net/tcp6 r,
+  /sys/kernel/mm/transparent_hugepage/hpage_pmd_size r,
+  
+  # For monitoring
+  /proc/loadavg r,
+  /proc/stat r,
+  /proc/meminfo r,
+  /proc/cpuinfo r,
+  /proc/uptime r,
+  
+  # Lua support (if used)
+  /usr/local/lib/lua/** rm,
+  /usr/share/lua/** rm,
+  
+  # Required by ModSecurity
+  /usr/share/modsecurity-crs/ r,
+  /usr/share/modsecurity-crs/** r,
+  
+  # Allow NGINX to run sub-processes (for PHP, etc.)
+  /usr/bin/php-fpm* rix,
+  
+  # Error log permissions
+  owner /var/log/nginx/error.log w,
+  
+  # Unix socket access (for PHP-FPM and other upstream services)
+  /var/run/php-fpm.sock rw,
+  /var/run/php/*.sock rw,
+  /run/php-fpm/*.sock rw,
+  /run/gunicorn/*.sock rw,
+  /run/uwsgi/*.sock rw,
+  
+  # For automatic config tests and reloads
+  /usr/sbin/nginx ix,
 }
