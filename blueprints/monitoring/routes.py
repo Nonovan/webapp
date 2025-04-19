@@ -1381,7 +1381,7 @@ def get_active_session_count() -> int:
     if cache.config.get('CACHE_TYPE') == 'redis':
         import redis
         r = redis.from_url(cache.config.get('CACHE_REDIS_URL'))
-        return len([k for k in r.keys('session:*') or []])
+        return len([k for k in r.scan_iter(match='session:*') or []])
     else:
         # Placeholder for other session storage mechanisms
         return AuditLog.query.filter(
