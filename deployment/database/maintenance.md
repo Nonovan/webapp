@@ -1,4 +1,3 @@
-```markdown
 # Database Maintenance Guide
 
 This document outlines routine maintenance tasks and best practices for maintaining the Cloud Infrastructure Platform database.
@@ -9,10 +8,10 @@ This document outlines routine maintenance tasks and best practices for maintain
 
 - **Backup Verification**: Verify that daily backups completed successfully
 - **Database Statistics**: Update database statistics
-  ```sql
-  ANALYZE;
+    ```sql
+    ANALYZE;
 
-```
+    ```
 
 - **Review Logs**: Check PostgreSQL logs for errors or warnings
 
@@ -63,41 +62,14 @@ This document outlines routine maintenance tasks and best practices for maintain
 
 ### Key Metrics to Monitor
 
-1. **Connection Count**:
+1. **Connection Count**: Track active and idle connections
     
     ```sql
-    SELECT count(*) FROM pg_stat_activity;
+    SELECT state, count(*) FROM pg_stat_activity GROUP BY state;
     
     ```
     
-2. **Database Size**:
-    
-    ```sql
-    SELECT pg_size_pretty(pg_database_size('cloud_platform_production'));
-    
-    ```
-    
-3. **Table Sizes**:
-    
-    ```sql
-    SELECT relname, pg_size_pretty(pg_total_relation_size(relid))
-    FROM pg_catalog.pg_statio_user_tables
-    ORDER BY pg_total_relation_size(relid) DESC;
-    
-    ```
-    
-4. **Index Usage**:
-    
-    ```sql
-    SELECT s.schemaname, s.relname, s.indexrelname, s.idx_scan,
-           pg_size_pretty(pg_relation_size(i.indexrelid)) as index_size
-    FROM pg_catalog.pg_stat_user_indexes s
-    JOIN pg_catalog.pg_index i ON s.indexrelid = i.indexrelid
-    ORDER BY s.idx_scan DESC;
-    
-    ```
-    
-5. **Cache Hit Ratio**:
+2. **Cache Hit Ratio**: Ensure efficient memory usage (aim for >99%)
     
     ```sql
     SELECT
@@ -108,6 +80,9 @@ This document outlines routine maintenance tasks and best practices for maintain
     
     ```
     
+3. **Database Size Growth**: Track database size over time
+4. **Transaction Throughput**: Monitor transaction rates during peak periods
+5. **Index Usage**: Identify unused or rarely used indexes
 
 ## Performance Optimization
 

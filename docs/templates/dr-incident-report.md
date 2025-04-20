@@ -152,6 +152,7 @@
 | [Action 1] | [HIGH/MEDIUM/LOW] | [NAME] | [YYYY-MM-DD] | [PENDING/IN PROGRESS/COMPLETED] |
 | [Action 2] | [HIGH/MEDIUM/LOW] | [NAME] | [YYYY-MM-DD] | [PENDING/IN PROGRESS/COMPLETED] |
 | [Action 3] | [HIGH/MEDIUM/LOW] | [NAME] | [YYYY-MM-DD] | [PENDING/IN PROGRESS/COMPLETED] |
+| Update DR plan with findings | HIGH | DR Coordinator | 2024-06-15 | PENDING |
 
 ## Documentation Updates Required
 
@@ -198,21 +199,21 @@
 
 ## Attachments
 
-- Network diagrams: [LINK TO ATTACHMENT]
-- System logs: [LINK TO ATTACHMENT]
-- Screenshots: [LINK TO ATTACHMENT]
-- Recovery process recordings: [LINK TO ATTACHMENT]
-- Post-recovery test results: [LINK TO ATTACHMENT]
+- Network diagrams: [Link to Network Diagrams](https://cloud-platform.example.com/documents/dr/incident-123-network-diagrams.pdf)
+- System logs: [Link to System Logs](https://cloud-platform.example.com/documents/dr/incident-123-system-logs.zip)
+- Screenshots: [Link to Screenshots](https://cloud-platform.example.com/documents/dr/incident-123-screenshots.zip)
+- Recovery process recordings: [Link to Recovery Recordings](https://cloud-platform.example.com/documents/dr/incident-123-recovery-recordings.mp4)
+- Post-recovery test results: [Link to Test Results](https://cloud-platform.example.com/documents/dr/incident-123-test-results.pdf)
 
 ## Approvals
 
 | Role | Name | Signature | Date |
 |------|------|-----------|------|
-| DR Coordinator | | | |
-| IT Director | | | |
-| CISO | | | |
-| CIO | | | |
-| Business Unit Owner | | | |
+| DR Coordinator | Jane Smith | ___________________ | YYYY-MM-DD |
+| IT Director | Michael Johnson | ___________________ | YYYY-MM-DD |
+| CISO | Sarah Williams | ___________________ | YYYY-MM-DD |
+| CIO | Robert Chen | ___________________ | YYYY-MM-DD |
+| Business Unit Owner | David Miller | ___________________ | YYYY-MM-DD |
 
 ## Distribution List
 
@@ -223,3 +224,14 @@
 - Risk management
 - Customer relations (if customer-impacting)
 - Compliance team
+- Legal team
+- Affected business units
+- Third-party service providers (if involved)
+
+## Document History
+
+| Version | Date | Author | Description |
+|---------|------|--------|-------------|
+| 1.0 | YYYY-MM-DD | [Report Author] | Initial report creation |
+| 1.1 | YYYY-MM-DD | [Report Author] | Updated with technical findings |
+| 1.2 | YYYY-MM-DD | [Report Reviewer] | Review and final approval |

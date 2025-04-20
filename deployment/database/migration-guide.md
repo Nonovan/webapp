@@ -19,6 +19,7 @@ To create an automatic migration based on model changes:
 
 ```bash
 flask db migrate -m "Description of the changes"
+
 ```
 
 This will generate a new migration script in the versions directory.
@@ -49,140 +50,111 @@ Then edit the generated file to add your custom upgrade and downgrade operations
 ### Adding a Column
 
 ```python
-op.add_column('table_name',
-              sa.Column('column_name', sa.String(length=50), nullable=True))
+def upgrade():
+    op.add_column('table_name', sa.Column('column_name', sa.String(50), nullable=True))
+
+    # If you need to fill the column with data
+    op.execute("UPDATE table_name SET column_name = 'default_value'")
+
+    # Then you can make it non-nullable if needed
+    op.alter_column('table_name', 'column_name', nullable=False)
+
+def downgrade():
+    op.drop_column('table_name', 'column_name')
 
 ```
 
-### Adding a Column with Default Value
+### Renaming a Column
 
 ```python
-# Add with nullable=True first
-op.add_column('table_name',
-              sa.Column('column_name', sa.Integer(), nullable=True))
+def upgrade():
+    op.alter_column('table_name', 'old_column_name', new_column_name='new_column_name')
 
-# Update existing rows
-connection = op.get_bind()
-connection.execute(sa.text(
-    "UPDATE table_name SET column_name = 0 WHERE column_name IS NULL"
-))
-
-# Make column non-nullable
-op.alter_column('table_name', 'column_name', nullable=False)
+def downgrade():
+    op.alter_column('table_name', 'new_column_name', new_column_name='old_column_name')
 
 ```
 
-### Adding an Index
+### Creating Indexes
 
 ```python
-op.create_index('ix_table_name_column_name', 'table_name', ['column_name'])
+def upgrade():
+    op.create_index('ix_table_column', 'table_name', ['column_name'], unique=False)
+
+def downgrade():
+    op.drop_index('ix_table_column', 'table_name')
 
 ```
 
-### Adding a Foreign Key
+## Applying Migrations
 
-```python
-op.add_column('child_table',
-              sa.Column('parent_id', sa.Integer(), nullable=True))
-op.create_foreign_key('fk_child_parent', 'child_table', 'parent_table',
-                     ['parent_id'], ['id'])
+### Development Environment
+
+```bash
+flask db upgrade
 
 ```
 
-## Testing Migrations
+### Production Environment
 
-1. **Development Testing**:
-    
-    ```bash
-    # Apply pending migrations
-    flask db upgrade
-    
-    # Roll back most recent migration
-    flask db downgrade
-    
-    ```
-    
-2. **Staging Testing**:
-    
-    ```bash
-    # Deploy to staging and run migrations
-    flask deploy azure deploy --env staging
-    
-    ```
-    
-3. **Migration Verification**:
-    
-    ```bash
-    # Check current database version
-    flask db current
-    
-    # Show migration history
-    flask db history
-    
-    ```
-    
+Always take a database backup before applying migrations in production:
 
-## Deploying Migrations
+```bash
+# 1. Backup the database
+pg_dump -U username -d database_name -f backup_$(date +%Y%m%d_%H%M%S).sql
 
-### Production Deployment
+# 2. Apply migrations
+flask db upgrade
 
-Production migrations should always be deployed as part of a planned deployment:
+```
 
-1. **Backup Database**:
-    
-    ```bash
-    flask db backup --env production
-    
-    ```
-    
-2. **Apply Migrations**:
-    
-    ```bash
-    flask db upgrade
-    
-    ```
-    
-3. **Verify Success**:
-    
-    ```bash
-    flask db current
-    
-    ```
-    
+## Rolling Back Migrations
 
-### Emergency Rollback
+To roll back the most recent migration:
 
-In case of migration issues:
+```bash
+flask db downgrade
 
-1. **Identify Current Version**:
-    
-    ```bash
-    flask db current
-    
-    ```
-    
-2. **Roll Back to Previous Version**:
-    
-    ```bash
-    flask db downgrade
-    
-    ```
-    
+```
 
-## Troubleshooting
+To roll back to a specific migration:
 
-### Common Migration Issues
+```bash
+flask db downgrade <migration_id>
 
-1. **Migration Conflicts**: If multiple developers create migrations simultaneously
-    - Rebase migrations or merge them manually
-    - Re-create the migration if needed
-2. **Failed Migrations**:
-    - Check migration logs
-    - Run with `x` flag to see detailed error information
-    - Fix the issue and re-run, or roll back if necessary
+```
 
-## References
+## Handling Migration Conflicts
 
-- [Alembic Documentation](https://alembic.sqlalchemy.org/)
-- [Flask-Migrate Documentation](https://flask-migrate.readthedocs.io/)
+If you encounter migration conflicts (multiple developers creating migrations simultaneously):
 
+1. Keep the migration that was created first (by timestamp)
+2. Delete the other conflicting migration file
+3. Create a new migration that includes the changes from the deleted migration
+
+## Disaster Recovery
+
+In case of failed migrations:
+
+1. Check the error message and logs
+2. Roll back the failed migration: `flask db downgrade`
+3. Fix the issue in the migration script
+4. Apply the corrected migration: `flask db upgrade`
+
+If the database is in an inconsistent state and downgrading isn't possible:
+
+1. Restore from the backup taken before applying migrations
+2. Fix the migration scripts
+3. Re-apply the migrations
+
+## Migration Testing Checklist
+
+- [ ]  Verify upgrade path works correctly
+- [ ]  Verify downgrade path works correctly
+- [ ]  Test with representative data
+- [ ]  Ensure indexes are properly created
+- [ ]  Check constraints are properly applied
+- [ ]  Validate foreign key relationships
+- [ ]  Measure migration execution time on a clone of production data
+
+For high-risk migrations, consider implementing a dry-run mode to validate changes before applying them.

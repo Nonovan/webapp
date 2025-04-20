@@ -1,0 +1,2289 @@
+openapi: 3.0.3
+info:
+  title: Cloud Infrastructure Platform API
+  description: |
+    RESTful API for the Cloud Infrastructure Platform, providing secure access to cloud resource management,
+    monitoring, security operations, and Industrial Control Systems (ICS) integration.
+  version: 1.4.0
+  contact:
+    name: Cloud Infrastructure Platform Support
+    url: https://cloud-platform.example.com/support
+    email: api-support@example.com
+  license:
+    name: Proprietary
+    url: https://cloud-platform.example.com/license
+
+servers:
+  - url: https://api.cloud-platform.example.com/v1
+    description: Production API server
+  - url: https://api.staging.cloud-platform.example.com/v1
+    description: Staging API server
+  - url: https://api.dev.cloud-platform.example.com/v1
+    description: Development API server
+
+tags:
+  - name: Authentication
+    description: User authentication and session management
+  - name: Cloud Resources
+    description: Management of cloud provider resources
+  - name: Metrics
+    description: Cloud resource metrics and monitoring
+  - name: Alerts
+    description: Alert management and notification
+  - name: ICS
+    description: Industrial Control Systems integration
+  - name: Security
+    description: Security incident management and scanning
+  - name: Users
+    description: User management operations
+  - name: Webhooks
+    description: Webhook subscription and delivery
+  - name: Newsletter
+    description: Newsletter subscription management
+  - name: Health
+    description: API and service health monitoring
+
+paths:
+  /api/auth/login:
+    post:
+      summary: Authenticate user and issue token
+      description: |
+        Authenticates a user with email/password and returns a JWT token for API access.
+        Multi-factor authentication may be required based on user settings.
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+                  example: "secureP@ssw0rd!"
+                mfa_token:
+                  type: string
+                  description: Required if MFA is enabled
+                  example: "123456"
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: object
+                    properties:
+                      token:
+                        type: string
+                        example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                      expires_at:
+                        type: string
+                        format: date-time
+                      user:
+                        $ref: '#/components/schemas/UserSummary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security: []
+
+  /api/auth/register:
+    post:
+      summary: Create a new user account
+      description: Register a new user account with the platform
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+                - first_name
+                - last_name
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: newuser@example.com
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+                  example: "secureP@ssw0rd!"
+                first_name:
+                  type: string
+                  example: John
+                last_name:
+                  type: string
+                  example: Doe
+                company:
+                  type: string
+                  example: ACME Corp
+                phone:
+                  type: string
+                  example: "+11234567890"
+      responses:
+        '201':
+          description: User registration successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: object
+                    properties:
+                      user_id:
+                        type: string
+                        format: uuid
+                        example: 550e8400-e29b-41d4-a716-446655440000
+                      message:
+                        type: string
+                        example: Registration successful. Please check your email for verification instructions.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Email already in use
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: email_exists
+                message: The provided email address is already registered
+                status_code: 409
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security: []
+
+  /api/auth/logout:
+    post:
+      summary: Invalidate current token
+      description: Logs out the current user by invalidating their token
+      tags:
+        - Authentication
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                    example: Successfully logged out
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+      security:
+        - BearerAuth: []
+
+  /api/auth/mfa/setup:
+    post:
+      summary: Set up multi-factor authentication
+      description: Generates MFA secret and QR code for the user to set up MFA
+      tags:
+        - Authentication
+      responses:
+        '200':
+          description: MFA setup information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: object
+                    properties:
+                      secret:
+                        type: string
+                        example: ABCDEFGHIJKLMNOP
+                      qr_code:
+                        type: string
+                        format: uri
+                        example: data:image/png;base64,iVBORw0KGgoAAAANSUhE...
+                      backup_codes:
+                        type: array
+                        items:
+                          type: string
+                        example: ["12345678", "23456789"]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+      security:
+        - BearerAuth: []
+
+  /api/auth/mfa/verify:
+    post:
+      summary: Verify MFA token
+      description: Verifies the MFA token provided by the user
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+              properties:
+                token:
+                  type: string
+                  example: "123456"
+      responses:
+        '200':
+          description: MFA verification successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                    example: MFA verification successful
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+      security:
+        - BearerAuth: []
+
+  /api/cloud/resources:
+    get:
+      summary: List all cloud resources
+      description: |
+        Returns a paginated list of all cloud resources accessible to the current user.
+        Filtering and sorting options are available through query parameters.
+      tags:
+        - Cloud Resources
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - in: query
+          name: provider
+          schema:
+            type: string
+            enum: [aws, azure, gcp, private]
+          description: Filter by cloud provider
+        - in: query
+          name: type
+          schema:
+            type: string
+            example: vm
+          description: Filter by resource type
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [running, stopped, error, provisioning]
+          description: Filter by resource status
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [name, created_at, provider, status]
+            default: created_at
+          description: Sort field
+        - in: query
+          name: order
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+          description: Sort order
+      responses:
+        '200':
+          description: List of cloud resources
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Resource'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+    
+    post:
+      summary: Create a new cloud resource
+      description: Provisions a new cloud resource in the specified provider
+      tags:
+        - Cloud Resources
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - provider
+                - type
+                - configuration
+              properties:
+                name:
+                  type: string
+                  example: production-web-server-01
+                provider:
+                  type: string
+                  enum: [aws, azure, gcp, private]
+                  example: aws
+                type:
+                  type: string
+                  example: vm
+                region:
+                  type: string
+                  example: us-east-1
+                tags:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  example:
+                    environment: production
+                    role: web-server
+                configuration:
+                  type: object
+                  description: Provider-specific configuration
+      responses:
+        '201':
+          description: Resource created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    $ref: '#/components/schemas/Resource'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Resource name already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+
+  /api/cloud/resources/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Resource ID
+    
+    get:
+      summary: Get specific resource details
+      description: Returns detailed information about a specific cloud resource
+      tags:
+        - Cloud Resources
+      responses:
+        '200':
+          description: Resource details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ResourceDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+    
+    patch:
+      summary: Update resource properties
+      description: Partially updates a cloud resource's properties
+      tags:
+        - Cloud Resources
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  example: production-web-server-02
+                tags:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  example:
+                    environment: production
+                    role: api-server
+                configuration:
+                  type: object
+                  description: Provider-specific configuration
+      responses:
+        '200':
+          description: Resource updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    $ref: '#/components/schemas/Resource'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Resource name already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+    
+    delete:
+      summary: Delete a cloud resource
+      description: Deletes a cloud resource permanently
+      tags:
+        - Cloud Resources
+      parameters:
+        - in: query
+          name: force
+          schema:
+            type: boolean
+            default: false
+          description: Force deletion even if resource is in use
+      responses:
+        '200':
+          description: Resource deletion successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                    example: Resource deleted successfully
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Resource is in use and cannot be deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: resource_in_use
+                message: The resource cannot be deleted because it is currently in use
+                status_code: 409
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+
+  /api/cloud/resources/{id}/actions/start:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Resource ID
+    
+    post:
+      summary: Start a resource
+      description: Starts a stopped resource
+      tags:
+        - Cloud Resources
+      responses:
+        '200':
+          description: Resource start initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                    example: Resource start initiated
+                  data:
+                    $ref: '#/components/schemas/Resource'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Resource is already running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+
+  /api/cloud/resources/{id}/actions/stop:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Resource ID
+    
+    post:
+      summary: Stop a resource
+      description: Stops a running resource
+      tags:
+        - Cloud Resources
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                force:
+                  type: boolean
+                  default: false
+                  description: Force stop the resource
+      responses:
+        '200':
+          description: Resource stop initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                    example: Resource stop initiated
+                  data:
+                    $ref: '#/components/schemas/Resource'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Resource is already stopped
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+
+  /api/cloud/metrics:
+    get:
+      summary: Get current metrics
+      description: Returns current metrics for cloud resources
+      tags:
+        - Metrics
+      parameters:
+        - in: query
+          name: resource_id
+          schema:
+            type: string
+            format: uuid
+          description: Filter by resource ID
+        - in: query
+          name: metric_type
+          schema:
+            type: string
+            enum: [cpu, memory, disk, network, cost]
+          description: Type of metric to return
+        - in: query
+          name: provider
+          schema:
+            type: string
+            enum: [aws, azure, gcp, private]
+          description: Filter by cloud provider
+      responses:
+        '200':
+          description: Current metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Metric'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+
+  /api/cloud/metrics/history:
+    get:
+      summary: Get historical metrics
+      description: Returns historical metrics for cloud resources within a time range
+      tags:
+        - Metrics
+      parameters:
+        - in: query
+          name: resource_id
+          schema:
+            type: string
+            format: uuid
+          description: Filter by resource ID
+        - in: query
+          name: metric_type
+          schema:
+            type: string
+            enum: [cpu, memory, disk, network, cost]
+          description: Type of metric to return
+        - in: query
+          name: start_time
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: Start time for metrics (ISO 8601 format)
+        - in: query
+          name: end_time
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: End time for metrics (ISO 8601 format)
+        - in: query
+          name: interval
+          schema:
+            type: string
+            enum: [minute, hour, day]
+            default: hour
+          description: Aggregation interval
+      responses:
+        '200':
+          description: Historical metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MetricHistory'
+                  meta:
+                    type: object
+                    properties:
+                      start_time:
+                        type: string
+                        format: date-time
+                      end_time:
+                        type: string
+                        format: date-time
+                      interval:
+                        type: string
+                        enum: [minute, hour, day]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+
+  /api/cloud/cost-optimization:
+    get:
+      summary: Get cost optimization recommendations
+      description: Returns recommendations for optimizing cloud resource costs
+      tags:
+        - Cloud Resources
+      parameters:
+        - in: query
+          name: provider
+          schema:
+            type: string
+            enum: [aws, azure, gcp, all]
+            default: all
+          description: Filter by cloud provider
+        - in: query
+          name: resource_type
+          schema:
+            type: string
+          description: Filter by resource type
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+      responses:
+        '200':
+          description: Cost optimization recommendations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CostRecommendation'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+
+  /api/cloud/alerts:
+    get:
+      summary: List alerts with optional filtering
+      description: |
+        Returns a paginated list of alerts with filtering options.
+        Alerts can be filtered by status, severity, and time range.
+      tags:
+        - Alerts
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [open, acknowledged, resolved]
+          description: Filter by alert status
+        - in: query
+          name: severity
+          schema:
+            type: string
+            enum: [critical, high, medium, low, info]
+          description: Filter by alert severity
+        - in: query
+          name: resource_id
+          schema:
+            type: string
+            format: uuid
+          description: Filter by resource ID
+        - in: query
+          name: start_time
+          schema:
+            type: string
+            format: date-time
+          description: Filter alerts after this time
+        - in: query
+          name: end_time
+          schema:
+            type: string
+            format: date-time
+          description: Filter alerts before this time
+      responses:
+        '200':
+          description: List of alerts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Alert'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+
+  /api/cloud/alerts/{id}/acknowledge:
+    post:
+      summary: Acknowledge an alert
+      description: Marks an alert as acknowledged by the current user
+      tags:
+        - Alerts
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Alert ID
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note:
+                  type: string
+                  example: Investigating the issue
+      responses:
+        '200':
+          description: Alert acknowledged
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    $ref: '#/components/schemas/Alert'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Alert already acknowledged
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: already_acknowledged
+                message: The alert has already been acknowledged
+                status_code: 409
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+
+  /api/cloud/alerts/{id}/resolve:
+    post:
+      summary: Resolve an alert
+      description: Marks an alert as resolved
+      tags:
+        - Alerts
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Alert ID
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resolution_note:
+                  type: string
+                  example: Fixed the disk space issue by clearing logs
+                resolution_type:
+                  type: string
+                  enum: [fixed, false_positive, expected_behavior, other]
+                  example: fixed
+      responses:
+        '200':
+          description: Alert resolved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    $ref: '#/components/schemas/Alert'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Alert already resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+
+  /api/ics/devices:
+    get:
+      summary: List all ICS devices
+      description: Returns a paginated list of Industrial Control System devices
+      tags:
+        - ICS
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - in: query
+          name: type
+          schema:
+            type: string
+          description: Filter by device type
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [online, offline, maintenance, error]
+          description: Filter by device status
+        - in: query
+          name: location
+          schema:
+            type: string
+          description: Filter by device location
+      responses:
+        '200':
+          description: List of ICS devices
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ICSDevice'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+        - ICSAuthHeader: []
+
+  /api/ics/devices/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Device ID
+    
+    get:
+      summary: Get ICS device details
+      description: Returns detailed information about a specific ICS device
+      tags:
+        - ICS
+      responses:
+        '200':
+          description: Device details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ICSDeviceDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+        - ICSAuthHeader: []
+
+  /api/security/scan:
+    post:
+      summary: Trigger security scan
+      description: Initiates a security scan on specified resources
+      tags:
+        - Security
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resource_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  description: Resources to scan
+                scan_type:
+                  type: string
+                  enum: [vulnerability, compliance, configuration, full]
+                  default: vulnerability
+                  description: Type of security scan to perform
+                priority:
+                  type: string
+                  enum: [low, normal, high]
+                  default: normal
+                  description: Scan priority
+              required:
+                - resource_ids
+                - scan_type
+      responses:
+        '202':
+          description: Security scan initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: object
+                    properties:
+                      scan_id:
+                        type: string
+                        format: uuid
+                      estimated_completion_time:
+                        type: string
+                        format: date-time
+                      message:
+                        type: string
+                        example: Security scan initiated successfully
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: One or more resources not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: resources_not_found
+                message: One or more specified resources could not be found
+                status_code: 404
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+        - SecurityTokenHeader: []
+
+  /api/security/scan/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Scan ID
+    
+    get:
+      summary: Get scan status and results
+      description: Returns the status and results of a security scan
+      tags:
+        - Security
+      responses:
+        '200':
+          description: Scan status and results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/SecurityScan'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+        - SecurityTokenHeader: []
+
+  /api/users:
+    get:
+      summary: List all users
+      description: Returns a paginated list of users with filtering options
+      tags:
+        - Users
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - in: query
+          name: role
+          schema:
+            type: string
+          description: Filter by user role
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [active, inactive, locked, pending]
+          description: Filter by user status
+        - in: query
+          name: search
+          schema:
+            type: string
+          description: Search term for name or email
+      responses:
+        '200':
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UserSummary'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+
+  /api/users/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: User ID
+    
+    get:
+      summary: Get user details
+      description: Returns detailed information about a specific user
+      tags:
+        - Users
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/UserDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+
+  /api/webhooks:
+    get:
+      summary: List your webhook subscriptions
+      description: Returns a list of webhook subscriptions for the current user
+      tags:
+        - Webhooks
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [active, paused, error]
+          description: Filter by webhook status
+        - in: query
+          name: event_type
+          schema:
+            type: string
+          description: Filter by event type
+      responses:
+        '200':
+          description: List of webhook subscriptions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WebhookSubscription'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+    
+    post:
+      summary: Create a new webhook subscription
+      description: Registers a new webhook endpoint to receive event notifications
+      tags:
+        - Webhooks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - url
+                - event_types
+                - description
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  example: https://example.com/webhook
+                event_types:
+                  type: array
+                  items:
+                    type: string
+                    example: resource.created
+                description:
+                  type: string
+                  example: Production server monitoring
+                secret:
+                  type: string
+                  description: Secret for signature verification
+                headers:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: Custom headers to include in webhook requests
+      responses:
+        '201':
+          description: Webhook subscription created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    $ref: '#/components/schemas/WebhookSubscription'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+
+  /api/webhooks/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Webhook subscription ID
+    
+    get:
+      summary: Get details of a specific subscription
+      description: Returns detailed information about a webhook subscription
+      tags:
+        - Webhooks
+      responses:
+        '200':
+          description: Webhook subscription details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/WebhookSubscriptionDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+    
+    delete:
+      summary: Delete a subscription
+      description: Deletes a webhook subscription
+      tags:
+        - Webhooks
+      responses:
+        '200':
+          description: Webhook subscription deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                    example: Webhook subscription deleted successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security:
+        - BearerAuth: []
+
+  /api/newsletter/subscribe:
+    post:
+      summary: Subscribe to newsletter
+      description: Registers an email address for newsletter subscription
+      tags:
+        - Newsletter
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                preferences:
+                  type: object
+                  properties:
+                    product_updates:
+                      type: boolean
+                      default: true
+                    security_alerts:
+                      type: boolean
+                      default: false
+                    marketing:
+                      type: boolean
+                      default: false
+      responses:
+        '200':
+          description: Subscription successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                    example: Successfully subscribed to newsletter
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+      security: []
+
+  /api/health:
+    get:
+      summary: API health check
+      description: Returns health status of the API and its dependencies
+      tags:
+        - Health
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [healthy]
+                    example: healthy
+                  version:
+                    type: string
+                    example: 1.4.0
+                  dependencies:
+                    type: object
+                    properties:
+                      database:
+                        type: string
+                        enum: [healthy, degraded, unhealthy]
+                        example: healthy
+                      cache:
+                        type: string
+                        enum: [healthy, degraded, unhealthy]
+                        example: healthy
+                      storage:
+                        type: string
+                        enum: [healthy, degraded, unhealthy]
+                        example: healthy
+                  uptime:
+                    type: number
+                    example: 1209600
+        '503':
+          description: API is unhealthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [unhealthy]
+                    example: unhealthy
+                  error:
+                    type: string
+                    example: Database connection failed
+      security: []
+
+components:
+  schemas:
+    UserSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        first_name:
+          type: string
+          example: John
+        last_name:
+          type: string
+          example: Doe
+        role:
+          type: string
+          example: admin
+        status:
+          type: string
+          enum: [active, inactive, locked, pending]
+          example: active
+        created_at:
+          type: string
+          format: date-time
+          example: 2023-01-15T14:30:00Z
+    
+    UserDetail:
+      allOf:
+        - $ref: '#/components/schemas/UserSummary'
+        - type: object
+          properties:
+            company:
+              type: string
+              example: ACME Corp
+            phone:
+              type: string
+              example: "+11234567890"
+            last_login:
+              type: string
+              format: date-time
+              example: 2023-01-15T14:30:00Z
+            mfa_enabled:
+              type: boolean
+              example: true
+            preferences:
+              type: object
+              properties:
+                notifications:
+                  type: object
+                  properties:
+                    email:
+                      type: boolean
+                      example: true
+                    sms:
+                      type: boolean
+                      example: false
+                theme:
+                  type: string
+                  enum: [light, dark, auto]
+                  example: auto
+            permissions:
+              type: array
+              items:
+                type: string
+              example: ["resource:read", "resource:write", "user:read"]
+    
+    Resource:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        name:
+          type: string
+          example: production-web-server-01
+        provider:
+          type: string
+          enum: [aws, azure, gcp, private]
+          example: aws
+        type:
+          type: string
+          example: vm
+        region:
+          type: string
+          example: us-east-1
+        status:
+          type: string
+          enum: [running, stopped, error, provisioning]
+          example: running
+        created_at:
+          type: string
+          format: date-time
+          example: 2023-01-15T14:30:00Z
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+          example:
+            environment: production
+            role: web-server
+    
+    ResourceDetail:
+      allOf:
+        - $ref: '#/components/schemas/Resource'
+        - type: object
+          properties:
+            configuration:
+              type: object
+              description: Provider-specific configuration
+              example:
+                instance_type: t3.large
+                vpc_id: vpc-12345
+                subnet_id: subnet-67890
+            metrics:
+              type: object
+              properties:
+                cpu:
+                  type: number
+                  format: float
+                  example: 12.5
+                memory:
+                  type: number
+                  format: float
+                  example: 45.2
+                disk:
+                  type: number
+                  format: float
+                  example: 68.7
+            security_status:
+              type: object
+              properties:
+                last_scan:
+                  type: string
+                  format: date-time
+                vulnerabilities:
+                  type: object
+                  properties:
+                    critical:
+                      type: integer
+                      example: 0
+                    high:
+                      type: integer
+                      example: 2
+                    medium:
+                      type: integer
+                      example: 5
+                    low:
+                      type: integer
+                      example: 8
+            cost_data:
+              type: object
+              properties:
+                current_month:
+                  type: number
+                  format: float
+                  example: 125.75
+                forecast:
+                  type: number
+                  format: float
+                  example: 180.50
+                unit:
+                  type: string
+                  example: USD
+    
+    CostRecommendation:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        resource_id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        resource_name:
+          type: string
+          example: production-web-server-01
+        recommendation_type:
+          type: string
+          enum: [resize, shutdown, reserved_instance, storage_tier]
+          example: resize
+        description:
+          type: string
+          example: Instance is oversized based on usage patterns
+        potential_savings:
+          type: number
+          format: float
+          example: 75.50
+        currency:
+          type: string
+          example: USD
+        confidence:
+          type: string
+          enum: [high, medium, low]
+          example: high
+        details:
+          type: object
+          additionalProperties: true
+          example:
+            current_size: t3.large
+            recommended_size: t3.medium
+            utilization: 15%
+        created_at:
+          type: string
+          format: date-time
+          example: 2023-01-15T14:30:00Z
+    
+    Metric:
+      type: object
+      properties:
+        resource_id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        metric_type:
+          type: string
+          enum: [cpu, memory, disk, network, cost]
+          example: cpu
+        value:
+          type: number
+          format: float
+          example: 45.2
+        unit:
+          type: string
+          example: percent
+        timestamp:
+          type: string
+          format: date-time
+          example: 2023-01-15T14:30:00Z
+    
+    MetricHistory:
+      type: object
+      properties:
+        resource_id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        metric_type:
+          type: string
+          enum: [cpu, memory, disk, network, cost]
+          example: cpu
+        datapoints:
+          type: array
+          items:
+            type: object
+            properties:
+              timestamp:
+                type: string
+                format: date-time
+                example: 2023-01-15T14:30:00Z
+              value:
+                type: number
+                format: float
+                example: 45.2
+              unit:
+                type: string
+                example: percent
+    
+    Alert:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        title:
+          type: string
+          example: High CPU Usage
+        message:
+          type: string
+          example: CPU usage has exceeded 90% for more than 5 minutes
+        severity:
+          type: string
+          enum: [critical, high, medium, low, info]
+          example: high
+        status:
+          type: string
+          enum: [open, acknowledged, resolved]
+          example: open
+        resource_id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        resource_name:
+          type: string
+          example: production-web-server-01
+        created_at:
+          type: string
+          format: date-time
+          example: 2023-01-15T14:30:00Z
+        acknowledged_by:
+          type: object
+          properties:
+            user_id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            timestamp:
+              type: string
+              format: date-time
+        resolved_by:
+          type: object
+          properties:
+            user_id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            timestamp:
+              type: string
+              format: date-time
+            resolution_note:
+              type: string
+            resolution_type:
+              type: string
+              enum: [fixed, false_positive, expected_behavior, other]
+        metadata:
+          type: object
+          additionalProperties: true
+          example:
+            metric_value: 95.2
+            threshold: 90
+    
+    SecurityScan:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        scan_type:
+          type: string
+          enum: [vulnerability, compliance, configuration, full]
+          example: vulnerability
+        status:
+          type: string
+          enum: [queued, in_progress, completed, failed]
+          example: completed
+        resources:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              name:
+                type: string
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        initiated_by:
+          type: object
+          properties:
+            user_id:
+              type: string
+              format: uuid
+            name:
+              type: string
+        findings:
+          type: object
+          properties:
+            summary:
+              type: object
+              properties:
+                critical:
+                  type: integer
+                high:
+                  type: integer
+                medium:
+                  type: integer
+                low:
+                  type: integer
+                info:
+                  type: integer
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  title:
+                    type: string
+                  severity:
+                    type: string
+                  description:
+                    type: string
+                  resource_id:
+                    type: string
+                  remediation:
+                    type: string
+    
+    ICSDevice:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        name:
+          type: string
+          example: Pressure Sensor 01
+        type:
+          type: string
+          example: pressure_sensor
+        status:
+          type: string
+          enum: [online, offline, maintenance, error]
+          example: online
+        location:
+          type: string
+          example: Building A, Floor 2
+        last_reading_time:
+          type: string
+          format: date-time
+          example: 2023-01-15T14:30:00Z
+        last_reading_value:
+          type: number
+          format: float
+          example: 45.2
+        last_reading_unit:
+          type: string
+          example: PSI
+        metadata:
+          type: object
+          additionalProperties: true
+
+    ICSDeviceDetail:
+      allOf:
+        - $ref: '#/components/schemas/ICSDevice'
+        - type: object
+          properties:
+            manufacturer:
+              type: string
+              example: Siemens
+            model:
+              type: string
+              example: S7-1200
+            firmware_version:
+              type: string
+              example: 4.2.1
+            serial_number:
+              type: string
+              example: SN12345678
+            installation_date:
+              type: string
+              format: date
+              example: 2021-05-15
+            maintenance_history:
+              type: array
+              items:
+                type: object
+                properties:
+                  date:
+                    type: string
+                    format: date
+                  type:
+                    type: string
+                    enum: [scheduled, emergency, calibration]
+                  description:
+                    type: string
+                  technician:
+                    type: string
+            sensors:
+              type: array
+              items:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  type:
+                    type: string
+                  unit:
+                    type: string
+                  last_reading:
+                    type: number
+                  status:
+                    type: string
+    
+    WebhookSubscription:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        url:
+          type: string
+          format: uri
+          example: https://example.com/webhook
+        description:
+          type: string
+          example: Production server monitoring
+        status:
+          type: string
+          enum: [active, paused, error]
+          example: active
+        event_types:
+          type: array
+          items:
+            type: string
+            example: resource.created
+        created_at:
+          type: string
+          format: date-time
+          example: 2023-01-15T14:30:00Z
+        last_delivery:
+          type: object
+          properties:
+            timestamp:
+              type: string
+              format: date-time
+              example: 2023-01-15T14:35:00Z
+            status:
+              type: string
+              enum: [success, failure]
+              example: success
+
+    WebhookSubscriptionDetail:
+      allOf:
+        - $ref: '#/components/schemas/WebhookSubscription'
+        - type: object
+          properties:
+            headers:
+              type: object
+              additionalProperties:
+                type: string
+              example:
+                X-Custom-Header: custom-value
+            has_secret:
+              type: boolean
+              example: true
+            delivery_stats:
+              type: object
+              properties:
+                total_deliveries:
+                  type: integer
+                  example: 125
+                successful_deliveries:
+                  type: integer
+                  example: 120
+                failed_deliveries:
+                  type: integer
+                  example: 5
+                last_error:
+                  type: string
+                  example: Connection timeout
+
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          example: 20
+        total_items:
+          type: integer
+          example: 145
+        total_pages:
+          type: integer
+          example: 8
+        has_next_page:
+          type: boolean
+          example: true
+        has_prev_page:
+          type: boolean
+          example: false
+    
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: resource_not_found
+        message:
+          type: string
+          example: The requested resource was not found
+        status_code:
+          type: integer
+          example: 404
+        details:
+          type: object
+          additionalProperties: true
+
+  responses:
+    BadRequest:
+      description: Bad request due to invalid parameters or payload
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: invalid_request
+            message: The request was invalid
+            status_code: 400
+            details:
+              validation_errors:
+                - field: name
+                  message: Name is required
+    
+    Unauthorized:
+      description: Authentication credentials are missing or invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: unauthorized
+            message: Authentication credentials are invalid
+            status_code: 401
+    
+    Forbidden:
+      description: The authenticated user does not have necessary permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: forbidden
+            message: You do not have permission to access this resource
+            status_code: 403
+    
+    NotFound:
+      description: The specified resource was not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: resource_not_found
+            message: The requested resource was not found
+            status_code: 404
+    
+    TooManyRequests:
+      description: Too many requests, rate limit exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds to wait before retrying
+          example: 60
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error: rate_limit_exceeded
+            message: API rate limit exceeded
+            status_code: 429
+            details:
+              retry_after: 60
+
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      schema:
+        type: integer
+        default: 1
+        minimum: 1
+      description: Page number for pagination
+    
+    PerPageParam:
+      name: per_page
+      in: query
+      schema:
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 100
+      description: Number of items per page
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from /api/auth/login
+    
+    ICSAuthHeader:
+      type: apiKey
+      in: header
+      name: X-ICS-Auth
+      description: Special authentication token for ICS API access
+    
+    SecurityTokenHeader:
+      type: apiKey
+      in: header
+      name: X-Security-Token
+      description: Special authentication token for security operations
+
+security:
+  - BearerAuth: []
