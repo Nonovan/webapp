@@ -1,0 +1,402 @@
+/* 
+ * Cloud Infrastructure Platform Documentation
+ * Custom CSS for Sphinx documentation
+ */
+
+:root {
+  --primary-color: #0066cc;
+  --secondary-color: #4d94ff;
+  --accent-color: #ff9900;
+  --text-color: #333333;
+  --text-color-light: #666666;
+  --text-color-lighter: #999999;
+  --bg-color: #ffffff;
+  --bg-color-alt: #f8f9fa;
+  --bg-color-dark: #e9ecef;
+  --border-color: #e0e0e0;
+  --code-bg: #f5f5f5;
+  --code-color: #d73a49;
+  --link-color: #0066cc;
+  --link-hover-color: #004c99;
+  --header-font: 'Roboto', sans-serif;
+  --body-font: 'Open Sans', sans-serif;
+  --mono-font: 'Source Code Pro', monospace;
+  
+  /* Dark theme variables */
+  --dark-bg-color: #1a1a1a;
+  --dark-bg-color-alt: #2d2d2d;
+  --dark-text-color: #e0e0e0;
+  --dark-border-color: #444444;
+  --dark-code-bg: #2d2d2d;
+  --dark-link-color: #6ca9f0;
+  --dark-link-hover-color: #8ebaf7;
+}
+
+/* Base elements */
+body {
+  font-family: var(--body-font);
+  color: var(--text-color);
+  line-height: 1.6;
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-color);
+  transition: background-color 0.3s ease;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--header-font);
+  font-weight: 500;
+  margin-top: 1.5rem;
+  margin-bottom: 1rem;
+  color: var(--text-color);
+}
+
+h1 {
+  font-size: 2rem;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.5rem;
+}
+
+h2 {
+  font-size: 1.75rem;
+}
+
+h3 {
+  font-size: 1.5rem;
+}
+
+h4 {
+  font-size: 1.25rem;
+}
+
+a {
+  color: var(--link-color);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+a:hover {
+  color: var(--link-hover-color);
+  text-decoration: underline;
+}
+
+code {
+  font-family: var(--mono-font);
+  background-color: var(--code-bg);
+  color: var(--code-color);
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+pre {
+  font-family: var(--mono-font);
+  background-color: var(--code-bg);
+  border-radius: 3px;
+  padding: 1em;
+  overflow-x: auto;
+  line-height: 1.4;
+  margin: 1em 0;
+}
+
+/* Theme Switcher */
+.theme-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 50%;
+  color: var(--text-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.theme-toggle:hover {
+  background-color: var(--bg-color-dark);
+}
+
+/* Dark Theme */
+html[data-theme="dark"] {
+  --bg-color: var(--dark-bg-color);
+  --bg-color-alt: var(--dark-bg-color-alt);
+  --text-color: var(--dark-text-color);
+  --border-color: var(--dark-border-color);
+  --code-bg: var(--dark-code-bg);
+  --link-color: var(--dark-link-color);
+}
+
+html[data-theme="dark"] .wy-nav-content {
+  background-color: var(--dark-bg-color);
+}
+
+html[data-theme="dark"] .wy-nav-side {
+  background-color: var(--dark-bg-color-alt);
+}
+
+/* RTD Theme customizations */
+.wy-side-nav-search {
+  background-color: var(--primary-color);
+}
+
+.wy-nav-top {
+  background-color: var(--primary-color);
+}
+
+.wy-menu-vertical header, .wy-menu-vertical p.caption {
+  color: var(--accent-color);
+}
+
+.wy-menu-vertical a {
+  color: var(--text-color);
+}
+
+.wy-menu-vertical a:hover {
+  background-color: var(--secondary-color);
+  color: white;
+}
+
+/* Version dropdown */
+.rst-versions .rst-current-version {
+  background-color: var(--primary-color);
+}
+
+/* Tables */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+
+th, td {
+  padding: 0.75rem;
+  border: 1px solid var(--border-color);
+}
+
+th {
+  background-color: var(--bg-color-alt);
+  font-weight: 600;
+}
+
+tr:nth-child(even) {
+  background-color: var(--bg-color-alt);
+}
+
+/* Notes, warnings, etc. */
+.admonition {
+  padding: 1rem;
+  margin: 1rem 0;
+  border-left: 5px solid var(--secondary-color);
+  background-color: var(--bg-color-alt);
+}
+
+.admonition-title {
+  font-weight: bold;
+  margin-top: 0;
+}
+
+.admonition.warning {
+  border-left-color: var(--accent-color);
+}
+
+.admonition.danger {
+  border-left-color: var(--code-color);
+}
+
+/* Code blocks with syntax highlighting */
+div[class^="highlight"] {
+  border: none;
+  border-radius: 4px;
+  margin-bottom: 1.5rem;
+}
+
+div[class^="highlight"] pre {
+  border: none;
+  padding: 1rem;
+  margin: 0;
+  background-color: var(--code-bg);
+}
+
+div[class^="highlight-"] {
+  position: relative;
+  margin: 1em 0;
+  border-radius: 4px;
+}
+
+div[class^="highlight-"] pre {
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 0;
+  line-height: 1.5;
+  font-size: 0.9rem;
+  border-radius: 4px;
+}
+
+/* Line numbers */
+.line-numbers {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 2.5em;
+  padding: 1rem 0;
+  height: 100%;
+  text-align: right;
+  color: var(--text-color-lighter);
+  border-right: 1px solid var(--border-color);
+}
+
+.line-number {
+  display: block;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  padding-right: 0.5rem;
+}
+
+div[class^="highlight-"] pre {
+  margin-left: 3.5em;
+}
+
+/* Copy Code Button */
+.copybutton {
+  position: absolute;
+  top: 0.5em;
+  right: 0.5em;
+  cursor: pointer;
+  background-color: var(--bg-color);
+  color: var(--text-color-light);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  padding: 0.1em 0.5em;
+  font-size: 0.8em;
+  transition: all 0.2s;
+}
+
+.copybutton:hover {
+  background-color: var(--bg-color-dark);
+}
+
+.copybutton.copied {
+  background-color: var(--accent-color);
+  color: white;
+}
+
+/* TOC tree */
+.toctree-wrapper ul {
+  padding-left: 1.5rem;
+}
+
+.toctree-wrapper li {
+  list-style-type: none;
+  margin-bottom: 0.25rem;
+}
+
+.toctree-wrapper li a {
+  text-decoration: none;
+}
+
+/* Search highlighting */
+.highlighted {
+  background-color: #ffff0080;
+  padding: 1px;
+}
+
+/* Print styling */
+@media print {
+  .wy-nav-side {
+    display: none;
+  }
+  
+  .wy-nav-content-wrap {
+    margin-left: 0;
+  }
+  
+  a {
+    color: var(--text-color);
+    text-decoration: underline;
+  }
+  
+  .admonition, code, pre {
+    page-break-inside: avoid;
+  }
+}
+
+/* Responsive adjustments */
+@media screen and (max-width: 768px) {
+  .wy-nav-content-wrap {
+    background: var(--bg-color);
+  }
+  
+  .wy-nav-content {
+    padding: 1rem;
+  }
+  
+  img {
+    max-width: 100%;
+    height: auto;
+  }
+  
+  .wy-nav-side {
+    left: -300px;
+    transition: left 0.3s;
+  }
+  
+  .wy-nav-side.shown {
+    left: 0;
+  }
+  
+  .mobile-nav-toggle {
+    display: block;
+  }
+}
+
+/* API documentation */
+dl.class, dl.function, dl.method, dl.attribute {
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--border-color);
+  border-left: 4px solid var(--secondary-color);
+  border-radius: 4px;
+}
+
+dl.class > dt, dl.function > dt, dl.method > dt, dl.attribute > dt {
+  background-color: var(--bg-color-alt);
+  padding: 0.5rem;
+  margin: -1rem -1rem 0.5rem;
+  font-family: var(--mono-font);
+}
+
+/* Footer customization */
+footer {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color);
+  color: var(--text-color-lighter);
+}
+
+/* Skip to content link for accessibility */
+.skip-to-content {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.skip-to-content:focus {
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  width: auto;
+  height: auto;
+  background-color: var(--primary-color);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 0 0 5px 5px;
+}
+
+/* Focus styles for keyboard users */
+.keyboard-user :focus {
+  outline: 3px solid var(--secondary-color) !important;
+  outline-offset: 2px !important;
+}
