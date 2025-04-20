@@ -24,206 +24,180 @@ The security implementation follows a defense-in-depth approach, applying multip
     - `aide.conf` - File integrity monitoring configuration
     - `network-policies.yaml` - Kubernetes network security policies
 - **Scripts**
-  - `iptables-rules.sh` - Firewall configuration script
-  - [`security-audit.sh`](deployment/security/security-audit.sh) - Security audit and reporting tool
-  - `ssl-setup.sh` - SSL certificate setup and management
-  - [`update-modsecurity-rules.sh`](deployment/security/update-modsecurity-rules.sh) - WAF rules updating script
-  - [`security-update-cron`](deployment/security/security-update-cron) - Scheduled security tasks
+    - `iptables-rules.sh` - Firewall configuration script
+    - `security-audit.sh` - Security audit and reporting tool
+    - `ssl-setup.sh` - SSL certificate setup and management
+    - `update-modsecurity-rules.sh` - WAF rules updating script
+    - `security-update-cron` - Scheduled security tasks
+    - `setup-modsecurity.sh` - ModSecurity WAF setup script
+    - `security_setup.sh` - Primary security configuration script
+    - `verify_files.py` - File integrity verification tool
 - **Documentation**
-  - `hardening-checklist.md` - Server hardening checklist
-  - `security-overview.md` - Security architecture overview
-  - `certificate-management.md` - Certificate management procedures
-  - `firewall-policies.md` - Network firewall configuration and policies
-  - [`incident-response.md`](deployment/security/incident-response.md) - Security incident response procedures
-  - [`penetration-testing.md`](deployment/security/penetration-testing.md) - Guidelines for security testing
-  - [`compliance.md`](deployment/security/compliance.md) - Compliance requirements documentation
+    - `hardening-checklist.md` - Server hardening checklist
+    - `security-architecture-overview.md` - Security architecture overview
+    - `certificate-management.md` - Certificate management procedures
+    - `firewall-policies.md` - Network firewall configuration and policies
+    - `incident-response.md` - Security incident response procedures
+    - `penetration-testing.md` - Guidelines for security testing
+    - `compliance.md` - Compliance requirements documentation
+    - `crypto-standards.md` - Cryptographic standards and key management
+    - `roles.md` - Security roles and responsibilities
 
 ## Usage
 
 ### Basic Hardening
 
-To apply basic security hardening to a new server:
+To apply basic security hardening to a newly provisioned system:
 
 ```bash
-# Apply firewall rules
-sudo bash deployment/security/iptables-rules.sh
+# Run the main security setup script
+./security_setup.sh [environment]
 
-# Configure NGINX security
-sudo cp deployment/security/nginx-hardening.conf /etc/nginx/conf.d/
-sudo cp deployment/security/security-headers.conf /etc/nginx/conf.d/
+# Verify the security configuration
+./security-audit.sh --report-only
 
+```
+
+### Web Server Security
+
+To configure the web server with security best practices:
+
+```bash
+# Copy security configuration files to NGINX directory
+cp nginx-hardening.conf /etc/nginx/conf.d/
+cp ssl-params.conf /etc/nginx/conf.d/
+cp security-headers.conf /etc/nginx/conf.d/
+
+# Setup ModSecurity WAF
+./setup-modsecurity.sh
+
+# Update ModSecurity rules
+./update-modsecurity-rules.sh
+
+```
+
+### Network Security
+
+To implement network security controls:
+
+```bash
+# Configure firewall rules
+./iptables-rules.sh
+
+# Setup intrusion prevention
+cp fail2ban.local /etc/fail2ban/
+cp -r fail2ban-filters/* /etc/fail2ban/filter.d/
+systemctl restart fail2ban
+
+```
+
+### Monitoring and Compliance
+
+To enable security monitoring and verify compliance:
+
+```bash
+# Setup file integrity monitoring
+cp aide.conf /etc/aide/
+aide --init
+mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+
+# Schedule security tasks
+cp security-update-cron /etc/cron.d/cloud-platform-security
+
+# Run security audit
+./security-audit.sh --email security@example.com
+
+```
+
+### Certificate Management
+
+For SSL/TLS certificate management:
+
+```bash
 # Setup SSL certificates
-sudo bash deployment/security/ssl-setup.sh --domain example.com --email admin@example.com
-
-# Install and configure AIDE for file integrity monitoring
-sudo cp deployment/security/aide.conf /etc/aide/
-sudo aide --init
+./ssl-setup.sh --domain cloud-platform.example.com --email admin@example.com
 
 ```
 
-### Web Application Firewall
+## Security Layers
 
-The ModSecurity WAF implementation uses a layered approach with custom rules organized by security concern:
+### 1. Infrastructure Security
 
-```bash
-# Install core rule set
-sudo bash deployment/security/update-modsecurity-rules.sh
+- Server hardening based on CIS benchmarks
+- Host-based firewall configuration
+- File integrity monitoring (AIDE)
+- Secure boot configuration
+- Regular security patching
 
-# Install custom rule files
-sudo cp -r deployment/security/waf-rules/ /etc/nginx/modsecurity.d/
+### 2. Network Security
 
-```
+- Network segmentation and isolation
+- Inbound traffic filtering
+- Outbound traffic control
+- DDoS protection
+- Intrusion detection and prevention
 
-### Security Auditing
+### 3. Application Security
 
-Run a comprehensive security audit:
+- ModSecurity WAF implementation
+- HTTP security headers
+- Input validation and sanitization
+- Authentication and authorization controls
+- API security measures
 
-```bash
-sudo bash deployment/security/security-audit.sh --email admin@example.com
+### 4. Data Security
 
-```
+- TLS encryption for data in transit
+- Disk encryption for data at rest
+- Database security controls
+- Secure backup procedures
+- Data access monitoring
 
-### Continuous Monitoring
+### 5. Monitoring and Response
 
-Schedule regular security checks using the provided cron jobs:
+- Security event logging
+- Centralized log collection
+- Real-time alerting
+- Incident response procedures
+- Security audit trails
 
-```bash
-sudo cp deployment/security/security-update-cron /etc/cron.d/
+## Security Testing
 
-```
+Regular security testing is performed using:
 
-## Database Security
-
-The platform implements comprehensive database security controls:
-
-- Permission-based access control with least privilege
-- Encryption of sensitive data at rest
-- Regular backup and verification procedures
-- Connection pooling and rate limiting to prevent resource exhaustion
-- SQL injection protection through prepared statements and WAF rules
-- Audit logging for all critical database operations
-
-## ICS Security Features
-
-The Industrial Control System (ICS) security features include:
-
-- Strict network segmentation via network policies
-- Special WAF rules for ICS protocols and endpoints
-- Command validation and range checking
-- Action logging for audit and compliance
-- Authentication and authorization specific to control operations
+- Vulnerability scanning with OpenVAS/Nessus
+- Web application scanning with OWASP ZAP
+- Penetration testing by qualified security professionals
+- Infrastructure as Code scanning with tfsec
+- Dependency vulnerability scanning with OWASP Dependency Check
 
 ## Compliance
 
 The security implementation helps maintain compliance with:
 
-- NIST Cybersecurity Framework
 - ISO 27001
 - SOC 2 Type II
 - GDPR
-- PCI DSS
-- HIPAA
-- FedRAMP (in progress)
+- PCI DSS (where payment processing is involved)
+- HIPAA (where health data is involved)
 
-See [compliance.md](deployment/security/compliance.md) for detailed compliance mapping and implementation status.
+For detailed compliance information, refer to `compliance.md`.
 
-## Security Architecture
+## Best Practices
 
-The Cloud Infrastructure Platform security architecture incorporates:
+- Follow the principle of least privilege
+- Implement defense in depth
+- Regular security patching and updates
+- Security monitoring and incident response
+- Regular security assessments and testing
+- Employee security awareness training
 
-1. **Perimeter Security**
-    - Network firewalls and access controls
-    - DDoS protection
-    - Web Application Firewall (WAF) with category-specific rule sets:
-      - SQL injection prevention
-      - XSS protection
-      - Path traversal detection
-      - Command injection prevention
-      - Sensitive data leakage protection
-      - Authentication attack prevention
-      - IP reputation-based filtering
-    - Network security policies for Kubernetes
-2. **Application Security**
-    - Input validation and sanitization
-    - CSRF and XSS protection
-    - Content Security Policy (CSP)
-    - Authentication and authorization controls
-    - Rate limiting and brute force protection
-    - Secure cookie and session management
-3. **Data Security**
-    - Encryption at rest and in transit
-    - Database security controls
-    - Data access logging and monitoring
-    - Secure file upload handling
-    - Data minimization and retention controls
-4. **Operational Security**
-    - Automated security updates
-    - File integrity monitoring with AIDE
-    - Intrusion detection and prevention
-    - Log monitoring and security incident response
-    - Regular penetration testing
-5. **ICS Security**
-    - Protocol-specific protection for industrial systems
-    - Time-of-day restrictions for critical operations
-    - Parameter range validation
-    - Operation sequencing enforcement
-    - Enhanced authentication for control operations
-6. **Cloud Security**
-    - Cloud provider access controls
-    - Infrastructure-as-Code security scanning
-    - Container security
-    - Secure CI/CD pipeline
-    - Cloud resource monitoring and anomaly detection
+## Version History
 
-## Security Features
-
-### Web Application Security
-- **Content Security Policy (CSP)**: Strict CSP implementation with nonce-based script execution
-- **CSRF Protection**: Token-based cross-site request forgery protection for all forms
-- **Input Validation**: Multi-layered validation (client-side, server-side, and WAF rules)
-- **Output Encoding**: Context-appropriate encoding to prevent XSS
-- **Security Headers**: Comprehensive set including HSTS, X-Frame-Options, and X-Content-Type-Options
-
-### Authentication & Session Security
-- **Password Security**: Strength requirements, secure storage, and breach detection
-- **Multi-Factor Authentication**: Time-based one-time passwords for sensitive operations
-- **Session Management**: Secure session handling with proper timeout and protection mechanisms
-- **Rate Limiting**: Tiered rate limiting for login, registration, and API endpoints
-- **Brute Force Protection**: Account lockout after repeated failures
-
-### Industrial Control System (ICS) Security
-- **Protocol-Specific Protections**: Custom rules for Modbus, DNP3, and OPC-UA protocols
-- **Command Validation**: Parameter range checking and validation for control operations
-- **Time-of-Day Restrictions**: Limited operational windows for critical functions
-- **Sequence Validation**: Protection against harmful operation sequences
-- **Network Segmentation**: Strict network controls for ICS components
-
-### Infrastructure Security
-- **File Integrity Monitoring**: AIDE-based monitoring of critical system and application files
-- **Firewall Configuration**: Defense-in-depth network protection
-- **Intrusion Detection**: Monitoring for suspicious activities and potential breaches
-- **Security Auditing**: Regular automated security checks with detailed reporting
-- **Vulnerability Management**: Continuous scanning and patching process
-
-## Compliance
-
-This security implementation is designed to help meet requirements for:
-
-- ISO 27001
-- SOC 2 Type II
-- GDPR
-- NIST Cybersecurity Framework
-- PCI DSS
-- HIPAA
-- FedRAMP (in progress)
-
-For detailed information about specific compliance requirements, see `compliance.md`.
-
-## References
-
-- [OWASP Top Ten](https://owasp.org/www-project-top-ten/)
-- [CIS Benchmarks](https://www.cisecurity.org/cis-benchmarks/)
-- [NIST Cybersecurity Framework](https://www.nist.gov/cyberframework)
-- [GDPR](https://gdpr.eu/)
-- [ICS Security Guidance - CISA](https://www.cisa.gov/ics)
-- [Cloud Security Alliance](https://cloudsecurityalliance.org/)
+| Version | Date | Description | Author |
+| --- | --- | --- | --- |
+| 1.0 | 2023-07-15 | Initial security documentation | Security Team |
+| 1.1 | 2023-09-28 | Added WAF implementation details | DevOps Team |
+| 1.2 | 2023-11-15 | Updated compliance requirements | Compliance Manager |
+| 1.3 | 2024-02-10 | Added containerization security | Cloud Security Engineer |
+| 2.0 | 2024-04-20 | Major update with expanded documentation | Security Architect |
