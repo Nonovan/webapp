@@ -24,5 +24,8 @@ FLASK_ENV=staging
 # Export metrics hourly
 0 * * * * ${PYTHON_ENV} ${CLOUD_PLATFORM_ROOT}/scripts/export_metrics.py --format=prometheus --output=${LOG_DIR}/metrics/$(date +\%Y\%m\%d_\%H).prom >> ${LOG_DIR}/cron.log 2>&1
 
+# API latency monitoring every 15 minutes
+*/15 * * * * ${CLOUD_PLATFORM_ROOT}/scripts/monitoring/api_latency.sh --format prometheus --quiet --environment staging >> ${LOG_DIR}/api_latency.log 2>&1
+
 # Clean up temporary files daily at 1:00 AM (files older than 3 days)
 0 1 * * * find ${CLOUD_PLATFORM_ROOT}/instance/temporary -type f -mtime +3 -delete >> ${LOG_DIR}/cron.log 2>&1

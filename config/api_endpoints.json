@@ -1,0 +1,87 @@
+{
+  "endpoints": [
+    {
+      "name": "Health Check",
+      "path": "/health",
+      "method": "GET",
+      "critical": true,
+      "description": "Basic API health check endpoint"
+    },
+    {
+      "name": "API Authentication",
+      "path": "/api/auth/status",
+      "method": "GET",
+      "critical": true,
+      "description": "Authentication status verification"
+    },
+    {
+      "name": "Cloud Metrics",
+      "path": "/api/cloud/metrics",
+      "method": "GET",
+      "headers": "Authorization: Bearer ${API_TOKEN}",
+      "critical": true,
+      "description": "Cloud infrastructure performance metrics"
+    },
+    {
+      "name": "User Login",
+      "path": "/api/auth/login",
+      "method": "POST",
+      "data": "{\"username\":\"test\",\"password\":\"test\"}",
+      "headers": "Content-Type: application/json",
+      "critical": true,
+      "description": "User authentication endpoint"
+    },
+    {
+      "name": "Resources List",
+      "path": "/api/resources",
+      "method": "GET",
+      "critical": false,
+      "description": "List available cloud resources"
+    },
+    {
+      "name": "Webhook Status",
+      "path": "/api/webhooks/status",
+      "method": "GET",
+      "critical": false,
+      "description": "Check webhook integration status"
+    },
+    {
+      "name": "Version Info",
+      "path": "/api/version",
+      "method": "GET",
+      "critical": true,
+      "description": "API version information"
+    },
+    {
+      "name": "User Profile",
+      "path": "/api/users/profile",
+      "method": "GET",
+      "headers": "Authorization: Bearer ${API_TOKEN}",
+      "critical": false,
+      "description": "Get current user profile information"
+    },
+    {
+      "name": "System Status",
+      "path": "/api/system/status",
+      "method": "GET",
+      "critical": true,
+      "description": "Overall system status including dependencies"
+    },
+    {
+      "name": "Newsletter Subscription",
+      "path": "/api/newsletter/subscribe",
+      "method": "POST",
+      "data": "{\"email\":\"test@example.com\"}",
+      "headers": "Content-Type: application/json",
+      "critical": false,
+      "description": "Subscribe to newsletter updates"
+    },
+    {
+      "name": "Static Asset",
+      "path": "/static/css/main.css",
+      "method": "GET",
+      "critical": false,
+      "description": "Verify static asset serving"
+    }
+  ]
+}

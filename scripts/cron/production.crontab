@@ -30,6 +30,9 @@ FLASK_ENV=production
 # Export metrics every 15 minutes
 */15 * * * * ${PYTHON_ENV} ${CLOUD_PLATFORM_ROOT}/scripts/export_metrics.py --format=prometheus --output=${LOG_DIR}/metrics/$(date +\%Y\%m\%d_\%H\%M).prom >> ${LOG_DIR}/cron.log 2>&1
 
+# API latency monitoring every 5 minutes
+*/5 * * * * ${CLOUD_PLATFORM_ROOT}/scripts/monitoring/api_latency.sh --format prometheus --quiet --environment production >> ${LOG_DIR}/api_latency.log 2>&1
+
 # Generate daily reports at 5:00 AM
 0 5 * * * cd ${CLOUD_PLATFORM_ROOT} && FLASK_ENV=${FLASK_ENV} ${PYTHON_ENV} -m flask reports generate-daily >> ${LOG_DIR}/cron.log 2>&1
 
