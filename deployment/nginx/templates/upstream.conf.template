@@ -1,0 +1,232 @@
+# Upstream Configuration Template for Cloud Infrastructure Platform
+# Template variables:
+# - {{ENVIRONMENT}}: Environment name (development, staging, production)
+# - {{API_SERVERS}}: Comma-separated list of API backend servers
+# - {{WEBSOCKET_SERVERS}}: Comma-separated list of WebSocket backend servers
+# - {{MONITORING_SERVERS}}: Comma-separated list of monitoring backend servers
+# - {{ICS_SERVERS}}: Comma-separated list of ICS backend servers
+# - {{STATIC_SERVERS}}: Comma-separated list of static content servers
+# - {{AUTH_SERVERS}}: Comma-separated list of authentication servers
+# - {{API_KEEPALIVE_CONNECTIONS}}: Number of keepalive connections for API (default: 32)
+# - {{API_KEEPALIVE_TIMEOUT}}: Keepalive timeout for API in seconds (default: 60)
+# - {{WS_KEEPALIVE_CONNECTIONS}}: Number of keepalive connections for WebSockets (default: 64)
+# - {{WS_KEEPALIVE_TIMEOUT}}: Keepalive timeout for WebSockets in seconds (default: 300)
+# - {{MAX_FAILS}}: Maximum number of failed attempts (default: 3)
+# - {{FAIL_TIMEOUT}}: Failure timeout in seconds (default: 30)
+# - {{BACKUP_API_SERVER}}: Backup API server address (optional)
+# - {{LOAD_BALANCE_METHOD}}: Load balancing method (ip_hash, least_conn, etc.)
+# - {{ENABLE_STICKY_SESSIONS}}: Whether to enable sticky sessions for auth (true/false)
+
+# API backend servers
+upstream {{API_UPSTREAM}} {
+    # Load balancing method
+    {{#LOAD_BALANCE_METHOD}}
+    {{LOAD_BALANCE_METHOD}};
+    {{/LOAD_BALANCE_METHOD}}
+    {{^LOAD_BALANCE_METHOD}}
+    # Default to IP hash for session persistence
+    ip_hash;
+    {{/LOAD_BALANCE_METHOD}}
+    
+    # Main API servers
+    {{#API_SERVERS}}
+    server {{.}} max_fails={{MAX_FAILS}} fail_timeout={{FAIL_TIMEOUT}}s;
+    {{/API_SERVERS}}
+    
+    # Backup server that only receives traffic if others fail
+    {{#BACKUP_API_SERVER}}
+    server {{BACKUP_API_SERVER}} backup;
+    {{/BACKUP_API_SERVER}}
+    
+    # Keepalive connections for better performance
+    keepalive {{API_KEEPALIVE_CONNECTIONS}};
+    keepalive_timeout {{API_KEEPALIVE_TIMEOUT}}s;
+    
+    # Health check parameters
+    # Requires NGINX Plus - uncomment if using NGINX Plus
+    # health_check interval=10s fails=3 passes=2;
+}
+
+# WebSocket backend servers
+upstream {{WEBSOCKET_UPSTREAM}} {
+    # Use least connections for WebSockets
+    least_conn;
+    
+    # WebSocket servers
+    {{#WEBSOCKET_SERVERS}}
+    server {{.}} max_fails={{MAX_FAILS}} fail_timeout={{FAIL_TIMEOUT}}s;
+    {{/WEBSOCKET_SERVERS}}
+    
+    # Keepalive connections are essential for WebSockets
+    keepalive {{WS_KEEPALIVE_CONNECTIONS}};
+    keepalive_timeout {{WS_KEEPALIVE_TIMEOUT}}s;
+}
+
+# Monitoring backend servers
+upstream {{MONITORING_UPSTREAM}} {
+    # Use round-robin distribution (default)
+    
+    # Monitoring servers
+    {{#MONITORING_SERVERS}}
+    server {{.}} max_fails=2 fail_timeout=10s;
+    {{/MONITORING_SERVERS}}
+    
+    # Keepalive connections
+    keepalive 16;
+    keepalive_timeout 60s;
+}
+
+# Industrial Control Systems (ICS) backend servers
+# These have special handling due to longer operations
+upstream {{ICS_UPSTREAM}} {
+    # ICS servers
+    {{#ICS_SERVERS}}
+    server {{.}} max_fails=2 fail_timeout=60s;
+    {{/ICS_SERVERS}}
+    
+    # Use longer keepalive for ICS operations
+    keepalive 16;
+    keepalive_timeout 300s;
+}
+
+# Static content servers (if served separately)
+upstream {{STATIC_UPSTREAM}} {
+    # Static content servers
+    {{#STATIC_SERVERS}}
+    server {{.}} max_fails=3 fail_timeout=30s;
+    {{/STATIC_SERVERS}}
+    
+    # Cache static content with keepalive
+    keepalive 64;
+    keepalive_timeout 60s;
+}
+
+# Authentication service backends
+upstream {{AUTH_UPSTREAM}} {
+    {{#ENABLE_STICKY_SESSIONS}}
+    # Use sticky sessions for auth
+    sticky cookie srv_id expires=1h path=/;
+    {{/ENABLE_STICKY_SESSIONS}}
+    
+    # Authentication servers
+    {{#AUTH_SERVERS}}
+    server {{.}} max_fails=3 fail_timeout=10s;
+    {{/AUTH_SERVERS}}
+    
+    # Auth service keepalive
+    keepalive 32;
+    keepalive_timeout 60s;
+}
+
+# Environment-specific backends
+
+{{#ENVIRONMENT_DEVELOPMENT}}
+# Development environment backend (for local development)
+upstream dev_backend {
+    server 127.0.0.1:5000;
+    
+    # Development-specific settings
+    keepalive 8;
+    keepalive_timeout 60s;
+}
+{{/ENVIRONMENT_DEVELOPMENT}}
+
+{{#ENVIRONMENT_STAGING}}
+# Staging-specific backend (may have different scaling characteristics)
+upstream staging_backend {
+    # Use least connections for more even distribution in staging
+    least_conn;
+    
+    {{#API_SERVERS}}
+    server {{.}} max_fails=2 fail_timeout=30s;
+    {{/API_SERVERS}}
+    
+    # Staging keepalive settings
+    keepalive 16;
+    keepalive_timeout 60s;
+}
+{{/ENVIRONMENT_STAGING}}
+
+{{#ENVIRONMENT_PRODUCTION}}
+# Production-specific configurations
+
+# Disaster recovery backends (used when primary datacenter is down)
+upstream dr_backend {
+    {{#DR_SERVERS}}
+    server {{.}} max_fails=3 fail_timeout=30s;
+    {{/DR_SERVERS}}
+    
+    # DR keepalive settings
+    keepalive 32;
+    keepalive_timeout 60s;
+}
+
+# Real-time data processing backend
+upstream realtime_backend {
+    # Use consistent hashing for real-time data processing
+    hash $remote_addr consistent;
+    
+    {{#REALTIME_SERVERS}}
+    server {{.}} max_fails=3 fail_timeout=20s;
+    {{/REALTIME_SERVERS}}
+    
+    # Real-time processing needs higher keepalive
+    keepalive 128;
+    keepalive_timeout 180s;
+}
+
+# Queue processing backend
+upstream queue_backend {
+    # Use least connections for queue processing
+    least_conn;
+    
+    {{#QUEUE_SERVERS}}
+    server {{.}} max_fails={{MAX_FAILS}} fail_timeout={{FAIL_TIMEOUT}}s;
+    {{/QUEUE_SERVERS}}
+    
+    # Queue processing keepalive
+    keepalive {{API_KEEPALIVE_CONNECTIONS}};
+    keepalive_timeout {{API_KEEPALIVE_TIMEOUT}}s;
+}
+{{/ENVIRONMENT_PRODUCTION}}
+
+# Geographical load balancing for global deployments
+{{#ENABLE_GEO_ROUTING}}
+# Use the geo_upstream module for geo-distributed load balancing
+upstream geo_distributed_backend {
+    # Use consistent hashing for geo-distributed workloads
+    hash $remote_addr consistent;
+    
+    {{#GEO_SERVERS}}
+    server {{.}} max_fails={{MAX_FAILS}} fail_timeout={{FAIL_TIMEOUT}}s;
+    {{/GEO_SERVERS}}
+    
+    # Specialized keepalive settings for geo-distributed traffic
+    keepalive {{GEO_KEEPALIVE_CONNECTIONS}};
+    keepalive_timeout {{GEO_KEEPALIVE_TIMEOUT}}s;
+}
+
+# Add specialized settings for each region if needed
+{{#GEO_REGIONS}}
+upstream geo_{{region_name}}_backend {
+    least_conn;
+    
+    {{#servers}}
+    server {{.}} max_fails={{MAX_FAILS}} fail_timeout={{FAIL_TIMEOUT}}s;
+    {{/servers}}
+    
+    keepalive {{GEO_KEEPALIVE_CONNECTIONS}};
+    keepalive_timeout {{GEO_KEEPALIVE_TIMEOUT}}s;
+}
+{{/GEO_REGIONS}}
+{{/ENABLE_GEO_ROUTING}}
+
+# Edge cache servers for CDN-like functionality
+{{#ENABLE_EDGE_CACHING}}
+upstream edge_cache_backend {
+    server {{EDGE_CACHE_SERVER}} max_fails={{MAX_FAILS}} fail_timeout={{FAIL_TIMEOUT}}s;
+    
+    keepalive 128;
+    keepalive_timeout 60s;
+}
+{{/ENABLE_EDGE_CACHING}}

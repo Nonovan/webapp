@@ -7,10 +7,14 @@
 # - {{RATE_LIMIT_BURST}}: API rate limit burst parameter
 # - {{STATIC_MAX_AGE}}: Cache duration for static assets
 # - {{STATIC_MAX_AGE_SECONDS}}: Cache duration for static assets in seconds
+# - {{ENABLE_WEBSOCKETS}}: Whether to enable WebSocket support (true/false)
+# - {{ENABLE_WAF}}: Whether to enable ModSecurity WAF (true/false)
 
 # Define rate limiting zones
 limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
 limit_conn_zone $binary_remote_addr zone=api_conn:10m;
+limit_req_zone $binary_remote_addr zone=auth_limit:5m rate=5r/s;
+limit_req_zone $binary_remote_addr zone=websocket:5m rate=30r/s;
 
 # HTTP server block - redirects to HTTPS
 server {
@@ -79,45 +83,8 @@ server {
     sub_filter_once on;
     {{/ENVIRONMENT_DEVELOPMENT}}
 
-    # Main application location block
-    location / {
-        try_files $uri $uri/ /index.html;
-        
-        # Security headers for all responses
-        add_header X-Content-Type-Options "nosniff" always;
-        add_header X-Frame-Options "DENY" always;
-    }
-
-    # Static files with cache control
-    location /static/ {
-        alias /var/www/{{APP_NAME}}/static/;
-        expires {{STATIC_MAX_AGE}};
-        add_header Cache-Control "public, max-age={{STATIC_MAX_AGE_SECONDS}}";
-        add_header X-Content-Type-Options "nosniff" always;
-        
-        # Disable directory listing
-        autoindex off;
-        
-        # Access control - deny sensitive files
-        location ~ \.(env|config|ini|conf|md|sql|json|yml|yaml)$ {
-            deny all;
-            return 404;
-        }
-    }
-    
-    # Uploads directory with restricted access
-    location /uploads/ {
-        alias /var/www/{{APP_NAME}}/uploads/;
-        
-        # Prevent direct access to sensitive file types
-        location ~ \.(php|py|pl|sh|env|ini)$ {
-            deny all;
-            return 404;
-        }
-        
-        # Implement correct MIME types
-        include conf.d/mime.types;
-    }
+    # Include location blocks from separate file for maintainability
+    include conf.d/location.conf;
 
     # API endpoint configuration
     location /api/ {
@@ -139,6 +106,24 @@ server {
         proxy_send_timeout 30s;
     }
     
+    # Authentication endpoints with stricter rate limiting
+    location /api/auth/ {
+        # Stricter rate limiting for auth endpoints
+        limit_req zone=auth_limit burst=5 nodelay;
+        limit_req_status 429;
+        
+        # No caching for auth responses
+        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+        
+        # Proxy to backend
+        proxy_pass http://{{API_UPSTREAM}};
+        include conf.d/proxy-params.conf;
+        
+        # Shorter timeout for auth requests
+        proxy_read_timeout 30s;
+    }
+    
+    {{#ENABLE_WEBSOCKETS}}
     # WebSocket configuration
     location /api/ws {
         proxy_pass http://{{API_UPSTREAM}};
@@ -153,10 +138,10 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         
-        # Security headers for WebSocket
-        proxy_hide_header X-Powered-By;
-        add_header X-Content-Type-Options "nosniff" always;
+        # Apply rate limiting specific to WebSockets
+        limit_req zone=websocket burst=30 nodelay;
     }
+    {{/ENABLE_WEBSOCKETS}}
 
     # Health check endpoint
     location /health {
@@ -168,20 +153,6 @@ server {
         # No caching for health checks
         add_header Cache-Control "no-store, no-cache, must-revalidate" always;
     }
-    
-    # Industrial Control Systems (ICS) endpoints with restricted access
-    {{#ICS_ENABLED}}
-    location /api/ics/ {
-        # Allow only specific IP ranges
-        allow 10.100.0.0/16;
-        allow 192.168.10.0/24;
-        deny all;
-        
-        proxy_pass http://{{API_UPSTREAM}};
-        include conf.d/proxy-params.conf;
-        proxy_read_timeout 300s;  # Extended timeout for ICS operations
-    }
-    {{/ICS_ENABLED}}
     
     # Deny access to sensitive files and directories
     location ~ /\. {
@@ -232,6 +203,9 @@ server {
     
     # Security headers
     include conf.d/security-headers.conf;
+    
+    # Hide NGINX version
+    server_tokens off;
     
     # Redirect all traffic to non-www version
     return 301 https://{{DOMAIN_NAME}}$request_uri;

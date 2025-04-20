@@ -1,0 +1,131 @@
+# Proxy Parameters Template for Cloud Infrastructure Platform
+# Template variables:
+# - {{ENVIRONMENT}}: Environment name (development, staging, production)
+# - {{PROXY_BUFFER_SIZE}}: Size for proxy buffer (default: 8k)
+# - {{PROXY_BUFFERS_COUNT}}: Number of proxy buffers (default: 16)
+# - {{PROXY_BUFFERS_SIZE}}: Size of each proxy buffer (default: 8k)
+# - {{PROXY_BUSY_BUFFERS_SIZE}}: Busy buffers size (default: 64k)
+# - {{PROXY_CONNECT_TIMEOUT}}: Timeout for establishing connection (default: 30s)
+# - {{PROXY_SEND_TIMEOUT}}: Timeout for sending data (default: 60s)
+# - {{PROXY_READ_TIMEOUT}}: Timeout for reading response (default: 60s)
+# - {{PROXY_TEMP_FILE_SIZE}}: Maximum temp file size (default: 64k)
+# - {{ENABLE_KEEPALIVE}}: Whether to enable keepalive (true/false)
+# - {{KEEPALIVE_TIMEOUT}}: Keepalive timeout (default: 65s)
+# - {{KEEPALIVE_REQUESTS}}: Keepalive requests count (default: 100)
+# - {{INTERCEPT_ERRORS}}: Whether to intercept errors (true/false)
+# - {{PASS_AUTHORIZATION}}: Whether to pass Authorization header (true/false)
+# - {{CUSTOM_HEADERS}}: Custom headers to pass to upstream
+
+# Standard proxy headers
+proxy_set_header Host $host;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header X-Forwarded-Host $host;
+proxy_set_header X-Forwarded-Port $server_port;
+
+# Request ID tracking for correlation across microservices
+proxy_set_header X-Request-ID $request_id;
+
+# WebSocket support (HTTP version must be 1.1 or higher)
+proxy_http_version 1.1;
+# Note: Connection header should be set in specific WebSocket location blocks
+# Example: proxy_set_header Connection "upgrade";
+
+# Proxy timeout settings
+proxy_connect_timeout {{PROXY_CONNECT_TIMEOUT}};
+proxy_send_timeout {{PROXY_SEND_TIMEOUT}};
+proxy_read_timeout {{PROXY_READ_TIMEOUT}};
+
+# Proxy buffer settings
+proxy_buffer_size {{PROXY_BUFFER_SIZE}};
+proxy_buffers {{PROXY_BUFFERS_COUNT}} {{PROXY_BUFFERS_SIZE}};
+proxy_busy_buffers_size {{PROXY_BUSY_BUFFERS_SIZE}};
+proxy_temp_file_write_size {{PROXY_TEMP_FILE_SIZE}};
+
+# Security headers - don't pass on sensitive headers
+proxy_hide_header X-Powered-By;
+proxy_hide_header X-Runtime;
+proxy_hide_header X-AspNet-Version;
+proxy_hide_header X-AspNetMvc-Version;
+proxy_hide_header Server;
+
+# Don't change URLs in headers
+proxy_redirect off;
+
+# Add security context
+proxy_set_header X-Client-IP $remote_addr;
+proxy_set_header X-Client-Verify $ssl_client_verify;
+
+# Pass the original host requested by the client
+proxy_set_header X-Original-Host $http_host;
+proxy_set_header X-Original-URI $request_uri;
+
+# Handle errors gracefully by intercepting backend errors
+{{#INTERCEPT_ERRORS}}
+proxy_intercept_errors on;
+{{/INTERCEPT_ERRORS}}
+{{^INTERCEPT_ERRORS}}
+proxy_intercept_errors off;
+{{/INTERCEPT_ERRORS}}
+
+# Enable keepalive connections to upstream servers
+{{#ENABLE_KEEPALIVE}}
+proxy_socket_keepalive on;
+keepalive_timeout {{KEEPALIVE_TIMEOUT}};
+keepalive_requests {{KEEPALIVE_REQUESTS}};
+{{/ENABLE_KEEPALIVE}}
+
+# Enable compression for responses
+proxy_set_header Accept-Encoding "";
+
+# Pass authorization header if enabled
+{{#PASS_AUTHORIZATION}}
+proxy_set_header Authorization $http_authorization;
+{{/PASS_AUTHORIZATION}}
+
+# Add tracing headers for better request flow visibility
+proxy_set_header X-Trace-ID $request_id;
+
+# Support for cloud infrastructure operations
+proxy_set_header X-Environment "{{ENVIRONMENT}}";
+
+# Enable TCP optimizations
+tcp_nodelay on;
+tcp_nopush on;
+
+# Handle redirects properly
+proxy_ssl_server_name on;
+
+# Custom headers
+{{#CUSTOM_HEADERS}}
+proxy_set_header {{name}} {{value}};
+{{/CUSTOM_HEADERS}}
+
+# Environment-specific settings
+{{#ENVIRONMENT_DEVELOPMENT}}
+# In development, we may want more verbose errors
+proxy_intercept_errors off;
+# And longer timeouts for debugging
+proxy_read_timeout 300s;
+{{/ENVIRONMENT_DEVELOPMENT}}
+
+{{#ENVIRONMENT_PRODUCTION}}
+# In production, use stricter settings
+proxy_next_upstream error timeout http_502 http_503 http_504;
+proxy_next_upstream_tries 3;
+proxy_next_upstream_timeout 10s;
+{{/ENVIRONMENT_PRODUCTION}}
+
+# Set secure cookie flags if HTTPS is used
+map $scheme $proxy_https {
+    https "on";
+    default "off";
+}
+proxy_set_header X-Forwarded-Ssl $proxy_https;
+
+# Prevent proxy timeouts from affecting client connections
+proxy_ignore_client_abort off;
+
+# Fix potential security issues with proxy headers
+proxy_set_header Connection "";

@@ -5,11 +5,13 @@ This directory contains the NGINX configuration files for the Cloud Infrastructu
 ## Directory Structure
 
 ```
+
 deployment/nginx/
-├── README.md                  # This documentation file
+├── [README.md](http://readme.md/)                  # This documentation file
 ├── conf.d/                    # Configuration modules
 │   ├── api.conf               # API endpoint routing
 │   ├── monitoring.conf        # Monitoring and health check endpoints
+│   ├── proxy-params.conf      # Common proxy parameters
 │   ├── security-headers.conf  # Symlink to security headers in security/
 │   ├── ssl-params.conf        # Symlink to SSL parameters in security/
 │   ├── ssl.conf               # SSL configuration
@@ -18,19 +20,33 @@ deployment/nginx/
 │   ├── cloud-platform.conf    # Production environment configuration
 │   ├── staging.conf           # Staging environment configuration
 │   └── development.conf       # Development environment configuration
+├── sites-enabled/             # Symlinks to enabled configurations
+│   └── cloud-platform.conf    # Symlink to the active configuration
 ├── includes/                  # Common include files
-│   ├── proxy-params.conf      # Common proxy parameters
 │   ├── cors-headers.conf      # CORS headers
 │   ├── rate-limiting.conf     # Rate limiting configuration
 │   ├── cache-control.conf     # Cache control directives
+│   ├── location.conf          # Common location blocks
 │   └── logging-format.conf    # Custom logging format definitions
 ├── templates/                 # Templates for generating configurations
 │   ├── server.conf.template   # Server block template
+│   ├── api.conf.template      # API configuration template
+│   ├── ssl.conf.template      # SSL configuration template
+│   ├── ssl-params.conf.template # SSL parameters template
+│   ├── monitoring.conf.template # Monitoring endpoints template
+│   ├── proxy-params.conf.template # Proxy parameters template
+│   ├── websocket.conf.template # WebSocket configuration template
+│   ├── upstream.conf.template  # Upstream configuration template
 │   └── location.conf.template # Location block template
+├── security/                  # Security-specific configurations
+│   ├── modsecurity.conf       # ModSecurity WAF configuration
+│   └── waf-rules/             # Custom WAF rules directory
 └── scripts/                   # Utility scripts
-    ├── generate-config.py     # Generate environment-specific configs
-    ├── test-config.sh         # Test NGINX configuration
-    └── install-configs.sh     # Install NGINX configurations
+├── [generate-config.py](http://generate-config.py/)     # Generate environment-specific configs
+├── [nginx-reload.sh](http://nginx-reload.sh/)        # Safely reload NGINX configuration
+├── [test-config.sh](http://test-config.sh/)         # Test NGINX configuration
+├── [setup-modsecurity.sh](http://setup-modsecurity.sh/)   # Set up ModSecurity WAF
+└── [install-configs.sh](http://install-configs.sh/)     # Install NGINX configurations
 
 ```
 
@@ -41,129 +57,71 @@ The NGINX configuration follows a modular approach with the following components
 1. **Server Blocks**: Defined in `sites-available/` with environment-specific configurations
 2. **Configuration Modules**: Common configurations in `conf.d/` that are included in server blocks
 3. **Includes**: Reusable configuration snippets in `includes/` for common patterns
-4. **Security**: Security configurations linked from the central security directory
+4. **Templates**: Template files in `templates/` used to generate environment-specific configurations
+5. **Security**: Security configurations and WAF rules in the `security/` directory
 
 ## Security Features
 
 This NGINX configuration implements several security best practices:
 
-- **HTTP Security Headers**: Using symlinks to the central security headers configuration
-- **TLS Hardening**: SSL/TLS configuration following industry best practices
-- **Rate Limiting**: Protection against abuse and DDoS attacks
-- **IP Restrictions**: Limiting access to sensitive endpoints
-- **Content Security Policy**: Preventing XSS attacks
-- **WAF Integration**: Configuration for ModSecurity Web Application Firewall
+1. **TLS Configuration**:
+   - TLS 1.2 and 1.3 only
+   - Strong cipher suites with PFS (Perfect Forward Secrecy)
+   - HSTS (HTTP Strict Transport Security)
+   - OCSP Stapling for certificate revocation checking
 
-## Usage
+2. **HTTP Headers**:
+   - Content-Security-Policy (CSP)
+   - X-Content-Type-Options: nosniff
+   - X-Frame-Options: DENY
+   - X-XSS-Protection: 1; mode=block
+   - Referrer-Policy: strict-origin-when-cross-origin
 
-### Installing Configuration
+3. **Access Control**:
+   - Rate limiting to prevent abuse
+   - IP-based access restrictions for sensitive endpoints
+   - Connection limiting to prevent resource exhaustion
 
-To install the NGINX configuration files:
+4. **WAF Integration**:
+   - ModSecurity integration with OWASP Core Rule Set (CRS)
+   - Custom WAF rules for application-specific protections
 
-```bash
-# Run the installation script
-./scripts/install-configs.sh --environment production
+## Deployment Environments
 
-```
+The configuration supports three deployment environments:
+
+1. **Development**: Optimized for local development with more verbose logging and relaxed security
+2. **Staging**: Similar to production but with specific staging settings and debugging capabilities
+3. **Production**: Full security hardening and performance optimizations
+
+## Using the Configuration
 
 ### Generating Environment-Specific Configurations
 
-To generate configurations for different environments:
-
 ```bash
-# Generate configuration for development environment
-python scripts/generate-config.py --environment development
+# Generate configuration for the specified environment
+./scripts/generate-config.py --environment production
 
-# Generate configuration for staging environment
-python scripts/generate-config.py --environment staging
-
-# Generate configuration for production environment
-python scripts/generate-config.py --environment production
-
-```
-
-### Testing Configuration
-
-Before applying changes to your NGINX server, verify the configuration:
-
-```bash
-# Test the configuration
-./scripts/test-config.sh --environment production
-
-```
-
-## Maintenance
-
-### Updating Security Settings
-
-The security settings can be updated by modifying the appropriate configuration files:
-
-```bash
-# Update TLS configuration
-vim includes/ssl-params.conf
-
-# Update security headers
-vim includes/security-headers.conf
-
-```
-
-### Adding New Domains
-
-To add a new domain:
-
-1. Create a new server block configuration in `sites-available/`
-2. Generate the environment-specific configurations
-3. Test the configuration
-4. Install the updated configuration
-
-```bash
-# Example for adding a new domain
-cp templates/server.conf.template sites-available/new-domain.conf
-vim sites-available/new-domain.conf
-python scripts/generate-config.py --environment production --domain new-domain
+# Test the generated configuration
 ./scripts/test-config.sh
-./scripts/install-configs.sh --environment production
+
+# Install the configuration
+./scripts/install-configs.sh
 
 ```
 
-## Monitoring and Troubleshooting
+### Modifying the Configuration
 
-### Viewing Logs
+1. Edit the template files in the `templates/` directory
+2. Run the generation script to create updated configurations
+3. Test and install the new configurations
 
-Access logs are in a standardized JSON format for easy parsing:
+## Maintenance and Monitoring
 
-```bash
-# View access logs
-tail -f /var/log/nginx/access.log | jq
-
-# View error logs
-tail -f /var/log/nginx/error.log
-
-```
-
-### Common Issues
-
-1. **403 Forbidden**: Check file permissions and ownership
-2. **502 Bad Gateway**: Check upstream server connectivity
-3. **Unable to restart NGINX**: Verify configuration syntax
-
-```bash
-# Quick syntax check
-nginx -t
-
-# Check specific config
-nginx -t -c /path/to/nginx.conf
-
-```
-
-## Performance Optimization
-
-The configuration includes several performance optimizations:
-
-- **Caching**: Static content caching with appropriate Cache-Control headers
-- **Compression**: GZIP/Brotli compression for text-based resources
-- **Connection Pooling**: Optimized keepalive connection settings
-- **Worker Processes**: Automatically scaled based on CPU cores
+- NGINX status and metrics are available at `/nginx_status` for monitoring systems (restricted access)
+- Health check endpoint is available at `/health` for load balancers and monitoring
+- Logs are stored in `/var/log/nginx/` with custom logging formats for easier analysis
+- The [nginx-reload.sh](http://nginx-reload.sh/) script ensures safe reloads without service interruption
 
 ## Contributing
 

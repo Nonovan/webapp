@@ -1,0 +1,214 @@
+# WebSocket Configuration Template for Cloud Infrastructure Platform
+# Template variables:
+# - {{ENVIRONMENT}}: Environment name (development, staging, production)
+# - {{WEBSOCKET_UPSTREAM}}: Name of the WebSocket upstream (default: backend_api)
+# - {{RATE_LIMIT}}: Rate limit for WebSocket connections (requests/second)
+# - {{RATE_LIMIT_BURST}}: WebSocket rate limit burst parameter
+# - {{WS_READ_TIMEOUT}}: WebSocket read timeout in seconds (default: 300)
+# - {{WS_SEND_TIMEOUT}}: WebSocket send timeout in seconds (default: 300)
+# - {{WS_CONNECT_TIMEOUT}}: WebSocket connection timeout in seconds (default: 30)
+# - {{ICS_ALLOWED_IPS}}: Comma-separated list of IPs allowed to access ICS WebSockets
+# - {{ADMIN_ALLOWED_IPS}}: Comma-separated list of IPs allowed to access admin WebSockets
+# - {{LOG_BUFFER_SIZE}}: Buffer size for WebSocket logs (default: 16k)
+# - {{LOG_FLUSH_INTERVAL}}: Flush interval for WebSocket logs (default: 10s)
+# - {{ENABLE_AUTH}}: Whether to enable authentication for WebSockets (true/false)
+# - {{AUTH_ENDPOINT}}: Authentication endpoint for WebSocket connections
+
+# Configuration for standard API WebSocket endpoints
+location /api/ws {
+    # Proxy connection to backend
+    proxy_pass http://{{WEBSOCKET_UPSTREAM}};
+    
+    # HTTP version and WebSocket headers
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    
+    # Standard proxy headers
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    
+    # Extended timeout for WebSocket connections
+    proxy_read_timeout {{WS_READ_TIMEOUT}}s;
+    proxy_send_timeout {{WS_SEND_TIMEOUT}}s;
+    proxy_connect_timeout {{WS_CONNECT_TIMEOUT}}s;
+    
+    # Security settings
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_hide_header X-Powered-By;
+    
+    # Rate limiting zone for WebSocket connections
+    limit_req zone=websocket burst={{RATE_LIMIT_BURST}} nodelay;
+    limit_req_status 429;
+    
+    # Add request tracking
+    proxy_set_header X-Request-ID $request_id;
+    
+    # Authentication (optional)
+    {{#ENABLE_AUTH}}
+    auth_request {{AUTH_ENDPOINT}};
+    auth_request_set $auth_status $upstream_status;
+    error_page 401 403 =403 /api/ws/error;
+    {{/ENABLE_AUTH}}
+    
+    # Add logging for WebSocket connections
+    access_log /var/log/nginx/websocket-access.log main buffer={{LOG_BUFFER_SIZE}} flush={{LOG_FLUSH_INTERVAL}};
+    error_log /var/log/nginx/websocket-error.log warn;
+}
+
+# Configuration for ICS WebSocket endpoints with additional security
+location /api/ics/ws {
+    # IP restriction to allow only specific networks
+    {{#ICS_ALLOWED_IPS}}
+    allow {{.}};
+    {{/ICS_ALLOWED_IPS}}
+    allow 127.0.0.1;        # Always allow localhost
+    deny all;               # Deny everyone else
+    
+    # Proxy connection to backend
+    proxy_pass http://{{WEBSOCKET_UPSTREAM}};
+    
+    # HTTP version and WebSocket headers
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    
+    # Standard proxy headers
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    
+    # Extended timeout for ICS WebSocket connections
+    proxy_read_timeout 600s;
+    proxy_send_timeout 600s;
+    proxy_connect_timeout 60s;
+    
+    # Security settings
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_hide_header X-Powered-By;
+    
+    # Add ICS-specific headers
+    proxy_set_header X-ICS-Source "nginx";
+    proxy_set_header X-ICS-Zone "secure";
+    
+    # Add request tracking
+    proxy_set_header X-Request-ID $request_id;
+    
+    # Add logging for ICS WebSocket connections
+    access_log /var/log/nginx/ics-websocket-access.log main buffer={{LOG_BUFFER_SIZE}} flush={{LOG_FLUSH_INTERVAL}};
+    error_log /var/log/nginx/ics-websocket-error.log warn;
+}
+
+# Admin WebSocket connections (separate for security)
+location /api/admin/ws {
+    # Strict IP restriction - only allow from internal admin networks
+    {{#ADMIN_ALLOWED_IPS}}
+    allow {{.}};
+    {{/ADMIN_ALLOWED_IPS}}
+    allow 127.0.0.1;         # Always allow localhost
+    deny all;                # Deny everyone else
+    
+    # Proxy connection to backend
+    proxy_pass http://{{WEBSOCKET_UPSTREAM}};
+    
+    # HTTP version and WebSocket headers
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    
+    # Standard proxy headers
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    
+    # Extended timeout for admin connections
+    proxy_read_timeout 1800s;  # 30 minutes for admin operations
+    proxy_send_timeout 1800s;
+    proxy_connect_timeout 30s;
+    
+    # Security settings
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_hide_header X-Powered-By;
+    
+    # Add admin headers
+    proxy_set_header X-Admin-Access "true";
+    proxy_set_header X-Privileged "true";
+    
+    # Add request tracking with admin tag
+    proxy_set_header X-Request-ID "admin-${request_id}";
+    
+    # Add logging for admin WebSocket connections (separate log)
+    access_log /var/log/nginx/admin-websocket-access.log main buffer={{LOG_BUFFER_SIZE}} flush=5s;
+    error_log /var/log/nginx/admin-websocket-error.log warn;
+}
+
+# Common authentication endpoint for WebSocket authentication
+{{#ENABLE_AUTH}}
+location = {{AUTH_ENDPOINT}} {
+    internal;
+    proxy_pass http://{{WEBSOCKET_UPSTREAM}}/api/auth/validate;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+    proxy_set_header X-Original-URI $request_uri;
+}
+{{/ENABLE_AUTH}}
+
+# WebSocket error handling
+location = /api/ws/error {
+    internal;
+    default_type application/json;
+    return 403 '{"error":"WebSocket access denied","status":403}';
+}
+
+# Health check endpoint for WebSocket service
+location = /api/ws/health {
+    # Return simple status
+    default_type application/json;
+    return 200 '{"status":"ok","service":"websocket"}';
+}
+
+# Environment-specific configurations
+{{#ENVIRONMENT_DEVELOPMENT}}
+# Development-specific WebSocket endpoints
+location /api/dev/ws {
+    # Allow from any IP in development
+    
+    # Proxy connection to backend
+    proxy_pass http://{{WEBSOCKET_UPSTREAM}};
+    
+    # WebSocket headers
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    
+    # Extended timeout for development
+    proxy_read_timeout 3600s;
+    
+    # Debug logging
+    access_log /var/log/nginx/dev-websocket-access.log main;
+    error_log /var/log/nginx/dev-websocket-error.log debug;
+}
+{{/ENVIRONMENT_DEVELOPMENT}}
+
+# Health check endpoint for WebSocket service
+location = /api/ws/health {
+    # Return simple status
+    default_type application/json;
+    return 200 '{"status":"ok","service":"websocket"}';
+}
+
+# Client-side WebSocket library (if needed)
+location = /js/websocket-client.js {
+    alias {{STATIC_PATH}}/js/websocket-client.js;
+    expires 7d;
+    add_header Cache-Control "public, max-age=604800";
+    add_header X-Content-Type-Options "nosniff" always;
+}

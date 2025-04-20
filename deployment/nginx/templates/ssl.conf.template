@@ -12,6 +12,9 @@
 # - {{SESSION_CACHE_SIZE}}: SSL session cache size
 # - {{ENABLE_TLS13_EARLY_DATA}}: Whether to enable TLS 1.3 early data (true/false)
 # - {{CUSTOM_DNS_RESOLVERS}}: Custom DNS resolvers for OCSP stapling
+# - {{ENABLE_CT}}: Whether to enable Certificate Transparency (true/false)
+# - {{SCT_DIR}}: Path to Certificate Transparency SCT files
+# - {{ENABLE_KTLS}}: Whether to enable Kernel TLS (true/false)
 
 # SSL certificate paths
 ssl_certificate {{CERT_PATH}};
@@ -21,11 +24,11 @@ ssl_certificate_key {{KEY_PATH}};
 ssl_protocols TLSv1.2 TLSv1.3;
 
 # Cipher suite selection (optimized for security and compatibility)
-ssl_prefer_server_ciphers on;
+ssl_prefer_server_ciphers off; # Modern recommendation for TLS 1.2+ is off
 ssl_ciphers "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384";
 
-# Use strong elliptic curve
-ssl_ecdh_curve secp384r1;
+# Use strong elliptic curves
+ssl_ecdh_curve X25519:secp384r1;
 
 # Diffie-Hellman parameters for DHE ciphersuites
 ssl_dhparam {{DHPARAM_PATH}};
@@ -55,33 +58,46 @@ proxy_set_header Early-Data $ssl_early_data;
 ssl_early_data off; # Protect against replay attacks
 {{/ENABLE_TLS13_EARLY_DATA}}
 
+# HTTP Strict Transport Security (HSTS)
+{{#ENABLE_HSTS}}
+add_header Strict-Transport-Security "max-age={{HSTS_MAX_AGE}}{{#ENVIRONMENT_PRODUCTION}}; includeSubDomains; preload{{/ENVIRONMENT_PRODUCTION}}" always;
+{{/ENABLE_HSTS}}
+
+# Certificate Transparency
+{{#ENABLE_CT}}
+ssl_ct on;
+ssl_ct_static_scts {{SCT_DIR}};
+{{/ENABLE_CT}}
+
+# Kernel TLS support for improved performance
+{{#ENABLE_KTLS}}
+ssl_conf_command Options KTLS;
+{{/ENABLE_KTLS}}
+
 # Buffer size optimization
 ssl_buffer_size 4k;
 
-# HTTP Strict Transport Security (HSTS)
-{{#ENABLE_HSTS}}
-add_header Strict-Transport-Security "max-age={{HSTS_MAX_AGE}}; includeSubDomains; preload" always;
-{{/ENABLE_HSTS}}
+# Disable compression on the SSL level to mitigate CRIME attack
+ssl_comp_level 0;
 
-# SSL optimizations for different environments
-{{#ENVIRONMENT_PRODUCTION}}
-# Production-specific settings
-ssl_conf_command Options KTLS; # Enable Kernel TLS if supported by the system
-{{/ENVIRONMENT_PRODUCTION}}
-
+# Environment-specific SSL settings
 {{#ENVIRONMENT_DEVELOPMENT}}
-# Development-specific settings (slightly relaxed for debugging)
+# More verbose SSL logging for development
 error_log /var/log/nginx/ssl-debug.log debug;
 {{/ENVIRONMENT_DEVELOPMENT}}
 
+{{#ENVIRONMENT_STAGING}}
+# Intermediate verification depth for staging
+ssl_verify_depth 2;
+{{/ENVIRONMENT_STAGING}}
+
+{{#ENVIRONMENT_PRODUCTION}}
+# Stricter verification depth for production
+ssl_verify_depth 3;
+{{/ENVIRONMENT_PRODUCTION}}
+
 # Environment indicator for monitoring/debugging
 add_header X-SSL-Environment "{{ENVIRONMENT}}" always;
-
-# Certificate Transparency settings
-{{#ENVIRONMENT_PRODUCTION}}
-ssl_ct on;
-ssl_ct_static_scts /etc/nginx/scts/;
-{{/ENVIRONMENT_PRODUCTION}}
 
 # Client certificate settings (if required)
 {{#CLIENT_CERT_REQUIRED}}

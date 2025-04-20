@@ -1,0 +1,112 @@
+# SSL Parameters Configuration Template for Cloud Infrastructure Platform
+# Template variables:
+# - {{ENVIRONMENT}}: Environment name (development, staging, production)
+# - {{SSL_PROTOCOLS}}: Allowed SSL/TLS protocols (e.g., "TLSv1.2 TLSv1.3")
+# - {{SSL_CIPHERS}}: Allowed cipher suites
+# - {{SSL_PREFER_SERVER_CIPHERS}}: Whether to prefer server ciphers (on/off)
+# - {{SSL_SESSION_CACHE_SIZE}}: Size of SSL session cache (e.g., "10m")
+# - {{SSL_SESSION_TIMEOUT}}: SSL session timeout (e.g., "1d")
+# - {{TRUSTED_CA_PATH}}: Path to trusted CA certificate for OCSP stapling
+# - {{CUSTOM_DNS_RESOLVERS}}: Custom DNS resolvers (e.g., "1.1.1.1 8.8.8.8")
+# - {{DHPARAM_PATH}}: Path to Diffie-Hellman parameters
+# - {{ENABLE_HSTS}}: Whether to enable HSTS (true/false)
+# - {{HSTS_MAX_AGE}}: HSTS max-age value in seconds
+# - {{ENABLE_CT}}: Whether to enable Certificate Transparency (true/false)
+# - {{SCT_DIR}}: Path to Certificate Transparency SCT files
+# - {{ENABLE_KTLS}}: Whether to enable Kernel TLS (true/false)
+# - {{CLIENT_CA_PATH}}: Path to client CA certificate
+# - {{VERIFY_CLIENT_CERT}}: Client certificate verification mode
+
+# Protocol settings - only allow TLS 1.2 and 1.3 for improved security
+ssl_protocols {{SSL_PROTOCOLS}};
+
+# Cipher suite selection (optimized for security and compatibility)
+ssl_prefer_server_ciphers {{SSL_PREFER_SERVER_CIPHERS}};
+ssl_ciphers "{{SSL_CIPHERS}}";
+
+# Use strong elliptic curves
+ssl_ecdh_curve X25519:secp384r1;
+
+# SSL session settings for performance optimization
+ssl_session_cache shared:SSL:{{SSL_SESSION_CACHE_SIZE}};
+ssl_session_timeout {{SSL_SESSION_TIMEOUT}};
+ssl_session_tickets off; # Disable tickets for better security
+
+# OCSP Stapling for improved performance and privacy
+ssl_stapling on;
+ssl_stapling_verify on;
+ssl_trusted_certificate {{TRUSTED_CA_PATH}};
+
+# DNS resolvers for OCSP stapling
+resolver {{CUSTOM_DNS_RESOLVERS}} valid=300s;
+resolver_timeout 5s;
+
+# Diffie-Hellman parameters for DHE ciphersuites
+ssl_dhparam {{DHPARAM_PATH}};
+
+# HTTP Strict Transport Security
+{{#ENABLE_HSTS}}
+add_header Strict-Transport-Security "max-age={{HSTS_MAX_AGE}}; includeSubDomains; preload" always;
+{{/ENABLE_HSTS}}
+
+# Buffer size optimization
+ssl_buffer_size 4k;
+
+# Early data for TLS 1.3 (disabled to prevent replay attacks)
+ssl_early_data off;
+
+# Protection against BEAST attack (modern recommendation with TLS 1.2+ only)
+{{#ENVIRONMENT_PRODUCTION}}
+ssl_prefer_server_ciphers off;
+{{/ENVIRONMENT_PRODUCTION}}
+{{^ENVIRONMENT_PRODUCTION}}
+# Development environments may need different settings
+ssl_prefer_server_ciphers on;
+{{/ENVIRONMENT_PRODUCTION}}
+
+# Disable compression on the SSL level as compression can lead to CRIME attack
+ssl_comp_level 0;
+
+# Certificate Transparency reporting
+{{#ENABLE_CT}}
+ssl_ct on;
+ssl_ct_static_scts {{SCT_DIR}};
+{{/ENABLE_CT}}
+
+# X.509 security settings
+{{#ENABLE_KTLS}}
+ssl_conf_command Options KTLS; # Enable Kernel TLS if supported by the system
+{{/ENABLE_KTLS}}
+
+# Client certificate settings
+ssl_client_certificate {{CLIENT_CA_PATH}};
+ssl_verify_client {{VERIFY_CLIENT_CERT}};
+
+# Environment-specific SSL settings
+{{#ENVIRONMENT_DEVELOPMENT}}
+# More verbose SSL logging for development
+error_log /var/log/nginx/ssl-debug.log debug;
+# Allow more lenient ciphers for development
+ssl_prefer_server_ciphers on;
+{{/ENVIRONMENT_DEVELOPMENT}}
+
+{{#ENVIRONMENT_STAGING}}
+# Staging-specific SSL settings
+ssl_verify_depth 2;
+# HSTS with shorter max-age for staging
+add_header Strict-Transport-Security "max-age=2592000" always;
+{{/ENVIRONMENT_STAGING}}
+
+{{#ENVIRONMENT_PRODUCTION}}
+# Production-specific SSL settings - stricter
+ssl_verify_depth 3;
+# Longer HSTS for production with preload
+add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+{{/ENVIRONMENT_PRODUCTION}}
+
+# Enhanced security headers
+add_header X-Content-Type-Options "nosniff" always;
+add_header X-Frame-Options "DENY" always;
+
+# Log SSL errors with proper verbosity
+error_log /var/log/nginx/ssl-error.log warn;

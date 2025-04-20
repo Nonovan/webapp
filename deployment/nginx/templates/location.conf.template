@@ -5,8 +5,11 @@
 # - {{API_UPSTREAM}}: Name of the API upstream
 # - {{ENVIRONMENT}}: Environment name (development, staging, production)
 # - {{RATE_LIMIT}}: Rate limit value based on environment
+# - {{STATIC_MAX_AGE}}: Cache max-age for static files in seconds
+# - {{CACHE_CONTROL}}: Cache-Control header value for main application
 # - {{CACHE_DURATION}}: Cache duration based on environment
 # - {{ICS_RESTRICTED_IPS}}: Comma-separated list of IPs for ICS restrictions
+# - {{CSP_NONCE_VAR}}: Variable name for CSP nonce (default: $csp_nonce)
 
 # Main application location
 location / {
@@ -18,103 +21,231 @@ location / {
     include conf.d/security-headers.conf;
     
     # Environment-specific cache control
-    add_header Cache-Control "{{CACHE_CONTROL}}";
+    add_header Cache-Control "{{CACHE_CONTROL}}" always;
     
     # Set environment indicator for the frontend
     add_header X-Environment "{{ENVIRONMENT}}" always;
+    
+    # Ensure HTML files are never cached in non-production environments
+    {{^ENVIRONMENT_PRODUCTION}}
+    location ~ \.html$ {
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate" always;
+        expires -1;
+    }
+    {{/ENVIRONMENT_PRODUCTION}}
 }
 
 # Static files
 location /static/ {
     alias {{STATIC_PATH}}/;
     expires {{CACHE_DURATION}};
-    add_header Cache-Control "public, max-age={{STATIC_MAX_AGE}}, immutable";
+    add_header Cache-Control "public, max-age={{STATIC_MAX_AGE}}, immutable" always;
     
     # Basic security headers
     add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
     
     # Disable directory listing
     autoindex off;
     
-    # Access control
-    location ~ \.(env|config|ini|conf|md|sql|json|yml|yaml)$ {
+    # Access control - deny sensitive files
+    location ~ \.(env|config|ini|conf|md|sql|json|yml|yaml|log|sh|bak|dist|tpl)$ {
         deny all;
         return 404;
+    }
+    
+    # Add specific handling for fonts to allow cross-origin access
+    location ~* \.(eot|ttf|woff|woff2)$ {
+        add_header Access-Control-Allow-Origin "*";
+        add_header Cache-Control "public, max-age={{STATIC_MAX_AGE}}" always;
+    }
+    
+    # Optimize SVG, images and video files
+    location ~* \.(svg|jpg|jpeg|png|gif|ico|webp|mp4|webm)$ {
+        add_header Cache-Control "public, max-age={{STATIC_MAX_AGE}}, immutable" always;
+        try_files $uri =404;
+    }
+    
+    # JavaScript and CSS
+    location ~* \.(js|css)$ {
+        add_header Cache-Control "public, max-age={{STATIC_MAX_AGE}}, immutable" always;
     }
 }
 
 # API endpoint
 location /api/ {
-    proxy_pass http://{{API_UPSTREAM}};
-    include conf.d/proxy-params.conf;
-    
     # Rate limiting
-    limit_req zone=api burst={{RATE_LIMIT_BURST}} {{RATE_LIMIT_MODE}};
+    limit_req zone=api_limit burst={{RATE_LIMIT}} nodelay;
+    limit_req_status 429;
     
-    # Security headers
-    include conf.d/security-headers.conf;
-    
-    # API-specific headers
-    add_header X-API-Version "{{API_VERSION}}" always;
-    
-    # Override timeout for API requests
-    proxy_read_timeout {{API_TIMEOUT}}s;
-    proxy_connect_timeout {{API_CONNECT_TIMEOUT}}s;
-}
-
-# Industrial Control Systems endpoint
-location /api/ics/ {
-    # IP restriction based on environment configuration
-    {{#ICS_RESTRICTED_IPS}}
-    allow {{.}};
-    {{/ICS_RESTRICTED_IPS}}
-    deny all;
-    
-    proxy_pass http://{{API_UPSTREAM}};
+    # Include common proxy parameters
     include conf.d/proxy-params.conf;
     
-    # Extended timeout for ICS operations
-    proxy_read_timeout {{ICS_TIMEOUT}}s;
+    # Proxy to API upstream
+    proxy_pass http://{{API_UPSTREAM}};
+    
+    # Set timeouts
+    proxy_read_timeout 60s;
+    proxy_connect_timeout 10s;
+    proxy_send_timeout 60s;
+    
+    # Security headers for API
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    
+    # Prevent caching of API responses by default
+    add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate" always;
+    add_header Pragma "no-cache" always;
+    expires -1;
+    
+    # Add request tracking header
+    proxy_set_header X-Request-ID $request_id;
 }
 
-# Authentication endpoints
+# Authentication endpoints with stricter rate limiting
 location /api/auth/ {
     proxy_pass http://{{API_UPSTREAM}};
     include conf.d/proxy-params.conf;
     
     # Apply stricter rate limiting for auth endpoints
-    limit_req zone=auth_limit burst={{AUTH_RATE_LIMIT_BURST}} nodelay;
+    limit_req zone=auth_limit burst=5 nodelay;
+    limit_req_status 429;
     
-    # Specific security headers for auth endpoints
-    include conf.d/security-headers.conf;
-    add_header X-Auth-Protection "strict" always;
+    # Additional security headers for auth endpoints
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    add_header Pragma "no-cache" always;
+    
+    # Prevent credential caching
+    proxy_no_cache 1;
+    proxy_cache_bypass 1;
+}
+
+# WebSocket configuration
+location /api/ws {
+    proxy_pass http://{{API_UPSTREAM}};
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 3600s;
+    
+    # Add IP forwarding headers
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    
+    # Security headers for WebSocket
+    proxy_hide_header X-Powered-By;
+    add_header X-Content-Type-Options "nosniff" always;
+}
+
+# Uploads directory with restricted access
+location /uploads/ {
+    alias {{APP_ROOT}}/uploads/;
+    
+    # Implement correct MIME types
+    include conf.d/mime.types;
+    
+    # Prevent direct access to sensitive file types
+    location ~ \.(php|py|pl|sh|env|ini)$ {
+        deny all;
+        return 404;
+    }
 }
 
 # Health check endpoint
 location = /health {
-    {{#INTERNAL_HEALTH_CHECK}}
-    # Restrict to internal networks in production
+    access_log off;
+    add_header Content-Type application/json;
+    return 200 '{"status":"ok","environment":"{{ENVIRONMENT}}"}';
+}
+
+# Industrial Control Systems (ICS) endpoints with restricted access
+{{#ICS_ENABLED}}
+location /api/ics/ {
+    # IP restrictions for ICS endpoints
+    {{#ICS_RESTRICTED_IPS}}
+    allow {{.}};
+    {{/ICS_RESTRICTED_IPS}}
+    allow 127.0.0.1;
+    deny all;
+    
+    # Include common proxy parameters
+    include conf.d/proxy-params.conf;
+    
+    # Proxy to API upstream
+    proxy_pass http://{{API_UPSTREAM}};
+    
+    # Extended timeouts for ICS operations
+    proxy_read_timeout 300s;
+    proxy_connect_timeout 10s;
+    proxy_send_timeout 60s;
+    
+    # Security headers
+    include conf.d/security-headers.conf;
+    
+    # Logging
+    access_log /var/log/nginx/ics-access.log main buffer=16k flush=10s;
+    error_log /var/log/nginx/ics-error.log warn;
+}
+{{/ICS_ENABLED}}
+
+# Deny access to hidden files and directories
+location ~ /\. {
+    deny all;
+    access_log off;
+    log_not_found off;
+}
+
+# Deny access to configuration files
+location ~* \.(env|config|ini|conf|md|sql|log|yml|yaml|sample)$ {
+    deny all;
+    return 404;
+}
+
+# Let's Encrypt validation
+location /.well-known/acme-challenge/ {
+    root /var/www/html;
+    allow all;
+}
+
+# Custom error pages
+location = /404.html {
+    root {{APP_ROOT}}/public/error-pages;
+    internal;
+}
+
+location = /50x.html {
+    root {{APP_ROOT}}/public/error-pages;
+    internal;
+}
+
+location = /429.html {
+    root {{APP_ROOT}}/public/error-pages;
+    internal;
+}
+
+# Metrics endpoint with restricted access
+location = /api/metrics {
+    # Allow only internal networks
     allow 127.0.0.1;
     allow 10.0.0.0/8;
     allow 172.16.0.0/12;
     allow 192.168.0.0/16;
     deny all;
-    {{/INTERNAL_HEALTH_CHECK}}
     
-    # Return status directly from NGINX
-    return 200 "OK\nEnvironment: {{ENVIRONMENT}}\nVersion: {{APP_VERSION}}\n";
+    proxy_pass http://{{API_UPSTREAM}};
+    include conf.d/proxy-params.conf;
+}
+
+# Robots.txt - different per environment
+location = /robots.txt {
+    {{#ENVIRONMENT_PRODUCTION}}
+    alias {{STATIC_PATH}}/robots.production.txt;
+    {{/ENVIRONMENT_PRODUCTION}}
+    {{^ENVIRONMENT_PRODUCTION}}
     add_header Content-Type text/plain;
-}
-
-# Error pages
-error_page 404 /404.html;
-location = /404.html {
-    root {{STATIC_PATH}}/error;
-    internal;
-}
-
-error_page 500 502 503 504 /50x.html;
-location = /50x.html {
-    root {{STATIC_PATH}}/error;
-    internal;
+    return 200 "User-agent: *\nDisallow: /\n";
+    {{/ENVIRONMENT_PRODUCTION}}
 }

@@ -1,0 +1,347 @@
+# Monitoring Configuration Template for Cloud Infrastructure Platform
+# Template variables:
+# - {{MONITORING_UPSTREAM}}: Name of the monitoring backend (default: monitoring_backend)
+# - {{METRICS_ALLOWED_IPS}}: Comma-separated list of IPs allowed to access metrics
+# - {{MONITORING_ALLOWED_IPS}}: Comma-separated list of IPs allowed to access monitoring
+# - {{ADMIN_ALLOWED_IPS}}: Comma-separated list of IPs allowed to access admin endpoints
+# - {{ENABLE_METRICS_AUTHENTICATION}}: Whether to require authentication for metrics endpoints (true/false)
+# - {{HEALTH_CHECK_TIMEOUT}}: Timeout for health checks in seconds
+# - {{METRICS_LOG_LEVEL}}: Log level for metrics endpoints (debug, info, warn, error)
+# - {{MONITORING_LOG_BUFFER}}: Buffer size for monitoring logs (default: 16k)
+# - {{MONITORING_LOG_FLUSH}}: Flush interval for monitoring logs (default: 10s)
+# - {{ENVIRONMENT}}: Environment name (development, staging, production)
+# - {{MODSEC_ENABLED}}: Whether ModSecurity WAF is enabled (true/false)
+
+# Upstream definition for monitoring backend
+upstream {{MONITORING_UPSTREAM}} {
+    # Default to same backend as API but can be separate if needed
+    server 127.0.0.1:5000;
+    
+    # Keepalive connections for better performance
+    keepalive 16;
+    keepalive_timeout 60s;
+}
+
+# Prometheus metrics endpoint
+location /metrics {
+    # Restrict access to internal networks only
+    {{#METRICS_ALLOWED_IPS}}
+    allow {{.}};
+    {{/METRICS_ALLOWED_IPS}}
+    allow 127.0.0.1;       # Always allow localhost
+    deny all;              # Deny everyone else
+    
+    # No caching for metrics
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    add_header Pragma "no-cache" always;
+    
+    # Hide Prometheus version
+    proxy_hide_header X-Prometheus-Api-Version;
+    
+    {{#ENABLE_METRICS_AUTHENTICATION}}
+    # Optional authentication for metrics
+    auth_request /auth/metrics;
+    error_page 401 =401 /401.html;
+    auth_request_set $auth_status $upstream_status;
+    {{/ENABLE_METRICS_AUTHENTICATION}}
+    
+    # Proxy to application metrics endpoint
+    proxy_pass http://{{MONITORING_UPSTREAM}}/api/metrics;
+    include conf.d/proxy-params.conf;
+    
+    # Set appropriate timeouts for metrics collection
+    proxy_read_timeout 30s;
+    proxy_connect_timeout 10s;
+    proxy_send_timeout 30s;
+    
+    # Log metrics access separately
+    access_log /var/log/nginx/metrics-access.log main buffer={{MONITORING_LOG_BUFFER}} flush={{MONITORING_LOG_FLUSH}};
+    error_log /var/log/nginx/metrics-error.log {{METRICS_LOG_LEVEL}};
+}
+
+# Health check and monitoring endpoints
+location /monitoring/ {
+    # Apply auth validation
+    auth_request /auth/validate;
+    error_page 401 =401 /401.html;  # Custom error page for unauthorized access
+    auth_request_set $auth_status $upstream_status;
+    
+    # Add request ID for traceability
+    proxy_set_header X-Request-ID $request_id;
+    
+    # Admin-only access with rate limiting
+    limit_req zone=api_limit burst=10 nodelay;
+    limit_req_status 429;  # Return appropriate status code when rate limited
+    
+    # Pass to backend
+    proxy_pass http://{{MONITORING_UPSTREAM}}/api/monitoring/;
+    include conf.d/proxy-params.conf;
+    
+    # Realtime data should not be cached
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    add_header Pragma "no-cache" always;
+    
+    # Add security headers
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    
+    # Websocket support for real-time monitoring
+    location /monitoring/ws {
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_read_timeout 3600s;  # Long timeout for monitoring websockets
+        
+        # IP forwarding
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Proxy to backend
+        proxy_pass http://{{MONITORING_UPSTREAM}};
+    }
+    
+    # Set monitoring-specific timeout
+    proxy_read_timeout 60s;
+    proxy_connect_timeout 10s;
+    proxy_send_timeout 60s;
+    
+    # Log monitoring access separately
+    access_log /var/log/nginx/monitoring-access.log main buffer={{MONITORING_LOG_BUFFER}} flush={{MONITORING_LOG_FLUSH}};
+    error_log /var/log/nginx/monitoring-error.log {{METRICS_LOG_LEVEL}};
+}
+
+# Simple health check endpoint for load balancers and monitoring systems
+location = /health {
+    # Allow access from anywhere (public endpoint)
+    access_log /var/log/nginx/health-access.log main buffer=4k flush=1m;
+    
+    # For simple health checks, just return OK
+    {{#ENVIRONMENT_PRODUCTION}}
+    # In production, only send minimal information
+    default_type application/json;
+    return 200 '{"status":"ok"}';
+    {{/ENVIRONMENT_PRODUCTION}}
+    
+    {{^ENVIRONMENT_PRODUCTION}}
+    # In non-production, use real backend health check
+    proxy_pass http://{{MONITORING_UPSTREAM}}/api/health;
+    include conf.d/proxy-params.conf;
+    proxy_read_timeout {{HEALTH_CHECK_TIMEOUT}}s;
+    {{/ENVIRONMENT_PRODUCTION}}
+}
+
+# Detailed health check endpoint (protected)
+location = /health/details {
+    # Restrict access to internal networks only
+    {{#MONITORING_ALLOWED_IPS}}
+    allow {{.}};
+    {{/MONITORING_ALLOWED_IPS}}
+    allow 127.0.0.1;
+    deny all;
+    
+    # Pass to backend for detailed health information
+    proxy_pass http://{{MONITORING_UPSTREAM}}/api/health/details;
+    include conf.d/proxy-params.conf;
+    
+    # Appropriate timeout for detailed health checks
+    proxy_read_timeout {{HEALTH_CHECK_TIMEOUT}}s;
+    proxy_connect_timeout 5s;
+    
+    # No caching for health checks
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    add_header Pragma "no-cache" always;
+    
+    # Log detailed health checks
+    access_log /var/log/nginx/health-details-access.log main buffer=4k flush=1m;
+}
+
+# Component status endpoint for internal use
+location /health/status {
+    # Restrict access
+    {{#MONITORING_ALLOWED_IPS}}
+    allow {{.}};
+    {{/MONITORING_ALLOWED_IPS}}
+    allow 127.0.0.1;
+    deny all;
+    
+    # Pass request to backend
+    proxy_pass http://{{MONITORING_UPSTREAM}}/api/health/status;
+    include conf.d/proxy-params.conf;
+    
+    # Set reasonable timeout for status checks
+    proxy_read_timeout 30s;
+    
+    # No caching
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+}
+
+{{#MODSEC_ENABLED}}
+# WAF status endpoint for ModSecurity
+location = /health/waf {
+    {{#MONITORING_ALLOWED_IPS}}
+    allow {{.}};
+    {{/MONITORING_ALLOWED_IPS}}
+    allow 127.0.0.1;
+    deny all;
+    
+    # Return ModSecurity status
+    return 200 "ModSecurity: $modsec_status";
+    add_header Content-Type text/plain;
+}
+{{/MODSEC_ENABLED}}
+
+# Performance debugging endpoints - admin only
+location /monitoring/debug/ {
+    # Strict access control - admin IPs only
+    {{#ADMIN_ALLOWED_IPS}}
+    allow {{.}};
+    {{/ADMIN_ALLOWED_IPS}}
+    allow 127.0.0.1;
+    deny all;
+    
+    # Auth required
+    auth_request /auth/validate-admin;
+    auth_request_set $auth_status $upstream_status;
+    
+    # Pass to backend
+    proxy_pass http://{{MONITORING_UPSTREAM}}/api/monitoring/debug/;
+    include conf.d/proxy-params.conf;
+    
+    # No caching for debug info
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    
+    # Extended timeout for debug operations
+    proxy_read_timeout 300s;
+}
+
+# Allow access to security scanning endpoints with specific API key
+location /monitoring/security-scan {
+    # Check for valid scan token (defined in nginx.conf)
+    if ($http_x_security_token != $security_scan_token) {
+        return 403;
+    }
+    
+    # Pass to backend
+    proxy_pass http://{{MONITORING_UPSTREAM}}/api/security-scan;
+    include conf.d/proxy-params.conf;
+    
+    # Increase timeout for security scans
+    proxy_read_timeout 300s;
+    proxy_connect_timeout 10s;
+    proxy_send_timeout 60s;
+    
+    # Log scans separately
+    access_log /var/log/nginx/security-scan-access.log main;
+    error_log /var/log/nginx/security-scan-error.log notice;
+}
+
+# Status page for external monitoring systems
+location = /status {
+    # This endpoint shows high-level status without exposing details
+    proxy_pass http://{{MONITORING_UPSTREAM}}/api/monitoring/public-status;
+    include conf.d/proxy-params.conf;
+    
+    {{#ENVIRONMENT_PRODUCTION}}
+    # Cache status for 1 minute in production
+    proxy_cache api_cache;
+    proxy_cache_valid 200 1m;
+    add_header X-Cache-Status $upstream_cache_status always;
+    {{/ENVIRONMENT_PRODUCTION}}
+    
+    # Security headers
+    include conf.d/security-headers.conf;
+    
+    # Set appropriate timeouts
+    proxy_read_timeout 30s;
+    proxy_connect_timeout 5s;
+    proxy_send_timeout 10s;
+    
+    # Additional logging
+    access_log /var/log/nginx/status-access.log main buffer=4k flush=1m;
+}
+
+# Alert webhook endpoints - allow monitoring tools to trigger alerts
+location /monitoring/alert-hook {
+    # Restrict to authorized systems
+    {{#MONITORING_ALLOWED_IPS}}
+    allow {{.}};
+    {{/MONITORING_ALLOWED_IPS}}
+    allow 127.0.0.1;
+    deny all;
+    
+    # JSON only
+    if ($content_type !~ application/json) {
+        return 415;  # Unsupported Media Type
+    }
+    
+    # Rate limiting to prevent abuse
+    limit_req zone=webhooks burst=10 nodelay;
+    limit_req_status 429;
+    
+    # Pass to backend
+    proxy_pass http://{{MONITORING_UPSTREAM}}/api/alerts/webhook;
+    include conf.d/proxy-params.conf;
+    
+    # Proper timeouts for webhook processing
+    proxy_read_timeout 60s;
+    proxy_connect_timeout 5s;
+    proxy_send_timeout 10s;
+    
+    # Add request tracking
+    proxy_set_header X-Request-ID $request_id;
+    proxy_set_header X-Webhook-Source "external-monitoring";
+    
+    # Require HTTPS for security
+    if ($scheme != "https") {
+        return 400 "HTTPS required";
+    }
+    
+    # Enhanced logging for alerts
+    access_log /var/log/nginx/alert-webhook-access.log main buffer=4k flush=5s;
+    error_log /var/log/nginx/alert-webhook-error.log notice;
+}
+
+# Authentication endpoint for monitoring auth (internal use only)
+location = /auth/metrics {
+    internal;
+    proxy_pass http://{{MONITORING_UPSTREAM}}/api/auth/validate-metrics;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+    proxy_set_header X-Original-URI $request_uri;
+}
+
+# Authentication endpoint for admin validation (internal use only)
+location = /auth/validate-admin {
+    internal;
+    proxy_pass http://{{MONITORING_UPSTREAM}}/api/auth/validate-admin;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+    proxy_set_header X-Original-URI $request_uri;
+}
+
+# Monitoring error pages
+error_page 500 502 503 504 =503 /50x-monitoring.html;
+location = /50x-monitoring.html {
+    root /var/www/{{APP_NAME}}/static/error;
+    internal;
+    add_header Content-Type text/html;
+    add_header Cache-Control "no-store" always;
+}
+
+# Environment-specific monitoring features
+{{#ENVIRONMENT_DEVELOPMENT}}
+# Debug-only endpoints for development
+location /monitoring/dev/ {
+    allow 127.0.0.1;
+    deny all;
+    
+    proxy_pass http://{{MONITORING_UPSTREAM}}/api/monitoring/dev/;
+    include conf.d/proxy-params.conf;
+    
+    # Very verbose logging
+    error_log /var/log/nginx/monitoring-dev-error.log debug;
+}
+{{/ENVIRONMENT_DEVELOPMENT}}

@@ -1,0 +1,294 @@
+# API Configuration Template for Cloud Infrastructure Platform
+# Template variables:
+# - {{API_UPSTREAM}}: Name of the API upstream (default: backend_api)
+# - {{RATE_LIMIT}}: Rate limit for API requests (requests/second)
+# - {{RATE_LIMIT_BURST}}: API rate limit burst parameter
+# - {{AUTH_RATE_LIMIT}}: Rate limit for authentication endpoints
+# - {{AUTH_RATE_LIMIT_BURST}}: Auth rate limit burst parameter
+# - {{WEBSOCKET_RATE_LIMIT}}: Rate limit for WebSockets
+# - {{WEBHOOK_RATE_LIMIT}}: Rate limit for webhooks
+# - {{API_CONN_LIMIT}}: Connection limit for API
+# - {{API_TIMEOUT}}: API request timeout in seconds
+# - {{CACHE_ENABLED}}: Whether to enable caching (true/false)
+# - {{CACHE_DURATION}}: Cache duration for cacheable endpoints
+# - {{ENVIRONMENT}}: Environment name (development, staging, production)
+# - {{ICS_ALLOWED_IPS}}: Comma-separated list of IPs allowed to access ICS endpoints
+# - {{ADMIN_ALLOWED_IPS}}: Comma-separated list of IPs allowed to access admin endpoints
+# - {{ENABLE_WEBSOCKETS}}: Whether to enable WebSocket support (true/false)
+
+# API rate limiting zones
+limit_req_zone $binary_remote_addr zone=api_limit:10m rate={{RATE_LIMIT}}r/s;
+limit_req_zone $binary_remote_addr zone=auth_limit:10m rate={{AUTH_RATE_LIMIT}}r/s;
+limit_req_zone $binary_remote_addr zone=websocket:5m rate={{WEBSOCKET_RATE_LIMIT}}r/s;
+limit_req_zone $binary_remote_addr zone=webhooks:10m rate={{WEBHOOK_RATE_LIMIT}}r/s;
+limit_conn_zone $binary_remote_addr zone=api_conn:10m;
+
+# Main API endpoint configuration
+location /api/ {
+    # Include common proxy parameters
+    include conf.d/proxy-params.conf;
+    
+    # Apply rate limiting with burst
+    limit_req zone=api_limit burst={{RATE_LIMIT_BURST}} nodelay;
+    limit_conn api_conn {{API_CONN_LIMIT}};
+    
+    # Add API request ID for tracing
+    proxy_set_header X-Request-ID $request_id;
+    
+    # Security headers
+    include conf.d/security-headers.conf;
+    
+    # Proxy to backend
+    proxy_pass http://{{API_UPSTREAM}};
+    
+    # Override timeout for API requests
+    proxy_read_timeout {{API_TIMEOUT}}s;
+    proxy_connect_timeout 30s;
+    proxy_send_timeout 60s;
+    
+    # Log API requests with request_id
+    access_log /var/log/nginx/api-access.log main buffer=16k flush=10s;
+    error_log /var/log/nginx/api-error.log warn;
+}
+
+# Authentication endpoints with stricter rate limiting
+location /api/auth/ {
+    # Include common proxy parameters
+    include conf.d/proxy-params.conf;
+    
+    # Apply stricter rate limiting for auth endpoints
+    limit_req zone=auth_limit burst={{AUTH_RATE_LIMIT_BURST}} nodelay;
+    limit_req_status 429;
+    
+    # Add request ID for tracing
+    proxy_set_header X-Request-ID $request_id;
+    
+    # Additional security headers for auth endpoints
+    include conf.d/security-headers.conf;
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    add_header Pragma "no-cache" always;
+    
+    # Proxy to backend
+    proxy_pass http://{{API_UPSTREAM}};
+    
+    # Shorter timeout for authentication requests
+    proxy_read_timeout 30s;
+    proxy_connect_timeout 10s;
+    proxy_send_timeout 10s;
+    
+    # Prevent caching of sensitive auth data
+    proxy_no_cache 1;
+    proxy_cache_bypass 1;
+    
+    # Log auth requests with higher verbosity
+    access_log /var/log/nginx/auth-access.log main buffer=4k flush=5s;
+    error_log /var/log/nginx/auth-error.log warn;
+}
+
+{{#ENABLE_WEBSOCKETS}}
+# WebSocket endpoint configuration
+location /api/ws {
+    # WebSocket support
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    
+    # Add request ID for tracing
+    proxy_set_header X-Request-ID $request_id;
+    
+    # IP forwarding
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    
+    # WebSockets need a longer timeout
+    proxy_read_timeout 3600s;
+    
+    # Apply rate limiting specific to WebSockets
+    limit_req zone=websocket burst=30 nodelay;
+    
+    # Proxy to backend
+    proxy_pass http://{{API_UPSTREAM}};
+    
+    # Log WebSocket connections
+    access_log /var/log/nginx/websocket-access.log main;
+    error_log /var/log/nginx/websocket-error.log warn;
+}
+{{/ENABLE_WEBSOCKETS}}
+
+# Webhook endpoints with dedicated rate limiting
+location /api/webhooks/ {
+    include conf.d/proxy-params.conf;
+    
+    # Custom rate limiting for webhooks
+    limit_req zone=webhooks burst=30 nodelay;
+    
+    # Add webhook request ID for tracing
+    proxy_set_header X-Request-ID $request_id;
+    proxy_set_header X-Webhook-Source $http_user_agent;
+    
+    # Security headers
+    include conf.d/security-headers.conf;
+    
+    # Proxy to backend
+    proxy_pass http://{{API_UPSTREAM}};
+    
+    # Extended timeout for webhook processing
+    proxy_read_timeout 90s;
+    proxy_connect_timeout 10s;
+    proxy_send_timeout 30s;
+    
+    # Log webhook requests separately
+    access_log /var/log/nginx/webhook-access.log main buffer=16k flush=10s;
+    error_log /var/log/nginx/webhook-error.log warn;
+}
+
+# Health check endpoint without rate limiting
+location = /api/health {
+    # No rate limiting for health checks
+    
+    # Include minimal proxy parameters
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    
+    # Add request ID
+    proxy_set_header X-Request-ID $request_id;
+    
+    # Proxy to backend
+    proxy_pass http://{{API_UPSTREAM}};
+    
+    # Short timeout for health checks
+    proxy_read_timeout 5s;
+    proxy_connect_timeout 2s;
+    proxy_send_timeout 2s;
+    
+    # Prevent caching of health check responses
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    
+    # Reduce logging for health checks to avoid log spam
+    access_log /var/log/nginx/health-access.log main buffer=4k flush=60s;
+    error_log /var/log/nginx/health-error.log error;
+}
+
+# API documentation endpoint
+location = /api/docs {
+    # Allow documentation without rate limiting
+    
+    # Include proxy parameters
+    include conf.d/proxy-params.conf;
+    
+    # Proxy to backend
+    proxy_pass http://{{API_UPSTREAM}};
+    
+    {{#CACHE_ENABLED}}
+    # Cache API documentation
+    proxy_cache api_cache;
+    proxy_cache_valid 200 {{CACHE_DURATION}};
+    add_header Cache-Control "public, max-age={{CACHE_DURATION}}" always;
+    add_header X-Cache-Status $upstream_cache_status always;
+    {{/CACHE_ENABLED}}
+    
+    # Log documentation access
+    access_log /var/log/nginx/api-docs-access.log main buffer=4k flush=60s;
+}
+
+# Industrial Control Systems (ICS) endpoints with restricted access
+location /api/ics/ {
+    # Allow only specific IP ranges
+    {{#ICS_ALLOWED_IPS}}
+    allow {{.}};
+    {{/ICS_ALLOWED_IPS}}
+    deny all;
+    
+    # Include proxy parameters
+    include conf.d/proxy-params.conf;
+    
+    # Add request ID for tracing
+    proxy_set_header X-Request-ID $request_id;
+    
+    # Proxy to backend
+    proxy_pass http://{{API_UPSTREAM}};
+    
+    # Extended timeout for ICS operations
+    proxy_read_timeout 300s;
+    proxy_connect_timeout 10s;
+    proxy_send_timeout 60s;
+    
+    # Log ICS access separately
+    access_log /var/log/nginx/ics-access.log main buffer=16k flush=10s;
+    error_log /var/log/nginx/ics-error.log warn;
+}
+
+# Newsletter subscription endpoint
+location /api/newsletter/ {
+    include conf.d/proxy-params.conf;
+    
+    # Anti-spam rate limiting
+    limit_req zone=api_limit burst=5 nodelay;
+    
+    # Proxy to backend
+    proxy_pass http://{{API_UPSTREAM}};
+}
+
+# Cloud provider integration endpoints
+location /api/cloud/ {
+    include conf.d/proxy-params.conf;
+    
+    # Proxy to backend
+    proxy_pass http://{{API_UPSTREAM}};
+    
+    # Longer timeout for cloud operations
+    proxy_read_timeout 120s;
+}
+
+# Protect sensitive API endpoints
+location ~ ^/api/(internal|admin)/ {
+    # Allow access only from internal networks
+    {{#ADMIN_ALLOWED_IPS}}
+    allow {{.}};
+    {{/ADMIN_ALLOWED_IPS}}
+    allow 127.0.0.1;
+    deny all;
+    
+    include conf.d/proxy-params.conf;
+    proxy_pass http://{{API_UPSTREAM}};
+    
+    # Log access to sensitive endpoints
+    access_log /var/log/nginx/api-admin-access.log main buffer=4k flush=5s;
+    error_log /var/log/nginx/api-admin-error.log warn;
+}
+
+# Default API error handling
+error_page 429 /api/rate_limited.json;
+location = /api/rate_limited.json {
+    internal;
+    add_header Content-Type application/json;
+    add_header Retry-After 30;
+    return 429 '{"error": "rate_limit_exceeded", "message": "API rate limit exceeded", "status": 429}';
+}
+
+error_page 502 504 /api/server_error.json;
+location = /api/server_error.json {
+    internal;
+    add_header Content-Type application/json;
+    add_header Retry-After 60;
+    return 502 '{"error": "server_error", "message": "Server temporarily unavailable", "status": 502}';
+}
+
+# Environment-specific configurations
+{{#ENVIRONMENT_DEVELOPMENT}}
+# Development environment: more verbose logging and relaxed rate limits
+location /api/debug/ {
+    # Only available in development
+    include conf.d/proxy-params.conf;
+    proxy_pass http://{{API_UPSTREAM}};
+    
+    # No caching in development
+    add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+    
+    # Very verbose logging
+    access_log /var/log/nginx/api-debug.log main;
+    error_log /var/log/nginx/api-debug-error.log debug;
+}
+{{/ENVIRONMENT_DEVELOPMENT}}
