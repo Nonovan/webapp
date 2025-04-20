@@ -1,0 +1,112 @@
+# SSL Configuration Template for Cloud Infrastructure Platform
+# Template variables:
+# - {{ENVIRONMENT}}: Environment name (development, staging, production)
+# - {{CERT_PATH}}: Path to SSL certificate
+# - {{KEY_PATH}}: Path to private key
+# - {{DHPARAM_PATH}}: Path to Diffie-Hellman parameters
+# - {{HSTS_MAX_AGE}}: HSTS max-age value (in seconds)
+# - {{ENABLE_HSTS}}: Whether to enable HSTS (true/false)
+# - {{ENABLE_OCSP}}: Whether to enable OCSP stapling (true/false)
+# - {{TRUSTED_CERT_PATH}}: Path to trusted certificate (for OCSP)
+# - {{SESSION_TIMEOUT}}: SSL session timeout
+# - {{SESSION_CACHE_SIZE}}: SSL session cache size
+# - {{ENABLE_TLS13_EARLY_DATA}}: Whether to enable TLS 1.3 early data (true/false)
+# - {{CUSTOM_DNS_RESOLVERS}}: Custom DNS resolvers for OCSP stapling
+
+# SSL certificate paths
+ssl_certificate {{CERT_PATH}};
+ssl_certificate_key {{KEY_PATH}};
+
+# Protocol settings - only allow TLS 1.2 and 1.3 (modern security)
+ssl_protocols TLSv1.2 TLSv1.3;
+
+# Cipher suite selection (optimized for security and compatibility)
+ssl_prefer_server_ciphers on;
+ssl_ciphers "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384";
+
+# Use strong elliptic curve
+ssl_ecdh_curve secp384r1;
+
+# Diffie-Hellman parameters for DHE ciphersuites
+ssl_dhparam {{DHPARAM_PATH}};
+
+# SSL session settings for performance optimization
+ssl_session_cache shared:SSL:{{SESSION_CACHE_SIZE}};
+ssl_session_timeout {{SESSION_TIMEOUT}};
+ssl_session_tickets off; # Disable tickets for better security
+
+# OCSP Stapling
+{{#ENABLE_OCSP}}
+ssl_stapling on;
+ssl_stapling_verify on;
+ssl_trusted_certificate {{TRUSTED_CERT_PATH}};
+{{/ENABLE_OCSP}}
+
+# DNS resolvers for OCSP stapling
+resolver {{CUSTOM_DNS_RESOLVERS}} valid=300s;
+resolver_timeout 5s;
+
+# TLS 1.3 specific optimizations
+{{#ENABLE_TLS13_EARLY_DATA}}
+ssl_early_data on;
+proxy_set_header Early-Data $ssl_early_data;
+{{/ENABLE_TLS13_EARLY_DATA}}
+{{^ENABLE_TLS13_EARLY_DATA}}
+ssl_early_data off; # Protect against replay attacks
+{{/ENABLE_TLS13_EARLY_DATA}}
+
+# Buffer size optimization
+ssl_buffer_size 4k;
+
+# HTTP Strict Transport Security (HSTS)
+{{#ENABLE_HSTS}}
+add_header Strict-Transport-Security "max-age={{HSTS_MAX_AGE}}; includeSubDomains; preload" always;
+{{/ENABLE_HSTS}}
+
+# SSL optimizations for different environments
+{{#ENVIRONMENT_PRODUCTION}}
+# Production-specific settings
+ssl_conf_command Options KTLS; # Enable Kernel TLS if supported by the system
+{{/ENVIRONMENT_PRODUCTION}}
+
+{{#ENVIRONMENT_DEVELOPMENT}}
+# Development-specific settings (slightly relaxed for debugging)
+error_log /var/log/nginx/ssl-debug.log debug;
+{{/ENVIRONMENT_DEVELOPMENT}}
+
+# Environment indicator for monitoring/debugging
+add_header X-SSL-Environment "{{ENVIRONMENT}}" always;
+
+# Certificate Transparency settings
+{{#ENVIRONMENT_PRODUCTION}}
+ssl_ct on;
+ssl_ct_static_scts /etc/nginx/scts/;
+{{/ENVIRONMENT_PRODUCTION}}
+
+# Client certificate settings (if required)
+{{#CLIENT_CERT_REQUIRED}}
+ssl_client_certificate {{CLIENT_CA_PATH}};
+ssl_verify_client {{CLIENT_VERIFY_MODE}};
+ssl_verify_depth 2;
+{{/CLIENT_CERT_REQUIRED}}
+
+# Set SSL verification information in headers (useful for proxied applications)
+proxy_set_header X-SSL-Client-Verify $ssl_client_verify;
+proxy_set_header X-SSL-Client-Serial $ssl_client_serial;
+
+# Security headers (can be overridden in security-headers.conf)
+add_header X-Content-Type-Options nosniff;
+
+# Cache SSL sessions in shared memory zone
+ssl_session_cache shared:SSL:{{SESSION_CACHE_SIZE}};
+
+# Enable SSL session resumption
+ssl_session_timeout {{SESSION_TIMEOUT}};
+
+# Set up logging format to include SSL protocol and cipher information
+log_format ssl_info '$remote_addr - $remote_user [$time_local] '
+                    '"$request" $status $body_bytes_sent '
+                    '"$http_referer" "$http_user_agent" '
+                    '$ssl_protocol/$ssl_cipher';
+
+# End of SSL configuration

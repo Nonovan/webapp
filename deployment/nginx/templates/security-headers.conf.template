@@ -1,0 +1,118 @@
+# Security Headers Configuration Template for Cloud Infrastructure Platform
+# Template variables:
+# - {{ENVIRONMENT}}: Environment name (development, staging, production)
+# - {{CSP_NONCE_VAR}}: Variable name for CSP nonce (default: $csp_nonce)
+# - {{ALLOWED_DOMAINS}}: Comma-separated list of domains for CSP
+# - {{CORS_ORIGINS}}: Comma-separated list of allowed CORS origins
+# - {{REPORT_URI}}: URI for CSP violation reporting
+# - {{USE_HSTS}}: Whether to enable HSTS (true/false)
+# - {{FRAME_ANCESTORS}}: Allowed frame ancestors (none by default)
+# - {{PERMISSIONS_POLICY}}: Customized permissions policy based on environment
+
+# Content Security Policy (CSP)
+set $csp_policy "default-src 'self'; ";
+set $csp_policy "${csp_policy}script-src 'self' 'nonce-{{CSP_NONCE_VAR}}' https://cdn.jsdelivr.net{{#ENVIRONMENT_DEVELOPMENT}} 'unsafe-eval'{{/ENVIRONMENT_DEVELOPMENT}}; ";
+set $csp_policy "${csp_policy}style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; ";
+set $csp_policy "${csp_policy}img-src 'self' data:{{#ALLOWED_DOMAINS}} https://{{.}}{{/ALLOWED_DOMAINS}}; ";
+set $csp_policy "${csp_policy}font-src 'self' https://cdn.jsdelivr.net; ";
+set $csp_policy "${csp_policy}connect-src 'self'{{#ENVIRONMENT_DEVELOPMENT}} http://localhost:*{{/ENVIRONMENT_DEVELOPMENT}}; ";
+set $csp_policy "${csp_policy}frame-ancestors {{FRAME_ANCESTORS}}; ";
+set $csp_policy "${csp_policy}form-action 'self'; ";
+set $csp_policy "${csp_policy}base-uri 'self'; ";
+set $csp_policy "${csp_policy}object-src 'none'; ";
+set $csp_policy "${csp_policy}upgrade-insecure-requests;";
+
+{{#REPORT_URI}}
+# Add reporting for CSP violations 
+set $csp_policy "${csp_policy} report-uri {{REPORT_URI}};";
+{{/REPORT_URI}}
+
+# Add CSP header
+add_header Content-Security-Policy $csp_policy always;
+
+# HTTP Strict Transport Security (HSTS)
+{{#USE_HSTS}}
+# Only enable HSTS in production to avoid issues with development environments
+add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+{{/USE_HSTS}}
+
+# Prevent clickjacking attacks
+add_header X-Frame-Options "DENY" always;
+
+# Prevent MIME type sniffing
+add_header X-Content-Type-Options "nosniff" always;
+
+# Configure Cross-site scripting (XSS) Protection
+add_header X-XSS-Protection "1; mode=block" always;
+
+# Set referrer policy
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+# Set permissions policy (formerly feature policy)
+add_header Permissions-Policy "{{PERMISSIONS_POLICY}}" always;
+
+# Hide version information
+server_tokens off;
+
+# CORS headers configuration with proper validation for API endpoints
+map $http_origin $cors_origin {
+    default "";
+    
+    {{#CORS_ORIGINS}}
+    "~^https?://{{.}}$" "$http_origin";
+    {{/CORS_ORIGINS}}
+    
+    # Development environments
+    {{#ENVIRONMENT_DEVELOPMENT}}
+    "~^https?://localhost(:[0-9]+)?$" "$http_origin";
+    "~^https?://127\.0\.0\.1(:[0-9]+)?$" "$http_origin";
+    {{/ENVIRONMENT_DEVELOPMENT}}
+}
+
+# Define CORS response headers
+map $request_uri $cors_methods {
+    default "";
+    "~^/api/" "GET, POST, PUT, DELETE, OPTIONS, PATCH";
+}
+
+map $request_uri $is_api_request {
+    default 0;
+    "~^/api/" 1;
+}
+
+# Add CORS headers only for API requests
+add_header Access-Control-Allow-Origin $cors_origin if=$is_api_request;
+add_header Access-Control-Allow-Methods $cors_methods if=$is_api_request;
+add_header Access-Control-Allow-Headers "Authorization, Content-Type, Accept, Origin, User-Agent, Cache-Control, X-Requested-With, X-API-Key, X-Request-ID, X-CSRF-Token" if=$is_api_request;
+add_header Access-Control-Allow-Credentials "true" if=$is_api_request;
+add_header Access-Control-Max-Age "3600" if=$is_api_request;
+add_header Vary "Origin" if=$is_api_request;
+
+# Handle OPTIONS requests for CORS preflight
+if ($request_method = 'OPTIONS') {
+    add_header Access-Control-Allow-Origin $cors_origin;
+    add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS, PATCH";
+    add_header Access-Control-Allow-Headers "Authorization, Content-Type, Accept, Origin, User-Agent, Cache-Control, X-Requested-With, X-API-Key, X-Request-ID, X-CSRF-Token";
+    add_header Access-Control-Allow-Credentials "true";
+    add_header Access-Control-Max-Age "3600";
+    add_header Content-Type "text/plain charset=UTF-8";
+    add_header Content-Length "0";
+    return 204;
+}
+
+# Environment-specific settings
+{{#ENVIRONMENT_DEVELOPMENT}}
+# Development-specific headers
+add_header X-Environment "development" always;
+{{/ENVIRONMENT_DEVELOPMENT}}
+
+{{#ENVIRONMENT_STAGING}}
+# Staging-specific headers
+add_header X-Environment "staging" always;
+add_header X-Robots-Tag "noindex, nofollow" always;
+{{/ENVIRONMENT_STAGING}}
+
+{{#ENVIRONMENT_PRODUCTION}}
+# Production-specific headers
+add_header X-Robots-Tag "index, follow" always;
+{{/ENVIRONMENT_PRODUCTION}}
