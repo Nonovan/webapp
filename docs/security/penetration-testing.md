@@ -45,242 +45,187 @@ Penetration testing is a critical component of our security assurance program, p
 
 ### 3. Web Application Penetration Testing
 
-**Scope**: All web applications and APIs, including:
+**Scope**: Web applications and APIs, including:
 - Customer-facing applications
 - Administrative interfaces
-- API endpoints
-- Mobile application backends
+- REST/SOAP APIs
+- Authentication mechanisms
+- Session management
+- Data validation and processing
 
-**Frequency**:
-- Annually for all applications
-- After major changes or releases
+**Frequency**: Quarterly and after significant changes
 
 **Objectives**:
-- Identify application security flaws
-- Test authentication and authorization controls
-- Evaluate business logic vulnerabilities
-- Assess data validation and sanitization controls
-- Test API security controls
+- Identify application security vulnerabilities (OWASP Top 10)
+- Test business logic flaws
+- Evaluate authentication and authorization controls
+- Assess secure data handling practices
 
 ### 4. Cloud Infrastructure Penetration Testing
 
-**Scope**: Cloud environments, including:
-- AWS/Azure/GCP configurations
-- Kubernetes clusters
-- Container security
-- IAM configurations
-- Storage security
+**Scope**: Cloud-based resources and services:
+- Infrastructure as a Service (IaaS) configurations
+- Platform as a Service (PaaS) implementations
+- Container orchestration platforms
+- Storage services
+- Identity and access management
 
 **Frequency**: Quarterly
 
 **Objectives**:
-- Identify cloud misconfigurations
-- Test IAM role security
-- Evaluate container security
-- Assess cloud network security controls
-- Test serverless function security
+- Assess cloud configuration security
+- Evaluate IAM policy implementation
+- Test container escape scenarios
+- Identify improper access controls
+- Evaluate network security group configurations
 
-### 5. Red Team Assessments
+### 5. Mobile Application Penetration Testing
 
-**Scope**: Full environment, with minimal restrictions
+**Scope**: iOS and Android applications:
+- Client-side security controls
+- API interactions
+- Data storage practices
+- Authentication mechanisms
+- Binary protections
 
-**Frequency**: Annually
+**Frequency**: Semi-annually and after major releases
 
 **Objectives**:
-- Simulate advanced threat actors
-- Test blue team detection and response
-- Evaluate security controls holistically
-- Identify complex attack chains
+- Identify client-side vulnerabilities
+- Assess secure storage of sensitive data
+- Test API communication security
+- Evaluate certificate pinning implementation
+- Assess resistance to reverse engineering
 
-## Testing Methodologies
+## Penetration Testing Methodology
 
-Tests should follow industry standard methodologies including:
+### Pre-Engagement
 
-### OWASP Testing Guide
-For web application testing, follow the [OWASP Web Security Testing Guide](<https://owasp.org/www-project-web-security-testing-guide/>).
+1. **Scope Definition**
+   - Clearly define testing boundaries
+   - Identify critical systems and applications
+   - Establish testing timeline and hours
+   - Define acceptable testing techniques and tools
 
-Key test categories include:
-- Information Gathering
-- Configuration/Deployment Management
-- Identity Management Testing
-- Authentication Testing
-- Authorization Testing
-- Session Management
-- Input Validation
-- Error Handling
-- Cryptography
-- Business Logic Testing
-- Client-side Testing
+2. **Authorization**
+   - Obtain written approval from system owners
+   - Execute non-disclosure agreements with testing team
+   - Prepare formal Rules of Engagement document
+   - Ensure proper internal notifications
 
-### NIST SP 800-115
-Follow the [NIST Technical Guide to Information Security Testing and Assessment](<https://csrc.nist.gov/publications/detail/sp/800-115/final>) framework for:
-- Planning
-- Discovery
-- Attack
-- Reporting
+3. **Risk Assessment**
+   - Evaluate potential impact on production systems
+   - Identify contingency measures for critical services
+   - Establish communication channels for emergencies
+   - Define clear escalation paths
 
-### MITRE ATT&CK Framework
-Use the [MITRE ATT&CK Framework](<https://attack.mitre.org/>) to:
-- Structure attack scenarios
-- Ensure comprehensive technique coverage
-- Map findings to known adversary tactics and techniques
+### Testing Execution
 
-## Testing Process
+1. **Reconnaissance**
+   - Passive information gathering
+   - Network and domain enumeration
+   - Service identification
+   - Architecture mapping
 
-### 1. Pre-Engagement
+2. **Vulnerability Scanning**
+   - Automated scanning with approved tools
+   - Manual verification of findings
+   - Configuration review
+   - Code review (if in scope)
 
-#### Planning and Scoping
-- Define clear objectives and scope
-- Identify testing targets and boundaries
-- Determine testing timeframe
-- Establish success criteria
-- Identify stakeholders and points of contact
+3. **Exploitation**
+   - Controlled exploitation of discovered vulnerabilities
+   - Privilege escalation attempts
+   - Lateral movement testing
+   - Data exfiltration simulation
+   - Post-exploitation activities
 
-#### Risk Assessment
-- Evaluate potential business impacts
-- Identify critical systems requiring special handling
-- Define excluded systems or techniques
-- Establish emergency contacts
+4. **Documentation**
+   - Real-time logging of all activities
+   - Evidence collection with timestamps
+   - Screenshot and video capture of significant findings
+   - Maintaining chain of custody for discovered data
 
-#### Authorization
-- Obtain formal written authorization
-- Document scope and approved testing activities
-- Ensure legal clearance
-- Confirm cloud provider notification requirements
+### Post-Engagement
 
-### 2. Engagement Execution
+1. **Reporting**
+   - Executive summary for leadership
+   - Technical findings with reproduction steps
+   - Risk classification and prioritization
+   - Remediation recommendations
+   - Supporting evidence and references
 
-#### Reconnaissance
-- Passive information gathering
-- Network and service discovery
-- Application mapping
-- Technology stack identification
+2. **Debriefing**
+   - Presentation of key findings
+   - Technical walkthrough for security and development teams
+   - Q&A session
+   - Initial remediation planning
 
-#### Vulnerability Identification
-- Automated scanning
-- Manual testing
-- Configuration review
-- Code review (if in scope)
+3. **Remediation Support**
+   - Technical guidance for addressing findings
+   - Validation of fixes
+   - Follow-up testing
 
-#### Exploitation
-- Validate vulnerabilities through controlled exploitation
-- Document successful attack paths
-- Track compromised assets and access levels
-- Document evidence (screenshots, data access logs)
+## Requirements for Testing Teams
 
-#### Post-Exploitation
-- Privilege escalation attempts
-- Lateral movement
-- Persistence establishment (if authorized)
-- Data access attempts
+### Internal Testing Teams
 
-#### Daily Check-ins
-- Provide status updates to designated contact
-- Report critical findings immediately
-- Address any concerns or blockers
+- Must be trained in ethical hacking techniques
+- Must maintain relevant certifications (OSCP, CEH, GPEN, etc.)
+- Must follow documented testing procedures
+- Must maintain detailed activity logs
+- Must respect scope boundaries and authorized activities
 
-### 3. Post-Engagement
+### External Testing Providers
 
-#### Reporting
-- Executive summary for leadership
-- Detailed technical findings
-- Reproduction steps for each vulnerability
-- Severity ratings using CVSS v3.1
-- Recommended remediation actions
-- Evidence and screenshots
-
-#### Debriefing
-- Present findings to stakeholders
-- Discuss remediation strategies
-- Answer technical questions
-- Provide clarification on findings
-
-#### Remediation Support
-- Assist with understanding vulnerability details
-- Validate remediation effectiveness if requested
-- Provide additional guidance as needed
+- Must provide proof of professional liability insurance
+- Must have relevant industry certifications
+- Must sign non-disclosure agreements
+- Must provide named testers with credentials
+- Must commit to secure handling of findings
+- Must comply with data retention and destruction policies
 
 ## Rules of Engagement
 
-### Authorized Activities
-- Network and application scanning
-- Vulnerability exploitation (within scope)
-- Social engineering (if specifically authorized)
-- Client-side attacks (if specifically authorized)
-- Authorized access attempts
+### Permissible Activities
+
+- Passive reconnaissance
+- Approved scanning activities
+- Controlled exploitation
+- Approved social engineering (if in scope)
+- Documented penetration techniques
 
 ### Prohibited Activities
-- Denial of Service attacks
-- Physical security bypass
-- Testing of third-party services without authorization
-- Destructive testing without explicit permission
-- Modifications to production data
-- Disclosure of findings to unauthorized parties
 
-### Communication Protocols
-- Designated primary and backup contacts
-- Emergency contact procedure
-- Daily status update format and timing
-- Critical finding notification process (within 24 hours)
-- Issue escalation process
+- Denial of Service (DoS) attacks
+- Destructive testing without explicit approval
+- Exploitation of production data
+- Testing outside of defined scope
+- Unauthorized social engineering
+- Testing outside of approved time windows
 
-## Security Requirements
+## Security and Safety Measures
 
-### Tester Requirements
-- Background checks for all testers
-- Signed confidentiality agreements
-- Demonstrated technical expertise
-- Industry certifications (OSCP, GPEN, etc.)
-- Adherence to code of ethics
+### Test Data Handling
 
-### Data Handling
-- All client data treated as confidential
-- Secure storage of testing data
-- Secure transmission of reports and evidence
-- Complete data destruction after engagement
-- No exfiltration of sensitive data
+- Use synthetic or sanitized data whenever possible
+- Encrypt any captured sensitive information
+- Securely delete all data after engagement
+- Document any inadvertent access to production data
 
-### Tool Security
-- Only authorized tools and techniques
-- Secure storage of testing tools
-- Updated and patched testing systems
-- Encrypted communications
-- Sanitized testing systems
+### Communication
 
-## Testing Windows
+- Maintain open communication channel during testing
+- Report critical vulnerabilities immediately
+- Daily status updates during active testing
+- Document all communication for future reference
 
-### Standard Testing Hours
-- Monday - Friday, 9:00 AM - 5:00 PM
-- After-hours testing requires special approval
+### Emergency Procedures
 
-### Black-Out Periods
-- End-of-quarter financial processing
-- Major product launches
-- Maintenance windows
-- Holiday periods
-- Other business-critical events
-
-## Findings Classification
-
-### Severity Ratings
-Use the Common Vulnerability Scoring System (CVSS) v3.1 to rate findings:
-
-| CVSS Score | Severity | Response Time |
-|------------|----------|---------------|
-| 9.0 - 10.0 | Critical | Immediate (24 hours) |
-| 7.0 - 8.9  | High     | Urgent (1 week) |
-| 4.0 - 6.9  | Medium   | Important (1 month) |
-| 0.1 - 3.9  | Low      | Scheduled (3 months) |
-
-### Risk Factors
-Consider these factors when assessing risk:
-- Exploitability
-- Affected system criticality
-- Exposure (internet-facing vs. internal)
-- Data sensitivity
-- Business impact
-- Exploit complexity
-- Compensating controls
+- Contact emergency coordinator if production issues arise
+- Be prepared to halt testing immediately if requested
+- Have rollback procedures ready for all exploits
+- Document any emergency incidents thoroughly
 
 ## Remediation Process
 
@@ -316,126 +261,24 @@ Consider these factors when assessing risk:
   - SOC 2 requires periodic penetration testing
   - GDPR requires regular testing of security controls
 
-## Documentation
+## Documentation and Templates
 
-### Required Documents
-- Formal penetration testing authorization
-- Scope and Rules of Engagement document
-- Tester confidentiality agreements
-- Status reports and daily check-ins
-- Final detailed technical report
-- Executive summary report
-- Remediation verification report
+### Required Documentation
+- Penetration Testing Request Form
+- Rules of Engagement Document
+- Penetration Testing Report Template
+- Remediation Tracking Spreadsheet
+- Vulnerability Classification Guide
 
-### Report Contents
-1. Executive Summary
-   - Overview of testing scope and objectives
-   - Summary of key findings
-   - Risk assessment and business impact
-   - High-level remediation recommendations
+### Template Locations
+- Templates are stored in the document management system at `/docs/security/templates/`
+- Required approval forms are available in the security portal
 
-2. Technical Findings
-   - Detailed vulnerability descriptions
-   - Technical impact
-   - Reproduction steps
-   - Evidence (screenshots, logs)
-   - Specific remediation guidance
-   - References and CVEs when applicable
+## Version History
 
-3. Methodology
-   - Testing approach
-   - Tools used
-   - Limitations and constraints
-   - Coverage analysis
-
-4. Appendices
-   - Raw scan data
-   - Additional technical details
-   - Exploitation proof of concept code (if appropriate)
-
-## Templates and Examples
-
-### Penetration Test Request Template
-
-```
-
-PENETRATION TEST REQUEST
-
-Requester Information:
-
-- Name:
-- Position:
-- Department:
-- Contact Information:
-
-Test Details:
-
-- Type of Test: [External/Internal/Web App/Cloud/Red Team]
-- Proposed Timeframe:
-- Business Justification:
-- Specific Concerns:
-
-Scope Information:
-
-- Systems/Applications:
-- IP Ranges:
-- Domains:
-- Excluded Systems:
-- Special Considerations:
-
-Approval:
-
-- Security Team Approval:
-- IT Operations Approval:
-- Executive Sponsor:
-
-```
-
-### Rules of Engagement Template
-
-```
-
-PENETRATION TEST RULES OF ENGAGEMENT
-
-Test ID: [PT-YYYY-NNN]
-Test Period: [Start Date] to [End Date]
-Test Type: [External/Internal/Web App/Cloud/Red Team]
-
-SCOPE:
-
-- In-scope Systems: [IP ranges, domains, applications]
-- Out-of-scope Systems: [IP ranges, domains, applications]
-- Authorized Test Types: [Scanning, Exploitation, Social Engineering, etc.]
-- Prohibited Activities: [DoS, Physical testing, etc.]
-
-CONTACTS:
-
-- Primary Technical Contact:
-- Secondary Technical Contact:
-- Emergency Contact:
-- Escalation Contact:
-
-COMMUNICATION PROTOCOLS:
-
-- Daily Check-in Time:
-- Status Report Format:
-- Critical Finding Notification Process:
-- Emergency Stop Procedure:
-
-AUTHORIZATION:
-
-- Authorized by:
-- Position:
-- Signature:
-- Date:
-
-```
-
-## References
-
-1. [OWASP Web Security Testing Guide](<https://owasp.org/www-project-web-security-testing-guide/>)
-2. [NIST SP 800-115](<https://csrc.nist.gov/publications/detail/sp/800-115/final>)
-3. [MITRE ATT&CK Framework](<https://attack.mitre.org/>)
-4. [PCI DSS Penetration Testing Requirements](<https://www.pcisecuritystandards.org/>)
-5. [Common Vulnerability Scoring System (CVSS)](<https://www.first.org/cvss/>)
-6. [SANS Penetration Testing Guidelines](<https://www.sans.org/>)
+| Version | Date | Description | Author |
+|---------|------|-------------|--------|
+| 1.0 | 2023-05-15 | Initial document | Security Team |
+| 1.1 | 2023-09-22 | Added cloud testing guidelines | Cloud Security Engineer |
+| 1.2 | 2024-01-10 | Updated remediation procedures | Security Operations |
+| 1.3 | 2024-03-30 | Added compliance section | Compliance Manager |

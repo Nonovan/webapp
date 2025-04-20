@@ -52,215 +52,170 @@ The platform uses several types of certificates for different purposes:
 
 ### Acquisition
 
-#### Public CA Certificates
+#### Public Certificates
 
-1. **Planning**
-   * Inventory domains requiring certificates
-   * Choose appropriate certificate type
-   * Select validation method
+1. **Request Generation**
+   * Generate CSR with appropriate subject information
+   * Include Subject Alternative Names (SANs) for all domains
+   * Use secure key generation practices
 
-2. **CSR Generation**
-   ```bash
-   openssl req -new -newkey rsa:2048 -nodes -keyout example.key -out example.csr
+2. **CA Validation**
+   * Complete domain validation (DV) through DNS or file-based challenges
+   * For OV/EV certs, complete organizational validation process
+   * Submit all required documentation
 
-```
+3. **Certificate Issuance**
+   * Download certificate and full chain
+   * Verify certificate attributes match request
+   * Store securely in certificate management system
 
-1. **Validation**
-    - DNS validation (preferred)
-    - HTTP validation
-    - Email validation
-2. **Issuance**
-    - Submit CSR to chosen CA
-    - Complete validation requirements
-    - Download certificate and chain
+#### Internal Certificates
 
-### Internal CA Certificates
+1. **Request Submission**
+   * Submit certificate request to security team
+   * Include service details and justification
+   * Specify required subject names and validity period
 
-1. **CSR Generation**
-    
-    ```bash
-    openssl req -new -newkey rsa:2048 -nodes -keyout service.key -out service.csr
-    
-    ```
-    
-2. **Signing**
-    
-    ```bash
-    openssl ca -in service.csr -out service.crt -config openssl.cnf
-    
-    ```
-    
+2. **Certificate Issuance**
+   * Security team issues certificate from internal CA
+   * Deliver through secure channel
+   * Include installation instructions
 
-### Installation
+### Deployment
 
-1. **Web Servers**
-    - Copy certificate, key, and chain to server
-    - Update NGINX configuration
-    - Validate configuration
-    - Reload service
-    
-    ```bash
-    sudo cp example.crt /etc/nginx/ssl/
-    sudo cp example.key /etc/nginx/ssl/
-    sudo cp chain.crt /etc/nginx/ssl/
-    sudo nginx -t
-    sudo systemctl reload nginx
-    
-    ```
-    
-2. **Application Services**
-    - Copy certificate, key, and chain to service
-    - Update service configuration
-    - Restart service
-    - Validate successful installation
+1. **Pre-deployment Testing**
+   * Verify certificate chain in non-production environment
+   * Test with TLS analyzers for configuration errors
+   * Validate OCSP/CRL functioning properly
 
-### Monitoring
+2. **Certificate Installation**
+   * Deploy using automation (Ansible/Terraform)
+   * Configure appropriate permissions
+   * Enable Perfect Forward Secrecy and HSTS
+   * Follow security best practices for private key protection
 
-1. **Expiration Monitoring**
-    - Automated monitoring of all certificates
-    - Alerts at 90, 60, 30, 15, 7, 3, and 1 day before expiration
-    - Daily summary report of certificate status
-2. **Certificate Health Checks**
-    - Weekly validation of certificate configuration
-    - Cipher suite testing
-    - Protocol validation
-    - Chain validation
-3. **SSL/TLS Quality Rating**
-    - Monthly testing with SSL Labs
-    - Minimum grade A requirement
-    - Remediation of any issues found
+3. **Post-deployment Validation**
+   * Verify through external scanners (SSL Labs, ImmuniWeb)
+   * Test with various client configurations
+   * Confirm certificate transparency logs
 
-### Renewal
+### Monitoring and Renewal
 
-1. **Renewal Schedule**
-    - Public certificates: 30 days before expiration
-    - Internal certificates: 60 days before expiration
-2. **Automated Renewal**
-    - Let's Encrypt certificates renewed automatically using Certbot
-    - Run certificate renewal scripts using cron job
-    
-    ```bash
-    0 3 * * * /opt/cloud-platform/deployment/security/certificate-renew.sh >> /var/log/cloud-platform/cert-renewal.log 2>&1
-    
-    ```
-    
-3. **Manual Renewal**
-    - Follow same process as acquisition
-    - Use same key or generate new key based on rotation policy
+1. **Monitoring**
+   * Automated daily checks for expiration
+   * Alert at 60, 30, 15, 7, and 3 days before expiration
+   * Monitor CT logs for unauthorized certificates
+
+2. **Renewal Process**
+   * Initiate renewal 30 days before expiration
+   * Generate new CSR with updated requirements if needed
+   * Use automation for Let's Encrypt certificates
+   * Validate renewed certificate before deployment
+
+3. **Emergency Replacement**
+   * Documented procedure for after-hours replacement
+   * Pre-approved emergency contacts with CA
+   * Alternate validation methods ready
+   * Incident response plan for key compromise
 
 ### Revocation
 
-1. **Revocation Triggers**
-    - Key compromise
-    - Employee departure (for individually issued certificates)
-    - Certificate replacement before expiration
-    - Service decommissioning
+1. **Triggers for Revocation**
+   * Private key compromise
+   * Incorrect certificate information
+   * System decommissioning
+   * Unauthorized issuance
+
 2. **Revocation Process**
-    - Request revocation from issuing CA
-    - Update CRL and OCSP information
-    - Remove certificate from all systems
-    - Update certificate inventory
-
-### Emergency Response
-
-1. **Key Compromise**
-    - Immediately revoke affected certificates
-    - Generate new keys
-    - Issue new certificates
-    - Rotate affected certificates on all systems
-    - Investigate cause and impact
-    - Document incident and response
-2. **CA Compromise**
-    - Assess impact on all certificates
-    - Prepare for mass certificate replacement
-    - Follow certificate authority's instructions
-    - Implement emergency certificate replacement
+   * Submit revocation request to issuing CA
+   * Verify revocation through OCSP/CRL
+   * Document reason for revocation
+   * Communicate to stakeholders if public-facing
 
 ## Certificate Inventory Management
 
-1. **Certificate Database**
-    - Maintain inventory of all certificates
-    - Record domains, services, expiration dates
-    - Track responsible parties
-    - Document renewal processes
-2. **Automated Discovery**
-    - Weekly scan of all systems for SSL/TLS certificates
-    - Reconciliation with certificate inventory
-    - Investigation of unauthorized certificates
+### Documentation Requirements
 
-## Tools and Automation
+* Certificate owner and contacts
+* System/service usage
+* Issuing CA
+* Key parameters (size, algorithm)
+* Validity period
+* Renewal procedures
+* Location of private keys
+* Location in load balancers/servers
 
-1. **Certificate Management Tools**
-    - Certbot for Let's Encrypt automation
-    - OpenSSL for certificate operations
-    - Custom [certificate-renew.sh](http://certificate-renew.sh/) script for automation
-    - Certificate monitoring integration with monitoring system
-2. **Standard Commands**
-    
-    **Generate CSR and key:**
-    
-    ```bash
-    openssl req -new -newkey rsa:2048 -nodes -keyout example.key -out example.csr -config csr.conf
-    
-    ```
-    
-    **Verify certificate:**
-    
-    ```bash
-    openssl x509 -in example.crt -text -noout
-    
-    ```
-    
-    **Check certificate expiration:**
-    
-    ```bash
-    openssl x509 -in example.crt -noout -enddate
-    
-    ```
-    
-    **Test SSL/TLS configuration:**
-    
-    ```bash
-    openssl s_client -connect example.com:443 -tls1_2
-    
-    ```
-    
+### Inventory Tools
 
-## Best Practices
+* Centralized certificate inventory system
+* Automated discovery and tracking
+* API integration with cloud providers
+* Regular reconciliation with active systems
 
-1. **Security Measures**
-    - Private keys protected with strict permissions (0600)
-    - Keys stored in secure locations
-    - Keys never transmitted over unencrypted channels
-    - Passphrase protection for sensitive keys
-2. **Configuration Standards**
-    - TLS 1.2/1.3 only
-    - Strong cipher suites only
-    - OCSP stapling enabled
-    - HTTP Strict Transport Security (HSTS)
-    - Certificate Transparency (CT) logging
-3. **Documentation**
-    - Document all certificate processes
-    - Maintain certificate inventory
-    - Record all certificate-related incidents
-    - Document emergency procedures
+## Key Protection
 
-## Compliance Requirements
+### Private Key Security
 
-- **PCI DSS**: Requires strong certificates and protocols
-- **HIPAA**: Requires encryption of PHI in transit
-- **SOC 2**: Requires proper certificate management controls
-- **GDPR**: Requires appropriate technical measures for data protection
+* Hardware Security Modules (HSM) for high-value keys
+* Key encryption at rest
+* Access controls based on role
+* Key backup procedures with dual control
+* No export of private keys in plaintext format
+
+### Storage Locations
+
+* Production: Hardware security modules or secure key stores
+* Staging: Encrypted file systems with access controls
+* Development: Development-only CAs with clear key usage policies
 
 ## Roles and Responsibilities
 
-- **Security Team**: Certificate policy management and oversight
-- **DevOps Team**: Certificate deployment and rotation
-- **Development Team**: Certificate integration in applications
-- **Monitoring Team**: Certificate expiration alerting
+| Role | Responsibilities |
+|------|------------------|
+| Security Team | Manage CA infrastructure, Define certificate policies, Approve certificate requests |
+| DevOps Team | Deploy certificates, Configure TLS settings, Implement automated renewal |
+| Application Teams | Request certificates, Implement proper key usage, Report security incidents |
+| Monitoring Team | Monitor certificate expiration, Alert on anomalies, Verify configuration |
+| Incident Response | Handle key compromise events, Coordinate emergency renewals |
 
-## Review and Improvement
+## Compliance Requirements
 
-- Quarterly review of certificate management processes
-- Annual audit of all certificates and practices
-- Continuous improvement based on industry standards
+* PCI-DSS requirements for cardholder data environments
+* HIPAA requirements for PHI protection
+* SOC2 certificate management controls
+* ISO 27001 cryptography requirements
+
+## Audit and Logging
+
+* Log all certificate issuance and revocation events
+* Record access to private keys
+* Document approval workflow
+* Regular reviews of certificate inventory
+* Annual audit of CA operations
+
+## Emergency Procedures
+
+### Key Compromise Response
+
+1. **Immediate Actions**
+   * Revoke compromised certificate
+   * Isolate affected systems
+   * Rotate all secrets associated with the system
+
+2. **Investigation**
+   * Determine cause and scope of compromise
+   * Identify potential data exposure
+   * Document timeline of events
+
+3. **Recovery**
+   * Issue replacement certificates with new keys
+   * Deploy to all affected systems
+   * Verify proper implementation
+
+## Version History
+
+| Version | Date | Description | Author |
+|---------|------|-------------|--------|
+| 1.0 | 2023-08-15 | Initial document | Security Team |
+| 1.1 | 2023-11-10 | Updated monitoring procedures | DevOps Team |
+| 1.2 | 2024-03-22 | Added emergency procedures | Incident Response Team |

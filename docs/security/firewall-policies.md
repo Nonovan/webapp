@@ -10,26 +10,31 @@ The Cloud Infrastructure Platform employs a multi-layered network security appro
    * External firewalls
    * DDoS protection services
    * Edge routers with ACLs
+   * Traffic anomaly detection
 
 2. **DMZ Layer**
    * Web application firewalls (WAF)
    * Load balancers
    * Public-facing services
+   * TLS termination
 
 3. **Application Layer**
    * Internal firewalls
    * Application security groups
    * Micro-segmentation
+   * Service mesh controls
 
 4. **Database Layer**
    * Database firewalls
    * Data access controls
    * Encryption gateways
+   * Query filtering
 
 5. **Management Layer**
    * Bastion hosts
    * Jump servers
    * Administrative networks
+   * Privileged access workstations (PAWs)
 
 ## Firewall Policy Principles
 
@@ -38,375 +43,191 @@ The Cloud Infrastructure Platform employs a multi-layered network security appro
 1. **Default Deny**
    * All traffic is denied by default
    * Explicit allow for required traffic only
+   * Implicit deny at the end of access control lists
 
 2. **Least Privilege**
    * Allow only necessary access
    * Minimize scope of allowed communications
+   * Time-bound access when possible
 
 3. **Defense in Depth**
    * Multiple control points
    * Overlapping protection mechanisms
    * No single point of failure
+   * Continuous validation
 
-4. **Zero Trust**
-   * No implicit trust based on network location
-   * All access requires authentication and authorization
-   * Continuous verification
+## Standard Firewall Rules
 
-### Policy Enforcement Points
+### External Firewall Rules
 
-1. **Host Firewalls**
-   * IPTables/NFTables rules on Linux hosts
-   * Applied to all servers regardless of other protections
+| Source | Destination | Port/Protocol | Purpose | Environment |
+|--------|-------------|--------------|---------|-------------|
+| Any | Load Balancers | 80/TCP (HTTP) | Redirect to HTTPS | All |
+| Any | Load Balancers | 443/TCP (HTTPS) | Web Application Access | All |
+| Authorized IPs | Bastion Hosts | 22/TCP (SSH) | Administrative Access | All |
+| Monitoring Systems | All Systems | ICMP Type 8 | Availability Monitoring | All |
+| CDN Providers | Web Servers | 443/TCP (HTTPS) | Content Delivery | Production, Staging |
 
-2. **Network Firewalls**
-   * Hardware or virtual appliances
-   * Cloud provider security groups
-   * Software-defined networking controls
+### Internal Firewall Rules
 
-3. **Web Application Firewalls**
-   * ModSecurity for HTTP/HTTPS traffic
-   * API gateway protections
-   * Layer 7 filtering
+| Source | Destination | Port/Protocol | Purpose | Environment |
+|--------|-------------|--------------|---------|-------------|
+| Web Servers | Application Servers | 8080/TCP | API Requests | All |
+| Application Servers | Database Servers | 5432/TCP (PostgreSQL) | Database Access | All |
+| Application Servers | Cache Servers | 6379/TCP (Redis) | Cache Operations | All |
+| Monitoring Servers | All Systems | 9100/TCP | Metrics Collection | All |
+| Log Collection | All Systems | 514/UDP | Syslog | All |
+| Bastion Hosts | All Systems | 22/TCP (SSH) | Administrative Access | All |
 
-4. **Container Firewalls**
-   * Pod security policies
-   * Network policies
-   * Service mesh controls
+## Zone-Based Firewall Policy
 
-## Standard Firewall Rule Sets
+The Cloud Infrastructure Platform uses zone-based firewall policies to control traffic between different network segments:
 
-### External Access Rules
+1. **Internet Zone**
+   * Contains external-facing resources
+   * Limited inbound access
+   * Heavily restricted outbound access
 
-| Source | Destination | Protocol | Port | Purpose | Environments |
-|--------|------------|----------|------|---------|--------------|
-| Any | Web Servers | TCP | 443 | HTTPS Access | All |
-| Any | API Gateways | TCP | 443 | API Access | All |
-| Authorized IPs | Management Hosts | TCP | 22 | SSH Access | All |
-| CDN IPs | Web Servers | TCP | 443 | Content Delivery | Prod, Staging |
-| Monitoring IPs | All Hosts | TCP | Various | Monitoring | All |
+2. **Web Zone**
+   * Contains web servers and load balancers
+   * Accepts connections from the Internet zone on ports 80/443
+   * Initiates connections to the Application zone
 
-### Internal Network Rules
+3. **Application Zone**
+   * Contains application servers
+   * Accepts connections from the Web zone
+   * Initiates connections to the Database zone
 
-| Source | Destination | Protocol | Port | Purpose | Environments |
-|--------|------------|----------|------|---------|--------------|
-| Web Servers | App Servers | TCP | 8080-8090 | Application Traffic | All |
-| App Servers | Database Servers | TCP | 5432 | PostgreSQL | All |
-| App Servers | Cache Servers | TCP | 6379 | Redis | All |
-| App Servers | Queue Servers | TCP | 5672 | RabbitMQ | All |
-| Management Hosts | All Hosts | TCP | 22 | SSH Management | All |
-| Monitoring Servers | All Hosts | TCP | 9100 | Node Exporter | All |
-| Monitoring Servers | All Hosts | TCP | 9090 | Prometheus | All |
+4. **Database Zone**
+   * Contains database servers
+   * Accepts connections from the Application zone only
+   * No initiated outbound connections to other zones
 
-### Default Deny Rules
+5. **Management Zone**
+   * Contains administrative systems
+   * Controlled access to all other zones
+   * Strict authentication and authorization
 
-| Source | Destination | Protocol | Port | Action |
-|--------|------------|----------|------|--------|
-| Any | Any | Any | Any | DENY |
+## Firewall Implementation
 
-## Host Firewall Configuration
+### Cloud Provider Firewalls
 
-### IPTables Configuration
+For infrastructure hosted in cloud environments:
 
-The host-based firewall is implemented using IPTables with the following structure:
+1. **AWS**
+   * Security Groups for instance-level firewall rules
+   * Network ACLs for subnet-level controls
+   * AWS WAF for web application protection
+   * AWS Shield for DDoS protection
 
-1. **Default Policies**
-   ```bash
-   iptables -P INPUT DROP
-   iptables -P FORWARD DROP
-   iptables -P OUTPUT ACCEPT
+2. **Azure**
+   * Network Security Groups (NSGs) for VM and subnet level rules
+   * Azure Firewall for centralized control
+   * Azure Front Door with WAF for web application protection
+   * DDoS Protection Standard for DDoS mitigation
 
-```
+3. **Google Cloud Platform**
+   * VPC Firewall Rules for network-level control
+   * Cloud Armor for web application protection
+   * Cloud Load Balancing with security policies
 
-1. **Allow Established Connections**
-    
-    ```bash
-    iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-    
-    ```
-    
-2. **Allow Local Loopback**
-    
-    ```bash
-    iptables -A INPUT -i lo -j ACCEPT
-    
-    ```
-    
-3. **Service-Specific Rules**
-    
-    ```bash
-    # SSH access (restricted to management network)
-    iptables -A INPUT -p tcp --dport 22 -s 10.0.0.0/8 -j ACCEPT
-    
-    # Web traffic
-    iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-    iptables -A INPUT -p tcp --dport 443 -j ACCEPT
-    
-    ```
-    
-4. **Rate Limiting**
-    
-    ```bash
-    # Rate limit SSH connections
-    iptables -A INPUT -p tcp --dport 22 -m state --state NEW -m recent --set
-    iptables -A INPUT -p tcp --dport 22 -m state --state NEW -m recent --update --seconds 60 --hitcount 4 -j DROP
-    
-    ```
-    
-5. **Logging**
-    
-    ```bash
-    # Log dropped packets
-    iptables -A INPUT -j LOG --log-prefix "IPTABLES DROP: " --log-level 4
-    
-    ```
-    
+### On-Premises Firewalls
 
-The complete IPTables configuration is applied by the [iptables-rules.sh](http://iptables-rules.sh/) script.
+For on-premises infrastructure components:
 
-## Cloud Provider Firewall Configuration
+1. **Perimeter Firewalls**
+   * Stateful packet inspection
+   * IPS/IDS capabilities
+   * VPN termination
+   * High availability configuration
 
-### AWS Security Groups
+2. **Internal Firewalls**
+   * Segment different network zones
+   * Control east-west traffic
+   * Application-aware filtering
+   * Deep packet inspection where required
 
-Example AWS security group configuration:
+## Firewall Change Management
 
-```json
-{
-  "GroupName": "web-server-sg",
-  "Description": "Security group for web servers",
-  "Rules": [
-    {
-      "IpProtocol": "tcp",
-      "FromPort": 443,
-      "ToPort": 443,
-      "IpRanges": [{"CidrIp": "0.0.0.0/0"}],
-      "Description": "HTTPS from anywhere"
-    },
-    {
-      "IpProtocol": "tcp",
-      "FromPort": 22,
-      "ToPort": 22,
-      "IpRanges": [{"CidrIp": "10.0.0.0/8"}],
-      "Description": "SSH from internal network"
-    }
-  ]
-}
+All firewall changes must follow the established change management process:
 
-```
+1. **Request**
+   * Business justification
+   * Duration (temporary or permanent)
+   * Source and destination information
+   * Required ports and protocols
 
-### Azure Network Security Groups
+2. **Review**
+   * Security team assessment
+   * Compliance verification
+   * Architecture review
+   * Risk analysis
 
-Example Azure NSG configuration:
+3. **Approval**
+   * Security manager approval for standard changes
+   * Security committee approval for high-risk changes
+   * Emergency change process for critical situations
 
-```json
-{
-  "name": "web-server-nsg",
-  "properties": {
-    "securityRules": [
-      {
-        "name": "HTTPS",
-        "properties": {
-          "protocol": "TCP",
-          "sourcePortRange": "*",
-          "destinationPortRange": "443",
-          "sourceAddressPrefix": "*",
-          "destinationAddressPrefix": "*",
-          "access": "Allow",
-          "priority": 100,
-          "direction": "Inbound"
-        }
-      },
-      {
-        "name": "SSH",
-        "properties": {
-          "protocol": "TCP",
-          "sourcePortRange": "*",
-          "destinationPortRange": "22",
-          "sourceAddressPrefix": "10.0.0.0/8",
-          "destinationAddressPrefix": "*",
-          "access": "Allow",
-          "priority": 110,
-          "direction": "Inbound"
-        }
-      }
-    ]
-  }
-}
+4. **Implementation**
+   * Change implementation in test environment
+   * Verification of rule effectiveness
+   * Implementation in production
+   * Documentation update
 
-```
+5. **Audit**
+   * Regular review of firewall rules
+   * Removal of obsolete rules
+   * Compliance verification
+   * Optimization of ruleset
 
-### Google Cloud Firewall Rules
+## Monitoring and Logging
 
-Example GCP firewall rules:
+All firewall events must be logged and monitored:
 
-```yaml
-- name: allow-https
-  allowed:
-  - IPProtocol: tcp
-    ports:
-    - '443'
-  sourceRanges:
-  - 0.0.0.0/0
-  targetTags:
-  - web-server
+1. **Required Logging**
+   * Connection accept/deny events
+   * Configuration changes
+   * Administrative access
+   * System health and status
 
-- name: allow-ssh-internal
-  allowed:
-  - IPProtocol: tcp
-    ports:
-    - '22'
-  sourceRanges:
-  - 10.0.0.0/8
-  targetTags:
-  - web-server
+2. **Log Retention**
+   * Minimum 90 days online storage
+   * 1 year archive storage
+   * Tamper-evident storage
+   * Access controls on log repositories
 
-```
+3. **Monitoring**
+   * Real-time alerting for critical events
+   * Correlation with other security events
+   * Automated analysis for anomalies
+   * Dashboard visibility for security operations
 
-## Web Application Firewall (WAF) Policy
+## Compliance Requirements
 
-### ModSecurity Configuration
+Firewall configurations must comply with the following standards:
 
-The platform uses ModSecurity with OWASP Core Rule Set (CRS) and custom rules:
+1. **PCI DSS**
+   * Requirement 1: Install and maintain a firewall configuration to protect cardholder data
+   * Regular testing and validation of firewall rules
 
-1. **Base Configuration**
-    - SecRuleEngine On
-    - SecResponseBodyAccess On
-    - SecRequestBodyLimit 10485760
-2. **Rule Sets**
-    - OWASP Core Rule Set (CRS) 3.3+
-    - Custom platform-specific rules
-    - IP reputation rules
-3. **Protection Capabilities**
-    - SQL Injection protection
-    - Cross-Site Scripting (XSS) protection
-    - Local/Remote File Inclusion protection
-    - HTTP Protocol protection
-    - Automated scanning detection
-    - Rate limiting and anti-automation
+2. **ISO 27001**
+   * A.13.1: Network security management
+   * Controls for securing network services
 
-### Custom WAF Rules
+3. **NIST SP 800-41**
+   * Guidelines on firewalls and firewall policy
+   * Best practices for configuration and maintenance
 
-Example custom WAF rules for the platform:
+4. **Internal Standards**
+   * Annual firewall rule review
+   * Quarterly firewall change audit
+   * Automated compliance checking
 
-```
-# Block common attack patterns
-SecRule REQUEST_URI "@rx (?:(?:\\.\\./)|(?:\\.\\.\\\\))" \\
-    "id:10001,phase:1,t:none,t:urlDecodeUni,t:normalizePathWin,log,deny,status:403,msg:'Path Traversal Attack'"
+## Version History
 
-# Block sensitive API access from unauthorized sources
-SecRule REQUEST_URI "@beginsWith /api/admin/" \\
-    "chain,id:10002,phase:1,t:none,log,deny,status:403"
-SecRule REMOTE_ADDR "!@ipMatch 10.0.0.0/8" \\
-    "t:none"
-
-# Rate limit login attempts
-SecRule REQUEST_URI "@streq /api/auth/login" \\
-    "id:10003,phase:1,t:none,nolog,pass,setvar:ip.login_attempt=+1,expirevar:ip.login_attempt=60"
-SecRule IP:LOGIN_ATTEMPT "@gt 5" \\
-    "id:10004,phase:1,t:none,log,deny,status:429,msg:'Login Rate Limit Exceeded'"
-
-```
-
-## Network Traffic Flow Controls
-
-### Ingress Traffic Controls
-
-1. **External Access Control**
-    - TLS termination at edge
-    - DDoS protection service
-    - Geographic access restrictions
-    - Rate limiting and throttling
-2. **Request Filtering**
-    - HTTP method restrictions
-    - Content type validation
-    - Request size limits
-    - Input validation
-
-### Egress Traffic Controls
-
-1. **Data Loss Prevention**
-    - Restricted outbound destinations
-    - Content inspection
-    - Data classification-based filtering
-    - Encrypted tunnel requirements
-2. **Malicious Communication Prevention**
-    - Command and control blocking
-    - DNS filtering
-    - Proxy enforcement
-    - TLS inspection where necessary
-
-## Firewall Management and Operations
-
-### Change Management
-
-1. **Rule Change Process**
-    - Request submission
-    - Security review
-    - Risk assessment
-    - Approval workflow
-    - Implementation
-    - Verification
-2. **Emergency Changes**
-    - Expedited approval process
-    - Post-implementation review
-    - Documentation requirements
-    - Change reversal procedure
-
-### Monitoring and Auditing
-
-1. **Rule Effectiveness Monitoring**
-    - Traffic pattern analysis
-    - Rule hit counts
-    - False positive/negative monitoring
-    - Performance impact assessment
-2. **Compliance Auditing**
-    - Quarterly rule review
-    - Compliance validation
-    - Unauthorized change detection
-    - Configuration drift monitoring
-
-### Firewall Logging and Analysis
-
-1. **Log Collection**
-    - Centralized logging
-    - Log retention policy
-    - Tamper-evident storage
-2. **Security Analysis**
-    - Alert generation
-    - Correlation with other security events
-    - Anomaly detection
-    - Threat hunting
-
-## Incident Response
-
-### Firewall-Related Incidents
-
-1. **Breach Detection**
-    - Indicators of compromise
-    - Unusual traffic patterns
-    - Rule bypass detection
-    - Multiple blocked attempts
-2. **Response Actions**
-    - Temporary blocking rules
-    - Traffic diversion
-    - Enhanced logging
-    - Forensic capture
-
-### Recovery Procedures
-
-1. **Rule Restoration**
-    - Known-good configuration recovery
-    - Incremental rule deployment
-    - Validation testing
-    - Performance monitoring
-2. **Post-Incident Analysis**
-    - Root cause identification
-    - Rule effectiveness assessment
-    - Improvement recommendations
-    - Documentation updates
-
-## References
-
-- [CIS Benchmarks for Firewalls](https://www.cisecurity.org/cis-benchmarks/)
-- [NIST SP 800-41: Guidelines on Firewalls and Firewall Policy](https://csrc.nist.gov/publications/detail/sp/800-41/rev-1/final)
-- [OWASP WAF Configuration Guide](https://owasp.org/www-project-web-security-testing-guide/)
+| Version | Date | Description | Author |
+|---------|------|-------------|--------|
+| 1.0 | 2023-06-15 | Initial firewall policy document | Network Security Team |
+| 1.1 | 2023-09-20 | Added cloud provider specific guidelines | Cloud Security Engineer |
+| 1.2 | 2024-01-10 | Updated compliance requirements | Compliance Manager |
+| 1.3 | 2024-05-01 | Added zone-based firewall policy section | Security Architect |
