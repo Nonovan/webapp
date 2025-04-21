@@ -6,20 +6,20 @@ This repository contains a Python Flask web application for cloud infrastructure
 
 ## Code Structure
 
-- api - RESTful API endpoints and API-related functionality
-- blueprints - Flask blueprints for different application modules
-- cli - Command-line interface tools
-- config - Configuration management
-- core - Core utilities and security functions
-- deployment - Deployment scripts and infrastructure configuration
-- docs - Documentation files
-- extensions - Flask extensions
-- models - Database models
-- scripts - Utility scripts for maintenance, security, compliance, etc.
-- services - Business logic services
-- static - Static assets (CSS, JS, images)
-- tests - Automated tests
-- views - View helpers and template utilities
+- `/api/` - RESTful API endpoints and API-related functionality
+- `/blueprints/` - Flask blueprints for different application modules
+- `/cli/` - Command-line interface tools
+- `/config/` - Configuration management
+- `/core/` - Core utilities and security functions
+- `/deployment/` - Deployment scripts and infrastructure configuration
+- `/docs/` - Documentation files
+- `/extensions/` - Flask extensions
+- `/models/` - Database models
+- `/scripts/` - Utility scripts for maintenance, security, compliance, etc.
+- `/services/` - Business logic services
+- `/static/` - Static assets (CSS, JS, images)
+- `/tests/` - Automated tests
+- `/views/` - View helpers and template utilities
 
 ## Coding Standards
 
@@ -76,17 +76,17 @@ Please follow these standards when generating code:
 
 ### Scripts Directory
 
-- Place deployment-related scripts in deployment
-- Put DR (disaster recovery) scripts in dr
-- Put security-related scripts in security
-- Put compliance scripts in compliance
-- Place monitoring scripts in monitoring
-- Put core reusable functions in core
-- Place utility scripts in utils
+- Place deployment-related scripts in `/scripts/deployment/`
+- Put DR (disaster recovery) scripts in `/scripts/deployment/dr/`
+- Put security-related scripts in `/scripts/security/`
+- Put compliance scripts in `/scripts/compliance/`
+- Place monitoring scripts in `/scripts/monitoring/`
+- Put core reusable functions in `/scripts/core/`
+- Place utility scripts in `/scripts/utils/`
 
 ### Documentation
 
-- Include [README.md](http://readme.md/) files in each directory explaining its purpose
+- Include README.md files in each directory explaining its purpose
 - Document API endpoints with examples
 - Include security considerations in component documentation
 
