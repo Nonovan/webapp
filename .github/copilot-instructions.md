@@ -54,7 +54,9 @@ Please follow these standards when generating code:
 
 ## Script Enhancement Case Study
 
-The following case study demonstrates our preferred approach to enhancing shell scripts. This example shows how the `api_latency.sh` monitoring script was improved:
+The following case study demonstrates our preferred approach to enhancing code files throughout the project. While this example shows how the `api_latency.sh` monitoring script was improved, **this systematic approach should be applied to most files** in the codebase when improvements are needed, especially when multiple areas require attention.
+
+This approach is applicable to Python modules, JavaScript files, shell scripts, configuration files, and other code assets - with appropriate language-specific adaptations. The goal is to consistently improve code quality across the entire project using a standardized methodology.
 
 ### 1. Assessment Phase
 
@@ -67,6 +69,8 @@ First, identify key areas for improvement:
 4. Authentication: Add built-in support for API authentication methods
 5. Performance: Add connection pooling and optimization
 ```
+
+For any file type, look for similar categories of improvements: security, reliability, error handling, authentication, and performance optimizations. When multiple improvement areas are identified, prioritize them based on risk and impact.
 
 ### 2. Implementation Phase
 
