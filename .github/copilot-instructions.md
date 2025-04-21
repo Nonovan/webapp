@@ -121,6 +121,52 @@ Finally, document all changes:
 
 This process ensures our scripts are robust, secure, and maintainable while preserving functionality and adding new capabilities.
 
+### Documentation Update Process
+
+When making substantial changes to code components, it's essential to update the related documentation. The following process should be followed:
+
+#### 1. Documentation Assessment
+
+First, identify the affected documentation files:
+- README.md files in relevant directories
+- API reference documentation
+- User guides and tutorials
+- Configuration reference docs
+
+#### 2. Documentation Implementation
+
+For each identified document:
+- Update feature descriptions to reflect new capabilities
+- Revise command-line options and parameters
+- Update usage examples with accurate syntax
+- Ensure consistency across all documentation
+
+#### 3. Documentation Review
+
+After updating documentation:
+- Verify all command flags and options match the actual implementation
+- Ensure examples use correct parameter names and syntax
+- Check that all new features are properly documented
+- Verify related files are also updated for cross-references
+
+#### 4. Documentation Case Study: Monitoring Scripts README
+
+The update to the `scripts/monitoring/core/README.md` after enhancing several monitoring scripts demonstrates our preferred approach:
+
+1. **Maintain the existing structure** for consistency and familiarity
+2. **Update technical details** to reflect actual implementation:
+```bash
+# Before: --auth-token and --retries parameters that do not exist
+./api_latency.sh production --endpoints /api/v1/status,/api/v1/users --interval 30 --retries 3 --auth-token $TOKEN
+# After: Corrected to use --auth-key as implemented
+./api_latency.sh production --endpoints /api/v1/status,/api/v1/users --interval 30 --auth-key $TOKEN
+```
+3. **Add new features** to the relevant sections
+4. **Verify all cross-references** to ensure they point to valid locations
+5. **Update usage examples** with actual, working commands
+
+This systematic approach ensures documentation stays in sync with code changes and provides users with accurate information.
+
 ### Security Practices
 
 - Implement strict Content Security Policy
