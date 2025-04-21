@@ -1,4 +1,3 @@
-```markdown
 # Security Roles and Responsibilities
 
 This document defines the security roles and responsibilities across the Cloud Infrastructure Platform organization. Clear definition of security responsibilities is critical for maintaining our security posture, incident response capabilities, and ensuring compliance with regulatory requirements.
