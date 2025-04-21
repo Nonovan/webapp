@@ -17,7 +17,8 @@ multiple times without creating duplicate data.
 
 import random
 from datetime import datetime, timedelta, timezone
-from typing import List
+from typing import Dict, List, Tuple, Optional
+import logging
 from flask import current_app
 import click
 from sqlalchemy.exc import SQLAlchemyError
@@ -27,9 +28,11 @@ from models.user import User
 from models.audit_log import AuditLog
 from models.security_incident import SecurityIncident
 from models.system_config import SystemConfig
+from models.role import Role
+from models.permission import Permission
 
 
-def seed_database() -> bool:
+def seed_database(force: bool = False, verbose: bool = False) -> bool:
     """
     Seed the database with initial required data.
     
@@ -38,425 +41,747 @@ def seed_database() -> bool:
     - Test users
     - Sample audit logs
     - Security incidents
+    - System configuration settings
     
-    It checks if the database is already seeded by looking for existing users
-    to prevent duplicate data.
-    
+    Args:
+        force: If True, will recreate data even if it already exists
+        verbose: If True, will output detailed progress information
+        
     Returns:
-        bool: True if seeding was successful, False if already seeded or error occurred
+        bool: True if seeding was successful, False if an error occurred
         
     Example:
         # Seed database during application initialization
         with app.app_context():
-            seed_database()
+            success = seed_database(verbose=True)
     """
     try:
-        # Check if already seeded
-        if User.query.count() > 0:
-            current_app.logger.info("Database already seeded. Skipping.")
-            return False
-
-        with click.progressbar(length=5, label='Seeding database') as bar:
-            # Create admin user
-            admin = User(
-                username="admin",
-                email="admin@example.com",
-                role="admin",
-                status="active",
-                created_at=datetime.utcnow()
-            )
-            admin.set_password("AdminPass123!")
-            db.session.add(admin)
-            bar.update(1)
-
-            # Create test users
-            test_users: List[User] = []
-            for i in range(1, 4):
-                user = User(
-                    username=f"user{i}",
-                    email=f"user{i}@example.com",
-                    role="user",
-                    status="active",
-                    created_at=datetime.utcnow() - timedelta(days=i)
-                )
-                user.set_password("UserPass123!")
-                test_users.append(user)
-
-            db.session.add_all(test_users)
-            bar.update(1)
-
-            # Create test audit log entries
-            audit_logs = []
-            event_types = [
-                AuditLog.EVENT_LOGIN_SUCCESS, 
-                AuditLog.EVENT_LOGIN_FAILED,
-                AuditLog.EVENT_PASSWORD_RESET,
-                AuditLog.EVENT_API_ACCESS,
-                AuditLog.EVENT_PERMISSION_DENIED
-            ]
-
-            # Sample realistic IP addresses
-            ip_addresses = [
-                "192.168.1.101",
-                "10.0.0.15",
-                "172.16.0.25",
-                "192.168.0.254"
-            ]
-
-            # Sample user agents
-            user_agents = [
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Safari/605.1.15',
-                'Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
-                'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:89.0) Gecko/20100101 Firefox/89.0'
-            ]
-
-            # Generate audit logs for the past 7 days
-            for i in range(30):  # Generate 30 logs
-                # Randomize timestamps for realistic data
-                days_ago = random.randint(0, 7)
-                hours_ago = random.randint(0, 23)
-                minutes_ago = random.randint(0, 59)
-
-                event_time = datetime.utcnow() - timedelta(
-                    days=days_ago, 
-                    hours=hours_ago, 
-                    minutes=minutes_ago
-                )
-
-                # Select random event type and user
-                event_type = random.choice(event_types)
-                user_id = random.choice([None, admin.id, test_users[0].id, test_users[1].id])
-
-                # Determine severity based on event type
-                if event_type in (AuditLog.EVENT_LOGIN_FAILED, AuditLog.EVENT_PERMISSION_DENIED):
-                    severity = random.choice([AuditLog.SEVERITY_WARNING, AuditLog.SEVERITY_ERROR])
-                else:
-                    severity = AuditLog.SEVERITY_INFO
-
-                # Generate appropriate details based on event type
-                if event_type == AuditLog.EVENT_LOGIN_SUCCESS:
-                    details = "User login successful"
-                elif event_type == AuditLog.EVENT_LOGIN_FAILED:
-                    details = "Failed login attempt - invalid password"
-                elif event_type == AuditLog.EVENT_PASSWORD_RESET:
-                    details = "Password reset requested"
-                elif event_type == AuditLog.EVENT_API_ACCESS:
-                    details = f"API endpoint accessed: /api/users/{random.randint(1, 100)}"
-                elif event_type == AuditLog.EVENT_PERMISSION_DENIED:
-                    details = "Permission denied to access restricted resource"
-                else:
-                    details = "System event logged"
-
-                # Create audit log entry with realistic data
-                log = AuditLog(
-                    event_type=event_type,
-                    user_id=user_id,
-                    ip_address=random.choice(ip_addresses),
-                    user_agent=random.choice(user_agents),
-                    description=details,
-                    severity=severity,
-                    created_at=event_time
-                )
-                audit_logs.append(log)
-
-            db.session.add_all(audit_logs)
-            bar.update(1)
-
-            # Create sample security incidents
-            incidents = []
-            incident_types = ["brute_force", "suspicious_access", "data_leak", "malware_detected"]
-            sources = ["system", "user_report", "security_scan", "api_gateway"]
-
-            for i in range(5):
-                incident_type = random.choice(incident_types)
-
-                # Create realistic incident descriptions
-                if incident_type == "brute_force":
-                    title = "Multiple Failed Login Attempts"
-                    description = "Multiple failed login attempts detected from IP address"
-                    details = f"Detected {random.randint(5, 20)} failed login attempts within 10 minutes from the same IP address."
-                    severity = random.choice(["high", "medium"])
-                elif incident_type == "suspicious_access":
-                    title = "Unusual Access Pattern Detected"
-                    description = "Unusual access pattern detected for user account"
-                    details = "User accessed system resources outside normal working hours from an unrecognized IP address."
-                    severity = random.choice(["medium", "low"])
-                elif incident_type == "data_leak":
-                    title = "Potential Data Exposure"
-                    description = "Potential data exposure through insecure API endpoint"
-                    details = "Large data transfer detected through API endpoint that may have exposed sensitive customer information."
-                    severity = "critical"
-                else:  # malware_detected
-                    title = "Suspicious File Upload"
-                    description = "Suspicious file upload detected and quarantined"
-                    details = "File with potentially malicious code signature uploaded and automatically quarantined by security system."
-                    severity = "high"
-
-                # Randomize creation dates for realistic data
-                days_ago = random.randint(1, 30)
-                created_at = datetime.utcnow() - timedelta(days=days_ago)
-
-                # More recent incidents are more likely to be open
-                if days_ago < 7:
-                    status = random.choice(["open", "investigating"])
-                    resolved_at = None
-                    resolution = None
-                else:
-                    status = random.choice(["resolved", "closed"])
-                    resolved_at = created_at + timedelta(hours=random.randint(12, 72))
-                    resolution = "Issue investigated and addressed according to security protocols." if status == "resolved" else "Incident closed after investigation determined no further action required."
-
-                # Create the incident
-                incident = SecurityIncident(
-                    title=title,
-                    incident_type=incident_type,
-                    description=description,
-                    details=details,
-                    user_id=random.choice([None, admin.id, test_users[0].id]),
-                    ip_address=random.choice(ip_addresses),
-                    severity=severity,
-                    status=status,
-                    source=random.choice(sources),
-                    created_at=created_at,
-                    updated_at=created_at + timedelta(hours=random.randint(1, 24)),
-                    resolved_at=resolved_at,
-                    resolution=resolution,
-                    assigned_to=admin.id if status in ["investigating", "resolved"] else None
-                )
-                incidents.append(incident)
-
-            db.session.add_all(incidents)
-            bar.update(1)
-
-            # Set up system configuration
-            configs = [
-                SystemConfig(key="maintenance_mode", value="false", 
-                             description="Enable site maintenance mode"),
-                SystemConfig(key="max_login_attempts", value="5", 
-                             description="Maximum failed login attempts before account lockout"),
-                SystemConfig(key="session_timeout", value="30", 
-                             description="Session timeout in minutes"),
-                SystemConfig(key="security_level", value="high", 
-                             description="Application security level (low, medium, high)")
-            ]
-            db.session.add_all(configs)
-            bar.update(1)
-
-        # Commit all changes
-        db.session.commit()
-        current_app.logger.info("Database successfully seeded with initial data")
+        if verbose:
+            print("Starting database seeding process...")
+        
+        # Check if database is already seeded
+        if not force and is_database_seeded():
+            if verbose:
+                print("Database already contains seed data. Use --force to override.")
+            return True
+            
+        # Create roles and permissions first (required for users)
+        roles = seed_roles_and_permissions(verbose)
+        
+        # Create users
+        admin_user = seed_admin_user(force, verbose)
+        test_users = seed_test_users(force, verbose)
+        
+        # Create reference and sample data
+        seed_system_config(force, verbose)
+        seed_audit_logs(admin_user.id if admin_user else None, force, verbose)
+        seed_security_incidents(force, verbose)
+        
+        if verbose:
+            print("✅ Database seeding completed successfully")
         return True
-
-    except (SQLAlchemyError, ValueError) as e:
+        
+    except SQLAlchemyError as e:
         db.session.rollback()
-        current_app.logger.error(f"Database seeding failed: {e}")
+        error_msg = f"Database seeding error: {str(e)}"
+        logging.error(error_msg)
+        print(f"❌ {error_msg}")
+        return False
+    except Exception as e:
+        db.session.rollback()
+        error_msg = f"Unexpected error during database seeding: {str(e)}"
+        logging.error(error_msg)
+        print(f"❌ {error_msg}")
         return False
 
 
-def seed_development_data() -> bool:
+def is_database_seeded() -> bool:
     """
-    Seed additional development data.
-    
-    This function adds extra data that's useful during development but
-    should not be included in production seeding. It includes test
-    security events, monitoring data, and sample incidents.
+    Check if the database already has seed data by looking for admin user.
     
     Returns:
-        bool: True if seeding was successful, False if skipped
-        
-    Example:
-        # Only seed dev data in development environment
-        if app.config['ENVIRONMENT'] == 'development':
-            seed_development_data()
+        bool: True if database appears to be seeded, False otherwise
     """
     try:
-        # Only run in development environment
-        if current_app.config.get('ENVIRONMENT') != 'development':
-            current_app.logger.info("Skipping development data seeding in non-development environment.")
-            return False
+        admin_exists = User.query.filter_by(username='admin').first() is not None
+        return admin_exists
+    except SQLAlchemyError:
+        # If we can't query the database, assume it's not seeded
+        return False
 
-        # Skip if we already have development data
-        if SecurityIncident.query.count() > 5:
-            current_app.logger.info("Development data already seeded. Skipping.")
-            return False
 
-        current_app.logger.info("Seeding development data...")
+def seed_roles_and_permissions(verbose: bool = False) -> Dict[str, Role]:
+    """
+    Create basic roles and permissions in the database.
+    
+    Args:
+        verbose: If True, will output detailed progress information
+        
+    Returns:
+        dict: Dictionary of created role objects keyed by role name
+    """
+    if verbose:
+        print("Creating roles and permissions...")
+    
+    # Define permissions
+    permissions = {
+        'view_users': Permission.create_or_update('view_users', 'Can view user list'),
+        'manage_users': Permission.create_or_update('manage_users', 'Can create/edit users'),
+        'view_logs': Permission.create_or_update('view_logs', 'Can view audit logs'),
+        'manage_system': Permission.create_or_update('manage_system', 'Can modify system configuration'),
+        'manage_security': Permission.create_or_update('manage_security', 'Can manage security incidents'),
+    }
+    
+    # Define roles and their permissions
+    roles = {
+        'admin': {
+            'description': 'Administrator with full access',
+            'permissions': list(permissions.values())
+        },
+        'manager': {
+            'description': 'Manager with limited administrative access',
+            'permissions': [
+                permissions['view_users'],
+                permissions['view_logs'],
+                permissions['manage_security']
+            ]
+        },
+        'user': {
+            'description': 'Standard user',
+            'permissions': [
+                permissions['view_logs']
+            ]
+        }
+    }
+    
+    role_objects = {}
+    
+    # Create roles and assign permissions
+    for role_name, role_info in roles.items():
+        role = Role.query.filter_by(name=role_name).first()
+        if not role:
+            role = Role(name=role_name, description=role_info['description'])
+            db.session.add(role)
+        
+        # Assign permissions to role
+        role.permissions = role_info['permissions']
+        role_objects[role_name] = role
+    
+    db.session.commit()
+    
+    if verbose:
+        print(f"Created {len(role_objects)} roles with permissions")
+    
+    return role_objects
 
-        # Get existing users
-        admin = User.query.filter_by(role='admin').first()
-        if not admin:
-            current_app.logger.warning("No admin user found. Run seed_database() first.")
-            return False
 
-        # Create more security incidents with various severity levels
-        incidents = []
-
-        # High severity incident
-        incidents.append(SecurityIncident(
-            title="Potential Data Exfiltration Detected",
-            incident_type="data_leak",
-            description="Large data transfer detected to external IP address",
-            details="User transferred 2.3GB of data to external FTP server from internal database.",
-            severity="critical",
-            status="open",
-            source="system",
-            ip_address="203.0.113.45",
-            created_at=datetime.now(timezone.utc) - timedelta(hours=2),
-            updated_at=datetime.now(timezone.utc) - timedelta(hours=2)
-        ))
-
-        # Medium severity incident
-        incidents.append(SecurityIncident(
-            title="Configuration File Modified",
-            incident_type="suspicious_access",
-            description="Critical configuration file was modified outside of change window",
-            details="File: config/security.ini was modified by user without change approval",
-            severity="medium",
-            status="investigating",
-            source="file_monitor",
-            ip_address="10.0.12.25",
-            assigned_to=admin.id,
-            created_at=datetime.now(timezone.utc) - timedelta(days=1),
-            updated_at=datetime.now(timezone.utc) - timedelta(days=1)
-        ))
-
-        # Low severity incident (resolved)
-        incidents.append(SecurityIncident(
-            title="Failed API Authentication Attempts",
-            incident_type="brute_force",
-            description="Multiple failed API authentication attempts from developer IP range",
-            details="10 failed attempts over 30 minutes from development subnet",
-            severity="low",
-            status="resolved",
-            source="api_gateway",
-            ip_address="192.168.15.10",
-            resolution="Confirmed as developer testing new integration. No security breach occurred.",
-            resolved_at=datetime.now(timezone.utc) - timedelta(days=2),
-            assigned_to=admin.id,
-            created_at=datetime.now(timezone.utc) - timedelta(days=3),
-            updated_at=datetime.now(timezone.utc) - timedelta(days=2)
-        ))
-
-        db.session.add_all(incidents)
-        current_app.logger.info(f"Created {len(incidents)} development security incidents")
-
-        # Create more detailed audit logs covering common security scenarios
-        audit_logs = []
-
-        # Suspicious activity pattern - multiple failed logins followed by success
-        suspicious_ip = "45.33.22.85"
-        base_time = datetime.utcnow() - timedelta(hours=8)
-
-        # Failed login attempts - create a realistic brute force pattern
-        for i in range(4):
-            log = AuditLog(
-                event_type=AuditLog.EVENT_LOGIN_FAILED,
-                user_id=None,  # Unknown user
-                description=f"Failed login attempt #{i+1} from suspicious IP",
-                ip_address=suspicious_ip,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
-                details="Failed login attempt for username: admin. Invalid password provided.",
-                severity=AuditLog.SEVERITY_WARNING,
-                created_at=base_time + timedelta(minutes=i*2)
-            )
-            audit_logs.append(log)
-
-        # Successful login after failures (potential credential stuffing success)
-        success_log = AuditLog(
-            event_type=AuditLog.EVENT_LOGIN_SUCCESS,
-            user_id=admin.id,
-            description="Successful login after multiple failures",
-            ip_address=suspicious_ip,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
-            details="Successful login for user: admin. Note: Preceded by multiple failed attempts from same IP.",
-            severity=AuditLog.SEVERITY_INFO,
-            created_at=base_time + timedelta(minutes=10)
-        )
-        audit_logs.append(success_log)
-
-        # Sensitive operation after suspicious login - database access
-        sensitive_log = AuditLog(
-            event_type=AuditLog.EVENT_DATABASE_ACCESS,
-            user_id=admin.id,
-            description="Sensitive database table accessed after suspicious login pattern",
-            ip_address=suspicious_ip,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
-            details="User admin executed query: SELECT * FROM users WHERE role='admin'",
-            severity=AuditLog.SEVERITY_WARNING,
-            created_at=base_time + timedelta(minutes=12)
-        )
-        audit_logs.append(sensitive_log)
-
-        # Config change after suspicious access
-        config_change_log = AuditLog(
-            event_type=AuditLog.EVENT_CONFIG_CHANGE,
-            user_id=admin.id,
-            description="Configuration changed after suspicious login pattern",
-            ip_address=suspicious_ip,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
-            details="User modified security settings: 'max_login_attempts' changed from 5 to 10",
-            severity=AuditLog.SEVERITY_ERROR,
-            created_at=base_time + timedelta(minutes=15)
-        )
-        audit_logs.append(config_change_log)
-
-        # Permission denied attempt (indicator of privilege escalation attempt)
-        permission_denied_log = AuditLog(
-            event_type=AuditLog.EVENT_PERMISSION_DENIED,
-            user_id=admin.id,
-            description="Access attempt to restricted resource",
-            ip_address=suspicious_ip,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
-            details="User attempted to access /admin/system/settings without required permissions",
-            severity=AuditLog.SEVERITY_WARNING,
-            created_at=base_time + timedelta(minutes=18)
-        )
-        audit_logs.append(permission_denied_log)
-
-        # File integrity issue detected
-        file_integrity_log = AuditLog(
-            event_type=AuditLog.EVENT_FILE_INTEGRITY,
-            user_id=None,
-            description="Critical file modification detected",
-            ip_address=None,
-            user_agent=None,
-            details="File: config/security.py has been modified outside the deployment process",
-            severity=AuditLog.SEVERITY_CRITICAL,
-            created_at=base_time + timedelta(minutes=25)
-        )
-        audit_logs.append(file_integrity_log)
-
-        # Security countermeasure triggered
-        countermeasure_log = AuditLog(
-            event_type=AuditLog.EVENT_SECURITY_COUNTERMEASURE,
-            user_id=None,
-            description="Automated security response initiated",
-            ip_address=suspicious_ip,
-            user_agent=None,
-            details="IP address temporarily blocked due to suspicious activity pattern",
-            severity=AuditLog.SEVERITY_WARNING,
-            created_at=base_time + timedelta(minutes=28)
-        )
-        audit_logs.append(countermeasure_log)
-
-        db.session.add_all(audit_logs)
+def seed_admin_user(force: bool = False, verbose: bool = False) -> Optional[User]:
+    """
+    Create the default admin user if it doesn't exist.
+    
+    Args:
+        force: If True, will recreate admin user even if it already exists
+        verbose: If True, will output detailed progress information
+        
+    Returns:
+        User: The admin user object or None if creation failed
+    """
+    if verbose:
+        print("Creating admin user...")
+    
+    # Get admin role
+    admin_role = Role.query.filter_by(name='admin').first()
+    if not admin_role:
+        if verbose:
+            print("Warning: Admin role not found. Creating admin user without role.")
+    
+    # Check if admin user exists
+    admin_user = User.query.filter_by(username='admin').first()
+    
+    if admin_user and force:
+        # Delete existing admin user if forcing recreation
+        db.session.delete(admin_user)
         db.session.commit()
+        admin_user = None
+        
+    if not admin_user:
+        admin_user = User(
+            username='admin',
+            email='admin@example.com',
+            first_name='Admin',
+            last_name='User',
+            active=True,
+            created_at=datetime.now(timezone.utc)
+        )
+        admin_user.set_password('admin123')  # This should be changed after deployment
+        
+        if admin_role:
+            admin_user.roles = [admin_role]
+        
+        db.session.add(admin_user)
+        db.session.commit()
+        
+        if verbose:
+            print("Created admin user with username 'admin'")
+    elif verbose:
+        print("Admin user already exists")
+    
+    return admin_user
 
-        current_app.logger.info(f"Development data seeded with {len(incidents)} additional incidents " +
-                               f"and {len(audit_logs)} additional audit logs")
+
+def seed_test_users(force: bool = False, verbose: bool = False) -> List[User]:
+    """
+    Create test users for development environments.
+    
+    Args:
+        force: If True, will recreate test users even if they already exist
+        verbose: If True, will output detailed progress information
+        
+    Returns:
+        list: The created test user objects
+    """
+    if verbose:
+        print("Creating test users...")
+    
+    # Get roles
+    roles = {
+        'manager': Role.query.filter_by(name='manager').first(),
+        'user': Role.query.filter_by(name='user').first()
+    }
+    
+    test_users = [
+        {
+            'username': 'manager',
+            'email': 'manager@example.com',
+            'password': 'manager123',
+            'first_name': 'Test',
+            'last_name': 'Manager',
+            'role': 'manager'
+        },
+        {
+            'username': 'user1',
+            'email': 'user1@example.com',
+            'password': 'user123',
+            'first_name': 'Test',
+            'last_name': 'User',
+            'role': 'user'
+        },
+        {
+            'username': 'user2',
+            'email': 'user2@example.com',
+            'password': 'user123',
+            'first_name': 'Another',
+            'last_name': 'User',
+            'role': 'user'
+        }
+    ]
+    
+    created_users = []
+    
+    for user_data in test_users:
+        username = user_data['username']
+        user = User.query.filter_by(username=username).first()
+        
+        if user and force:
+            # Delete existing user if forcing recreation
+            db.session.delete(user)
+            db.session.commit()
+            user = None
+            
+        if not user:
+            user = User(
+                username=username,
+                email=user_data['email'],
+                first_name=user_data['first_name'],
+                last_name=user_data['last_name'],
+                active=True,
+                created_at=datetime.now(timezone.utc)
+            )
+            user.set_password(user_data['password'])
+            
+            # Assign role if it exists
+            role_name = user_data['role']
+            if role_name in roles and roles[role_name]:
+                user.roles = [roles[role_name]]
+            
+            db.session.add(user)
+            created_users.append(user)
+            
+            if verbose:
+                print(f"Created test user: {username}")
+    
+    db.session.commit()
+    
+    if verbose:
+        print(f"Created {len(created_users)} test users")
+    
+    return created_users
+
+
+def seed_audit_logs(admin_id: Optional[int] = None, force: bool = False, verbose: bool = False) -> List[AuditLog]:
+    """
+    Create sample audit logs.
+    
+    Args:
+        admin_id: ID of admin user to use for logs, if available
+        force: If True, will recreate logs even if they already exist
+        verbose: If True, will output detailed progress information
+        
+    Returns:
+        list: The created audit log objects
+    """
+    if verbose:
+        print("Creating sample audit logs...")
+    
+    # Check if audit logs already exist
+    existing_logs_count = AuditLog.query.count()
+    if existing_logs_count > 0 and not force:
+        if verbose:
+            print(f"Skipping audit log creation, {existing_logs_count} logs already exist")
+        return []
+    elif force and existing_logs_count > 0:
+        if verbose:
+            print(f"Clearing {existing_logs_count} existing audit logs")
+        AuditLog.query.delete()
+        db.session.commit()
+        
+    # Define sample log events
+    log_events = [
+        ('User login', 'User logged in successfully', 'auth', 'info'),
+        ('User logout', 'User logged out', 'auth', 'info'),
+        ('Failed login attempt', 'Invalid password provided', 'auth', 'warning'),
+        ('Password reset', 'User requested password reset', 'auth', 'info'),
+        ('System startup', 'Application services started', 'system', 'info'),
+        ('System configuration changed', 'Database connection settings updated', 'system', 'warning'),
+        ('Security alert', 'Multiple failed login attempts detected', 'security', 'critical'),
+        ('Database backup', 'Automated backup completed successfully', 'maintenance', 'info'),
+        ('API rate limit exceeded', 'Too many requests from client', 'api', 'warning'),
+        ('New user registered', 'User account created', 'user', 'info')
+    ]
+    
+    created_logs = []
+    
+    # Create logs over the past 7 days
+    now = datetime.now(timezone.utc)
+    for i in range(50):  # Create 50 sample logs
+        # Randomly select an event
+        event_title, event_desc, category, level = random.choice(log_events)
+        
+        # Generate a random timestamp within the past 7 days
+        days_ago = random.randint(0, 7)
+        hours_ago = random.randint(0, 23)
+        minutes_ago = random.randint(0, 59)
+        timestamp = now - timedelta(days=days_ago, hours=hours_ago, minutes=minutes_ago)
+        
+        # Create the audit log entry
+        log_entry = AuditLog(
+            timestamp=timestamp,
+            event=event_title,
+            description=event_desc,
+            category=category,
+            level=level,
+            user_id=admin_id if random.choice([True, False]) else None  # Randomly assign to admin or None
+        )
+        
+        db.session.add(log_entry)
+        created_logs.append(log_entry)
+    
+    db.session.commit()
+    
+    if verbose:
+        print(f"Created {len(created_logs)} audit log entries")
+    
+    return created_logs
+
+
+def seed_security_incidents(force: bool = False, verbose: bool = False) -> List[SecurityIncident]:
+    """
+    Create sample security incidents.
+    
+    Args:
+        force: If True, will recreate incidents even if they already exist
+        verbose: If True, will output detailed progress information
+        
+    Returns:
+        list: The created security incident objects
+    """
+    if verbose:
+        print("Creating sample security incidents...")
+    
+    # Check if incidents already exist
+    existing_incidents_count = SecurityIncident.query.count()
+    if existing_incidents_count > 0 and not force:
+        if verbose:
+            print(f"Skipping security incident creation, {existing_incidents_count} incidents already exist")
+        return []
+    elif force and existing_incidents_count > 0:
+        if verbose:
+            print(f"Clearing {existing_incidents_count} existing security incidents")
+        SecurityIncident.query.delete()
+        db.session.commit()
+    
+    # Define sample incidents
+    incident_data = [
+        {
+            'title': 'Suspicious Login Attempts',
+            'description': 'Multiple failed login attempts from unusual IP addresses',
+            'severity': 'medium',
+            'status': 'resolved',
+            'days_ago': 15
+        },
+        {
+            'title': 'Potential SQL Injection Attempt',
+            'description': 'Malformed SQL query detected in user input fields',
+            'severity': 'high',
+            'status': 'investigation',
+            'days_ago': 2
+        },
+        {
+            'title': 'Unauthorized Access Attempt',
+            'description': 'Attempt to access restricted API endpoints without valid credentials',
+            'severity': 'medium',
+            'status': 'resolved',
+            'days_ago': 7
+        },
+        {
+            'title': 'Data Export Volume Anomaly',
+            'description': 'Unusual volume of data exported by authorized user',
+            'severity': 'low',
+            'status': 'monitoring',
+            'days_ago': 1
+        },
+        {
+            'title': 'DDoS Attack Identified',
+            'description': 'Distributed denial of service attack against authentication service',
+            'severity': 'critical',
+            'status': 'resolved',
+            'days_ago': 30
+        }
+    ]
+    
+    now = datetime.now(timezone.utc)
+    created_incidents = []
+    
+    for data in incident_data:
+        # Calculate timestamps
+        detected_at = now - timedelta(days=data['days_ago'])
+        resolved_at = None
+        if data['status'] == 'resolved':
+            resolution_days = random.randint(1, 3)  # Resolved 1-3 days after detection
+            resolved_at = detected_at + timedelta(days=resolution_days)
+        
+        incident = SecurityIncident(
+            title=data['title'],
+            description=data['description'],
+            severity=data['severity'],
+            status=data['status'],
+            detected_at=detected_at,
+            resolved_at=resolved_at
+        )
+        
+        db.session.add(incident)
+        created_incidents.append(incident)
+    
+    db.session.commit()
+    
+    if verbose:
+        print(f"Created {len(created_incidents)} security incidents")
+    
+    return created_incidents
+
+
+def seed_system_config(force: bool = False, verbose: bool = False) -> List[SystemConfig]:
+    """
+    Create essential system configuration settings.
+    
+    Args:
+        force: If True, will recreate settings even if they already exist
+        verbose: If True, will output detailed progress information
+        
+    Returns:
+        list: The created system config objects
+    """
+    if verbose:
+        print("Creating system configuration settings...")
+    
+    # Define default configuration
+    default_configs = [
+        ('maintenance_mode', 'false', 'system', 'Flag to enable/disable maintenance mode'),
+        ('session_timeout', '30', 'security', 'Session timeout in minutes'),
+        ('max_login_attempts', '5', 'security', 'Maximum failed login attempts before lockout'),
+        ('password_expiry_days', '90', 'security', 'Number of days before passwords expire'),
+        ('backup_retention_days', '30', 'maintenance', 'Number of days to retain database backups'),
+        ('allowed_file_extensions', 'jpg,png,pdf,docx,xlsx', 'security', 'Allowed file upload extensions'),
+        ('enable_audit_logging', 'true', 'system', 'Enable detailed audit logging')
+    ]
+    
+    created_configs = []
+    
+    for key, value, category, description in default_configs:
+        config = SystemConfig.query.filter_by(key=key).first()
+        
+        if config and force:
+            # Update existing config if force is True
+            config.value = value
+            config.updated_at = datetime.now(timezone.utc)
+            if verbose:
+                print(f"Updated system config: {key}={value}")
+        elif not config:
+            # Create new config
+            config = SystemConfig(
+                key=key,
+                value=value,
+                category=category,
+                description=description,
+                created_at=datetime.now(timezone.utc)
+            )
+            db.session.add(config)
+            created_configs.append(config)
+            if verbose:
+                print(f"Created system config: {key}={value}")
+    
+    db.session.commit()
+    
+    if verbose:
+        print(f"Created/updated {len(created_configs)} system configuration settings")
+    
+    return created_configs
+
+
+def seed_development_data(force: bool = False, verbose: bool = False) -> bool:
+    """
+    Seed additional data for development environments.
+    This includes more sample data than would be used in production seeding.
+    
+    Args:
+        force: If True, will recreate data even if it already exists
+        verbose: If True, will output detailed progress information
+        
+    Returns:
+        bool: True if seeding was successful, False if an error occurred
+    """
+    try:
+        if verbose:
+            print("Starting development data seeding...")
+        
+        # Add more test users with different roles
+        seed_additional_users(force, verbose)
+        
+        # Add more sample data specific to development
+        seed_extensive_audit_logs(force, verbose)
+        
+        if verbose:
+            print("✅ Development data seeding completed successfully")
         return True
-
-    except Exception as e:
-        current_app.logger.error(f"Development data seeding failed: {e}")
+        
+    except SQLAlchemyError as e:
         db.session.rollback()
-        raise
+        error_msg = f"Development data seeding error: {str(e)}"
+        logging.error(error_msg)
+        print(f"❌ {error_msg}")
+        return False
+    except Exception as e:
+        db.session.rollback()
+        error_msg = f"Unexpected error during development data seeding: {str(e)}"
+        logging.error(error_msg)
+        print(f"❌ {error_msg}")
+        return False
 
 
-if __name__ == "__main__":
-    from app import create_app
-    app = create_app()
-    with app.app_context():
-        seed_database()
-        if app.config.get('ENVIRONMENT') == 'development':
-            seed_development_data()
+def seed_additional_users(force: bool = False, verbose: bool = False) -> List[User]:
+    """
+    Create additional test users for development environments.
+    
+    Args:
+        force: If True, will recreate users even if they already exist
+        verbose: If True, will output detailed progress information
+        
+    Returns:
+        list: The created user objects
+    """
+    if verbose:
+        print("Creating additional development users...")
+    
+    # Create 10 more test users
+    roles = {
+        'admin': Role.query.filter_by(name='admin').first(),
+        'manager': Role.query.filter_by(name='manager').first(),
+        'user': Role.query.filter_by(name='user').first()
+    }
+    
+    created_users = []
+    
+    for i in range(1, 11):
+        role_key = random.choice(['user', 'user', 'user', 'manager', 'admin'])  # 60% users, 20% managers, 20% admins
+        username = f"dev_user{i}"
+        
+        # Skip if user exists and not forcing recreation
+        user = User.query.filter_by(username=username).first()
+        if user and not force:
+            continue
+        elif user and force:
+            db.session.delete(user)
+            db.session.commit()
+        
+        # Create new user
+        new_user = User(
+            username=username,
+            email=f"{username}@example.com",
+            first_name=f"Dev{i}",
+            last_name=f"User{i}",
+            active=True,
+            created_at=datetime.now(timezone.utc) - timedelta(days=random.randint(0, 90))
+        )
+        new_user.set_password("password123")
+        
+        # Assign role
+        if roles[role_key]:
+            new_user.roles = [roles[role_key]]
+        
+        db.session.add(new_user)
+        created_users.append(new_user)
+        
+        if verbose and (i % 5 == 0 or i == 1):
+            print(f"Created {i} development users so far...")
+    
+    db.session.commit()
+    
+    if verbose:
+        print(f"Created {len(created_users)} additional development users")
+    
+    return created_users
+
+
+def seed_extensive_audit_logs(force: bool = False, verbose: bool = False) -> List[AuditLog]:
+    """
+    Create a large number of audit logs for testing pagination and filtering.
+    
+    Args:
+        force: If True, will create logs even if many already exist
+        verbose: If True, will output detailed progress information
+        
+    Returns:
+        list: The created audit log objects
+    """
+    if verbose:
+        print("Creating extensive audit logs for development...")
+    
+    # Check if we already have many logs
+    existing_count = AuditLog.query.count()
+    if existing_count > 100 and not force:
+        if verbose:
+            print(f"Skipping extensive log creation, {existing_count} logs already exist")
+        return []
+    
+    # Log event templates
+    log_events = [
+        ('User login', 'User {user} logged in successfully', 'auth', 'info'),
+        ('User logout', 'User {user} logged out', 'auth', 'info'),
+        ('Failed login attempt', 'Invalid password provided for {user}', 'auth', 'warning'),
+        ('Password changed', 'User {user} changed their password', 'auth', 'info'),
+        ('Permission denied', 'User {user} attempted to access unauthorized resource', 'security', 'warning'),
+        ('Record created', 'User {user} created a new {resource}', 'data', 'info'),
+        ('Record updated', 'User {user} updated {resource} with ID {id}', 'data', 'info'),
+        ('Record deleted', 'User {user} deleted {resource} with ID {id}', 'data', 'warning'),
+        ('API request', 'External API request to {endpoint}', 'api', 'info'),
+        ('API error', 'Error in API request to {endpoint}: {error}', 'api', 'error'),
+        ('System alert', '{message}', 'system', 'critical')
+    ]
+    
+    # Resource types for logs
+    resources = ['user', 'report', 'invoice', 'customer', 'order', 'product', 'ticket']
+    
+    # User list for log attribution
+    users = User.query.all()
+    user_ids = [user.id for user in users] if users else [None]
+    
+    # System alert messages
+    system_alerts = [
+        'Disk space running low',
+        'CPU usage exceeded threshold',
+        'Memory usage exceeded threshold',
+        'Database connection pool nearly exhausted',
+        'Background job queue backed up',
+        'Redis cache hit ratio below threshold'
+    ]
+    
+    # API endpoints
+    endpoints = [
+        '/api/v1/users',
+        '/api/v1/auth/token',
+        '/api/v1/reports/generate',
+        '/api/v1/orders',
+        '/api/v1/products',
+        '/api/v1/analytics'
+    ]
+    
+    # API errors
+    api_errors = [
+        'Connection timeout',
+        'Invalid request format',
+        'Authentication failed',
+        'Rate limit exceeded',
+        'Resource not found',
+        'Internal server error'
+    ]
+    
+    created_logs = []
+    now = datetime.now(timezone.utc)
+    
+    # Create 200 logs over the past 90 days
+    for i in range(200):
+        # Select random event template
+        event_title, event_desc, category, level = random.choice(log_events)
+        
+        # Format the description with appropriate values
+        formatted_desc = event_desc
+        if '{user}' in formatted_desc:
+            user = User.query.get(random.choice(user_ids))
+            formatted_desc = formatted_desc.replace('{user}', user.username if user else 'unknown')
+            
+        if '{resource}' in formatted_desc:
+            formatted_desc = formatted_desc.replace('{resource}', random.choice(resources))
+            
+        if '{id}' in formatted_desc:
+            formatted_desc = formatted_desc.replace('{id}', str(random.randint(1, 1000)))
+            
+        if '{endpoint}' in formatted_desc:
+            formatted_desc = formatted_desc.replace('{endpoint}', random.choice(endpoints))
+            
+        if '{error}' in formatted_desc:
+            formatted_desc = formatted_desc.replace('{error}', random.choice(api_errors))
+            
+        if '{message}' in formatted_desc:
+            formatted_desc = formatted_desc.replace('{message}', random.choice(system_alerts))
+        
+        # Generate a random timestamp within the past 90 days
+        days_ago = random.randint(0, 90)
+        hours_ago = random.randint(0, 23)
+        minutes_ago = random.randint(0, 59)
+        timestamp = now - timedelta(days=days_ago, hours=hours_ago, minutes=minutes_ago)
+        
+        # Create the audit log entry
+        log_entry = AuditLog(
+            timestamp=timestamp,
+            event=event_title,
+            description=formatted_desc,
+            category=category,
+            level=level,
+            user_id=random.choice(user_ids)
+        )
+        
+        db.session.add(log_entry)
+        created_logs.append(log_entry)
+        
+        # Commit in batches to avoid memory issues
+        if i % 50 == 0:
+            db.session.commit()
+            if verbose:
+                print(f"Created {i} audit logs so far...")
+    
+    db.session.commit()
+    
+    if verbose:
+        print(f"Created {len(created_logs)} additional audit logs for development")
+    
+    return created_logs

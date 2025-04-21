@@ -22,7 +22,7 @@ DR_MODE=false
 VERBOSE=false
 FORMAT="json"
 REQUIREMENTS_FILE="${SCRIPT_DIR}/compliance_requirements.json"
-VALIDATE_SCHEMA=false  # New option to enable schema validation too
+VALIDATE_SCHEMA=false  # Option to enable schema validation too
 
 # Create log directory if it doesn't exist
 mkdir -p "$LOG_DIR" || {
@@ -186,7 +186,8 @@ if [[ ! -f "$REQUIREMENTS_FILE" ]]; then
     log "WARNING: Compliance requirements file not found at $REQUIREMENTS_FILE"
     log "Creating default requirements file"
     
-    # Create default requirements file with all standards including the new security standard
+    # Create default requirements file with basic compliance standards
+    mkdir -p "$(dirname "$REQUIREMENTS_FILE")"
     cat > "$REQUIREMENTS_FILE" <<EOF
 {
   "pci-dss": {
@@ -205,7 +206,7 @@ if [[ ! -f "$REQUIREMENTS_FILE" ]]; then
         "id": "1.2",
         "description": "Strong TLS version required",
         "config_path": "security.ini",
-        "check_type": "key_value",
+        "check_type": "key_value_min",
         "key": "min_tls_version",
         "expected": "1.2",
         "severity": "critical",
@@ -405,6 +406,7 @@ if [[ ! -f "$REQUIREMENTS_FILE" ]]; then
   }
 }
 EOF
+    log "Created default requirements file at $REQUIREMENTS_FILE"
 fi
 
 # Check if schema directory exists when schema validation is requested
@@ -415,22 +417,20 @@ if [[ "$VALIDATE_SCHEMA" = true ]]; then
     fi
     
     # Check for dependencies needed for schema validation
-    if [[ "$VALIDATE_SCHEMA" = true ]]; then
-        log "Checking for schema validation dependencies..."
-        MISSING_DEPS=""
-        
-        if ! command -v jsonschema &>/dev/null; then
-            MISSING_DEPS="${MISSING_DEPS} jsonschema"
-        fi
-        
-        if ! command -v yamllint &>/dev/null; then
-            MISSING_DEPS="${MISSING_DEPS} yamllint"
-        fi
-        
-        if [[ -n "$MISSING_DEPS" ]]; then
-            log "WARNING: Missing dependencies for schema validation:$MISSING_DEPS"
-            log "Some validations may be skipped. Install with pip install$MISSING_DEPS"
-        fi
+    log "Checking for schema validation dependencies..."
+    MISSING_DEPS=""
+    
+    if ! command -v jsonschema &>/dev/null; then
+        MISSING_DEPS="${MISSING_DEPS} jsonschema"
+    fi
+    
+    if ! command -v yamllint &>/dev/null; then
+        MISSING_DEPS="${MISSING_DEPS} yamllint"
+    fi
+    
+    if [[ -n "$MISSING_DEPS" ]]; then
+        log "WARNING: Missing dependencies for schema validation:$MISSING_DEPS"
+        log "Some validations may be skipped. Install with pip install$MISSING_DEPS"
     fi
 fi
 
@@ -491,8 +491,8 @@ validate_requirement() {
             if grep -q "^${key}\s*=" "$full_config_path"; then
                 actual_value=$(grep "^${key}\s*=" "$full_config_path" | cut -d'=' -f2 | tr -d ' ')
                 
-                if [[ "$actual_value" =~ ^[0-9]+$ && "$expected" =~ ^[0-9]+$ ]]; then
-                    if (( actual_value >= expected )); then
+                if [[ "$actual_value" =~ ^[0-9]+(\.[0-9]+)?$ && "$expected" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+                    if (( $(echo "$actual_value >= $expected" | bc -l) )); then
                         result="PASSED"
                         details="Value $key=$actual_value meets minimum required value '$expected'"
                     else
@@ -516,8 +516,8 @@ validate_requirement() {
             if grep -q "^${key}\s*=" "$full_config_path"; then
                 actual_value=$(grep "^${key}\s*=" "$full_config_path" | cut -d'=' -f2 | tr -d ' ')
                 
-                if [[ "$actual_value" =~ ^[0-9]+$ && "$expected" =~ ^[0-9]+$ ]]; then
-                    if (( actual_value <= expected )); then
+                if [[ "$actual_value" =~ ^[0-9]+(\.[0-9]+)?$ && "$expected" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+                    if (( $(echo "$actual_value <= $expected" | bc -l) )); then
                         result="PASSED"
                         details="Value $key=$actual_value is within maximum allowed value '$expected'"
                     else
@@ -575,7 +575,7 @@ validate_requirement() {
     return 0
 }
 
-# Function to validate JSON files against schema (from config_validator.sh)
+# Function to validate JSON files against schema
 validate_json() {
     local config_file="$1"
     local schema_file="$2"
