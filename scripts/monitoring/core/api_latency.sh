@@ -19,10 +19,15 @@ ALERT_THRESHOLD=500  # Alert if P95 latency exceeds this value (ms)
 CRITICAL_THRESHOLD=1000  # Critical if P95 latency exceeds this value (ms)
 SAMPLES=10  # Number of requests to make to each endpoint
 INTERVAL=1  # Seconds between requests
+REQUEST_TIMEOUT=10  # Default timeout for requests (seconds)
+CONNECTION_REUSE=true  # Enable connection reuse by default
 ENDPOINTS_FILE="${PROJECT_ROOT}/config/api_endpoints.json"
 CUSTOM_ENDPOINTS=""
 METRICS_FILE="/var/lib/node_exporter/textfile_collector/api_latency.prom"
 REPORT_FILE=""
+API_KEY=""
+API_USERNAME=""
+API_PASSWORD=""
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 
 # Ensure log directory exists
@@ -33,12 +38,63 @@ LOG_FILE="$LOG_DIR/api_latency.log"
 log() {
     local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
     local message="[$timestamp] $1"
-    
+
     if [[ "$QUIET" != "true" ]]; then
         echo -e "$message"
     fi
-    
+
     echo -e "$message" >> "$LOG_FILE"
+}
+
+# Function to validate and sanitize configuration
+validate_config() {
+    # Ensure valid number of samples
+    if ! [[ "$SAMPLES" =~ ^[0-9]+$ ]] || [ "$SAMPLES" -lt 1 ]; then
+        log "ERROR: Invalid sample count: $SAMPLES. Using default of 10." "ERROR"
+        SAMPLES=10
+    fi
+
+    # Ensure valid interval
+    if ! [[ "$INTERVAL" =~ ^[0-9]+(\.[0-9]+)?$ ]] || [ "$(echo "$INTERVAL < 0" | bc)" -eq 1 ]; then
+        log "ERROR: Invalid interval: $INTERVAL. Using default of 1." "ERROR"
+        INTERVAL=1
+    fi
+
+    # Ensure valid timeout
+    if ! [[ "$REQUEST_TIMEOUT" =~ ^[0-9]+$ ]] || [ "$REQUEST_TIMEOUT" -lt 1 ]; then
+        log "ERROR: Invalid timeout: $REQUEST_TIMEOUT. Using default of 10." "ERROR"
+        REQUEST_TIMEOUT=10
+    fi
+
+    # Ensure valid threshold values
+    if ! [[ "$ALERT_THRESHOLD" =~ ^[0-9]+$ ]]; then
+        log "ERROR: Invalid alert threshold: $ALERT_THRESHOLD. Using default of 500." "ERROR"
+        ALERT_THRESHOLD=500
+    fi
+
+    if ! [[ "$CRITICAL_THRESHOLD" =~ ^[0-9]+$ ]]; then
+        log "ERROR: Invalid critical threshold: $CRITICAL_THRESHOLD. Using default of 1000." "ERROR"
+        CRITICAL_THRESHOLD=1000
+    fi
+
+    # Check for curl version that supports connection reuse
+    if [[ "$CONNECTION_REUSE" == "true" ]]; then
+        local curl_version=$(curl --version | head -n 1 | grep -oE "([0-9]+\.[0-9]+\.[0-9]+)")
+        if [[ -z "$curl_version" ]]; then
+            log "WARNING: Could not determine curl version. Connection reuse may not work properly." "WARNING"
+        else
+            # Ensure curl version supports keep-alive properly (7.19.7+)
+            local major=$(echo "$curl_version" | cut -d. -f1)
+            local minor=$(echo "$curl_version" | cut -d. -f2)
+            local patch=$(echo "$curl_version" | cut -d. -f3)
+
+            if [[ "$major" -lt 7 || ("$major" -eq 7 && "$minor" -lt 19) ||
+                  ("$major" -eq 7 && "$minor" -eq 19 && "$patch" -lt 7) ]]; then
+                log "WARNING: Curl version $curl_version may not fully support persistent connections. Consider upgrading curl or using --no-conn-reuse." "WARNING"
+                CONNECTION_REUSE=false
+            fi
+        fi
+    fi
 }
 
 # Parse command line arguments
@@ -78,6 +134,26 @@ while [[ $# -gt $shift_count ]]; do
             INTERVAL="${2}"
             shift 2
             ;;
+        --timeout)
+            REQUEST_TIMEOUT="${2}"
+            shift 2
+            ;;
+        --auth-key)
+            API_KEY="${2}"
+            shift 2
+            ;;
+        --auth-user)
+            API_USERNAME="${2}"
+            shift 2
+            ;;
+        --auth-pass)
+            API_PASSWORD="${2}"
+            shift 2
+            ;;
+        --no-conn-reuse)
+            CONNECTION_REUSE=false
+            shift
+            ;;
         --endpoints)
             CUSTOM_ENDPOINTS="${2}"
             shift 2
@@ -106,6 +182,11 @@ while [[ $# -gt $shift_count ]]; do
             echo "  --samples N                  Number of requests per endpoint (default: 10)"
             echo "  --threshold MS               Alert threshold in milliseconds (default: 500)"
             echo "  --interval SEC               Seconds between requests (default: 1)"
+            echo "  --timeout SEC                Request timeout in seconds (default: 30)"
+            echo "  --auth-key KEY               API authentication key"
+            echo "  --auth-user USERNAME         API authentication username"
+            echo "  --auth-pass PASSWORD         API authentication password"
+            echo "  --no-conn-reuse              Disable connection reuse"
             echo "  --endpoints FILE             Custom endpoints JSON file"
             echo "  --output FILE                Write results to file"
             echo "  --verbose, -v                Enable verbose output"
@@ -130,6 +211,9 @@ if [[ -f "$ENV_FILE" ]]; then
 else
     log "WARNING: Environment file $ENV_FILE not found, using defaults"
 fi
+
+# Validate configuration
+validate_config
 
 # Determine API endpoint based on region
 if [[ "$REGION" = "primary" ]]; then
@@ -162,35 +246,60 @@ measure_latency() {
     local method="${2:-GET}"
     local data="${3:-}"
     local headers="${4:-}"
-    local output_file=$(mktemp)
-    
-    # Build curl command
-    local curl_cmd="curl -s -o /dev/null -w '%{time_total},%{http_code}' -X $method"
-    
+    local curl_args=()
+
+    # Build curl command with array for safer execution
+    curl_args=(-s -o /dev/null -w '%{time_total},%{http_code}' -X "$method")
+
     # Add headers if provided
     if [[ -n "$headers" ]]; then
-        for header in $headers; do
-            curl_cmd="$curl_cmd -H \"$header\""
+        # Parse headers safely
+        IFS=';' read -ra header_array <<< "$headers"
+        for header in "${header_array[@]}"; do
+            curl_args+=(-H "$header")
         done
     fi
-    
+
+    # Add authentication header if credentials are available
+    if [[ -n "$API_KEY" ]]; then
+        curl_args+=(-H "Authorization: Bearer $API_KEY")
+    elif [[ -n "$API_USERNAME" && -n "$API_PASSWORD" ]]; then
+        curl_args+=(-u "$API_USERNAME:$API_PASSWORD")
+    fi
+
+    # Add connection reuse option
+    if [[ "$CONNECTION_REUSE" == "true" ]]; then
+        curl_args+=(--http1.1 --keepalive-time 60)
+    else
+        curl_args+=(--no-keepalive)
+    fi
+
+    # Add max-time option to avoid hanging requests
+    curl_args+=(--max-time "$REQUEST_TIMEOUT")
+
     # Add data if it's a POST/PUT request
-    if [[ -n "$data" && ("$method" == "POST" || "$method" == "PUT") ]]; then
-        curl_cmd="$curl_cmd -d '$data'"
+    if [[ -n "$data" && ("$method" == "POST" || "$method" == "PUT" || "$method" == "PATCH") ]]; then
+        curl_args+=(-d "$data")
     fi
-    
-    # Add URL
-    curl_cmd="$curl_cmd \"$url\""
-    
-    # Execute the request
+
+    # Execute the request (no eval needed with array)
     if [[ "$VERBOSE" = true ]]; then
-        log "Executing: $curl_cmd"
+        log "Executing: curl ${curl_args[*]} $url"
     fi
-    
-    local result=$(eval $curl_cmd)
-    local latency=$(echo $result | cut -d',' -f1)
-    local status=$(echo $result | cut -d',' -f2)
-    
+
+    local result=$(curl "${curl_args[@]}" "$url" 2>/dev/null)
+    local curl_exit=$?
+
+    # Handle curl errors
+    if [[ $curl_exit -ne 0 ]]; then
+        log "Request failed with curl error code $curl_exit" "WARNING"
+        echo "0.0,0"
+        return $curl_exit
+    fi
+
+    local latency=$(echo "$result" | cut -d',' -f1)
+    local status=$(echo "$result" | cut -d',' -f2)
+
     # Convert to milliseconds and return result
     latency=$(echo "$latency * 1000" | bc | awk '{printf "%.1f", $0}')
     echo "$latency,$status"
@@ -205,58 +314,112 @@ test_endpoint() {
     local headers="${5:-}"
     local is_critical="${6:-false}"
     local url="${API_ENDPOINT}${path}"
-    
+    local failure_count=0
+    local max_failures=3
+
     log "Testing endpoint: $name ($url)"
-    
+
     local latencies=()
     local statuses=()
     local success_count=0
     local error_count=0
-    
+
     # Make multiple requests
     for ((i=1; i<=$SAMPLES; i++)); do
         local result=$(measure_latency "$url" "$method" "$data" "$headers")
+        local curl_exit=$?
+
+        # Check for persistent failures
+        if [[ $curl_exit -ne 0 ]]; then
+            failure_count=$((failure_count + 1))
+
+            if [[ $failure_count -ge $max_failures ]]; then
+                log "ERROR: Endpoint $name failed $max_failures consecutive times, skipping remaining tests" "ERROR"
+                break
+            fi
+
+            # Exponential backoff
+            local backoff=$((2 ** (failure_count - 1)))
+            if [[ $backoff -gt 30 ]]; then
+                backoff=30
+            fi
+
+            log "Request failed (attempt $failure_count), retrying in $backoff seconds..."
+            sleep $backoff
+            continue
+        else
+            failure_count=0  # Reset on success
+        fi
+
         local latency=$(echo $result | cut -d',' -f1)
         local status=$(echo $result | cut -d',' -f2)
-        
+
         latencies+=($latency)
         statuses+=($status)
-        
+
         if [[ "$status" -ge 200 && "$status" -lt 300 ]]; then
             success_count=$((success_count + 1))
         else
             error_count=$((error_count + 1))
+            log "  Request returned HTTP status $status"
         fi
-        
+
         if [[ "$VERBOSE" = true ]]; then
             log "  Request $i: ${latency}ms (status: $status)"
         fi
-        
-        # Sleep between requests
+
+        # Sleep between requests - adjust interval based on connection reuse
         if [[ $i -lt $SAMPLES ]]; then
-            sleep $INTERVAL
+            if [[ "$CONNECTION_REUSE" == "true" ]]; then
+                # Shorter interval when connection reuse is enabled
+                sleep $(echo "scale=2; $INTERVAL / 2" | bc)
+            else
+                sleep $INTERVAL
+            fi
         fi
     done
-    
+
+    # Check if we have any data to analyze
+    if [[ ${#latencies[@]} -eq 0 ]]; then
+        log "ERROR: No successful responses from endpoint $name"
+        return 1
+    fi
+
     # Sort latencies for percentile calculation
     IFS=$'\n' sorted=($(sort -n <<<"${latencies[*]}"))
     unset IFS
-    
+
     # Calculate statistics
     local total=0
     for latency in "${latencies[@]}"; do
         total=$(echo "$total + $latency" | bc)
     done
-    
+
     local count=${#latencies[@]}
     local avg=$(echo "scale=1; $total / $count" | bc)
     local min=${sorted[0]}
     local max=${sorted[$((count-1))]}
-    local p50=${sorted[$((count*50/100))]}
-    local p95=${sorted[$((count*95/100))]}
-    local p99=${sorted[$((count*99/100))]}
-    local error_rate=$(echo "scale=1; $error_count * 100 / $count" | bc)
-    
+
+    # Safe percentile calculations with proper bounds checking
+    local p50_idx=$(( count * 50 / 100 ))
+    local p95_idx=$(( count * 95 / 100 ))
+    local p99_idx=$(( count * 99 / 100 ))
+
+    # Ensure indexes are valid
+    [[ $p50_idx -lt $count ]] || p50_idx=$((count-1))
+    [[ $p95_idx -lt $count ]] || p95_idx=$((count-1))
+    [[ $p99_idx -lt $count ]] || p99_idx=$((count-1))
+
+    local p50=${sorted[$p50_idx]}
+    local p95=${sorted[$p95_idx]}
+    local p99=${sorted[$p99_idx]}
+
+    # Calculate error rate safely
+    local error_rate=0
+    if [[ $count -gt 0 ]]; then
+        error_rate=$(echo "scale=1; $error_count * 100 / ($success_count + $error_count)" | bc)
+    fi
+
     # Determine status based on thresholds
     local status="OK"
     if (( $(echo "$p95 >= $CRITICAL_THRESHOLD" | bc -l) )) || (( $(echo "$error_rate > 5" | bc -l) )); then
@@ -264,11 +427,11 @@ test_endpoint() {
     elif (( $(echo "$p95 >= $ALERT_THRESHOLD" | bc -l) )) || (( $(echo "$error_rate > 0" | bc -l) )); then
         status="WARNING"
     fi
-    
+
     log "Results for $name:"
     log "  Average: ${avg}ms | P50: ${p50}ms | P95: ${p95}ms | P99: ${p99}ms | Error rate: ${error_rate}%"
     log "  Status: $status"
-    
+
     # Return formatted result
     echo "$name,$path,$method,$avg,$min,$max,$p50,$p95,$p99,$error_rate,$success_count,$error_count,$status,$is_critical"
 }
@@ -278,7 +441,7 @@ output_prometheus() {
     local results="$1"
     local timestamp=$(date +%s)
     local metrics_dir=$(dirname "$METRICS_FILE")
-    
+
     # Create directory if it doesn't exist
     if [[ ! -d "$metrics_dir" ]]; then
         if ! mkdir -p "$metrics_dir"; then
@@ -286,7 +449,7 @@ output_prometheus() {
             return 1
         fi
     fi
-    
+
     # Create or truncate metrics file
     echo "# HELP api_latency_ms API endpoint latency in milliseconds" > "$METRICS_FILE"
     echo "# TYPE api_latency_ms gauge" >> "$METRICS_FILE"
@@ -296,26 +459,26 @@ output_prometheus() {
     echo "# TYPE api_latency_p95_ms gauge" >> "$METRICS_FILE"
     echo "# HELP api_latency_last_check_timestamp Last check timestamp for API latency" >> "$METRICS_FILE"
     echo "# TYPE api_latency_last_check_timestamp gauge" >> "$METRICS_FILE"
-    
+
     # Add last check timestamp
     echo "api_latency_last_check_timestamp $timestamp" >> "$METRICS_FILE"
-    
+
     # Process each endpoint result
     IFS=$'\n'
     for line in $results; do
         IFS=',' read -r name path method avg min max p50 p95 p99 error_rate success_count error_count status is_critical <<< "$line"
-        
+
         # Clean name for Prometheus (replace non-alphanumeric chars with underscore)
         clean_name=$(echo "$name" | tr -c '[:alnum:]' '_')
         clean_path=$(echo "$path" | tr -c '[:alnum:]' '_')
-        
+
         # Add metrics
         echo "api_latency_ms{endpoint=\"$name\",path=\"$path\",method=\"$method\",env=\"$ENVIRONMENT\",region=\"$REGION\"} $avg" >> "$METRICS_FILE"
         echo "api_latency_p95_ms{endpoint=\"$name\",path=\"$path\",method=\"$method\",env=\"$ENVIRONMENT\",region=\"$REGION\"} $p95" >> "$METRICS_FILE"
         echo "api_error_rate{endpoint=\"$name\",path=\"$path\",method=\"$method\",env=\"$ENVIRONMENT\",region=\"$REGION\"} $error_rate" >> "$METRICS_FILE"
     done
     unset IFS
-    
+
     # Set permissions
     chmod 644 "$METRICS_FILE"
     log "Metrics exported to $METRICS_FILE"
@@ -325,11 +488,11 @@ output_prometheus() {
 output_json() {
     local results="$1"
     local output_file="$2"
-    
+
     if [[ -z "$output_file" ]]; then
         output_file=$(mktemp)
     fi
-    
+
     # Create JSON structure
     echo "{" > "$output_file"
     echo "  \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"," >> "$output_file"
@@ -338,7 +501,7 @@ output_json() {
     echo "  \"api_endpoint\": \"$API_ENDPOINT\"," >> "$output_file"
     echo "  \"sample_size\": $SAMPLES," >> "$output_file"
     echo "  \"endpoints\": [" >> "$output_file"
-    
+
     # Process each endpoint result
     local first=true
     IFS=$'\n'
@@ -348,9 +511,9 @@ output_json() {
         else
             echo "," >> "$output_file"
         fi
-        
+
         IFS=',' read -r name path method avg min max p50 p95 p99 error_rate success_count error_count status is_critical <<< "$line"
-        
+
         cat >> "$output_file" << EOF
     {
       "name": "$name",
@@ -375,23 +538,23 @@ output_json() {
 EOF
     done
     unset IFS
-    
+
     # Close JSON structure
     echo "" >> "$output_file"
     echo "  ]," >> "$output_file"
-    
+
     # Add system info
     echo "  \"system_info\": {" >> "$output_file"
     echo "    \"hostname\": \"$(hostname)\"," >> "$output_file"
     echo "    \"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"" >> "$output_file"
     echo "  }" >> "$output_file"
     echo "}" >> "$output_file"
-    
+
     # Print JSON to stdout if output format is JSON
     if [[ "$OUTPUT_FORMAT" = "json" ]]; then
         cat "$output_file"
     fi
-    
+
     log "JSON report saved to $output_file"
 }
 
@@ -399,11 +562,11 @@ EOF
 output_text() {
     local results="$1"
     local output_file="$2"
-    
+
     if [[ -z "$output_file" ]]; then
         output_file=$(mktemp)
     fi
-    
+
     # Create header
     cat > "$output_file" << EOF
 API LATENCY MONITORING REPORT
@@ -418,19 +581,19 @@ Thresholds:  Alert: ${ALERT_THRESHOLD}ms, Critical: ${CRITICAL_THRESHOLD}ms
 ENDPOINT LATENCY RESULTS
 ========================
 EOF
-    
+
     # Process each endpoint result
     IFS=$'\n'
     for line in $results; do
         IFS=',' read -r name path method avg min max p50 p95 p99 error_rate success_count error_count status is_critical <<< "$line"
-        
+
         local status_symbol="✓"
         if [[ "$status" = "WARNING" ]]; then
             status_symbol="⚠️"
         elif [[ "$status" = "CRITICAL" ]]; then
             status_symbol="⛔"
         fi
-        
+
         cat >> "$output_file" << EOF
 
 $status_symbol $name ($method $path)
@@ -443,7 +606,7 @@ Critical:    $is_critical
 EOF
     done
     unset IFS
-    
+
     # Add summary
     cat >> "$output_file" << EOF
 
@@ -456,12 +619,12 @@ Healthy endpoints:      $(echo "$results" | grep -c "OK")
 
 Generated: $(date)
 EOF
-    
+
     # Print report to stdout if output format is text
     if [[ "$OUTPUT_FORMAT" = "text" ]]; then
         cat "$output_file"
     fi
-    
+
     log "Text report saved to $output_file"
 }
 
@@ -493,7 +656,7 @@ for endpoint in $ENDPOINTS; do
     data=$(echo $endpoint | jq -r '.data // ""')
     headers=$(echo $endpoint | jq -r '.headers // ""')
     critical=$(echo $endpoint | jq -r '.critical // false')
-    
+
     # Test the endpoint
     result=$(test_endpoint "$name" "$path" "$method" "$data" "$headers" "$critical")
     results+=("$result")
@@ -527,7 +690,7 @@ fi
 critical_issues=$(echo "$all_results" | grep -E "CRITICAL.*,true$" || echo "")
 if [[ -n "$critical_issues" ]]; then
     log "ALERT: Critical endpoints with performance issues detected!"
-    
+
     # Create a formatted report of critical issues
     while IFS=',' read -r name path method avg min max p50 p95 p99 error_rate success_count error_count status is_critical; do
         if [[ "$status" == "CRITICAL" && "$is_critical" == "true" ]]; then
@@ -538,7 +701,7 @@ if [[ -n "$critical_issues" ]]; then
             log "  - $name ($method $path): $issue_details"
         fi
     done <<< "$all_results"
-    
+
     # Send alert if notification mechanism exists
     if [[ -x "${PROJECT_ROOT}/scripts/utils/send-notification.sh" && -n "$EMAIL_RECIPIENT" ]]; then
         ${PROJECT_ROOT}/scripts/utils/send-notification.sh \
@@ -547,7 +710,7 @@ if [[ -n "$critical_issues" ]]; then
             --message "Critical API latency issues detected. See report for details." \
             --recipient "$EMAIL_RECIPIENT" \
             --attachment "${REPORT_FILE:-/dev/null}"
-        
+
         log "Alert notification sent to $EMAIL_RECIPIENT"
     fi
 fi
@@ -556,10 +719,10 @@ fi
 if [[ "$DR_MODE" = true ]]; then
     DR_LOG_DIR="/var/log/cloud-platform"
     DR_LOG_FILE="$DR_LOG_DIR/dr-events.log"
-    
+
     # Ensure directory exists
     mkdir -p "$DR_LOG_DIR"
-    
+
     if [[ -d "$DR_LOG_DIR" && -w "$DR_LOG_DIR" ]]; then
         echo "$(date '+%Y-%m-%d %H:%M:%S'),API_LATENCY,${ENVIRONMENT},${REGION},${FINAL_STATUS}" >> "$DR_LOG_FILE"
         log "API latency monitoring results logged to DR events log"
