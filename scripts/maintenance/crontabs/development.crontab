@@ -1,0 +1,24 @@
+# Development crontab configuration for Cloud Infrastructure Platform
+# Less frequent jobs for development environments
+
+CLOUD_PLATFORM_ROOT=~/cloud-platform
+LOG_DIR=~/cloud-platform/logs
+PYTHON_ENV=~/cloud-platform/venv/bin/python
+FLASK_ENV=development
+
+# System maintenance
+# Rotate logs weekly on Sunday at 2:00 AM
+0 2 * * 0 ${CLOUD_PLATFORM_ROOT}/scripts/rotate_logs.sh >> ${LOG_DIR}/cron.log 2>&1
+
+# Database backup weekly on Sunday at 3:00 AM
+0 3 * * 0 ${CLOUD_PLATFORM_ROOT}/scripts/backup_db.sh >> ${LOG_DIR}/cron.log 2>&1
+
+# Security checks
+# Verify file integrity daily at 8:00 AM
+0 8 * * * ${PYTHON_ENV} ${CLOUD_PLATFORM_ROOT}/scripts/verify_files.py >> ${LOG_DIR}/security.log 2>&1
+
+# Run security audit weekly on Monday at 9:00 AM
+0 9 * * 1 ${PYTHON_ENV} ${CLOUD_PLATFORM_ROOT}/scripts/security_audit.py >> ${LOG_DIR}/security.log 2>&1
+
+# Clean up temporary files weekly on Sunday at 1:00 AM
+0 1 * * 0 find ${CLOUD_PLATFORM_ROOT}/instance/temporary -type f -mtime +7 -delete >> ${LOG_DIR}/cron.log 2>&1

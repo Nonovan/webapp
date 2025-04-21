@@ -1,0 +1,30 @@
+# Example crontab configuration for Cloud Infrastructure Platform
+# To install: crontab scripts/crontabs/crontab.example
+# Make sure paths are absolute
+
+# System maintenance
+# Rotate logs daily at 2:15 AM
+15 2 * * * /path/to/cloud-platform/scripts/rotate_logs.sh >> /path/to/cloud-platform/logs/cron.log 2>&1
+
+# Database backup daily at 3:00 AM
+0 3 * * * /opt/cloud-platform/scripts/maintenance/backup_db.sh >> /var/log/cloud-platform/cron.log 2>&1
+
+# Security checks
+# Verify file integrity every 2 hours
+0 */2 * * * /path/to/cloud-platform/scripts/verify_files.py >> /path/to/cloud-platform/logs/security.log 2>&1
+
+# Run security audit daily at 4:00 AM
+0 4 * * * /path/to/cloud-platform/scripts/security_audit.py >> /path/to/cloud-platform/logs/security.log 2>&1
+
+# Certificate expiration check weekly on Monday at 9:00 AM
+0 9 * * 1 /path/to/cloud-platform/scripts/check_certificate_expiration.sh >> /path/to/cloud-platform/logs/security.log 2>&1
+
+# Monitoring and metrics
+# Export metrics hourly
+0 * * * * /path/to/cloud-platform/scripts/export_metrics.py --format=prometheus --output=/path/to/cloud-platform/logs/metrics/hourly_$(date +\%Y\%m\%d_\%H).prom >> /path/to/cloud-platform/logs/cron.log 2>&1
+
+# Generate daily reports at 5:00 AM
+0 5 * * * cd /path/to/cloud-platform && FLASK_APP=app.py flask reports generate-daily >> /path/to/cloud-platform/logs/cron.log 2>&1
+
+# Clean up temporary files weekly on Sunday at 1:00 AM
+0 1 * * 0 find /path/to/cloud-platform/instance/temporary -type f -mtime +7 -delete >> /path/to/cloud-platform/logs/cron.log 2>&1
