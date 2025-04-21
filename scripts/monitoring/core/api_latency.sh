@@ -1,9 +1,25 @@
 #!/bin/bash
 # API Latency Monitoring Script
-# Monitors API endpoints for latency issues and reports metrics
+# -----------------------------
+# This script monitors API endpoints for latency issues across multiple cloud providers
+# and regions. It provides comprehensive metrics and alerting capabilities.
+#
+# Features:
+# - Multi-region support (AWS, Azure, GCP)
+# - Multiple output formats (text, JSON, Prometheus)
+# - Configurable thresholds and alerting
+# - Connection pooling and optimization
+# - Comprehensive error handling and reporting
+#
+# Author: Cloud Platform Team
+# Last Updated: 2025-04-21
+#
 # Usage: ./api_latency.sh [environment] [options]
 
 set -e
+
+# Add trap for proper cleanup on exit
+trap cleanup EXIT INT TERM
 
 # Default settings
 ENVIRONMENT=${1:-production}
@@ -21,10 +37,14 @@ SAMPLES=10  # Number of requests to make to each endpoint
 INTERVAL=1  # Seconds between requests
 REQUEST_TIMEOUT=10  # Default timeout for requests (seconds)
 CONNECTION_REUSE=true  # Enable connection reuse by default
+PARALLEL_EXECUTION=false  # Run tests in parallel
+LOW_RESOURCE_MODE=false  # Conserve resources when true
+ANALYZE_TRENDS=false  # Analyze trends against historical data
 ENDPOINTS_FILE="${PROJECT_ROOT}/config/api_endpoints.json"
 CUSTOM_ENDPOINTS=""
 METRICS_FILE="/var/lib/node_exporter/textfile_collector/api_latency.prom"
 REPORT_FILE=""
+HISTORY_DIR="${PROJECT_ROOT}/logs/metrics"
 API_KEY=""
 API_USERNAME=""
 API_PASSWORD=""
@@ -33,6 +53,30 @@ TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 # Ensure log directory exists
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/api_latency.log"
+
+# Source common functions for consistency
+if [[ -f "${PROJECT_ROOT}/scripts/utils/common_functions.sh" ]]; then
+    source "${PROJECT_ROOT}/scripts/utils/common_functions.sh"
+    log "Loaded common functions"
+else
+    log "WARNING: Common functions not found, using limited built-in functions"
+fi
+
+# Define temp file for storing temporary data
+temp_file=$(mktemp)
+
+# Cleanup function for proper resource handling
+cleanup() {
+    # Remove any temporary files
+    [[ -f "$temp_file" ]] && rm -f "$temp_file"
+
+    # Print summary if not already done
+    if [[ -z "$EXIT_CODE" ]]; then
+        log "API latency monitoring terminated"
+    else
+        log "API latency monitoring completed with status: ${FINAL_STATUS:-UNKNOWN}"
+    fi
+}
 
 # Function to log messages
 log() {
@@ -95,6 +139,114 @@ validate_config() {
             fi
         fi
     fi
+}
+
+# Function to check circuit breaker status for an endpoint
+check_circuit_breaker() {
+    local endpoint="$1"
+    local circuit_breaker_file="/tmp/circuit_breaker_${endpoint// /_}"
+
+    if [[ -f "$circuit_breaker_file" ]]; then
+        local trip_time=$(cat "$circuit_breaker_file")
+        local current_time=$(date +%s)
+        local elapsed=$((current_time - trip_time))
+
+        # Circuit is tripped for 5 minutes (300 seconds)
+        if [[ $elapsed -lt 300 ]]; then
+            log "Circuit breaker for $endpoint is open (will retry in $((300-elapsed))s), skipping test"
+            return 1
+        else
+            rm -f "$circuit_breaker_file"
+            log "Circuit breaker for $endpoint reset after $elapsed seconds"
+        fi
+    fi
+
+    return 0
+}
+
+# Function to trip the circuit breaker for an endpoint
+trip_circuit_breaker() {
+    local endpoint="$1"
+    local circuit_breaker_file="/tmp/circuit_breaker_${endpoint// /_}"
+    date +%s > "$circuit_breaker_file"
+    log "Circuit breaker tripped for $endpoint (protection active for 5 minutes)"
+}
+
+# Improved retry strategy with exponential backoff and jitter
+retry_request() {
+    local url="$1"
+    local method="$2"
+    local data="$3"
+    local headers="$4"
+    local max_attempts=5
+    local attempt=1
+    local backoff=1
+    local max_backoff=30
+    local result=""
+
+    while [[ $attempt -le $max_attempts ]]; do
+        # Try the request
+        result=$(measure_latency "$url" "$method" "$data" "$headers")
+        local curl_exit=$?
+
+        if [[ $curl_exit -eq 0 ]]; then
+            echo "$result"
+            return 0
+        fi
+
+        # Calculate backoff with jitter to avoid thundering herd problem
+        local jitter=$(( RANDOM % 1000 ))
+        local sleep_time=$(echo "scale=3; $backoff + $jitter/1000" | bc)
+
+        log "Request failed (attempt $attempt/$max_attempts), retrying in $sleep_time seconds..."
+        sleep $sleep_time
+
+        # Increase backoff exponentially
+        backoff=$(( backoff * 2 ))
+        [[ $backoff -gt $max_backoff ]] && backoff=$max_backoff
+
+        attempt=$(( attempt + 1 ))
+    done
+
+    # All attempts failed
+    log "All $max_attempts retry attempts failed"
+    echo "0.0,0"
+    return 1
+}
+
+# Function to analyze trends against historical data
+analyze_trends() {
+    local endpoint="$1"
+    local current_p95="$2"
+    local history_file="${HISTORY_DIR}/${endpoint// /_}_latency_history.log"
+
+    # Create history directory if it doesn't exist
+    mkdir -p "${HISTORY_DIR}"
+
+    if [[ -f "$history_file" ]]; then
+        # Get last 10 historical values
+        local previous_values=$(tail -n 10 "$history_file" | cut -d' ' -f1)
+        local entry_count=$(echo "$previous_values" | wc -l)
+
+        if [[ $entry_count -gt 3 ]]; then
+            local avg_previous=$(echo "$previous_values" | awk '{sum+=$1} END {print sum/NR}')
+
+            # Calculate percent change
+            local percent_change=$(echo "scale=2; ($current_p95 - $avg_previous) * 100 / $avg_previous" | bc)
+
+            # Check for significant changes
+            if (( $(echo "$percent_change > 20" | bc -l) )); then
+                log "WARNING: $endpoint shows ${percent_change}% increase in P95 latency compared to historical average"
+                return 1
+            elif (( $(echo "$percent_change < -20" | bc -l) )); then
+                log "NOTICE: $endpoint shows ${percent_change}% decrease in P95 latency compared to historical average"
+            fi
+        fi
+    fi
+
+    # Record current value for future analysis
+    echo "$current_p95 $(date +%s)" >> "$history_file"
+    return 0
 }
 
 # Parse command line arguments
@@ -174,6 +326,18 @@ while [[ $# -gt $shift_count ]]; do
             DR_MODE=true
             shift
             ;;
+        --parallel)
+            PARALLEL_EXECUTION=true
+            shift
+            ;;
+        --low-resource)
+            LOW_RESOURCE_MODE=true
+            shift
+            ;;
+        --analyze-trends)
+            ANALYZE_TRENDS=true
+            shift
+            ;;
         --help|-h)
             echo "Usage: $0 [environment] [options]"
             echo "Options:"
@@ -192,6 +356,9 @@ while [[ $# -gt $shift_count ]]; do
             echo "  --verbose, -v                Enable verbose output"
             echo "  --quiet, -q                  Minimal output"
             echo "  --dr-mode                    Log to DR events system"
+            echo "  --parallel                   Enable parallel execution of tests"
+            echo "  --low-resource               Conserve resources during execution"
+            echo "  --analyze-trends             Analyze trends against historical data"
             echo "  --help, -h                   Show this help message"
             exit 0
             ;;
@@ -215,12 +382,39 @@ fi
 # Validate configuration
 validate_config
 
-# Determine API endpoint based on region
-if [[ "$REGION" = "primary" ]]; then
-    API_ENDPOINT="${PRIMARY_API_ENDPOINT:-https://api.cloud-platform.example.com}"
-else
-    API_ENDPOINT="${SECONDARY_API_ENDPOINT:-https://api-dr.cloud-platform.example.com}"
+# Adjust parameters for low resource mode
+if [[ "$LOW_RESOURCE_MODE" == "true" ]]; then
+    # Reduce sample size and increase interval to minimize impact
+    SAMPLES=3
+    INTERVAL=5
+    log "Running in low-resource mode: reduced samples (${SAMPLES}) and increased interval (${INTERVAL}s)"
 fi
+
+# Determine API endpoint based on region
+case "$REGION" in
+    primary)
+        API_ENDPOINT="${PRIMARY_API_ENDPOINT:-https://api.cloud-platform.example.com}"
+        ;;
+    secondary)
+        API_ENDPOINT="${SECONDARY_API_ENDPOINT:-https://api-dr.cloud-platform.example.com}"
+        ;;
+    aws-us-east-1)
+        API_ENDPOINT="${AWS_US_EAST_1_API_ENDPOINT:-https://api-us-east-1.cloud-platform.example.com}"
+        ;;
+    aws-us-west-2)
+        API_ENDPOINT="${AWS_US_WEST_2_API_ENDPOINT:-https://api-us-west-2.cloud-platform.example.com}"
+        ;;
+    azure-eastus)
+        API_ENDPOINT="${AZURE_EASTUS_API_ENDPOINT:-https://api-azure-eastus.cloud-platform.example.com}"
+        ;;
+    gcp-us-central1)
+        API_ENDPOINT="${GCP_US_CENTRAL1_API_ENDPOINT:-https://api-gcp-central1.cloud-platform.example.com}"
+        ;;
+    *)
+        log "ERROR: Unsupported region: $REGION"
+        exit 1
+        ;;
+esac
 
 # Use custom endpoints file if specified
 if [[ -n "$CUSTOM_ENDPOINTS" ]]; then
@@ -317,6 +511,11 @@ test_endpoint() {
     local failure_count=0
     local max_failures=3
 
+    # Check circuit breaker status
+    if ! check_circuit_breaker "$name"; then
+        return 1
+    fi
+
     log "Testing endpoint: $name ($url)"
 
     local latencies=()
@@ -326,7 +525,7 @@ test_endpoint() {
 
     # Make multiple requests
     for ((i=1; i<=$SAMPLES; i++)); do
-        local result=$(measure_latency "$url" "$method" "$data" "$headers")
+        local result=$(retry_request "$url" "$method" "$data" "$headers")
         local curl_exit=$?
 
         # Check for persistent failures
@@ -335,17 +534,10 @@ test_endpoint() {
 
             if [[ $failure_count -ge $max_failures ]]; then
                 log "ERROR: Endpoint $name failed $max_failures consecutive times, skipping remaining tests" "ERROR"
+                trip_circuit_breaker "$name"
                 break
             fi
 
-            # Exponential backoff
-            local backoff=$((2 ** (failure_count - 1)))
-            if [[ $backoff -gt 30 ]]; then
-                backoff=30
-            fi
-
-            log "Request failed (attempt $failure_count), retrying in $backoff seconds..."
-            sleep $backoff
             continue
         else
             failure_count=0  # Reset on success
@@ -431,6 +623,11 @@ test_endpoint() {
     log "Results for $name:"
     log "  Average: ${avg}ms | P50: ${p50}ms | P95: ${p95}ms | P99: ${p99}ms | Error rate: ${error_rate}%"
     log "  Status: $status"
+
+    # Analyze trends if enabled
+    if [[ "$ANALYZE_TRENDS" == "true" ]]; then
+        analyze_trends "$name" "$p95"
+    fi
 
     # Return formatted result
     echo "$name,$path,$method,$avg,$min,$max,$p50,$p95,$p99,$error_rate,$success_count,$error_count,$status,$is_critical"

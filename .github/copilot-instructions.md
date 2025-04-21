@@ -52,6 +52,71 @@ Please follow these standards when generating code:
 - Use Bootstrap 5 components and utility classes
 - Implement responsive designs
 
+## Script Enhancement Case Study
+
+The following case study demonstrates our preferred approach to enhancing shell scripts. This example shows how the `api_latency.sh` monitoring script was improved:
+
+### 1. Assessment Phase
+
+First, identify key areas for improvement:
+
+```
+1. Security: Replace `eval` for curl commands with safer alternatives
+2. Reliability: Add request timeout settings to prevent hanging processes
+3. Error handling: Implement exponential backoff and circuit breakers
+4. Authentication: Add built-in support for API authentication methods
+5. Performance: Add connection pooling and optimization
+```
+
+### 2. Implementation Phase
+
+For each identified area, implement changes following these principles:
+
+- Maintain backward compatibility
+- Use defensive programming techniques
+- Add proper validation and sanitization
+- Organize the code into focused functions
+- Implement graceful error handling and cleanup
+- Add helpful logging messages
+
+Example improvements:
+```bash
+# Replace eval for security
+# Before:
+eval "curl $curl_options -X $method $url"
+
+# After:
+curl_args=(-s -o /dev/null -w '%{time_total},%{http_code}' -X "$method")
+# Add other arguments to array
+curl "${curl_args[@]}" "$url"
+
+# Add circuit breaker pattern
+if [[ -f "$circuit_breaker_file" ]]; then
+    # Check if circuit is open and handle appropriately
+fi
+```
+
+### 3. Review and Testing Phase
+
+After implementation:
+
+- Verify all features work as expected
+- Test failure scenarios to ensure proper handling
+- Document new parameters and features
+- Check for any regression issues
+- Ensure proper cleanup of resources
+
+### 4. Documentation Updates
+
+Finally, document all changes:
+
+- Update help text with new options
+- Document new features in code comments
+- Add examples in README files
+- Summarize benefits of changes
+
+This process ensures our scripts are robust, secure, and maintainable while preserving functionality and adding new capabilities.
+
 ### Security Practices
 
 - Implement strict Content Security Policy
