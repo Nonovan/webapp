@@ -44,6 +44,14 @@ EXTERNAL_ENDPOINTS=()
 EXIT_ON_FAILURE=false
 ALL_TESTS_PASSED=true
 
+# Additional configuration options
+PARALLEL_EXECUTION=false
+LOW_RESOURCE_MODE=false
+PARALLEL_MAX_JOBS=10
+HISTORY_DIR="${PROJECT_ROOT}/logs/connectivity-history"
+MAX_HISTORY_ENTRIES=30
+ANALYZE_TRENDS=false
+
 # Create temporary report file
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 TEMP_REPORT_FILE="/tmp/connectivity-check-${ENVIRONMENT}-${TIMESTAMP}.txt"
@@ -160,8 +168,24 @@ while [[ $# -gt 0 ]]; do
             EXIT_ON_FAILURE=true
             shift
             ;;
+        --parallel)
+            PARALLEL_EXECUTION=true
+            shift
+            ;;
+        --parallel-jobs)
+            PARALLEL_MAX_JOBS="$2"
+            shift 2
+            ;;
+        --low-resource)
+            LOW_RESOURCE_MODE=true
+            shift
+            ;;
+        --analyze-trends)
+            ANALYZE_TRENDS=true
+            shift
+            ;;
         --help|-h)
-            echo "Usage: $0 [--environment <env>] [--region <region>] [--verbose] [--format text|json] [--report-file <file>] [--timeout <seconds>] [--no-database] [--no-redis] [--no-api] [--no-web] [--no-external] [--external-endpoint <url>] [--exit-on-failure]"
+            echo "Usage: $0 [--environment <env>] [--region <region>] [--verbose] [--format text|json] [--report-file <file>] [--timeout <seconds>] [--parallel] [--parallel-jobs <n>] [--low-resource] [--analyze-trends] [--no-database] [--no-redis] [--no-api] [--no-web] [--no-external] [--external-endpoint <url>] [--exit-on-failure]"
             echo ""
             echo "Options:"
             echo "  --environment, -e ENV       Specify environment to test (default: production)"
@@ -179,6 +203,10 @@ while [[ $# -gt 0 ]]; do
             echo "  --no-external               Skip external dependency checks"
             echo "  --external-endpoint URL     Add custom external endpoint to check"
             echo "  --exit-on-failure           Exit immediately on first failure"
+            echo "  --parallel                  Run checks in parallel for faster execution"
+            echo "  --parallel-jobs N           Maximum number of parallel jobs (default: 10)"
+            echo "  --low-resource              Run in low resource mode (fewer checks, longer timeouts)"
+            echo "  --analyze-trends            Compare results with historical data"
             echo "  --help, -h                  Show this help message"
             exit 0
             ;;
@@ -188,6 +216,24 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Adjust parameters for low resource mode
+if [[ "$LOW_RESOURCE_MODE" == "true" ]]; then
+    log "Running in low-resource mode: reduced checks and increased timeouts" "INFO"
+    TIMEOUT=10          # Increase timeout to avoid false negatives
+    PARALLEL_MAX_JOBS=3 # Reduce parallel jobs
+
+    # Reduce the number of endpoints to check
+    if [[ "$CHECK_API" == "true" ]]; then
+        API_ENDPOINTS_REDUCED=("${API_ENDPOINT}/health")
+        API_ENDPOINTS=("${API_ENDPOINTS_REDUCED[@]}")
+    fi
+
+    if [[ "$CHECK_EXTERNAL" == "true" ]] && [[ ${#EXTERNAL_ENDPOINTS[@]} -gt 3 ]]; then
+        # Limit to first 3 external endpoints
+        EXTERNAL_ENDPOINTS=("${EXTERNAL_ENDPOINTS[@]:0:3}")
+    fi
+fi
 
 # Load common functions if available
 if [[ -f "${PROJECT_ROOT}/scripts/utils/common_functions.sh" ]]; then
@@ -294,12 +340,83 @@ record_result() {
     fi
 }
 
-# Enhanced check_endpoint function with circuit breaker support
+# Function to analyze trends against historical data
+analyze_trends() {
+    local endpoint="$1"
+    local current_latency="$2"
+    local history_file="${HISTORY_DIR}/${endpoint// /_}_latency_history.log"
+
+    # Create history directory if it doesn't exist
+    mkdir -p "${HISTORY_DIR}"
+
+    if [[ -f "$history_file" ]]; then
+        # Get last few historical values
+        local previous_values=$(tail -n 10 "$history_file" | cut -d' ' -f1)
+        local entry_count=$(echo "$previous_values" | wc -l)
+
+        if [[ $entry_count -gt 3 ]]; then
+            local avg_previous=$(echo "$previous_values" | awk '{sum+=$1} END {print sum/NR}')
+
+            # Calculate percent change
+            local percent_change=$(echo "scale=2; ($current_latency - $avg_previous) * 100 / $avg_previous" | bc)
+
+            # Check for significant changes
+            if (( $(echo "$percent_change > 20" | bc -l) )); then
+                log "WARNING: $endpoint shows ${percent_change}% increase in latency compared to historical average" "WARNING"
+                record_result "Trend Analysis" "$endpoint" "WARNING" "${percent_change}% increase in latency (current: ${current_latency}ms, avg: ${avg_previous}ms)"
+                return 1
+            elif (( $(echo "$percent_change < -20" | bc -l) )); then
+                log "NOTICE: $endpoint shows ${percent_change}% decrease in latency compared to historical average" "INFO"
+                record_result "Trend Analysis" "$endpoint" "INFO" "${percent_change}% decrease in latency (current: ${current_latency}ms, avg: ${avg_previous}ms)"
+            else
+                record_result "Trend Analysis" "$endpoint" "PASSED" "Latency within normal range (current: ${current_latency}ms, avg: ${avg_previous}ms)"
+            fi
+        fi
+    fi
+
+    # Record current value for future analysis (timestamp and latency)
+    echo "$current_latency $(date +%s)" >> "$history_file"
+
+    # Trim history file if it gets too large
+    if [[ $(wc -l < "$history_file") -gt $MAX_HISTORY_ENTRIES ]]; then
+        tail -n $MAX_HISTORY_ENTRIES "$history_file" > "${history_file}.tmp"
+        mv "${history_file}.tmp" "$history_file"
+    fi
+
+    return 0
+}
+
+# Modified check_endpoint function to support parallel execution and trends analysis
 check_endpoint() {
     local name="$1"
     local url="$2"
     local expected_status="${3:-200}"
 
+    # If we're running in parallel mode, use a subshell
+    if [[ "$PARALLEL_EXECUTION" == "true" ]]; then
+        (
+            _check_endpoint_internal "$name" "$url" "$expected_status"
+        ) &
+
+        # Limit the number of parallel jobs
+        local job_count=$(jobs -r | wc -l)
+        if [[ $job_count -ge $PARALLEL_MAX_JOBS ]]; then
+            # Wait for at least one job to complete
+            wait -n
+        fi
+    else
+        # Run sequentially
+        _check_endpoint_internal "$name" "$url" "$expected_status"
+    fi
+}
+
+# Internal function to actually perform the endpoint check
+_check_endpoint_internal() {
+    local name="$1"
+    local url="$2"
+    local expected_status="${3:-200}"
+
+    # The rest of the original check_endpoint function goes here
     # Check circuit breaker first
     if ! check_circuit_breaker "$name"; then
         record_result "URL Check" "$name" "SKIPPED" "Circuit breaker is open"
@@ -354,6 +471,12 @@ check_endpoint() {
 
     if [[ "$status_code" == "$expected_status" ]]; then
         record_result "URL Check" "$name" "PASSED" "Response time: ${elapsed_ms}ms"
+
+        # Analyze trends if requested
+        if [[ "$ANALYZE_TRENDS" == "true" ]]; then
+            analyze_trends "$name" "$elapsed_ms"
+        fi
+
         return 0
     else
         local detail="Got status code: $status_code, expected: $expected_status"
