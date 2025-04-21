@@ -79,7 +79,7 @@ Status reports provide insights into:
 ./health-check.sh production --region primary --format json --notify admin@example.com
 
 # Monitor API latency with advanced options
-./api_latency.sh production --endpoints /api/v1/status,/api/v1/users --interval 30 --retries 3 --auth-token $TOKEN
+./api_latency.sh production --endpoints /api/v1/status,/api/v1/users --interval 30 --auth-key $TOKEN
 
 # Check connectivity to all services with circuit breaker support
 ./connectivity_check.sh --region primary --timeout 5 --circuit-breaker-enabled --verify-ssl
