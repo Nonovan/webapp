@@ -1,0 +1,226 @@
+{
+  "required_sections": ["general", "encryption", "access", "authentication", "session"],
+  "sections": {
+    "general": {
+      "required": true,
+      "properties": {
+        "debug": {
+          "type": "boolean",
+          "required": true,
+          "description": "Enable debug mode (should be false in production)"
+        },
+        "log_level": {
+          "type": "string",
+          "required": true,
+          "enum": ["debug", "info", "warning", "error", "critical"],
+          "description": "Application logging level"
+        },
+        "security_contact": {
+          "type": "string",
+          "required": false,
+          "description": "Security contact email address"
+        },
+        "automatic_security_updates": {
+          "type": "boolean",
+          "default": true,
+          "required": true,
+          "description": "Automatically apply security updates when available"
+        }
+      }
+    },
+    "encryption": {
+      "required": true,
+      "properties": {
+        "encryption_enabled": {
+          "type": "boolean",
+          "required": true,
+          "description": "Enable data encryption"
+        },
+        "encryption_algorithm": {
+          "type": "string",
+          "required": true,
+          "enum": ["AES-256-GCM", "ChaCha20-Poly1305", "XChaCha20-Poly1305"],
+          "description": "Encryption algorithm for sensitive data"
+        },
+        "key_rotation_days": {
+          "type": "int",
+          "required": false,
+          "minimum": 30,
+          "maximum": 365,
+          "default": 90,
+          "description": "Number of days between encryption key rotations"
+        },
+        "hmac_algorithm": {
+          "type": "string",
+          "required": false,
+          "enum": ["SHA-256", "SHA-384", "SHA-512", "BLAKE2b"],
+          "default": "SHA-256",
+          "description": "HMAC algorithm for integrity verification"
+        }
+      }
+    },
+    "access": {
+      "required": true,
+      "properties": {
+        "password_min_length": {
+          "type": "int",
+          "required": true,
+          "minimum": 8,
+          "maximum": 128,
+          "description": "Minimum password length"
+        },
+        "password_complexity": {
+          "type": "boolean",
+          "required": true,
+          "default": true,
+          "description": "Require complex passwords (uppercase, lowercase, numbers, symbols)"
+        },
+        "password_history": {
+          "type": "int",
+          "required": false,
+          "minimum": 0,
+          "maximum": 24,
+          "default": 5,
+          "description": "Number of previous passwords to remember"
+        },
+        "password_expiry_days": {
+          "type": "int",
+          "required": false,
+          "minimum": 0,
+          "maximum": 365,
+          "default": 90,
+          "description": "Number of days before passwords expire (0 for never)"
+        },
+        "min_tls_version": {
+          "type": "string",
+          "required": true,
+          "enum": ["1.2", "1.3"],
+          "description": "Minimum TLS version for secure connections"
+        },
+        "allowed_cipher_suites": {
+          "type": "string",
+          "required": false,
+          "description": "Allowed TLS cipher suites (comma separated)"
+        },
+        "rate_limiting_enabled": {
+          "type": "boolean",
+          "required": true,
+          "default": true,
+          "description": "Enable rate limiting for API endpoints and authentication attempts"
+        },
+        "max_login_attempts": {
+          "type": "int",
+          "required": false,
+          "minimum": 3,
+          "maximum": 10,
+          "default": 5,
+          "description": "Maximum number of failed login attempts before lockout"
+        }
+      }
+    },
+    "authentication": {
+      "required": true,
+      "properties": {
+        "mfa_enabled": {
+          "type": "boolean",
+          "required": true,
+          "description": "Enable Multi-Factor Authentication"
+        },
+        "mfa_methods": {
+          "type": "string",
+          "required": false,
+          "enum": ["totp", "email", "sms", "totp,email", "totp,sms", "email,sms", "totp,email,sms"],
+          "default": "totp",
+          "description": "Allowed MFA methods (comma separated)"
+        },
+        "require_mfa_for_privileged_users": {
+          "type": "boolean",
+          "required": false,
+          "default": true,
+          "description": "Require MFA for admin/privileged users"
+        },
+        "jwt_algorithm": {
+          "type": "string",
+          "required": false,
+          "enum": ["HS256", "HS384", "HS512", "RS256", "RS384", "RS512", "ES256", "ES384", "ES512"],
+          "default": "HS256",
+          "description": "JWT signing algorithm"
+        },
+        "token_expiry_minutes": {
+          "type": "int",
+          "required": false,
+          "minimum": 1,
+          "maximum": 1440,
+          "default": 60,
+          "description": "JWT token expiry time in minutes"
+        }
+      }
+    },
+    "session": {
+      "required": true,
+      "properties": {
+        "session_timeout_minutes": {
+          "type": "int",
+          "required": true,
+          "minimum": 1,
+          "maximum": 1440,
+          "default": 30,
+          "description": "Session timeout in minutes"
+        },
+        "session_secure_only": {
+          "type": "boolean",
+          "required": true,
+          "default": true,
+          "description": "Secure flag for cookies (HTTPS only)"
+        },
+        "session_http_only": {
+          "type": "boolean",
+          "required": true,
+          "default": true,
+          "description": "HttpOnly flag for cookies (inaccessible to JS)"
+        },
+        "session_same_site": {
+          "type": "string",
+          "required": false,
+          "enum": ["Strict", "Lax", "None"],
+          "default": "Lax",
+          "description": "SameSite cookie policy"
+        }
+      }
+    },
+    "headers": {
+      "required": false,
+      "properties": {
+        "content_security_policy": {
+          "type": "string",
+          "required": false,
+          "description": "Content-Security-Policy header value"
+        },
+        "x_frame_options": {
+          "type": "string",
+          "required": false,
+          "enum": ["DENY", "SAMEORIGIN"],
+          "default": "DENY",
+          "description": "X-Frame-Options header value"
+        },
+        "x_content_type_options": {
+          "type": "string",
+          "required": false,
+          "default": "nosniff",
+          "description": "X-Content-Type-Options header value"
+        },
+        "referrer_policy": {
+          "type": "string",
+          "required": false,
+          "default": "strict-origin-when-cross-origin",
+          "description": "Referrer-Policy header value"
+        },
+        "permissions_policy": {
+          "type": "string",
+          "required": false,
+          "description": "Permissions-Policy header value"
+        }
+      }
+    }
+  }
+}

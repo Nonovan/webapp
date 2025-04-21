@@ -16,6 +16,15 @@ FLASK_ENV=production
 # Weekly full backup on Sunday at 2:00 AM
 0 2 * * 0 ${CLOUD_PLATFORM_ROOT}/scripts/backup_db.sh --full >> ${LOG_DIR}/cron.log 2>&1
 
+# Daily backup verification without restore testing
+0 3 * * * /opt/cloud-platform/scripts/database/verify-backups.sh --environment production --notify admin@example.com >> /var/log/cloud-platform/cron.log 2>&1
+
+# Weekly backup verification with restore testing (Sunday at 2 AM)
+0 2 * * 0 /opt/cloud-platform/scripts/database/verify-backups.sh --environment production --restore-test --notify admin@example.com >> /var/log/cloud-platform/cron.log 2>&1
+
+# Monthly verification of all environments (1st of month)
+0 4 1 * * /opt/cloud-platform/scripts/database/verify-backups.sh --all-environments --notify admin@example.com >> /var/log/cloud-platform/cron.log 2>&1
+
 # Security checks
 # Verify file integrity every hour
 0 * * * * ${PYTHON_ENV} ${CLOUD_PLATFORM_ROOT}/scripts/verify_files.py >> ${LOG_DIR}/security.log 2>&1

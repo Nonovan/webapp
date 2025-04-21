@@ -1,0 +1,313 @@
+type: map
+mapping:
+  # Basic environment settings
+  environment:
+    type: str
+    required: true
+    enum:
+      - development
+      - staging
+      - production
+  version:
+    type: str
+    required: true
+    pattern: ^[0-9]+\.[0-9]+\.[0-9]+$
+  description:
+    type: str
+  
+  # Resource and scheduling settings
+  deployment_strategy:
+    type: str
+    enum:
+      - rolling
+      - blue-green
+      - canary
+    default: rolling
+  namespace:
+    type: str
+    required: true
+  
+  # Service definitions
+  services:
+    type: seq
+    required: true
+    sequence:
+      - type: map
+        mapping:
+          name:
+            type: str
+            required: true
+            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+          replicas:
+            type: int
+            required: true
+            range:
+              min: 1
+              max: 100
+          image:
+            type: str
+            required: true
+            pattern: ^[\w\.\/-]+(:[a-zA-Z0-9\._-]+)?$
+          ports:
+            type: seq
+            sequence:
+              - type: map
+                mapping:
+                  containerPort:
+                    type: int
+                    required: true
+                    range:
+                      min: 1
+                      max: 65535
+                  protocol:
+                    type: str
+                    enum:
+                      - TCP
+                      - UDP
+                    default: TCP
+                  name:
+                    type: str
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+          env:
+            type: seq
+            sequence:
+              - type: map
+                mapping:
+                  name:
+                    type: str
+                    required: true
+                  value:
+                    type: str
+                  valueFrom:
+                    type: map
+                    mapping:
+                      configMapKeyRef:
+                        type: map
+                        mapping:
+                          name:
+                            type: str
+                            required: true
+                          key:
+                            type: str
+                            required: true
+                      secretKeyRef:
+                        type: map
+                        mapping:
+                          name:
+                            type: str
+                            required: true
+                          key:
+                            type: str
+                            required: true
+          resources:
+            type: map
+            mapping:
+              limits:
+                type: map
+                mapping:
+                  cpu:
+                    type: str
+                    pattern: ^[0-9]+m?$|^[0-9]+\.[0-9]+$
+                  memory:
+                    type: str
+                    pattern: ^[0-9]+[KMG]i?$
+              requests:
+                type: map
+                mapping:
+                  cpu:
+                    type: str
+                    pattern: ^[0-9]+m?$|^[0-9]+\.[0-9]+$
+                  memory:
+                    type: str
+                    pattern: ^[0-9]+[KMG]i?$
+          healthCheck:
+            type: map
+            mapping:
+              livenessProbe:
+                type: map
+                mapping:
+                  httpGet:
+                    type: map
+                    mapping:
+                      path:
+                        type: str
+                        required: true
+                      port:
+                        type: int
+                        required: true
+                  initialDelaySeconds:
+                    type: int
+                  periodSeconds:
+                    type: int
+                  timeoutSeconds:
+                    type: int
+                  failureThreshold:
+                    type: int
+              readinessProbe:
+                type: map
+                mapping:
+                  httpGet:
+                    type: map
+                    mapping:
+                      path:
+                        type: str
+                        required: true
+                      port:
+                        type: int
+                        required: true
+                  initialDelaySeconds:
+                    type: int
+                  periodSeconds:
+                    type: int
+                  timeoutSeconds:
+                    type: int
+                  successThreshold:
+                    type: int
+          volumes:
+            type: seq
+            sequence:
+              - type: map
+                mapping:
+                  name:
+                    type: str
+                    required: true
+                  mountPath:
+                    type: str
+                    required: true
+                  subPath:
+                    type: str
+                  readOnly:
+                    type: bool
+                  volumeSource:
+                    type: map
+                    mapping:
+                      configMap:
+                        type: map
+                        mapping:
+                          name:
+                            type: str
+                            required: true
+                      secret:
+                        type: map
+                        mapping:
+                          secretName:
+                            type: str
+                            required: true
+                      persistentVolumeClaim:
+                        type: map
+                        mapping:
+                          claimName:
+                            type: str
+                            required: true
+                      hostPath:
+                        type: map
+                        mapping:
+                          path:
+                            type: str
+                            required: true
+  
+  # Infrastructure configuration
+  ingress:
+    type: seq
+    sequence:
+      - type: map
+        mapping:
+          name:
+            type: str
+            required: true
+          host:
+            type: str
+            required: true
+          paths:
+            type: seq
+            required: true
+            sequence:
+              - type: map
+                mapping:
+                  path:
+                    type: str
+                    required: true
+                  serviceName:
+                    type: str
+                    required: true
+                  servicePort:
+                    type: int
+                    required: true
+          tls:
+            type: bool
+            default: true
+          annotations:
+            type: map
+
+  # Monitoring and logging configuration
+  monitoring:
+    type: map
+    mapping:
+      enabled:
+        type: bool
+        default: true
+      prometheus:
+        type: map
+        mapping:
+          scrape:
+            type: bool
+            default: true
+          path:
+            type: str
+            default: /metrics
+          port:
+            type: int
+      alerts:
+        type: seq
+        sequence:
+          - type: map
+            mapping:
+              name:
+                type: str
+                required: true
+              query:
+                type: str
+                required: true
+              for:
+                type: str
+              severity:
+                type: str
+                enum:
+                  - critical
+                  - warning
+                  - info
+                default: warning
+  
+  # Security configuration
+  security:
+    type: map
+    mapping:
+      networkPolicy:
+        type: map
+        mapping:
+          enabled:
+            type: bool
+            default: false
+          allowedNamespaces:
+            type: seq
+            sequence:
+              - type: str
+      securityContext:
+        type: map
+        mapping:
+          runAsNonRoot:
+            type: bool
+            default: true
+          runAsUser:
+            type: int
+          runAsGroup:
+            type: int
+          fsGroup:
+            type: int
+      podSecurityContext:
+        type: map
+        mapping:
+          readOnlyRootFilesystem:
+            type: bool
+          allowPrivilegeEscalation:
+            type: bool

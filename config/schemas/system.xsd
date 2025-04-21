@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" 
+           elementFormDefault="qualified"
+           attributeFormDefault="unqualified">
+  
+  <!-- Root system element -->
+  <xs:element name="system">
+    <xs:annotation>
+      <xs:documentation>
+        Root element defining the system configuration for the Cloud Infrastructure Platform.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:complexType>
+      <xs:sequence>
+        <!-- Basic system information -->
+        <xs:element name="name" type="xs:string">
+          <xs:annotation>
+            <xs:documentation>System name identifier.</xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        
+        <xs:element name="version" type="versionType">
+          <xs:annotation>
+            <xs:documentation>System version in semantic versioning format (X.Y.Z).</xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        
+        <xs:element name="description" type="xs:string" minOccurs="0">
+          <xs:annotation>
+            <xs:documentation>Optional system description.</xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        
+        <!-- Component definitions -->
+        <xs:element name="components">
+          <xs:annotation>
+            <xs:documentation>Container for all system components.</xs:documentation>
+          </xs:annotation>
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="component" type="componentType" maxOccurs="unbounded">
+                <xs:annotation>
+                  <xs:documentation>Individual system component configuration.</xs:documentation>
+                </xs:annotation>
+              </xs:element>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+        
+        <!-- Security settings -->
+        <xs:element name="security" minOccurs="0">
+          <xs:annotation>
+            <xs:documentation>Optional system-wide security settings.</xs:documentation>
+          </xs:annotation>
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="auth_required" type="xs:boolean" default="true" minOccurs="0"/>
+              <xs:element name="encryption_level" default="high" minOccurs="0">
+                <xs:simpleType>
+                  <xs:restriction base="xs:string">
+                    <xs:enumeration value="low"/>
+                    <xs:enumeration value="medium"/>
+                    <xs:enumeration value="high"/>
+                  </xs:restriction>
+                </xs:simpleType>
+              </xs:element>
+              <xs:element name="audit_enabled" type="xs:boolean" default="true" minOccurs="0"/>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+      
+      <!-- System attributes -->
+      <xs:attribute name="environment" use="required">
+        <xs:annotation>
+          <xs:documentation>Deployment environment for this configuration.</xs:documentation>
+        </xs:annotation>
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:enumeration value="development"/>
+            <xs:enumeration value="staging"/>
+            <xs:enumeration value="production"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:attribute>
+      
+      <xs:attribute name="region" type="xs:string" use="optional">
+        <xs:annotation>
+          <xs:documentation>Optional cloud region identifier.</xs:documentation>
+        </xs:annotation>
+      </xs:attribute>
+      
+      <xs:attribute name="lastUpdated" type="xs:dateTime" use="optional">
+        <xs:annotation>
+          <xs:documentation>Last update timestamp.</xs:documentation>
+        </xs:annotation>
+      </xs:attribute>
+    </xs:complexType>
+    
+    <!-- Key constraints to ensure component IDs are unique -->
+    <xs:key name="componentIdKey">
+      <xs:selector xpath="./components/component"/>
+      <xs:field xpath="@id"/>
+    </xs:key>
+  </xs:element>
+  
+  <!-- Component definition type -->
+  <xs:complexType name="componentType">
+    <xs:sequence>
+      <xs:element name="name" type="xs:string"/>
+      <xs:element name="enabled" type="xs:boolean"/>
+      <xs:element name="version" type="versionType" minOccurs="0"/>
+      <xs:element name="dependencies" minOccurs="0">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="dependency" maxOccurs="unbounded">
+              <xs:complexType>
+                <xs:attribute name="componentId" type="xs:string" use="required"/>
+                <xs:attribute name="optional" type="xs:boolean" default="false"/>
+              </xs:complexType>
+            </xs:element>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="settings" minOccurs="0">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="setting" maxOccurs="unbounded">
+              <xs:complexType>
+                <xs:simpleContent>
+                  <xs:extension base="xs:string">
+                    <xs:attribute name="key" type="xs:string" use="required"/>
+                    <xs:attribute name="encrypted" type="xs:boolean" default="false"/>
+                    <xs:attribute name="sensitive" type="xs:boolean" default="false"/>
+                  </xs:extension>
+                </xs:simpleContent>
+              </xs:complexType>
+            </xs:element>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="health" minOccurs="0">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="check_interval_seconds" type="xs:positiveInteger" default="60" minOccurs="0"/>
+            <xs:element name="check_timeout_seconds" type="xs:positiveInteger" default="10" minOccurs="0"/>
+            <xs:element name="endpoint" type="xs:string" minOccurs="0"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:ID" use="required"/>
+    <xs:attribute name="critical" type="xs:boolean" default="false"/>
+  </xs:complexType>
+  
+  <!-- Version type pattern for semantic versioning -->
+  <xs:simpleType name="versionType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="\d+\.\d+\.\d+"/>
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>

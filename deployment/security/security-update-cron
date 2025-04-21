@@ -42,3 +42,9 @@ LOG_DIR=/var/log/cloud-platform
 
 # Update system blacklist/whitelist files weekly
 0 2 * * 3 root /opt/cloud-platform/scripts/security/update-system-blacklists.sh >> ${LOG_DIR}/blacklist-update.log 2>&1
+
+# Apply security updates to staging environment weekly (Saturday at 2 AM)
+0 2 * * 6 root /opt/cloud-platform/scripts/security/apply_security_updates.sh --environment staging --notify >> ${LOG_DIR}/staging-security-updates.log 2>&1
+
+# Apply security updates to development environment weekly (Sunday at 3 AM)
+0 3 * * 0 root /opt/cloud-platform/scripts/security/apply_security_updates.sh --environment development --notify >> ${LOG_DIR}/dev-security-updates.log 2>&1

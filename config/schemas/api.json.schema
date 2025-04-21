@@ -1,0 +1,116 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "API Configuration Schema",
+    "description": "Schema definition for API endpoints configuration",
+    "type": "object",
+    "required": ["api_version", "endpoints"],
+    "additionalProperties": false,
+    "properties": {
+        "api_version": {
+            "type": "string",
+            "description": "API version identifier",
+            "pattern": "^v\\d+(\\.\\d+)?(\\.\\d+)?$",
+            "examples": ["v1", "v2.0", "v1.1.0"]
+        },
+        "base_url": {
+            "type": "string",
+            "description": "Base URL for all API endpoints",
+            "format": "uri"
+        },
+        "endpoints": {
+            "type": "array",
+            "description": "List of API endpoints",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "required": ["name", "path", "method"],
+                "additionalProperties": false,
+                "properties": {
+                    "name": { 
+                        "type": "string",
+                        "description": "Human-readable name for the endpoint"
+                    },
+                    "path": { 
+                        "type": "string",
+                        "description": "URL path for the endpoint",
+                        "pattern": "^/.*"
+                    },
+                    "method": { 
+                        "type": "string",
+                        "description": "HTTP method for the endpoint",
+                        "enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"] 
+                    },
+                    "critical": { 
+                        "type": "boolean",
+                        "description": "Whether the endpoint is considered critical for core functionality",
+                        "default": false
+                    },
+                    "description": { 
+                        "type": "string",
+                        "description": "Detailed description of the endpoint's purpose"
+                    },
+                    "headers": {
+                        "type": "object",
+                        "description": "HTTP headers required by the endpoint",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    },
+                    "parameters": {
+                        "type": "array",
+                        "description": "List of parameters accepted by the endpoint",
+                        "items": {
+                            "type": "object",
+                            "required": ["name", "in", "type"],
+                            "additionalProperties": false,
+                            "properties": {
+                                "name": { "type": "string" },
+                                "in": { "type": "string", "enum": ["path", "query", "header", "body"] },
+                                "type": { "type": "string", "enum": ["string", "number", "integer", "boolean", "array", "object"] },
+                                "required": { "type": "boolean", "default": false },
+                                "description": { "type": "string" }
+                            }
+                        }
+                    },
+                    "rate_limit": {
+                        "type": "object",
+                        "description": "Rate limiting configuration for this endpoint",
+                        "additionalProperties": false,
+                        "properties": {
+                            "requests_per_minute": { "type": "integer", "minimum": 1 },
+                            "burst": { "type": "integer", "minimum": 1 }
+                        }
+                    },
+                    "auth_required": {
+                        "type": "boolean",
+                        "description": "Whether authentication is required for this endpoint",
+                        "default": true
+                    },
+                    "permissions": {
+                        "type": "array",
+                        "description": "Permissions required to access this endpoint",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "global_rate_limit": {
+            "type": "object",
+            "description": "Global rate limiting configuration",
+            "additionalProperties": false,
+            "properties": {
+                "requests_per_minute": { "type": "integer", "minimum": 1 },
+                "burst": { "type": "integer", "minimum": 1 }
+            }
+        },
+        "default_headers": {
+            "type": "object",
+            "description": "Default headers applied to all endpoints",
+            "additionalProperties": {
+                "type": "string"
+            }
+        }
+    }
+}
