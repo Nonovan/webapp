@@ -1,0 +1,594 @@
+{
+  "pci-dss": {
+    "requirements": [
+      {
+        "id": "1.1",
+        "description": "Encryption enabled for sensitive data",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "encryption_enabled",
+        "expected": "true",
+        "severity": "critical",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "1.2",
+        "description": "Strong TLS version required",
+        "config_path": "security.ini",
+        "check_type": "key_value_min",
+        "key": "min_tls_version",
+        "expected": "1.2",
+        "severity": "critical",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "1.3",
+        "description": "Password complexity requirements",
+        "config_path": "security.ini",
+        "check_type": "key_value_min",
+        "key": "password_min_length",
+        "expected": "12",
+        "severity": "high",
+        "environments": ["production", "dr-recovery"]
+      },
+      {
+        "id": "1.4",
+        "description": "Debug mode disabled in production",
+        "config_path": "app.ini",
+        "check_type": "key_value",
+        "key": "debug",
+        "expected": "false",
+        "severity": "high",
+        "environments": ["production", "dr-recovery"]
+      },
+      {
+        "id": "1.5",
+        "description": "Firewall protection enabled",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "firewall_enabled",
+        "expected": "true",
+        "severity": "critical",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "1.6",
+        "description": "Regular security scanning configured",
+        "config_path": "security.ini",
+        "check_type": "key_value_max",
+        "key": "security_scan_interval_days",
+        "expected": "7",
+        "severity": "medium",
+        "environments": ["production", "staging"]
+      },
+      {
+        "id": "1.7",
+        "description": "Default accounts disabled",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "disable_default_accounts",
+        "expected": "true",
+        "severity": "high",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "1.8",
+        "description": "Cardholder data environment isolated",
+        "config_path": "network.ini",
+        "check_type": "key_value",
+        "key": "isolate_cde",
+        "expected": "true",
+        "severity": "critical",
+        "environments": ["production", "dr-recovery"]
+      }
+    ]
+  },
+  "hipaa": {
+    "requirements": [
+      {
+        "id": "2.1",
+        "description": "Audit logging enabled",
+        "config_path": "logging.ini",
+        "check_type": "key_value",
+        "key": "audit_enabled",
+        "expected": "true",
+        "severity": "critical",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "2.2",
+        "description": "Minimum log retention period",
+        "config_path": "logging.ini",
+        "check_type": "key_value_min",
+        "key": "log_retention_days",
+        "expected": "365",
+        "severity": "high",
+        "environments": ["production", "dr-recovery"]
+      },
+      {
+        "id": "2.3",
+        "description": "PHI encryption at rest",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "phi_encryption",
+        "expected": "true",
+        "severity": "critical",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "2.4",
+        "description": "Emergency access procedure enabled",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "emergency_access_enabled",
+        "expected": "true",
+        "severity": "high",
+        "environments": ["production", "dr-recovery"]
+      },
+      {
+        "id": "2.5",
+        "description": "Automatic session timeout",
+        "config_path": "security.ini",
+        "check_type": "key_value_max",
+        "key": "session_timeout_minutes",
+        "expected": "15",
+        "severity": "medium",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "2.6",
+        "description": "Unique user identification",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "require_unique_user_id",
+        "expected": "true",
+        "severity": "high",
+        "environments": ["production", "staging", "dr-recovery"]
+      }
+    ]
+  },
+  "gdpr": {
+    "requirements": [
+      {
+        "id": "3.1",
+        "description": "Data anonymization enabled",
+        "config_path": "privacy.ini",
+        "check_type": "key_value",
+        "key": "anonymize_logs",
+        "expected": "true",
+        "severity": "high",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "3.2",
+        "description": "User data export functionality enabled",
+        "config_path": "privacy.ini",
+        "check_type": "key_value",
+        "key": "user_data_export_enabled",
+        "expected": "true",
+        "severity": "medium",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "3.3",
+        "description": "Right to be forgotten enabled",
+        "config_path": "privacy.ini",
+        "check_type": "key_value",
+        "key": "data_deletion_enabled",
+        "expected": "true",
+        "severity": "high",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "3.4",
+        "description": "Data processing consent tracking",
+        "config_path": "privacy.ini",
+        "check_type": "key_value",
+        "key": "consent_tracking_enabled",
+        "expected": "true",
+        "severity": "critical",
+        "environments": ["production", "staging"]
+      },
+      {
+        "id": "3.5",
+        "description": "Data breach notification system",
+        "config_path": "privacy.ini",
+        "check_type": "key_value",
+        "key": "breach_notification_enabled",
+        "expected": "true",
+        "severity": "critical",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "3.6",
+        "description": "Maximum data retention limits",
+        "config_path": "privacy.ini",
+        "check_type": "key_value",
+        "key": "enforce_retention_limits",
+        "expected": "true",
+        "severity": "high",
+        "environments": ["production", "staging"]
+      }
+    ]
+  },
+  "iso27001": {
+    "requirements": [
+      {
+        "id": "4.1",
+        "description": "Session timeout configured",
+        "config_path": "security.ini",
+        "check_type": "key_value_max",
+        "key": "session_timeout_minutes",
+        "expected": "30",
+        "severity": "medium",
+        "environments": ["production", "dr-recovery"]
+      },
+      {
+        "id": "4.2",
+        "description": "Failed login attempts before lockout",
+        "config_path": "security.ini",
+        "check_type": "key_value_max",
+        "key": "max_login_attempts",
+        "expected": "5",
+        "severity": "medium",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "4.3",
+        "description": "Asset inventory system enabled",
+        "config_path": "compliance.ini",
+        "check_type": "key_value",
+        "key": "asset_inventory_enabled",
+        "expected": "true",
+        "severity": "medium",
+        "environments": ["production", "staging"]
+      },
+      {
+        "id": "4.4",
+        "description": "Change management process enforced",
+        "config_path": "compliance.ini",
+        "check_type": "key_value",
+        "key": "change_mgmt_enforced",
+        "expected": "true",
+        "severity": "medium",
+        "environments": ["production", "staging"]
+      },
+      {
+        "id": "4.5",
+        "description": "Access control policy enforcement",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "enforce_access_policy",
+        "expected": "true",
+        "severity": "high",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "4.6",
+        "description": "Information security incident management",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "incident_mgmt_enabled",
+        "expected": "true",
+        "severity": "high",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "4.7",
+        "description": "Business continuity plans in place",
+        "config_path": "compliance.ini",
+        "check_type": "key_value",
+        "key": "business_continuity_enabled",
+        "expected": "true",
+        "severity": "high",
+        "environments": ["production", "dr-recovery"]
+      }
+    ]
+  },
+  "soc2": {
+    "requirements": [
+      {
+        "id": "5.1",
+        "description": "API rate limiting enabled",
+        "config_path": "api.ini",
+        "check_type": "key_value",
+        "key": "rate_limiting_enabled",
+        "expected": "true",
+        "severity": "medium",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "5.2",
+        "description": "Security-related alerts enabled",
+        "config_path": "monitoring.ini",
+        "check_type": "key_value",
+        "key": "security_alerts_enabled",
+        "expected": "true",
+        "severity": "high",
+        "environments": ["production", "dr-recovery"]
+      },
+      {
+        "id": "5.3",
+        "description": "User activity monitoring enabled",
+        "config_path": "monitoring.ini",
+        "check_type": "key_value",
+        "key": "user_activity_monitoring",
+        "expected": "true",
+        "severity": "high",
+        "environments": ["production", "staging"]
+      },
+      {
+        "id": "5.4",
+        "description": "Logical access controls implemented",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "logical_access_controls",
+        "expected": "true",
+        "severity": "high",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "5.5",
+        "description": "System change monitoring enabled",
+        "config_path": "monitoring.ini",
+        "check_type": "key_value",
+        "key": "system_change_monitoring",
+        "expected": "true",
+        "severity": "medium",
+        "environments": ["production", "staging"]
+      },
+      {
+        "id": "5.6",
+        "description": "Data backup system configured",
+        "config_path": "backup.ini",
+        "check_type": "key_value",
+        "key": "automated_backup_enabled",
+        "expected": "true",
+        "severity": "critical",
+        "environments": ["production", "dr-recovery"]
+      },
+      {
+        "id": "5.7",
+        "description": "Vendor management system enabled",
+        "config_path": "compliance.ini",
+        "check_type": "key_value",
+        "key": "vendor_management_enabled",
+        "expected": "true",
+        "severity": "medium",
+        "environments": ["production"]
+      }
+    ]
+  },
+  "security": {
+    "requirements": [
+      {
+        "id": "6.1",
+        "description": "Encryption enabled for sensitive data",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "encryption_enabled",
+        "expected": "true",
+        "severity": "critical",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "6.2",
+        "description": "Minimum TLS version set to 1.2 or higher",
+        "config_path": "security.ini",
+        "check_type": "key_value_min",
+        "key": "min_tls_version",
+        "expected": "1.2",
+        "severity": "critical",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "6.3",
+        "description": "Password minimum length set to 12 or higher",
+        "config_path": "security.ini",
+        "check_type": "key_value_min",
+        "key": "password_min_length",
+        "expected": "12",
+        "severity": "high",
+        "environments": ["production", "dr-recovery"]
+      },
+      {
+        "id": "6.4",
+        "description": "SSL enforcement enabled",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "enforce_ssl",
+        "expected": "true",
+        "severity": "critical",
+        "environments": ["production", "dr-recovery"]
+      },
+      {
+        "id": "6.5",
+        "description": "Debug mode disabled",
+        "config_path": "app.ini",
+        "check_type": "key_value",
+        "key": "debug",
+        "expected": "false",
+        "severity": "high",
+        "environments": ["production", "dr-recovery"]
+      },
+      {
+        "id": "6.6",
+        "description": "Debug logging disabled",
+        "config_path": "logging.ini",
+        "check_type": "key_value_not",
+        "key": "log_level",
+        "expected": "debug",
+        "severity": "high",
+        "environments": ["production", "dr-recovery"]
+      },
+      {
+        "id": "6.7",
+        "description": "Dangerous operations disabled",
+        "config_path": "app.ini",
+        "check_type": "key_value",
+        "key": "allow_dangerous_operations",
+        "expected": "false",
+        "severity": "high",
+        "environments": ["production", "dr-recovery"]
+      },
+      {
+        "id": "6.8",
+        "description": "Password complexity enforcement",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "enforce_password_complexity",
+        "expected": "true",
+        "severity": "high",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "6.9",
+        "description": "Multi-factor authentication required for admins",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "require_mfa_for_admins",
+        "expected": "true",
+        "severity": "critical",
+        "environments": ["production", "dr-recovery"]
+      },
+      {
+        "id": "6.10",
+        "description": "Security headers configured",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "security_headers_enabled",
+        "expected": "true",
+        "severity": "high",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "6.11",
+        "description": "Vulnerability scanning scheduled",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "vuln_scan_scheduled",
+        "expected": "true",
+        "severity": "high",
+        "environments": ["production", "staging"]
+      },
+      {
+        "id": "6.12",
+        "description": "File integrity monitoring enabled",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "file_integrity_monitoring",
+        "expected": "true",
+        "severity": "medium",
+        "environments": ["production", "dr-recovery"]
+      }
+    ]
+  },
+  "fedramp": {
+    "requirements": [
+      {
+        "id": "7.1",
+        "description": "FIPS-compliant encryption",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "fips_compliant_encryption",
+        "expected": "true",
+        "severity": "critical",
+        "environments": ["production", "dr-recovery"]
+      },
+      {
+        "id": "7.2",
+        "description": "PIV/CAC authentication support",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "piv_auth_enabled",
+        "expected": "true",
+        "severity": "high",
+        "environments": ["production"]
+      },
+      {
+        "id": "7.3",
+        "description": "Continuous monitoring enabled",
+        "config_path": "monitoring.ini",
+        "check_type": "key_value",
+        "key": "continuous_monitoring",
+        "expected": "true",
+        "severity": "high",
+        "environments": ["production", "staging"]
+      },
+      {
+        "id": "7.4",
+        "description": "US data residency enforced",
+        "config_path": "compliance.ini",
+        "check_type": "key_value",
+        "key": "us_data_residency",
+        "expected": "true",
+        "severity": "critical",
+        "environments": ["production", "dr-recovery"]
+      },
+      {
+        "id": "7.5",
+        "description": "Full system backup frequency",
+        "config_path": "backup.ini",
+        "check_type": "key_value_max",
+        "key": "full_backup_interval_days",
+        "expected": "7",
+        "severity": "medium",
+        "environments": ["production", "dr-recovery"]
+      }
+    ]
+  },
+  "nist": {
+    "requirements": [
+      {
+        "id": "8.1",
+        "description": "Least privilege enforcement",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "enforce_least_privilege",
+        "expected": "true",
+        "severity": "high",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "8.2",
+        "description": "Security impact analysis for changes",
+        "config_path": "compliance.ini",
+        "check_type": "key_value",
+        "key": "security_impact_analysis",
+        "expected": "true",
+        "severity": "medium",
+        "environments": ["production"]
+      },
+      {
+        "id": "8.3",
+        "description": "Information flow enforcement",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "info_flow_enforcement",
+        "expected": "true",
+        "severity": "medium",
+        "environments": ["production", "dr-recovery"]
+      },
+      {
+        "id": "8.4",
+        "description": "Session termination after inactivity",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "auto_session_termination",
+        "expected": "true",
+        "severity": "medium",
+        "environments": ["production", "staging", "dr-recovery"]
+      },
+      {
+        "id": "8.5",
+        "description": "Boundary protection mechanisms",
+        "config_path": "security.ini",
+        "check_type": "key_value",
+        "key": "boundary_protection",
+        "expected": "true",
+        "severity": "high",
+        "environments": ["production", "dr-recovery"]
+      }
+    ]
+  }
+}
