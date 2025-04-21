@@ -71,6 +71,9 @@ Please follow these standards when generating code:
 - Implement proper error handling and logging
 - Document complex logic with comments
 - Use configuration files for environment-specific settings
+- Use lazy formatting for string operations, especially in logging statements
+  - Prefer `logger.error("Failed to process %s: %s", item_id, str(e))` over string concatenation
+  - Use f-strings only when the string is always evaluated (not in logging statements)
 
 ## Specific Guidance
 
