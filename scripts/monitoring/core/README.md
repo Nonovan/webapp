@@ -1,4 +1,4 @@
-mv /Users/ivans/Workspace/myproject/scripts/monitoring/system_analysis.sh /Users/ivans/Workspace/myproject/scripts/monitoring/performance/ 2>/dev/null || echo "Failed to move system_analysis.sh"# Core Monitoring Components
+# Core Monitoring Components
 
 This directory contains the core monitoring functionality and reusable components for the Cloud Infrastructure Platform.
 
