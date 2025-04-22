@@ -254,37 +254,99 @@ important() {
 # ENVIRONMENT FUNCTIONS
 #######################################
 
-# Load environment-specific variables from file
+# Define environment file permissions
+DEFAULT_ENV_FILE_PERMS="600"  # Restrictive - contains sensitive information
+DEFAULT_ENV_DIR_PERMS="750"   # Restrictive directory permissions
+
+# Ensure environment directory exists with proper permissions
 # Arguments:
-#   $1 - Environment name (e.g., production, staging)
-#   $2 - Custom environment file path (optional)
+#   $1 - Environment directory path
 # Returns:
 #   0 on success, 1 on failure
-load_env() {
-    local environment="${1:-$DEFAULT_ENVIRONMENT}"
-    local custom_env_file="${2:-}"
-    local env_file
+ensure_env_directory() {
+    local env_dir="$1"
 
-    # Use custom file if provided, otherwise use default location
-    if [[ -n "$custom_env_file" && -f "$custom_env_file" ]]; then
-        env_file="$custom_env_file"
-    else
-        env_file="${ENV_FILE_DIR}/${environment}.env"
+    if [[ ! -d "$env_dir" ]]; then
+        mkdir -p "$env_dir" 2>/dev/null || {
+            error_exit "Failed to create environment directory: $env_dir"
+            return 1
+        }
+
+        chmod "$DEFAULT_ENV_DIR_PERMS" "$env_dir" 2>/dev/null || {
+            warn "Failed to set permissions on environment directory: $env_dir (continuing anyway)"
+        }
+
+        debug "Created environment directory: $env_dir with permissions $DEFAULT_ENV_DIR_PERMS"
     fi
 
-    # Check if file exists
-    if [[ ! -f "$env_file" ]]; then
-        warn "Environment file not found: $env_file"
+    # Check if directory is writable
+    if [[ ! -w "$env_dir" ]]; then
+        error_exit "Environment directory is not writable: $env_dir"
         return 1
-    fi
-
-    # Source the environment file
-    # shellcheck source=/dev/null
-    source "$env_file" || {
-        error_exit "Failed to load environment from file: $env_file" 1
     }
 
-    log "Successfully loaded environment configuration from $env_file"
+    return 0
+}
+
+# Save environment variables to file
+# Arguments:
+#   $1 - Environment name (e.g., production, staging)
+#   $2 - Associative array name containing variables to save
+#   $3 - Custom environment file path (optional)
+# Returns:
+#   0 on success, 1 on failure
+save_env() {
+    local environment="$1"
+    local array_name="$2"
+    local custom_env_file="${3:-}"
+    local env_file
+    local content=""
+
+    # Validate parameters
+    if [[ -z "$environment" || -z "$array_name" ]]; then
+        error_exit "save_env: Missing required parameters"
+        return 1
+    }
+
+    # Check if array exists
+    eval "declare -p $array_name &>/dev/null" || {
+        error_exit "save_env: Array $array_name does not exist"
+        return 1
+    }
+
+    # Use custom file if provided, otherwise use default location
+    if [[ -n "$custom_env_file" ]]; then
+        env_file="$custom_env_file"
+    else
+        ensure_env_directory "$ENV_FILE_DIR" || return 1
+        env_file="${ENV_FILE_DIR}/${environment}.env"
+    }
+
+    # Generate file content
+    content="# Environment configuration for: $environment\n"
+    content+="# Generated: $(date "+%Y-%m-%d %H:%M:%S")\n\n"
+
+    # Get all key-value pairs from array
+    local keys values
+    eval "keys=(\"\${!$array_name[@]}\")"
+
+    # Sort keys alphabetically for consistency
+    IFS=$'\n' sorted_keys=($(sort <<<"${keys[*]}"))
+    unset IFS
+
+    # Add each key-value pair to content
+    for key in "${sorted_keys[@]}"; do
+        eval "value=\"\${$array_name[$key]}\""
+        content+="$key=\"$value\"\n"
+    done
+
+    # Write to file with restricted permissions
+    safe_write_file "$content" "$env_file" true "$DEFAULT_ENV_FILE_PERMS" || {
+        error_exit "Failed to save environment configuration to file: $env_file"
+        return 1
+    }
+
+    log "Successfully saved environment configuration to $env_file"
     return 0
 }
 
@@ -345,346 +407,13 @@ detect_environment() {
         echo "$DEFAULT_ENVIRONMENT"
     fi
 
-    debug "Detected environment: $(echo $DEFAULT_ENVIRONMENT)"
+    debug "Detected environment based on hostname: $hostname"
     return 0
 }
 
-#######################################
-# VALIDATION FUNCTIONS
-#######################################
 
-# Check if a command exists
-# Arguments:
-#   $1 - Command to check
-# Returns:
-#   0 if exists, 1 if not
-command_exists() {
-    local cmd="$1"
-    command -v "$cmd" &>/dev/null
-    local result=$?
 
-    if [[ $result -ne 0 ]]; then
-        debug "Command not found: $cmd"
-    fi
 
-    return $result
-}
-
-# Check if a file exists and is readable
-# Arguments:
-#   $1 - File path
-#   $2 - Error message (optional)
-# Returns:
-#   0 if exists, 1 if not
-file_exists() {
-    local file="$1"
-    local error_msg="${2:-$ERROR_PREFIX File does not exist or is not readable: $file}"
-
-    if [[ ! -r "$file" ]]; then
-        log "$error_msg" "ERROR"
-        return 1
-    fi
-
-    return 0
-}
-
-# Validate if a string is a valid IP address
-# Arguments:
-#   $1 - String to validate
-#   $2 - Type (4 for IPv4, 6 for IPv6, both if not specified)
-# Returns: 0 if valid, 1 if not
-is_valid_ip() {
-    local ip="$1"
-    local type="${2:-both}"
-
-    case "$type" in
-        4|ipv4)
-            # IPv4 validation
-            if [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                local IFS='.'
-                read -ra ip_array <<< "$ip"
-
-                for octet in "${ip_array[@]}"; do
-                    if (( octet < 0 || octet > 255 )); then
-                        debug "$ERROR_PREFIX Invalid IPv4 address: $ip (octet out of range)"
-                        return 1
-                    fi
-                done
-
-                return 0
-            fi
-            debug "$ERROR_PREFIX Invalid IPv4 format: $ip"
-            return 1
-            ;;
-        6|ipv6)
-            # IPv6 validation (simplified)
-            if [[ "$ip" =~ ^([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$ ]]; then
-                return 0
-            fi
-            debug "$ERROR_PREFIX Invalid IPv6 format: $ip"
-            return 1
-            ;;
-        both)
-            if is_valid_ip "$ip" 4 || is_valid_ip "$ip" 6; then
-                return 0
-            else
-                debug "$ERROR_PREFIX Invalid IP address (neither IPv4 nor IPv6): $ip"
-                return 1
-            fi
-            ;;
-        *)
-            error_exit "Invalid IP type specified: $type. Use 4, 6, or both"
-            return 1
-            ;;
-    esac
-}
-
-# Check if a value is a number
-# Arguments:
-#   $1 - Value to check
-#   $2 - Allow floating point (true/false, defaults to false)
-# Returns: 0 if numeric, 1 if not
-is_number() {
-    local value="$1"
-    local allow_float="${2:-false}"
-
-    if [[ "$allow_float" == "true" ]]; then
-        if [[ "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-            return 0
-        else
-            debug "$ERROR_PREFIX Not a valid floating point number: $value"
-            return 1
-        fi
-    else
-        if [[ "$value" =~ ^[0-9]+$ ]]; then
-            return 0
-        else
-            debug "$ERROR_PREFIX Not a valid integer: $value"
-            return 1
-        fi
-    fi
-}
-
-# Validate required parameters
-# Arguments:
-#   Variable number of parameter names to check
-# Returns: 0 if all parameters exist, 1 if any are missing
-validate_required_params() {
-    local missing=0
-    local missing_params=""
-
-    for param in "$@"; do
-        if [[ -z "${!param:-}" ]]; then
-            missing=$((missing + 1))
-            missing_params="$missing_params $param"
-        fi
-    done
-
-    if (( missing > 0 )); then
-        error_exit "Required parameter(s) missing:$missing_params"
-        return 1
-    fi
-
-    return 0
-}
-
-# Validate a URL format
-# Arguments:
-#   $1 - URL to validate
-# Returns: 0 if valid, 1 if not
-is_valid_url() {
-    local url="$1"
-
-    # Basic URL validation - requires http:// or https:// prefix
-    if [[ "$url" =~ ^https?:// ]]; then
-        return 0
-    fi
-
-    debug "$ERROR_PREFIX Invalid URL format: $url (must start with http:// or https://)"
-    return 1
-}
-
-# Validate email format
-# Arguments:
-#   $1 - Email to validate
-# Returns: 0 if valid, 1 if not
-is_valid_email() {
-    local email="$1"
-
-    # Basic email validation
-    if [[ "$email" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
-        return 0
-    fi
-
-    debug "$ERROR_PREFIX Invalid email format: $email"
-    return 1
-}
-
-#######################################
-# FILE OPERATIONS
-#######################################
-
-# Create a backup of a file
-# Arguments:
-#   $1 - File to backup
-#   $2 - Backup directory (optional - defaults to DEFAULT_BACKUP_DIR)
-# Returns: Path to backup file on success, 1 on failure
-backup_file() {
-    local file="$1"
-    local backup_dir="${2:-$DEFAULT_BACKUP_DIR}"
-    local filename=$(basename "$file")
-    local backup_file="${backup_dir}/${filename}.${TIMESTAMP}.bak"
-
-    # Ensure backup directory exists
-    mkdir -p "$backup_dir" 2>/dev/null || {
-        error_exit "Failed to create backup directory: $backup_dir"
-        return 1
-    }
-
-    # Check if source file exists
-    if [[ ! -f "$file" ]]; then
-        error_exit "Cannot backup file, source does not exist: $file"
-        return 1
-    fi
-
-    # Create backup
-    cp -p "$file" "$backup_file" 2>/dev/null || {
-        error_exit "Failed to create backup of $file to $backup_file"
-        return 1
-    }
-
-    log "Created backup of $file at $backup_file" "INFO"
-
-    echo "$backup_file"
-    return 0
-}
-
-# Create directory if it doesn't exist
-# Arguments:
-#   $1 - Directory path
-#   $2 - Permissions (optional - defaults to DEFAULT_DIR_PERMS)
-# Returns: 0 if created or already exists, 1 on failure
-ensure_directory() {
-    local dir="$1"
-    local perms="${2:-$DEFAULT_DIR_PERMS}"
-
-    if [[ ! -d "$dir" ]]; then
-        mkdir -p "$dir" 2>/dev/null || {
-            error_exit "Failed to create directory: $dir"
-            return 1
-        }
-
-        chmod "$perms" "$dir" 2>/dev/null || {
-            error_exit "Failed to set permissions $perms on directory: $dir"
-            return 1
-        }
-
-        debug "Created directory: $dir with permissions $perms"
-    fi
-
-    return 0
-}
-
-# Safely write content to a file with error handling
-# Arguments:
-#   $1 - Content to write
-#   $2 - Output file
-#   $3 - Create backup (true/false, defaults to true)
-#   $4 - File permissions (optional, defaults to DEFAULT_FILE_PERMS)
-# Returns: 0 on success, 1 on failure
-safe_write_file() {
-    local content="$1"
-    local output_file="$2"
-    local create_backup="${3:-true}"
-    local perms="${4:-$DEFAULT_FILE_PERMS}"
-    local temp_file
-
-    # Create parent directory if it doesn't exist
-    ensure_directory "$(dirname "$output_file")" || {
-        error_exit "Failed to ensure parent directory exists for: $output_file"
-        return 1
-    }
-
-    # Backup existing file if requested
-    if [[ "$create_backup" == "true" && -f "$output_file" ]]; then
-        backup_file "$output_file" >/dev/null || {
-            warn "Failed to back up existing file: $output_file (continuing anyway)"
-        }
-    fi
-
-    # Write to temporary file first to prevent partial writes
-    temp_file=$(mktemp) || {
-        error_exit "Failed to create temporary file"
-        return 1
-    }
-
-    echo "$content" > "$temp_file" || {
-        error_exit "Failed to write content to temporary file"
-        rm -f "$temp_file"
-        return 1
-    }
-
-    # Set permissions on temporary file before moving
-    chmod "$perms" "$temp_file" || {
-        warn "Failed to set permissions on temporary file (continuing anyway)"
-    }
-
-    # Move temporary file to destination
-    mv "$temp_file" "$output_file" || {
-        error_exit "Failed to write to final destination: $output_file"
-        rm -f "$temp_file"
-        return 1
-    }
-
-    log "Successfully wrote content to $output_file" "INFO"
-    return 0
-}
-
-# Get file age in seconds
-# Arguments:
-#   $1 - File path
-# Returns: File age in seconds or -1 if file not found/error
-file_age() {
-    local file="$1"
-    local file_time
-    local current_time
-
-    if [[ ! -f "$file" ]]; then
-        warn "Cannot get age of non-existent file: $file"
-        echo "-1"
-        return 1
-    fi
-
-    if command_exists stat; then
-        if [[ "$(uname)" == "Darwin" ]]; then
-            # macOS version
-            file_time=$(stat -f %m "$file" 2>/dev/null) || {
-                error_exit "Failed to get file modification time: $file"
-                echo "-1"
-                return 1
-            }
-        else
-            # Linux version
-            file_time=$(stat -c %Y "$file" 2>/dev/null) || {
-                error_exit "Failed to get file modification time: $file"
-                echo "-1"
-                return 1
-            }
-        fi
-    else
-        # Fallback method using ls
-        file_time=$(ls -l --time-style=+%s "$file" 2>/dev/null | awk '{print $6}')
-        if [[ -z "$file_time" ]]; then
-            error_exit "Failed to get file modification time using fallback method: $file"
-            echo "-1"
-            return 1
-        fi
-    fi
-
-    current_time=$(date +%s)
-    echo $((current_time - file_time))
-    return 0
-}
 
 # Export logging functions and constants
 export -f ensure_log_directory
@@ -696,25 +425,13 @@ export -f important
 export DEFAULT_LOG_FILE_PERMS
 export DEFAULT_LOG_DIR_PERMS
 
-# Export environment functions
-export -f load_env
+# Export environment functions and constants
+export -f ensure_env_directory
+export -f save_env
 export -f validate_environment
 export -f detect_environment
-
-# Export validation functions
-export -f command_exists
-export -f file_exists
-export -f is_valid_ip
-export -f is_number
-export -f validate_required_params
-export -f is_valid_url
-export -f is_valid_email
-
-# Export file operations functions
-export -f backup_file
-export -f ensure_directory
-export -f safe_write_file
-export -f file_age
+export DEFAULT_ENV_FILE_PERMS
+export DEFAULT_ENV_DIR_PERMS
 
 # Export error message prefixes
 export ERROR_PREFIX

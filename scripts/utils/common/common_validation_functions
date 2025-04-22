@@ -1,0 +1,429 @@
+#######################################
+# VALIDATION FUNCTIONS
+#######################################
+
+# Define validation constants
+DEFAULT_VALIDATION_TIMEOUT=5    # Default timeout in seconds for validation operations
+VALIDATION_EMPTY_STRING=""      # Constant for empty string validation
+
+# Define secure permission constants for validation
+DEFAULT_CONFIG_FILE_PERMS="644" # Default permissions for configuration files
+DEFAULT_SECRET_FILE_PERMS="600" # Restrictive permissions for files with secrets
+DEFAULT_SCRIPT_FILE_PERMS="755" # Default permissions for executable scripts
+DEFAULT_KEY_FILE_PERMS="600"    # Restrictive permissions for key files
+DEFAULT_CERT_FILE_PERMS="644"   # Default permissions for certificate files
+
+# Check if a command exists
+# Arguments:
+#   $1 - Command to check
+#   $2 - Suggest installation command (optional)
+# Returns:
+#   0 if exists, 1 if not
+command_exists() {
+    local cmd="$1"
+    local install_suggestion="${2:-}"
+
+    command -v "$cmd" &>/dev/null
+    local result=$?
+
+    if [[ $result -ne 0 ]]; then
+        if [[ -n "$install_suggestion" ]]; then
+            debug "$ERROR_PREFIX Command not found: $cmd. Try installing with: $install_suggestion"
+        else
+            debug "$ERROR_PREFIX Command not found: $cmd"
+        fi
+    }
+
+    return $result
+}
+
+# Check if a file exists and is readable with proper permission validation
+# Arguments:
+#   $1 - File path
+#   $2 - Error message (optional)
+#   $3 - Expected permissions (optional - only warns if permissions exceed this)
+#   $4 - File type (optional - for more specific permission checks and reporting)
+# Returns:
+#   0 if exists with proper permissions, 1 if not
+file_exists() {
+    local file="$1"
+    local error_msg="${2:-$ERROR_PREFIX File does not exist or is not readable: $file}"
+    local expected_perms="${3:-}"
+    local file_type="${4:-general}"
+
+    # Determine expected permissions based on file type if not explicitly provided
+    if [[ -z "$expected_perms" ]]; then
+        case "$file_type" in
+            config)
+                expected_perms="$DEFAULT_CONFIG_FILE_PERMS"
+                ;;
+            secret|key|password)
+                expected_perms="$DEFAULT_SECRET_FILE_PERMS"
+                ;;
+            script|executable)
+                expected_perms="$DEFAULT_SCRIPT_FILE_PERMS"
+                ;;
+            cert|certificate)
+                expected_perms="$DEFAULT_CERT_FILE_PERMS"
+                ;;
+            *)
+                expected_perms="$DEFAULT_FILE_PERMS"
+                ;;
+        esac
+    fi
+
+    if [[ ! -e "$file" ]]; then
+        log "$error_msg" "ERROR"
+        return 1
+    }
+
+    if [[ ! -r "$file" ]]; then
+        log "$ERROR_PREFIX File exists but is not readable: $file" "ERROR"
+        return 1
+    }
+
+    # Check permissions
+    local file_perms=""
+
+    if command_exists stat; then
+        if [[ "$(uname)" == "Darwin" ]]; then
+            # macOS version
+            file_perms=$(stat -f '%A' "$file" 2>/dev/null)
+        else
+            # Linux version
+            file_perms=$(stat -c '%a' "$file" 2>/dev/null)
+        fi
+
+        # Convert to octal number for comparison
+        if [[ -n "$file_perms" ]]; then
+            local numeric_file_perms=$((10#$file_perms))
+            local numeric_expected_perms=$((10#$expected_perms))
+
+            # Check for overly permissive files
+            if (( numeric_file_perms > numeric_expected_perms )); then
+                local recommendation=""
+
+                # Give specific security recommendations based on file type
+                case "$file_type" in
+                    secret|key|password)
+                        recommendation=" This file may contain sensitive information and should be restricted to owner access only."
+                        ;;
+                    config)
+                        recommendation=" Configuration files should have appropriate permissions to prevent unauthorized modifications."
+                        ;;
+                    cert|certificate)
+                        recommendation=" Certificate files should be readable but not writable by others."
+                        ;;
+                esac
+
+                warn "File has overly permissive permissions: $file (current: $file_perms, recommended: $expected_perms or less).${recommendation}"
+                warn "Suggested fix: chmod $expected_perms $file"
+
+                # For sensitive files, return error instead of just warning
+                if [[ "$file_type" == "secret" || "$file_type" == "key" || "$file_type" == "password" ]]; then
+                    log "$ERROR_PREFIX Security risk: $file has insecure permissions" "ERROR"
+                    return 1
+                }
+                # Continue despite warning for non-sensitive files
+            fi
+        }
+    }
+
+    return 0
+}
+
+# Validate file permissions and fix if requested
+# Arguments:
+#   $1 - File path
+#   $2 - Expected permissions
+#   $3 - Fix permissions if incorrect (true/false, defaults to false)
+#   $4 - File type (optional - for more specific error messages)
+# Returns:
+#   0 if permissions are correct or fixed, 1 if incorrect and not fixed
+validate_file_permissions() {
+    local file="$1"
+    local expected_perms="${2:-}"
+    local fix_permissions="${3:-false}"
+    local file_type="${4:-general}"
+
+    # Set default expected permissions based on file type if not provided
+    if [[ -z "$expected_perms" ]]; then
+        case "$file_type" in
+            config)
+                expected_perms="$DEFAULT_CONFIG_FILE_PERMS"
+                ;;
+            secret|key|password)
+                expected_perms="$DEFAULT_SECRET_FILE_PERMS"
+                ;;
+            script|executable)
+                expected_perms="$DEFAULT_SCRIPT_FILE_PERMS"
+                ;;
+            cert|certificate)
+                expected_perms="$DEFAULT_CERT_FILE_PERMS"
+                ;;
+            *)
+                expected_perms="$DEFAULT_FILE_PERMS"
+                ;;
+        esac
+    fi
+
+    if [[ ! -e "$file" ]]; then
+        log "$ERROR_PREFIX Cannot validate permissions for non-existent file: $file" "ERROR"
+        return 1
+    }
+
+    local file_perms=""
+    local permissions_match=false
+
+    if command_exists stat; then
+        if [[ "$(uname)" == "Darwin" ]]; then
+            # macOS version
+            file_perms=$(stat -f '%A' "$file" 2>/dev/null)
+        else
+            # Linux version
+            file_perms=$(stat -c '%a' "$file" 2>/dev/null)
+        fi
+
+        if [[ -n "$file_perms" && "$file_perms" == "$expected_perms" ]]; then
+            permissions_match=true
+        fi
+    } else {
+        # If stat is not available, try to use ls
+        local ls_output=$(ls -la "$file" 2>/dev/null)
+        # This is a simplified approach and may not be accurate
+        if [[ "$ls_output" == *"$expected_perms"* ]]; then
+            permissions_match=true
+        }
+    }
+
+    if [[ "$permissions_match" == "true" ]]; then
+        debug "File permissions match expected value ($expected_perms) for: $file"
+        return 0
+    } elif [[ "$fix_permissions" == "true" ]]; then
+        debug "Fixing permissions for $file from $file_perms to $expected_perms"
+        chmod "$expected_perms" "$file" 2>/dev/null || {
+            error_exit "Failed to set permissions $expected_perms on file: $file"
+            return 1
+        }
+        log "Fixed permissions for $file (from $file_perms to $expected_perms)" "INFO"
+        return 0
+    } else {
+        if [[ "$file_type" == "secret" || "$file_type" == "key" || "$file_type" == "password" ]]; then
+            log "$ERROR_PREFIX Security risk: File $file has incorrect permissions ($file_perms, should be $expected_perms)" "ERROR"
+        } else {
+            warn "File $file has incorrect permissions: $file_perms (expected: $expected_perms)"
+        }
+        return 1
+    }
+}
+
+# Safely validate if a file with sensitive data is secure
+# Arguments:
+#   $1 - File path
+#   $2 - Fix permissions if incorrect (true/false, defaults to false)
+# Returns:
+#   0 if file is secure, 1 if not
+validate_sensitive_file() {
+    local file="$1"
+    local fix_permissions="${2:-false}"
+
+    # Check if file exists and is readable
+    if [[ ! -f "$file" ]]; then
+        log "$ERROR_PREFIX Sensitive file does not exist: $file" "ERROR"
+        return 1
+    }
+
+    if [[ ! -r "$file" ]]; then
+        log "$ERROR_PREFIX Sensitive file exists but is not readable: $file" "ERROR"
+        return 1
+    }
+
+    # Validate owner-only permissions
+    validate_file_permissions "$file" "$DEFAULT_SECRET_FILE_PERMS" "$fix_permissions" "secret" || return 1
+
+    # Check if file is world-readable
+    if [[ -r "$file" && $(stat -c '%a' "$file" 2>/dev/null | cut -c3) -ne 0 ]]; then
+        if [[ "$fix_permissions" == "true" ]]; then
+            chmod "$DEFAULT_SECRET_FILE_PERMS" "$file" 2>/dev/null || {
+                error_exit "Failed to fix world-readable permissions on sensitive file: $file"
+                return 1
+            }
+            log "Fixed world-readable permissions on sensitive file: $file" "INFO"
+        } else {
+            error_exit "Security risk: Sensitive file is world-readable: $file"
+            return 1
+        }
+    }
+
+    # Check if directory permissions are secure
+    local dir=$(dirname "$file")
+    if [[ -d "$dir" ]]; then
+        local dir_perms=$(stat -c '%a' "$dir" 2>/dev/null || stat -f '%A' "$dir" 2>/dev/null)
+
+        # Directory should not be world-writable
+        if [[ -n "$dir_perms" && $(echo "$dir_perms" | cut -c3) -gt 4 ]]; then
+            if [[ "$fix_permissions" == "true" ]]; then
+                # Make directory not world-writable but keep other permissions
+                local new_perms=$(echo "$dir_perms" | sed 's/.\(.\)$/0\1/')
+                chmod "$new_perms" "$dir" 2>/dev/null || {
+                    warn "Failed to fix world-writable directory permissions: $dir"
+                    # Continue despite warning
+                }
+                log "Fixed world-writable directory permissions for: $dir (from $dir_perms to $new_perms)" "INFO"
+            } else {
+                warn "Security risk: Directory containing sensitive file is world-writable: $dir"
+                # This is a warning, not an error to return 1
+            }
+        }
+    }
+
+    return 0
+}
+
+# Validate if a string is a valid IP address
+# Arguments:
+#   $1 - String to validate
+#   $2 - Type (4 for IPv4, 6 for IPv6, both if not specified)
+# Returns: 0 if valid, 1 if not
+is_valid_ip() {
+    local ip="$1"
+    local type="${2:-both}"
+
+    case "$type" in
+        4|ipv4)
+            # IPv4 validation
+            if [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                local IFS='.'
+                read -ra ip_array <<< "$ip"
+
+                for octet in "${ip_array[@]}"; do
+                    if (( octet < 0 || octet > 255 )); then
+                        debug "$ERROR_PREFIX Invalid IPv4 address: $ip (octet out of range)"
+                        return 1
+                    fi
+                done
+
+                return 0
+            fi
+            debug "$ERROR_PREFIX Invalid IPv4 format: $ip"
+            return 1
+            ;;
+        6|ipv6)
+            # IPv6 validation (simplified)
+            if [[ "$ip" =~ ^([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$ ]]; then
+                return 0
+            fi
+            debug "$ERROR_PREFIX Invalid IPv6 format: $ip"
+            return 1
+            ;;
+        both)
+            if is_valid_ip "$ip" 4 || is_valid_ip "$ip" 6; then
+                return 0
+            else
+                debug "$ERROR_PREFIX Invalid IP address (neither IPv4 nor IPv6): $ip"
+                return 1
+            fi
+            ;;
+        *)
+            error_exit "Invalid IP type specified: $type. Use 4, 6, or both"
+            return 1
+            ;;
+    esac
+}
+
+# Check if a value is a number
+# Arguments:
+#   $1 - Value to check
+#   $2 - Allow floating point (true/false, defaults to false)
+# Returns: 0 if numeric, 1 if not
+is_number() {
+    local value="$1"
+    local allow_float="${2:-false}"
+
+    if [[ "$allow_float" == "true" ]]; then
+        if [[ "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+            return 0
+        else
+            debug "$ERROR_PREFIX Not a valid floating point number: $value"
+            return 1
+        fi
+    else
+        if [[ "$value" =~ ^[0-9]+$ ]]; then
+            return 0
+        else
+            debug "$ERROR_PREFIX Not a valid integer: $value"
+            return 1
+        fi
+    fi
+}
+
+# Validate required parameters
+# Arguments:
+#   Variable number of parameter names to check
+# Returns: 0 if all parameters exist, 1 if any are missing
+validate_required_params() {
+    local missing=0
+    local missing_params=""
+
+    for param in "$@"; do
+        if [[ -z "${!param:-}" ]]; then
+            missing=$((missing + 1))
+            missing_params="$missing_params $param"
+        fi
+    done
+
+    if (( missing > 0 )); then
+        error_exit "Required parameter(s) missing:$missing_params"
+        return 1
+    fi
+
+    return 0
+}
+
+# Validate a URL format
+# Arguments:
+#   $1 - URL to validate
+# Returns: 0 if valid, 1 if not
+is_valid_url() {
+    local url="$1"
+
+    # Basic URL validation - requires http:// or https:// prefix
+    if [[ "$url" =~ ^https?:// ]]; then
+        return 0
+    fi
+
+    debug "$ERROR_PREFIX Invalid URL format: $url (must start with http:// or https://)"
+    return 1
+}
+
+# Validate email format
+# Arguments:
+#   $1 - Email to validate
+# Returns: 0 if valid, 1 if not
+is_valid_email() {
+    local email="$1"
+
+    # Basic email validation
+    if [[ "$email" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
+        return 0
+    fi
+
+    debug "$ERROR_PREFIX Invalid email format: $email"
+    return 1
+}
+
+# Export validation functions and constants
+export -f command_exists
+export -f file_exists
+export -f validate_file_permissions
+export -f validate_sensitive_file
+export -f is_valid_ip
+export -f is_number
+export -f validate_required_params
+export -f is_valid_url
+export -f is_valid_email
+export DEFAULT_CONFIG_FILE_PERMS
+export DEFAULT_SECRET_FILE_PERMS
+export DEFAULT_SCRIPT_FILE_PERMS
+export DEFAULT_KEY_FILE_PERMS
+export DEFAULT_CERT_FILE_PERMS

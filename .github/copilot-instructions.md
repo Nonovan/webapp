@@ -1,4 +1,3 @@
-```markdown
 # GitHub Copilot Instructions for Cloud Infrastructure Platform
 
 ## Project Overview
