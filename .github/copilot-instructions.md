@@ -178,11 +178,12 @@ All directories should include a README.md file with a consistent structure. The
 3. **Configuration Files** (if applicable): List of configuration files with descriptions.
 4. **Key Scripts/Components**: Alphabetical list of main files with descriptions.
 5. **Usage**: Examples showing how to use the scripts or components.
-6. **Configuration Structure** (if applicable): Format of configuration files with examples.
-7. **Directory Structure**: Complete listing of all files and subdirectories, alphabetically organized.
-8. **Modifying/Extending**: Guidelines for modifications or extensions.
-9. **Related Documentation**: Links to related documentation.
-10. **Change Log**: Recent changes to track version history.
+6. **Best Practices**: Guidelines for optimal usage, common patterns, and recommendations.
+7. **Configuration Structure** (if applicable): Format of configuration files with examples.
+8. **Directory Structure**: Complete listing of all files and subdirectories, alphabetically organized.
+9. **Modifying/Extending**: Guidelines for modifications or extensions.
+10. **Related Documentation**: Links to related documentation.
+11. **Change Log**: Recent changes to track version history.
 
 #### Example README Structure
 
@@ -200,6 +201,13 @@ Brief description of the component's purpose and functionality.
 ```bash
 ./script_a.py --option value
 ```
+
+## Best Practices
+- Always validate inputs before processing
+- Use the logging framework instead of print statements
+- Follow the principle of least privilege when executing commands
+- Test scripts in a staging environment before running in production
+- Use configuration files for environment-specific settings
 
 ## Directory Structure
 ```
