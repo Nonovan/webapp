@@ -1,4 +1,5 @@
 #!/bin/bash
+# filepath: scripts/utils/common/common_advanced_functions.sh
 # Advanced utility functions for Cloud Infrastructure Platform
 # These functions provide specialized capabilities for specific use cases
 
@@ -41,7 +42,7 @@ send_email_notification() {
     if ! is_valid_email "$recipient"; then
         warn "Invalid email recipient format: $recipient"
         return 1
-    }
+    fi
 
     # Format subject with hostname for clarity
     local hostname=$(hostname -f 2>/dev/null || hostname)
@@ -97,7 +98,7 @@ send_slack_notification() {
     local webhook="${2:-${SLACK_WEBHOOK_URL:-}}"
     local channel="${3:-}"
     local hostname=$(hostname -f 2>/dev/null || hostname)
-    local environment=$(detect_environment)
+    local environment="${ENVIRONMENT:-$(detect_environment)}"
 
     # Check if webhook URL is provided
     if [[ -z "$webhook" ]]; then
@@ -111,20 +112,31 @@ send_slack_notification() {
         return 1
     fi
 
-    # Format the JSON payload
+    # Format the JSON payload - escaping special characters
+    local sanitized_message="${message//\"/\\\"}"
     local payload
     if [[ -n "$channel" ]]; then
-        payload="{\"text\":\"*[$environment - $hostname]* $message\", \"channel\":\"$channel\"}"
+        payload="{\"text\":\"*[$environment - $hostname]* $sanitized_message\", \"channel\":\"$channel\"}"
     else
-        payload="{\"text\":\"*[$environment - $hostname]* $message\"}"
+        payload="{\"text\":\"*[$environment - $hostname]* $sanitized_message\"}"
     fi
 
-    # Send the notification
-    if curl -s -X POST -H 'Content-type: application/json' --data "$payload" "$webhook" -o /dev/null; then
-        log "Slack notification sent: $message" "INFO"
+    # Send the notification with proper error handling
+    local temp_file=$(mktemp)
+    local status_code
+    status_code=$(curl -s -w "%{http_code}" -X POST -H 'Content-type: application/json' \
+        --data "$payload" "$webhook" -o "$temp_file")
+    local curl_exit=$?
+
+    # Check for successful HTTP status code and curl exit code
+    if [[ $curl_exit -eq 0 && "$status_code" =~ ^2[0-9][0-9]$ ]]; then
+        log "Slack notification sent: ${message:0:50}${message:50:+...}" "INFO"
+        rm -f "$temp_file"
         return 0
     else
-        warn "Failed to send Slack notification"
+        local error_msg=$(cat "$temp_file")
+        warn "Failed to send Slack notification. Status: $status_code, Error: ${error_msg:0:100}"
+        rm -f "$temp_file"
         return 1
     fi
 }
@@ -174,11 +186,24 @@ send_notification() {
     # Try Teams if configured
     if [[ -n "${TEAMS_WEBHOOK_URL:-}" ]]; then
         if command_exists curl; then
-            local teams_payload="{\"title\":\"${emoji}${subject}\",\"text\":\"$message\"}"
-            if curl -s -H "Content-Type: application/json" -d "$teams_payload" "${TEAMS_WEBHOOK_URL}" -o /dev/null; then
+            local sanitized_subject="${subject//\"/\\\"}"
+            local sanitized_message="${message//\"/\\\"}"
+            local teams_payload="{\"title\":\"${emoji}${sanitized_subject}\",\"text\":\"$sanitized_message\"}"
+
+            local temp_file=$(mktemp)
+            local status_code
+            status_code=$(curl -s -w "%{http_code}" -H "Content-Type: application/json" \
+                -d "$teams_payload" "${TEAMS_WEBHOOK_URL}" -o "$temp_file")
+            local curl_exit=$?
+
+            if [[ $curl_exit -eq 0 && "$status_code" =~ ^2[0-9][0-9]$ ]]; then
                 log "Teams notification sent: $subject" "INFO"
                 success=true
+            else
+                local error_msg=$(cat "$temp_file")
+                warn "Failed to send Teams notification. Status: $status_code, Error: ${error_msg:0:100}"
             fi
+            rm -f "$temp_file"
         fi
     fi
 
@@ -210,6 +235,12 @@ generate_random_string() {
         return 1
     fi
 
+    # Ensure length is reasonable
+    if [[ "$length" -le 0 || "$length" -gt 1024 ]]; then
+        log "Invalid length parameter: $length (must be between 1 and 1024)" "ERROR"
+        return 1
+    fi
+
     case "$char_set" in
         alnum)
             result=$(LC_ALL=C tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c "$length")
@@ -225,12 +256,30 @@ generate_random_string() {
             result=$(LC_ALL=C tr -dc 'a-zA-Z0-9!@#$%^&*()_+?><~' < /dev/urandom | head -c "$length")
             ;;
         *)
-            # Custom character set
-            result=$(LC_ALL=C tr -dc "$char_set" < /dev/urandom | head -c "$length")
+            # Custom character set - sanitize input to prevent command injection
+            local safe_charset="${char_set//[^a-zA-Z0-9!@#$%^&*()_+?><~=.,:;-]/}"
+            if [[ -z "$safe_charset" ]]; then
+                log "Invalid character set provided" "ERROR"
+                return 1
+            fi
+            result=$(LC_ALL=C tr -dc "$safe_charset" < /dev/urandom | head -c "$length")
             ;;
     esac
 
+    # Check if we successfully generated a string
+    if [[ -z "$result" || ${#result} -lt "$length" ]]; then
+        log "Failed to generate random string of requested length" "WARNING"
+        # Fallback method for systems with issues
+        local fallback=""
+        for ((i=0; i<length; i++)); do
+            fallback+=$(printf "%x" $((RANDOM % 16)))
+        done
+        echo "${fallback:0:$length}"
+        return 0
+    fi
+
     echo "$result"
+    return 0
 }
 
 # URL encode a string
@@ -251,6 +300,7 @@ url_encode() {
     done
 
     echo "$encoded"
+    return 0
 }
 
 # Parse JSON string to extract a value
@@ -263,11 +313,24 @@ parse_json() {
     local key_path="$2"
     local result=""
 
+    # Validate inputs
+    if [[ -z "$json" ]]; then
+        warn "Empty JSON input provided to parse_json"
+        return 1
+    fi
+
+    if [[ -z "$key_path" ]]; then
+        warn "No key path provided to parse_json"
+        return 1
+    fi
+
     if command_exists jq; then
         result=$(echo "$json" | jq -r "$key_path" 2>/dev/null)
-        if [[ "$result" != "null" ]]; then
+        if [[ $? -eq 0 && "$result" != "null" ]]; then
             echo "$result"
+            return 0
         fi
+        return 1
     else
         warn "jq not available for proper JSON parsing"
 
@@ -279,7 +342,11 @@ parse_json() {
         fi
 
         result=$(echo "$json" | grep -o "\"$key_path\":\"[^\"]*\"" | cut -d'"' -f4)
-        echo "$result"
+        if [[ -n "$result" ]]; then
+            echo "$result"
+            return 0
+        fi
+        return 1
     fi
 }
 
@@ -299,13 +366,33 @@ parse_ini_section() {
         return 1
     fi
 
+    # Validate file permission for security
+    if [[ ! -r "$file" ]]; then
+        warn "Permission denied reading INI file: $file"
+        return 1
+    fi
+
     local section_content
     section_content=$(sed -n "/^\[$section\]/,/^\[/p" "$file" | grep -v "^\[")
 
+    # Check if section exists
+    if [[ -z "$section_content" ]]; then
+        warn "Section [$section] not found in INI file: $file"
+        return 1
+    fi
+
     if [[ -n "$key" ]]; then
-        echo "$section_content" | grep "^$key=" | cut -d= -f2-
+        local value=$(echo "$section_content" | grep "^$key=" | cut -d= -f2-)
+        if [[ -n "$value" ]]; then
+            echo "$value"
+            return 0
+        else
+            warn "Key '$key' not found in section [$section] of INI file: $file"
+            return 1
+        fi
     else
         echo "$section_content"
+        return 0
     fi
 }
 
@@ -323,20 +410,85 @@ yaml_to_json() {
         return 1
     fi
 
+    # Validate file permission for security
+    if [[ ! -r "$yaml_file" ]]; then
+        log "Permission denied reading YAML file: $yaml_file" "ERROR"
+        return 1
+    fi
+
+    # Check file size for security
+    local file_size=$(stat -c %s "$yaml_file" 2>/dev/null || stat -f %z "$yaml_file" 2>/dev/null)
+    if [[ -n "$file_size" && "$file_size" -gt 10485760 ]]; then
+        log "YAML file too large (>10MB): $yaml_file" "ERROR"
+        return 1
+    fi
+
     if command_exists python3; then
         if [[ -n "$json_file" ]]; then
-            python3 -c "import yaml, json, sys; json.dump(yaml.safe_load(open('$yaml_file')), open('$json_file', 'w'), indent=2)" 2>/dev/null
+            # Ensure directory exists for output file
+            mkdir -p "$(dirname "$json_file")" || {
+                log "Failed to create directory for JSON output file" "ERROR"
+                return 1
+            }
+            python3 -c "
+import yaml, json, sys
+try:
+    with open('$yaml_file', 'r') as yaml_input:
+        data = yaml.safe_load(yaml_input)
+    with open('$json_file', 'w') as json_output:
+        json.dump(data, json_output, indent=2)
+    sys.exit(0)
+except Exception as e:
+    print(str(e), file=sys.stderr)
+    sys.exit(1)
+" 2>/dev/null
             return $?
         else
-            python3 -c "import yaml, json, sys; print(json.dumps(yaml.safe_load(open('$yaml_file')), indent=2))" 2>/dev/null
+            python3 -c "
+import yaml, json, sys
+try:
+    with open('$yaml_file', 'r') as yaml_input:
+        data = yaml.safe_load(yaml_input)
+    print(json.dumps(data, indent=2))
+    sys.exit(0)
+except Exception as e:
+    print(str(e), file=sys.stderr)
+    sys.exit(1)
+" 2>/dev/null
             return $?
         fi
     elif command_exists python; then
         if [[ -n "$json_file" ]]; then
-            python -c "import yaml, json, sys; json.dump(yaml.safe_load(open('$yaml_file')), open('$json_file', 'w'), indent=2)" 2>/dev/null
+            # Ensure directory exists for output file
+            mkdir -p "$(dirname "$json_file")" || {
+                log "Failed to create directory for JSON output file" "ERROR"
+                return 1
+            }
+            python -c "
+import yaml, json, sys
+try:
+    with open('$yaml_file', 'r') as yaml_input:
+        data = yaml.safe_load(yaml_input)
+    with open('$json_file', 'w') as json_output:
+        json.dump(data, json_output, indent=2)
+    sys.exit(0)
+except Exception as e:
+    print(str(e))
+    sys.exit(1)
+" 2>/dev/null
             return $?
         else
-            python -c "import yaml, json, sys; print(json.dumps(yaml.safe_load(open('$yaml_file')), indent=2))" 2>/dev/null
+            python -c "
+import yaml, json, sys
+try:
+    with open('$yaml_file', 'r') as yaml_input:
+        data = yaml.safe_load(yaml_input)
+    print(json.dumps(data, indent=2))
+    sys.exit(0)
+except Exception as e:
+    print(str(e))
+    sys.exit(1)
+" 2>/dev/null
             return $?
         fi
     elif command_exists yq; then
@@ -379,191 +531,6 @@ format_json() {
     fi
 }
 
-#######################################
-# DATABASE UTILITIES
-#######################################
-
-# Check PostgreSQL connection
-# Arguments:
-#   $1 - Host
-#   $2 - Port (optional - defaults to 5432)
-#   $3 - Database (optional - defaults to postgres)
-#   $4 - User (optional - defaults to postgres)
-#   $5 - Password (optional)
-# Returns: 0 if connection successful, 1 if not
-check_postgres_connection() {
-    local host="$1"
-    local port="${2:-5432}"
-    local db="${3:-postgres}"
-    local user="${4:-postgres}"
-    local password="${5:-}"
-    local connection_string="host=$host port=$port dbname=$db user=$user"
-
-    # Check if psql command exists
-    if ! command_exists psql; then
-        log "PostgreSQL client (psql) not installed" "ERROR"
-        return 1
-    fi
-
-    # Build command with proper password handling
-    local pg_cmd="psql \"$connection_string\" -t -c \"SELECT 1;\""
-
-    if [[ -n "$password" ]]; then
-        # Use environment variable for password
-        PGPASSWORD="$password" eval "$pg_cmd" &>/dev/null
-    else
-        # Try without password (might use .pgpass or peer auth)
-        eval "$pg_cmd" &>/dev/null
-    fi
-
-    local result=$?
-
-    if [[ $result -eq 0 ]]; then
-        log "Successfully connected to PostgreSQL at $host:$port/$db as $user" "DEBUG"
-    else
-        log "Failed to connect to PostgreSQL at $host:$port/$db as $user" "DEBUG"
-    fi
-
-    return $result
-}
-
-# Check MySQL/MariaDB connection
-# Arguments:
-#   $1 - Host
-#   $2 - Port (optional - defaults to 3306)
-#   $3 - Database (optional)
-#   $4 - User (optional - defaults to root)
-#   $5 - Password (optional)
-# Returns: 0 if connection successful, 1 if not
-check_mysql_connection() {
-    local host="$1"
-    local port="${2:-3306}"
-    local db="${3:-}"
-    local user="${4:-root}"
-    local password="${5:-}"
-    local mysql_opts="-h $host -P $port -u $user --connect-timeout=10"
-
-    # Check if mysql command exists
-    if ! command_exists mysql; then
-        log "MySQL client not installed" "ERROR"
-        return 1
-    fi
-
-    if [[ -n "$db" ]]; then
-        mysql_opts="$mysql_opts -D $db"
-    fi
-
-    local mysql_cmd="mysql $mysql_opts -e 'SELECT 1;'"
-
-    if [[ -n "$password" ]]; then
-        mysql_opts="$mysql_opts -p$(printf "%q" "$password")"
-        mysql_cmd="mysql $mysql_opts -e 'SELECT 1;'"
-    fi
-
-    eval "$mysql_cmd" &>/dev/null
-    local result=$?
-
-    if [[ $result -eq 0 ]]; then
-        log "Successfully connected to MySQL at $host:$port${db:+/$db} as $user" "DEBUG"
-    else
-        log "Failed to connect to MySQL at $host:$port${db:+/$db} as $user" "DEBUG"
-    fi
-
-    return $result
-}
-
-# Execute SQL query on PostgreSQL database
-# Arguments:
-#   $1 - Query to execute
-#   $2 - Host
-#   $3 - Database
-#   $4 - User
-#   $5 - Port (optional - defaults to 5432)
-#   $6 - Password (optional)
-# Returns: Query result or error message
-pg_execute() {
-    local query="$1"
-    local host="$2"
-    local db="$3"
-    local user="$4"
-    local port="${5:-5432}"
-    local password="${6:-}"
-    local connection_string="host=$host port=$port dbname=$db user=$user"
-
-    if ! command_exists psql; then
-        echo "ERROR: PostgreSQL client (psql) not installed"
-        return 1
-    fi
-
-    local temp_file=$(get_temp_file "pg_result")
-
-    if [[ -n "$password" ]]; then
-        PGPASSWORD="$password" psql "$connection_string" -t -c "$query" > "$temp_file" 2>&1
-    else
-        psql "$connection_string" -t -c "$query" > "$temp_file" 2>&1
-    fi
-
-    local result=$?
-    local output=$(cat "$temp_file")
-    rm -f "$temp_file"
-
-    if [[ $result -ne 0 ]]; then
-        echo "ERROR: $output"
-        return 1
-    fi
-
-    echo "$output" | sed 's/^ *//' | sed 's/ *$//'
-    return 0
-}
-
-# Execute SQL query on MySQL database
-# Arguments:
-#   $1 - Query to execute
-#   $2 - Host
-#   $3 - Database
-#   $4 - User
-#   $5 - Port (optional - defaults to 3306)
-#   $6 - Password (optional)
-# Returns: Query result or error message
-mysql_execute() {
-    local query="$1"
-    local host="$2"
-    local db="$3"
-    local user="$4"
-    local port="${5:-3306}"
-    local password="${6:-}"
-    local mysql_opts="-h $host -P $port -u $user"
-
-    if [[ -n "$db" ]]; then
-        mysql_opts="$mysql_opts -D $db"
-    fi
-
-    if ! command_exists mysql; then
-        echo "ERROR: MySQL client not installed"
-        return 1
-    fi
-
-    local temp_file=$(get_temp_file "mysql_result")
-
-    if [[ -n "$password" ]]; then
-        MYSQL_PWD="$password" mysql $mysql_opts -N -e "$query" > "$temp_file" 2>&1
-    else
-        mysql $mysql_opts -N -e "$query" > "$temp_file" 2>&1
-    fi
-
-    local result=$?
-    local output=$(cat "$temp_file")
-    rm -f "$temp_file"
-
-    if [[ $result -ne 0 ]]; then
-        echo "ERROR: $output"
-        return 1
-    fi
-
-    echo "$output"
-    return 0
-}
-
 # Export notification functions
 export -f send_email_notification
 export -f send_slack_notification
@@ -576,9 +543,3 @@ export -f parse_json
 export -f parse_ini_section
 export -f yaml_to_json
 export -f format_json
-
-# Export database functions
-export -f check_postgres_connection
-export -f check_mysql_connection
-export -f pg_execute
-export -f mysql_execute

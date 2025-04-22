@@ -195,7 +195,7 @@ When enhancing code:
 
 Identify improvement areas:
 
-- Security (replace unsafe practices)
+- Security (replace unsafe practices, e.g., replace `eval` for curl commands with safer alternatives)
 - Reliability (add timeouts to prevent hanging processes)
 - Error handling (implement exponential backoff and circuit breakers)
 - Authentication (Add built-in support for API authentication methods)
@@ -216,8 +216,14 @@ Make changes following these principles:
 Example:
 
 ```bash
-# Before: eval "curl $curl_options -X $method $url"
-# After: curl "${curl_args[@]}" "$url"
+# Replace eval for security
+# Before:
+eval "curl $curl_options -X $method $url"
+
+# After:
+curl_args=(-s -o /dev/null -w '%{time_total},%{http_code}' -X "$method")
+# Add other arguments to array
+curl "${curl_args[@]}" "$url"
 
 ```
 
