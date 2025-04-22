@@ -27,22 +27,67 @@ fi
 # Define default file permissions
 DEFAULT_FILE_PERMS="644"
 DEFAULT_DIR_PERMS="755"
+DEFAULT_LOG_FILE_PERMS="640"  # More restrictive for log files
+DEFAULT_LOG_DIR_PERMS="750"   # More restrictive for log directories
+
+# Define log file settings
+DEFAULT_LOG_MAX_SIZE="10M"    # Maximum log file size before rotation
+DEFAULT_LOG_BACKUPS=5         # Number of rotated backups to keep
+
+# Define error message prefixes for consistency
+ERROR_PREFIX="Error:"
+WARNING_PREFIX="Warning:"
+INFO_PREFIX="Info:"
+DEBUG_PREFIX="Debug:"
 
 #######################################
 # LOGGING FUNCTIONS
 #######################################
+
+# Ensure log directory exists with proper permissions
+# Arguments:
+#   $1 - Log directory path
+# Returns:
+#   0 on success, 1 on failure
+ensure_log_directory() {
+    local log_dir="$1"
+
+    if [[ ! -d "$log_dir" ]]; then
+        mkdir -p "$log_dir" 2>/dev/null || {
+            echo -e "${RED}${ERROR_PREFIX} Failed to create log directory: $log_dir${NC}"
+            return 1
+        }
+
+        chmod "$DEFAULT_LOG_DIR_PERMS" "$log_dir" 2>/dev/null || {
+            echo -e "${YELLOW}${WARNING_PREFIX} Failed to set permissions on log directory: $log_dir${NC}"
+            # Continue despite permission warning
+        }
+
+        debug "Created log directory: $log_dir with permissions $DEFAULT_LOG_DIR_PERMS"
+    fi
+
+    # Check if directory is writable
+    if [[ ! -w "$log_dir" ]]; then
+        echo -e "${RED}${ERROR_PREFIX} Log directory is not writable: $log_dir${NC}"
+        return 1
+    }
+
+    return 0
+}
 
 # Log a message with timestamp and optional log level
 # Arguments:
 #   $1 - Message to log
 #   $2 - Log level (INFO, WARNING, ERROR, DEBUG) - defaults to INFO
 #   $3 - Log file (optional - defaults to stdout)
+#   $4 - Max log file size (optional - defaults to DEFAULT_LOG_MAX_SIZE)
 # Returns:
 #   0 on success, 1 on failure
 log() {
     local message="$1"
     local level="${2:-INFO}"
     local log_file="${3:-}"
+    local max_size="${4:-$DEFAULT_LOG_MAX_SIZE}"
     local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
     local status=0
 
@@ -50,24 +95,34 @@ log() {
     case "$level" in
         INFO)
             local colored_level="${GREEN}INFO${NC}"
+            local prefix="$INFO_PREFIX"
             ;;
         WARNING)
             local colored_level="${YELLOW}WARNING${NC}"
+            local prefix="$WARNING_PREFIX"
             ;;
         ERROR)
             local colored_level="${RED}ERROR${NC}"
+            local prefix="$ERROR_PREFIX"
             ;;
         DEBUG)
             local colored_level="${BLUE}DEBUG${NC}"
+            local prefix="$DEBUG_PREFIX"
             ;;
         *)
             local colored_level="$level"
+            local prefix=""
             ;;
     esac
 
-    # Format the log message
-    local log_message="[$timestamp] [${colored_level}] $message"
-    local plain_message="[$timestamp] [$level] $message"
+    # Format the log message - add prefix to message for non-empty prefixes
+    local prefixed_message="$message"
+    if [[ -n "$prefix" && "$message" != "$prefix"* ]]; then
+        prefixed_message="$prefix $message"
+    fi
+
+    local log_message="[$timestamp] [${colored_level}] $prefixed_message"
+    local plain_message="[$timestamp] [$level] $prefixed_message"
 
     # Output to console if not in quiet mode
     if [[ "${QUIET:-false}" != "true" ]]; then
@@ -76,19 +131,32 @@ log() {
 
     # Output to log file if specified
     if [[ -n "$log_file" ]]; then
-        # Ensure log directory exists before writing to file
-        local log_dir=$(dirname "$log_file")
-        if [[ ! -d "$log_dir" ]]; then
-            mkdir -p "$log_dir" 2>/dev/null || {
-                echo -e "${RED}ERROR${NC}: Failed to create log directory: $log_dir"
-                status=1
-            }
-        fi
+        # Before writing, check if we need to initialize/rotate the log file
+        if [[ ! -f "$log_file" ]]; then
+            init_log_file "$log_file" || status=1
+        } else {
+            # Check for rotation if file exists
+            rotate_log_file "$log_file" "$max_size" || status=1
+        }
 
         if [[ $status -eq 0 ]]; then
-            echo "$plain_message" >> "$log_file" || status=1
-        fi
-    fi
+            # Ensure log directory exists (initial write or after rotation)
+            local log_dir=$(dirname "$log_file")
+            ensure_log_directory "$log_dir" || status=1
+
+            if [[ $status -eq 0 ]]; then
+                # Append to log file
+                echo "$plain_message" >> "$log_file" 2>/dev/null || {
+                    echo -e "${RED}${ERROR_PREFIX} Failed to write to log file: $log_file${NC}"
+                    status=1
+                }
+            }
+        }
+    } elif [[ -n "$DEFAULT_LOG_FILE" ]]; then
+        # Use default log file if set
+        log "$message" "$level" "$DEFAULT_LOG_FILE" "$max_size"
+        status=$?
+    }
 
     return $status
 }
@@ -97,34 +165,45 @@ log() {
 # Arguments:
 #   $1 - Error message
 #   $2 - Exit code (optional, defaults to 1)
-#   $3 - Log file (optional)
+#   $3 - Log file (optional, defaults to DEFAULT_LOG_FILE if set)
 # Returns:
 #   Does not return if called directly, exits with specified code
 #   Returns exit code if sourced
 error_exit() {
     local message="$1"
     local exit_code="${2:-1}"
-    local log_file="${3:-}"
+    local log_file="${3:-${DEFAULT_LOG_FILE:-}}"
 
+    # Ensure message has error prefix
+    if [[ "$message" != "$ERROR_PREFIX"* ]]; then
+        message="$ERROR_PREFIX $message"
+    }
+
+    # Use log function which already handles log directory creation
     log "$message" "ERROR" "$log_file"
 
     # Only exit if this is a script, not sourced
     if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         exit "$exit_code"
-    else
+    } else {
         return "$exit_code"
-    fi
+    }
 }
 
 # Log a warning message
 # Arguments:
 #   $1 - Warning message
-#   $2 - Log file (optional)
+#   $2 - Log file (optional, defaults to DEFAULT_LOG_FILE if set)
 # Returns:
 #   0 on success, 1 if logging fails
 warn() {
     local message="$1"
-    local log_file="${2:-}"
+    local log_file="${2:-${DEFAULT_LOG_FILE:-}}"
+
+    # Ensure message has warning prefix
+    if [[ "$message" != "$WARNING_PREFIX"* ]]; then
+        message="$WARNING_PREFIX $message"
+    fi
 
     log "$message" "WARNING" "$log_file"
     return $?
@@ -133,13 +212,18 @@ warn() {
 # Log a debug message (only when DEBUG=true)
 # Arguments:
 #   $1 - Debug message
-#   $2 - Log file (optional)
+#   $2 - Log file (optional, defaults to DEFAULT_LOG_FILE if set)
 # Returns:
 #   0 on success, 1 if logging fails
 debug() {
     if [[ "${DEBUG:-false}" == "true" ]]; then
         local message="$1"
-        local log_file="${2:-}"
+        local log_file="${2:-${DEFAULT_LOG_FILE:-}}"
+
+        # Ensure message has debug prefix
+        if [[ "$message" != "$DEBUG_PREFIX"* ]]; then
+            message="$DEBUG_PREFIX $message"
+        fi
 
         log "$message" "DEBUG" "$log_file"
         return $?
@@ -150,12 +234,17 @@ debug() {
 # Log an important message (highlighted)
 # Arguments:
 #   $1 - Important message
-#   $2 - Log file (optional)
+#   $2 - Log file (optional, defaults to DEFAULT_LOG_FILE if set)
 # Returns:
 #   0 on success, 1 if logging fails
 important() {
     local message="$1"
-    local log_file="${2:-}"
+    local log_file="${2:-${DEFAULT_LOG_FILE:-}}"
+
+    # Ensure message has info prefix
+    if [[ "$message" != "$INFO_PREFIX"* ]]; then
+        message="$INFO_PREFIX $message"
+    fi
 
     log "${BOLD}${message}${NC}" "INFO" "$log_file"
     return $?
@@ -191,8 +280,11 @@ load_env() {
 
     # Source the environment file
     # shellcheck source=/dev/null
-    source "$env_file"
-    log "Loaded environment configuration from $env_file"
+    source "$env_file" || {
+        error_exit "Failed to load environment from file: $env_file" 1
+    }
+
+    log "Successfully loaded environment configuration from $env_file"
     return 0
 }
 
@@ -216,8 +308,7 @@ validate_environment() {
     done
 
     if [[ "$valid" == "false" ]]; then
-        log "Invalid environment: $environment" "ERROR"
-        log "Valid environments: ${valid_envs[*]}" "ERROR"
+        error_exit "Invalid environment: $environment. Valid environments: ${valid_envs[*]}"
         return 1
     fi
 
@@ -253,6 +344,8 @@ detect_environment() {
     else
         echo "$DEFAULT_ENVIRONMENT"
     fi
+
+    debug "Detected environment: $(echo $DEFAULT_ENVIRONMENT)"
     return 0
 }
 
@@ -266,8 +359,15 @@ detect_environment() {
 # Returns:
 #   0 if exists, 1 if not
 command_exists() {
-    command -v "$1" &>/dev/null
-    return $?
+    local cmd="$1"
+    command -v "$cmd" &>/dev/null
+    local result=$?
+
+    if [[ $result -ne 0 ]]; then
+        debug "Command not found: $cmd"
+    fi
+
+    return $result
 }
 
 # Check if a file exists and is readable
@@ -278,7 +378,7 @@ command_exists() {
 #   0 if exists, 1 if not
 file_exists() {
     local file="$1"
-    local error_msg="${2:-File does not exist or is not readable: $file}"
+    local error_msg="${2:-$ERROR_PREFIX File does not exist or is not readable: $file}"
 
     if [[ ! -r "$file" ]]; then
         log "$error_msg" "ERROR"
@@ -306,12 +406,14 @@ is_valid_ip() {
 
                 for octet in "${ip_array[@]}"; do
                     if (( octet < 0 || octet > 255 )); then
+                        debug "$ERROR_PREFIX Invalid IPv4 address: $ip (octet out of range)"
                         return 1
                     fi
                 done
 
                 return 0
             fi
+            debug "$ERROR_PREFIX Invalid IPv4 format: $ip"
             return 1
             ;;
         6|ipv6)
@@ -319,17 +421,19 @@ is_valid_ip() {
             if [[ "$ip" =~ ^([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$ ]]; then
                 return 0
             fi
+            debug "$ERROR_PREFIX Invalid IPv6 format: $ip"
             return 1
             ;;
         both)
             if is_valid_ip "$ip" 4 || is_valid_ip "$ip" 6; then
                 return 0
             else
+                debug "$ERROR_PREFIX Invalid IP address (neither IPv4 nor IPv6): $ip"
                 return 1
             fi
             ;;
         *)
-            log "Invalid IP type specified: $type. Use 4, 6, or both" "ERROR"
+            error_exit "Invalid IP type specified: $type. Use 4, 6, or both"
             return 1
             ;;
     esac
@@ -345,11 +449,19 @@ is_number() {
     local allow_float="${2:-false}"
 
     if [[ "$allow_float" == "true" ]]; then
-        [[ "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]]
-        return $?
+        if [[ "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+            return 0
+        else
+            debug "$ERROR_PREFIX Not a valid floating point number: $value"
+            return 1
+        fi
     else
-        [[ "$value" =~ ^[0-9]+$ ]]
-        return $?
+        if [[ "$value" =~ ^[0-9]+$ ]]; then
+            return 0
+        else
+            debug "$ERROR_PREFIX Not a valid integer: $value"
+            return 1
+        fi
     fi
 }
 
@@ -359,15 +471,17 @@ is_number() {
 # Returns: 0 if all parameters exist, 1 if any are missing
 validate_required_params() {
     local missing=0
+    local missing_params=""
 
     for param in "$@"; do
         if [[ -z "${!param:-}" ]]; then
-            log "Required parameter missing: $param" "ERROR"
             missing=$((missing + 1))
+            missing_params="$missing_params $param"
         fi
     done
 
     if (( missing > 0 )); then
+        error_exit "Required parameter(s) missing:$missing_params"
         return 1
     fi
 
@@ -385,6 +499,8 @@ is_valid_url() {
     if [[ "$url" =~ ^https?:// ]]; then
         return 0
     fi
+
+    debug "$ERROR_PREFIX Invalid URL format: $url (must start with http:// or https://)"
     return 1
 }
 
@@ -399,6 +515,8 @@ is_valid_email() {
     if [[ "$email" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
         return 0
     fi
+
+    debug "$ERROR_PREFIX Invalid email format: $email"
     return 1
 }
 
@@ -410,7 +528,7 @@ is_valid_email() {
 # Arguments:
 #   $1 - File to backup
 #   $2 - Backup directory (optional - defaults to DEFAULT_BACKUP_DIR)
-# Returns: Path to backup file
+# Returns: Path to backup file on success, 1 on failure
 backup_file() {
     local file="$1"
     local backup_dir="${2:-$DEFAULT_BACKUP_DIR}"
@@ -418,44 +536,50 @@ backup_file() {
     local backup_file="${backup_dir}/${filename}.${TIMESTAMP}.bak"
 
     # Ensure backup directory exists
-    mkdir -p "$backup_dir"
+    mkdir -p "$backup_dir" 2>/dev/null || {
+        error_exit "Failed to create backup directory: $backup_dir"
+        return 1
+    }
 
     # Check if source file exists
     if [[ ! -f "$file" ]]; then
-        warn "Cannot backup file, source does not exist: $file"
+        error_exit "Cannot backup file, source does not exist: $file"
         return 1
     fi
 
     # Create backup
-    cp -p "$file" "$backup_file" || {
-        warn "Failed to create backup of $file"
+    cp -p "$file" "$backup_file" 2>/dev/null || {
+        error_exit "Failed to create backup of $file to $backup_file"
         return 1
     }
 
-    log "Backed up $file to $backup_file" "INFO"
+    log "Created backup of $file at $backup_file" "INFO"
 
     echo "$backup_file"
+    return 0
 }
 
 # Create directory if it doesn't exist
 # Arguments:
 #   $1 - Directory path
-#   $2 - Permissions (optional - defaults to 755)
+#   $2 - Permissions (optional - defaults to DEFAULT_DIR_PERMS)
 # Returns: 0 if created or already exists, 1 on failure
 ensure_directory() {
     local dir="$1"
-    local perms="${2:-755}"
+    local perms="${2:-$DEFAULT_DIR_PERMS}"
 
     if [[ ! -d "$dir" ]]; then
-        mkdir -p "$dir" || {
-            log "Failed to create directory: $dir" "ERROR"
+        mkdir -p "$dir" 2>/dev/null || {
+            error_exit "Failed to create directory: $dir"
             return 1
         }
-        chmod "$perms" "$dir" || {
-            log "Failed to set permissions $perms on directory: $dir" "ERROR"
+
+        chmod "$perms" "$dir" 2>/dev/null || {
+            error_exit "Failed to set permissions $perms on directory: $dir"
             return 1
         }
-        log "Created directory: $dir with permissions $perms" "INFO"
+
+        debug "Created directory: $dir with permissions $perms"
     fi
 
     return 0
@@ -466,63 +590,67 @@ ensure_directory() {
 #   $1 - Content to write
 #   $2 - Output file
 #   $3 - Create backup (true/false, defaults to true)
-#   $4 - File permissions (optional, defaults to 644)
+#   $4 - File permissions (optional, defaults to DEFAULT_FILE_PERMS)
 # Returns: 0 on success, 1 on failure
 safe_write_file() {
     local content="$1"
     local output_file="$2"
     local create_backup="${3:-true}"
-    local perms="${4:-644}"
+    local perms="${4:-$DEFAULT_FILE_PERMS}"
     local temp_file
 
     # Create parent directory if it doesn't exist
-    ensure_directory "$(dirname "$output_file")" || return 1
+    ensure_directory "$(dirname "$output_file")" || {
+        error_exit "Failed to ensure parent directory exists for: $output_file"
+        return 1
+    }
 
     # Backup existing file if requested
     if [[ "$create_backup" == "true" && -f "$output_file" ]]; then
         backup_file "$output_file" >/dev/null || {
-            log "Failed to back up existing file: $output_file" "WARNING"
+            warn "Failed to back up existing file: $output_file (continuing anyway)"
         }
     fi
 
     # Write to temporary file first to prevent partial writes
     temp_file=$(mktemp) || {
-        log "Failed to create temporary file" "ERROR"
+        error_exit "Failed to create temporary file"
         return 1
     }
 
     echo "$content" > "$temp_file" || {
-        log "Failed to write content to temporary file" "ERROR"
+        error_exit "Failed to write content to temporary file"
         rm -f "$temp_file"
         return 1
     }
 
     # Set permissions on temporary file before moving
     chmod "$perms" "$temp_file" || {
-        log "Failed to set permissions on temporary file" "WARNING"
+        warn "Failed to set permissions on temporary file (continuing anyway)"
     }
 
     # Move temporary file to destination
     mv "$temp_file" "$output_file" || {
-        log "Failed to write to $output_file" "ERROR"
+        error_exit "Failed to write to final destination: $output_file"
         rm -f "$temp_file"
         return 1
     }
 
-    log "Successfully wrote to $output_file" "INFO"
+    log "Successfully wrote content to $output_file" "INFO"
     return 0
 }
 
 # Get file age in seconds
 # Arguments:
 #   $1 - File path
-# Returns: File age in seconds or -1 if file not found
+# Returns: File age in seconds or -1 if file not found/error
 file_age() {
     local file="$1"
     local file_time
     local current_time
 
     if [[ ! -f "$file" ]]; then
+        warn "Cannot get age of non-existent file: $file"
         echo "-1"
         return 1
     fi
@@ -530,15 +658,24 @@ file_age() {
     if command_exists stat; then
         if [[ "$(uname)" == "Darwin" ]]; then
             # macOS version
-            file_time=$(stat -f %m "$file")
+            file_time=$(stat -f %m "$file" 2>/dev/null) || {
+                error_exit "Failed to get file modification time: $file"
+                echo "-1"
+                return 1
+            }
         else
             # Linux version
-            file_time=$(stat -c %Y "$file")
+            file_time=$(stat -c %Y "$file" 2>/dev/null) || {
+                error_exit "Failed to get file modification time: $file"
+                echo "-1"
+                return 1
+            }
         fi
     else
         # Fallback method using ls
         file_time=$(ls -l --time-style=+%s "$file" 2>/dev/null | awk '{print $6}')
         if [[ -z "$file_time" ]]; then
+            error_exit "Failed to get file modification time using fallback method: $file"
             echo "-1"
             return 1
         fi
@@ -546,17 +683,25 @@ file_age() {
 
     current_time=$(date +%s)
     echo $((current_time - file_time))
+    return 0
 }
 
-# Export all functions
+# Export logging functions and constants
+export -f ensure_log_directory
 export -f log
 export -f error_exit
 export -f warn
 export -f debug
 export -f important
+export DEFAULT_LOG_FILE_PERMS
+export DEFAULT_LOG_DIR_PERMS
+
+# Export environment functions
 export -f load_env
 export -f validate_environment
 export -f detect_environment
+
+# Export validation functions
 export -f command_exists
 export -f file_exists
 export -f is_valid_ip
@@ -564,7 +709,15 @@ export -f is_number
 export -f validate_required_params
 export -f is_valid_url
 export -f is_valid_email
+
+# Export file operations functions
 export -f backup_file
 export -f ensure_directory
 export -f safe_write_file
 export -f file_age
+
+# Export error message prefixes
+export ERROR_PREFIX
+export WARNING_PREFIX
+export INFO_PREFIX
+export DEBUG_PREFIX
