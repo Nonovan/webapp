@@ -218,7 +218,7 @@ Brief description of the component's purpose and functionality.
     └── common.py          # Description
 ```
 
-### Security Practices
+## Security Practices
 
 - Implement strict Content Security Policy
 - Validate all user inputs
