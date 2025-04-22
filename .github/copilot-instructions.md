@@ -182,8 +182,40 @@ All directories should include a README.md file with a consistent structure. The
 7. **Configuration Structure** (if applicable): Format of configuration files with examples.
 8. **Directory Structure**: Complete listing of all files and subdirectories, alphabetically organized.
 9. **Modifying/Extending**: Guidelines for modifications or extensions.
-10. **Related Documentation**: Links to related documentation.
-11. **Change Log**: Recent changes to track version history.
+10. **Security Considerations**: Security-related information specific to the component.
+11. **Common Features**: Shared functionality across the component's scripts/modules.
+12. **Related Documentation**: Links to related documentation.
+13. **Contributing**: Guidelines for contributing to this component.
+14. **Change Log**: Recent changes to track version history.
+15. **License**: License information if applicable.
+
+#### Template Variable Conventions
+
+When templates are used, document the available variables and their purpose:
+
+- Use `{{variable_name}}` format to denote template variables
+- Categorize variables by their context (system, environment, metrics, etc.)
+- Provide examples of variable usage
+
+#### Subdirectory Descriptions
+
+For directories with subdirectories, include a detailed explanation of each:
+
+```
+### Subdirectory Descriptions
+
+#### `common/`
+- **`config_loader.sh`**: Loads configuration files based on the specified environment.
+- **`logging_utils.sh`**: Provides reusable logging functions with support for different log levels.
+```
+
+#### Feature Documentation
+
+When describing features, follow this pattern:
+- Brief one-sentence summary
+- Bullet points for key capabilities
+- Code examples when relevant
+- Links to more detailed documentation
 
 #### Example README Structure
 
@@ -198,8 +230,12 @@ Brief description of the component's purpose and functionality.
 - **`script_b.py`**: Description of script B.
 
 ## Usage
+```
+```bash
 ./script_a.py --option value
+```
 
+```markdown
 ## Best Practices
 - Always validate inputs before processing
 - Use the logging framework instead of print statements
@@ -217,6 +253,48 @@ Brief description of the component's purpose and functionality.
 └── utils/                 # Utils description
     └── common.py          # Description
 ```
+
+## Security Considerations
+- Scripts utilize secure credential handling via environment variables
+- API keys and sensitive parameters are never hardcoded
+- All activities are logged for audit purposes
+- Access to certain capabilities requires appropriate authentication
+
+## Common Features
+- Environment-aware configuration
+- Standardized logging formats
+- Integration with central monitoring systems
+- Historical data collection and trend analysis
+```
+
+#### Environment-Specific Documentation
+
+When a component supports multiple environments (development, staging, production):
+
+1. List all supported environments alphabetically
+2. Document environment-specific behaviors or configurations
+3. Provide examples for each environment where behavior differs
+4. Include instructions for adding new environment configurations
+
+#### Configuration Documentation
+
+For configuration-heavy components:
+
+1. Document each configuration section with an example
+2. Explain required vs. optional parameters
+3. Include default values for all parameters
+4. Document the configuration validation process
+5. Provide troubleshooting tips for common configuration issues
+
+```ini
+[Service]
+# Service-specific settings
+endpoint=https://api.example.com/status  # Required: API endpoint URL
+interval=60                              # Optional: Check interval in seconds (default: 30)
+timeout=10                               # Optional: Request timeout in seconds (default: 5)
+```
+
+This expanded documentation structure ensures comprehensive coverage of all aspects of each component, maintaining consistency while providing detailed information to users of varying experience levels.
 
 ## Security Practices
 
