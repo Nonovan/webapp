@@ -1,3 +1,4 @@
+```markdown
 # GitHub Copilot Instructions for Cloud Infrastructure Platform
 
 ## Project Overview
@@ -16,12 +17,31 @@ This repository contains a Python Flask web application for cloud infrastructure
 - `/extensions/` - Flask extensions
 - `/models/` - Database models
 - `/scripts/` - Utility scripts (maintenance, security, compliance)
+  - `/scripts/compliance/` - Compliance checking tools
+  - `/scripts/core/` - Core reusable functions
+  - `/scripts/deployment/` - Deployment automation
+  - `/scripts/deployment/dr/` - Disaster recovery
+  - `/scripts/monitoring/` - System monitoring
+  - `/scripts/security/` - Security tools
+  - `/scripts/utils/` - General utilities
 - `/services/` - Business logic services
 - `/static/` - Static assets (CSS, JS, images)
 - `/tests/` - Automated tests
 - `/views/` - View helpers and template utilities
 
-## Coding Standards
+## Coding and Organization Standards
+
+### General Standards
+- Organize files by feature area and functionality
+- Keep related code together when possible
+- Prefer smaller, focused functions over large, complex ones
+- Use dependency injection for better testability
+- Implement proper error handling and logging
+- Document complex logic with comments
+- Use configuration files for environment-specific settings
+- Use lazy formatting for string operations, especially in logging statements
+  - Prefer `logger.error("Failed to process %s: %s", item_id, str(e))` over string concatenation
+  - Use f-strings only when the string is always evaluated (not in logging statements)
 
 ### Python
 - Follow PEP 8, use type hints, docstrings, proper exception handling
@@ -31,11 +51,15 @@ This repository contains a Python Flask web application for cloud infrastructure
 - Use ES6+, prefer const/let, async/await, validate inputs
 - Include CSP nonce, implement CSRF protection, use strict mode
 
-### File Headers and Paths
+### HTML/Templates
+- Follow HTML5 standards with proper ARIA attributes for accessibility
+- Use Bootstrap 5 components and utility classes
+- Implement responsive designs
 
+### File Headers and Paths
 - Always use **project-relative paths** in file headers and comments, not absolute paths
-- Never include personal directory information (like usernames or home directory paths)
-- Examples:
+- Never include personal directory information (like usernames or home directories)
+- Example:
   ```bash
   # CORRECT:
   # filepath: scripts/utils/common_functions.sh
@@ -48,179 +72,79 @@ This repository contains a Python Flask web application for cloud infrastructure
 - When referencing files in documentation or comments, use paths relative to the project root
 - For import statements, use appropriate relative or absolute imports based on the language's best practices
 
-### HTML/Templates
+## Security and Testing
 
-- Follow HTML5 standards
-- Include proper ARIA attributes for accessibility
-- Use Bootstrap 5 components and utility classes
-- Implement responsive designs
+### Security Best Practices
 
-## Script Enhancement Case Study
+- Implement strict Content Security Policy
+- Validate all user inputs and sanitize outputs to prevent XSS
+- Use parameterized queries to prevent SQL injection
+- Implement proper authentication checks with CSRF tokens for all forms
+- Follow the principle of least privilege
+- Scripts should utilize secure credential handling via environment variables
+- Never hardcode API keys and sensitive parameters
+- Log all activities for audit purposes
+- Require appropriate authentication for sensitive operations
 
-The following case study demonstrates our preferred approach to enhancing code files throughout the project. While this example shows how the `api_latency.sh` monitoring script was improved, **this systematic approach should be applied to most files** in the codebase when improvements are needed, especially when multiple areas require attention.
+### Testing Requirements
 
-This approach is applicable to Python modules, JavaScript files, shell scripts, configuration files, and other code assets - with appropriate language-specific adaptations. The goal is to consistently improve code quality across the entire project using a standardized methodology.
-
-### 1. Assessment Phase
-
-First, identify key areas for improvement:
-
-```
-1. Security: Replace `eval` for curl commands with safer alternatives
-2. Reliability: Add request timeout settings to prevent hanging processes
-3. Error handling: Implement exponential backoff and circuit breakers
-4. Authentication: Add built-in support for API authentication methods
-5. Performance: Add connection pooling and optimization
-```
-
-For any file type, look for similar categories of improvements: security, reliability, error handling, authentication, and performance optimizations. When multiple improvement areas are identified, prioritize them based on risk and impact.
-
-### 2. Implementation Phase
-
-For each identified area, implement changes following these principles:
-
-- Maintain backward compatibility
-- Use defensive programming techniques
-- Add proper validation and sanitization
-- Organize the code into focused functions
-- Implement graceful error handling and cleanup
-- Add helpful logging messages
-
-Example improvements:
-```bash
-# Replace eval for security
-# Before:
-eval "curl $curl_options -X $method $url"
-
-# After:
-curl_args=(-s -o /dev/null -w '%{time_total},%{http_code}' -X "$method")
-# Add other arguments to array
-curl "${curl_args[@]}" "$url"
-
-# Add circuit breaker pattern
-if [[ -f "$circuit_breaker_file" ]]; then
-    # Check if circuit is open and handle appropriately
-fi
-```
-
-### 3. Review and Testing Phase
-
-After implementation:
-
-- Verify all features work as expected
+- Write unit tests for all new functionality
+- Include integration tests for critical paths
+- Add security tests for authentication and authorization
+- Document test coverage requirements
 - Test failure scenarios to ensure proper handling
-- Document new parameters and features
-- Check for any regression issues
-- Ensure proper cleanup of resources
 
-### 4. Documentation Updates
+## Documentation Standards
 
-Finally, document all changes:
+### Documentation Structure
 
-- Update help text with new options
-- Document new features in code comments
-- Add examples in README files
-- Summarize benefits of changes
+All directories should include a [README.md](http://readme.md/) file with these sections (when applicable):
 
-This process ensures our scripts are robust, secure, and maintainable while preserving functionality and adding new capabilities.
+1. **Title**: Name of the module/component
+2. **Overview**: Brief description of the purpose and functionality
+3. **Key Scripts/Components**: Alphabetical list of main files with descriptions
+4. **Configuration Files** (if applicable): List of configuration files with descriptions
+5. **Directory Structure**: Complete listing of all files and subdirectories, alphabetically organized
+6. **Usage**: Examples showing how to use the scripts or components
+7. **Configuration Structure** (if applicable): Format of configuration files with examples
+8. **Best Practices**: Guidelines for optimal usage, common patterns, and recommendations
+9. **Security Considerations**: Security-related information specific to the component
+10. **Common Features**: Shared functionality across the component's scripts/modules
+11. **Modifying/Extending**: Guidelines for modifications or extensions
+12. **Related Documentation**: Links to related documentation
+13. **Contributing**: Guidelines for contributing to this component
+14. **Change Log**: Recent changes to track version history
+15. **License**: License information if applicable
 
-### Documentation Update Process
+### Documentation Format
 
-When making substantial changes to code components, it's essential to update the related documentation. The following process should be followed:
+- Use proper markdown formatting:
+    - `*bold**` for emphasis, especially for file/script names
+    -
+    - `backticks` for inline code references
+    - Use proper heading levels (# for title, ## for major sections, ### for subsections)
+    - Use bullet points for lists of items
+    - Use numbered lists for sequential steps or processes
 
-#### 1. Documentation Assessment
-
-First, identify the affected documentation files:
-- README.md files in relevant directories
-- API reference documentation
-- User guides and tutorials
-- Configuration reference docs
-
-#### 2. Documentation Implementation
-
-For each identified document:
-- Update feature descriptions to reflect new capabilities
-- Revise command-line options and parameters
-- Update usage examples with accurate syntax
-- Ensure consistency across all documentation
-
-#### 3. Documentation Review
-
-After updating documentation:
-- Verify all command flags and options match the actual implementation
-- Ensure examples use correct parameter names and syntax
-- Check that all new features are properly documented
-- Verify related files are also updated for cross-references
-
-#### 4. Documentation Case Study: Monitoring Scripts README
-
-The update to the `scripts/monitoring/core/README.md` after enhancing several monitoring scripts demonstrates our preferred approach:
-
-1. **Maintain the existing structure** for consistency and familiarity
-2. **Update technical details** to reflect actual implementation:
-```bash
-# Before: --auth-token and --retries parameters that do not exist
-./api_latency.sh production --endpoints /api/v1/status,/api/v1/users --interval 30 --retries 3 --auth-token $TOKEN
-# After: Corrected to use --auth-key as implemented
-./api_latency.sh production --endpoints /api/v1/status,/api/v1/users --interval 30 --auth-key $TOKEN
-```
-3. **Add new features** to the relevant sections
-4. **Verify all cross-references** to ensure they point to valid locations
-5. **Update usage examples** with actual, working commands
-6. **Ensure file names and directories are listed alphabetically** in sections like "Key Scripts" or "Usage Examples", similar to sections "Code Structure" above and "Scripts Directory" below.
-7. **Ensure "Directory Structure" includes all files and subdirectories** in the directory.
-
-This systematic approach ensures documentation stays in sync with code changes and provides users with accurate information.
-
-### README Documentation Structure
-
-All directories should include a README.md file with a consistent structure. The following sections should be included when applicable:
-
-1. **Title**: Name of the module/component.
-2. **Overview**: Brief description of the purpose and functionality.
-3. **Key Scripts/Components**: Alphabetical list of main files with descriptions.
-4. **Configuration Files** (if applicable): List of configuration files with descriptions.
-5. **Directory Structure**: Complete listing of all files and subdirectories, alphabetically organized.
-6. **Usage**: Examples showing how to use the scripts or components.
-7. **Configuration Structure** (if applicable): Format of configuration files with examples.
-8. **Best Practices**: Guidelines for optimal usage, common patterns, and recommendations.
-9. **Security Considerations**: Security-related information specific to the component.
-10. **Common Features**: Shared functionality across the component's scripts/modules.
-11. **Modifying/Extending**: Guidelines for modifications or extensions.
-12. **Related Documentation**: Links to related documentation.
-13. **Contributing**: Guidelines for contributing to this component.
-14. **Change Log**: Recent changes to track version history.
-15. **License**: License information if applicable.
-
-#### Template Variable Conventions
-
-When templates are used, document the available variables and their purpose:
+### Template Variable Conventions
 
 - Use `{{variable_name}}` format to denote template variables
 - Categorize variables by their context (system, environment, metrics, etc.)
 - Provide examples of variable usage
 
-#### Subdirectory Descriptions
+### Documentation Update Process
 
-For directories with subdirectories, include a detailed explanation of each:
+When making substantial changes to code components:
 
-```
-### Subdirectory Descriptions
+1. **Identify affected documentation** files (READMEs, API reference, user guides)
+2. **Update feature descriptions** to reflect new capabilities
+3. **Revise command-line options** and parameters
+4. **Update usage examples** with accurate syntax
+5. **Ensure consistency** across all documentation
+6. **Verify all command flags** match the actual implementation
+7. **Ensure file names and directories are listed alphabetically** in documentation sections
 
-#### `common/`
-- **`config_loader.sh`**: Loads configuration files based on the specified environment.
-- **`logging_utils.sh`**: Provides reusable logging functions with support for different log levels.
-```
-
-#### Feature Documentation
-
-When describing features, follow this pattern:
-- Brief one-sentence summary
-- Bullet points for key capabilities
-- Code examples when relevant
-- Links to more detailed documentation
-
-#### Example README Structure
+### Example README Structure
 
 ```markdown
 # Component Name
@@ -263,92 +187,88 @@ Brief description of the component's purpose and functionality.
 - Standardized logging formats
 - Integration with central monitoring systems
 - Historical data collection and trend analysis
+
 ```
 
-#### Environment-Specific Documentation
+### Environment and Configuration Documentation
 
-When a component supports multiple environments (development, staging, production):
+For environment-specific and configuration-heavy components:
 
-1. List all supported environments alphabetically
-2. Document environment-specific behaviors or configurations
-3. Provide examples for each environment where behavior differs
-4. Include instructions for adding new environment configurations
+1. **List supported environments** alphabetically (development, staging, production)
+2. **Document environment-specific behaviors** or configurations
+3. **Provide environment-specific examples** where behavior differs
+4. **Document configuration sections** with examples:
 
-#### Configuration Documentation
+    ```
+    [Service]
+    # Service-specific settings
+    endpoint=https://api.example.com/status  # Required: API endpoint URL
+    interval=60                              # Optional: Check interval in seconds (default: 30)
+    timeout=10                               # Optional: Request timeout in seconds (default: 5)
 
-For configuration-heavy components:
+    ```
 
-1. Document each configuration section with an example
-2. Explain required vs. optional parameters
-3. Include default values for all parameters
-4. Document the configuration validation process
-5. Provide troubleshooting tips for common configuration issues
+5. **Explain required vs. optional parameters** with default values
+6. **Document validation process** and provide troubleshooting tips
 
-```ini
-[Service]
-# Service-specific settings
-endpoint=https://api.example.com/status  # Required: API endpoint URL
-interval=60                              # Optional: Check interval in seconds (default: 30)
-timeout=10                               # Optional: Request timeout in seconds (default: 5)
+## Script Enhancement Case Study
+
+The following case study demonstrates our preferred approach to enhancing code files throughout the project.
+
+### 1. Assessment Phase
+
+First, identify key areas for improvement:
+
+```
+1. Security: Replace `eval` for curl commands with safer alternatives
+2. Reliability: Add request timeout settings to prevent hanging processes
+3. Error handling: Implement exponential backoff and circuit breakers
+4. Authentication: Add built-in support for API authentication methods
+5. Performance: Add connection pooling and optimization
+
 ```
 
-This expanded documentation structure ensures comprehensive coverage of all aspects of each component, maintaining consistency while providing detailed information to users of varying experience levels.
+### 2. Implementation Phase
 
-## Security Practices
+For each identified area, implement changes following these principles:
 
-- Implement strict Content Security Policy
-- Validate all user inputs
-- Sanitize outputs to prevent XSS
-- Use parameterized queries to prevent SQL injection
-- Implement proper authentication checks
-- Use CSRF tokens for all forms
-- Follow the principle of least privilege
+- Maintain backward compatibility
+- Use defensive programming techniques
+- Add proper validation and sanitization
+- Organize the code into focused functions
+- Implement graceful error handling and cleanup
 
-## Organization Preferences
+Example improvements:
 
-- Organize files by feature area and functionality
-- Keep related code together when possible
-- Prefer smaller, focused functions over large, complex ones
-- Use dependency injection for better testability
-- Implement proper error handling and logging
-- Document complex logic with comments
-- Use configuration files for environment-specific settings
-- Use lazy formatting for string operations, especially in logging statements
-  - Prefer `logger.error("Failed to process %s: %s", item_id, str(e))` over string concatenation
-  - Use f-strings only when the string is always evaluated (not in logging statements)
+```bash
+# Replace eval for security
+# Before:
+eval "curl $curl_options -X $method $url"
 
-## Specific Guidance
+# After:
+curl_args=(-s -o /dev/null -w '%{time_total},%{http_code}' -X "$method")
+# Add other arguments to array
+curl "${curl_args[@]}" "$url"
 
-### Scripts Directory
+```
 
-- Place compliance scripts in `/scripts/compliance/`
-- Put core reusable functions in `/scripts/core/`
-- Place deployment-related scripts in `/scripts/deployment/`
-- Put DR (disaster recovery) scripts in `/scripts/deployment/dr/`
-- Place monitoring scripts in `/scripts/monitoring/`
-- Put security-related scripts in `/scripts/security/`
-- Place utility scripts in `/scripts/utils/`
+### 3. Review and Testing Phase
 
-### Documentation
+After implementation:
 
-- Include README.md files in each directory explaining its purpose
-- Document API endpoints with examples
-- Include security considerations in component documentation
-- Ensure all README files follow the structure outlined in "README Documentation Structure"
-- Use markdown syntax consistently for improved readability:
-  - Use `**bold**` for emphasis, especially for file/script names
-  - Use ``` code blocks with language specification for code examples
-  - Use `backticks` for inline code references
-  - Use proper heading levels (# for title, ## for major sections, ### for subsections)
-  - Use bullet points for lists of items
-  - Use numbered lists for sequential steps or processes
+- Verify all features work as expected
+- Test failure scenarios to ensure proper handling
+- Check for regression issues
+- Ensure proper cleanup of resources
 
-### Testing
+### 4. Documentation Updates
 
-- Write unit tests for all new functionality
-- Include integration tests for critical paths
-- Add security tests for authentication and authorization
-- Document test coverage requirements
+Finally, document all changes:
+
+- Update help text with new options
+- Document new features in code comments
+- Add examples in README files
+- Summarize benefits of changes
 
 ## Architectural Patterns
 
