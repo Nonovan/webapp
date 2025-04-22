@@ -1,5 +1,29 @@
 #!/bin/bash
-# filepath: scripts/utils/common/common_cloud_functions.sh
+# filepath: scripts/utils/common/common_cloud_utils.sh
+# Cloud utility functions for Cloud Infrastructure Platform
+# These functions provide cloud-specific operations across AWS, GCP, and Azure
+
+# Check if required functions are available
+for func in command_exists warn debug log error_exit is_valid_url; do
+    if ! type -t "$func" &>/dev/null; then
+        echo "Required function $func not available. Make sure to source common_core_functions.sh first." >&2
+        exit 1
+    fi
+done
+
+# Script version information
+CLOUD_UTILS_VERSION="1.0.0"
+CLOUD_UTILS_DATE="2023-10-15"
+
+# Get script version information
+# Arguments:
+#   None
+# Returns:
+#   Version string in format "version (date)"
+get_cloud_utils_version() {
+    echo "${CLOUD_UTILS_VERSION} (${CLOUD_UTILS_DATE})"
+}
+
 #######################################
 # CLOUD PROVIDER UTILITIES
 #######################################
@@ -208,34 +232,47 @@ detect_cloud_provider() {
     fi
 
     local provider="unknown"
+    local timeout_sec=1
 
-    # Use command substitution instead of if statements for each provider
+    # Try to detect cloud provider using metadata services
     if command_exists curl; then
         # Try AWS IMDSv2 first
         local aws_token
-        aws_token=$(curl -s -f -X PUT --connect-timeout 1 \
+        aws_token=$(curl -s -f -X PUT --connect-timeout "$timeout_sec" \
                    "http://169.254.169.254/latest/api/token" \
                    -H "X-aws-ec2-metadata-token-ttl-seconds: 5" 2>/dev/null)
 
         if [[ -n "$aws_token" ]] && curl -s -f -H "X-aws-ec2-metadata-token: $aws_token" \
-           --connect-timeout 1 "http://169.254.169.254/latest/meta-data/" &>/dev/null; then
+           --connect-timeout "$timeout_sec" "http://169.254.169.254/latest/meta-data/" &>/dev/null; then
             provider="aws"
-        elif curl -s -f -H "Metadata-Flavor: Google" --connect-timeout 1 \
+        elif curl -s -f -H "Metadata-Flavor: Google" --connect-timeout "$timeout_sec" \
              "http://metadata.google.internal/computeMetadata/v1/" &>/dev/null; then
             provider="gcp"
-        elif curl -s -f -H "Metadata: true" --connect-timeout 1 \
+        elif curl -s -f -H "Metadata: true" --connect-timeout "$timeout_sec" \
              "http://169.254.169.254/metadata/instance?api-version=2021-02-01" &>/dev/null; then
+            provider="azure"
+        fi
+    elif command_exists wget; then
+        # Alternative detection using wget
+        if wget -q -T "$timeout_sec" -O /dev/null \
+           "http://169.254.169.254/latest/meta-data/" 2>/dev/null; then
+            provider="aws"
+        elif wget -q -T "$timeout_sec" -O /dev/null --header="Metadata-Flavor: Google" \
+             "http://metadata.google.internal/computeMetadata/v1/" 2>/dev/null; then
+            provider="gcp"
+        elif wget -q -T "$timeout_sec" -O /dev/null --header="Metadata: true" \
+             "http://169.254.169.254/metadata/instance?api-version=2021-02-01" 2>/dev/null; then
             provider="azure"
         fi
     fi
 
     # Fallback to file-based detection if metadata service check is inconclusive
     if [[ "$provider" == "unknown" ]]; then
-        if [[ -f /sys/hypervisor/uuid ]] && grep -i -q "ec2" /sys/hypervisor/uuid; then
+        if [[ -f /sys/hypervisor/uuid ]] && grep -i -q "ec2" /sys/hypervisor/uuid 2>/dev/null; then
             provider="aws"
-        elif [[ -f /sys/class/dmi/id/product_name ]] && grep -i -q "Google Compute Engine" /sys/class/dmi/id/product_name; then
+        elif [[ -f /sys/class/dmi/id/product_name ]] && grep -i -q "Google Compute Engine" /sys/class/dmi/id/product_name 2>/dev/null; then
             provider="gcp"
-        elif [[ -f /sys/class/dmi/id/chassis_asset_tag ]] && grep -i -q "7783-7084-3265-9085-8269-3286-77" /sys/class/dmi/id/chassis_asset_tag; then
+        elif [[ -f /sys/class/dmi/id/chassis_asset_tag ]] && grep -i -q "7783-7084-3265-9085-8269-3286-77" /sys/class/dmi/id/chassis_asset_tag 2>/dev/null; then
             provider="azure"
         fi
     fi
@@ -244,6 +281,7 @@ detect_cloud_provider() {
     DETECTED_CLOUD_PROVIDER="$provider"
     export DETECTED_CLOUD_PROVIDER
 
+    debug "Detected cloud provider: $provider"
     echo "$provider"
     [[ "$provider" != "unknown" ]] && return 0 || return 1
 }
@@ -382,7 +420,7 @@ monitor_and_restart_service() {
         fi
     fi
 
-    log "Checking service: $service_name"
+    log "Checking service: $service_name" "INFO"
 
     # Check if service is running using the provided health check command
     if eval "$health_check" &>/dev/null; then
@@ -398,11 +436,11 @@ monitor_and_restart_service() {
         debug "Restart attempt #$((retries+1)) for $service_name"
 
         if eval "$restart_cmd" &>/dev/null; then
-            log "Restarted service: $service_name, waiting $retry_delay seconds to verify..."
+            log "Restarted service: $service_name, waiting $retry_delay seconds to verify..." "INFO"
             sleep "$retry_delay"
 
             if eval "$health_check" &>/dev/null; then
-                log "Service $service_name is now running properly"
+                log "Service $service_name is now running properly" "INFO"
                 return 0
             fi
         fi
@@ -416,7 +454,8 @@ monitor_and_restart_service() {
         fi
     done
 
-    error_exit "Failed to restart service $service_name after $max_retries attempts" 1
+    error_exit "Failed to restart service $service_name after $max_retries attempts"
+    return 1
 }
 
 # Format timestamp for consistent usage
@@ -456,7 +495,69 @@ format_timestamp() {
     return 0
 }
 
-# Export cloud provider functions
+# Create an AWS S3 bucket with proper security settings
+# Arguments:
+#   $1 - Bucket name
+#   $2 - AWS region (optional - defaults to us-west-2)
+#   $3 - Encryption enabled (optional - defaults to true)
+# Returns:
+#   0 on success, 1 on failure
+create_secure_s3_bucket() {
+    local bucket_name="$1"
+    local region="${2:-us-west-2}"
+    local encryption="${3:-true}"
+
+    if [[ -z "$bucket_name" ]]; then
+        warn "Bucket name must be provided"
+        return 1
+    fi
+
+    # Check AWS auth first
+    if ! check_aws_auth; then
+        warn "AWS authentication required to create S3 bucket"
+        return 1
+    fi
+
+    # Create the bucket with region
+    if ! aws s3api create-bucket \
+          --bucket "$bucket_name" \
+          --region "$region" \
+          --create-bucket-configuration LocationConstraint="$region" &>/dev/null; then
+        warn "Failed to create S3 bucket: $bucket_name"
+        return 1
+    fi
+
+    # Enable bucket versioning
+    aws s3api put-bucket-versioning \
+        --bucket "$bucket_name" \
+        --versioning-configuration Status=Enabled &>/dev/null || {
+        warn "Failed to enable versioning on S3 bucket: $bucket_name"
+        # Continue despite warning
+    }
+
+    # Block public access
+    aws s3api put-public-access-block \
+        --bucket "$bucket_name" \
+        --public-access-block-configuration "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true" &>/dev/null || {
+        warn "Failed to block public access to S3 bucket: $bucket_name"
+        # Continue despite warning
+    }
+
+    # Enable default encryption if requested
+    if [[ "$encryption" == "true" ]]; then
+        aws s3api put-bucket-encryption \
+            --bucket "$bucket_name" \
+            --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}' &>/dev/null || {
+            warn "Failed to enable encryption on S3 bucket: $bucket_name"
+            # Continue despite warning
+        }
+    fi
+
+    log "Created secure S3 bucket: $bucket_name in region $region" "INFO"
+    return 0
+}
+
+# Export all functions
 export -f check_aws_auth
 export -f check_gcp_auth
 export -f check_azure_auth
@@ -467,3 +568,4 @@ export -f detect_cloud_provider
 export -f check_certificate_expiration
 export -f monitor_and_restart_service
 export -f format_timestamp
+export -f create_secure_s3_bucket
