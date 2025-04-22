@@ -169,6 +169,50 @@ The update to the `scripts/monitoring/core/README.md` after enhancing several mo
 
 This systematic approach ensures documentation stays in sync with code changes and provides users with accurate information.
 
+### README Documentation Structure
+
+All directories should include a README.md file with a consistent structure. The following sections should be included when applicable:
+
+1. **Title**: Name of the module/component.
+2. **Overview**: Brief description of the purpose and functionality.
+3. **Configuration Files** (if applicable): List of configuration files with descriptions.
+4. **Key Scripts/Components**: Alphabetical list of main files with descriptions.
+5. **Usage**: Examples showing how to use the scripts or components.
+6. **Configuration Structure** (if applicable): Format of configuration files with examples.
+7. **Directory Structure**: Complete listing of all files and subdirectories, alphabetically organized.
+8. **Modifying/Extending**: Guidelines for modifications or extensions.
+9. **Related Documentation**: Links to related documentation.
+10. **Change Log**: Recent changes to track version history.
+
+#### Example README Structure
+
+```markdown
+# Component Name
+
+## Overview
+Brief description of the component's purpose and functionality.
+
+## Key Scripts
+- **`script_a.py`**: Description of script A.
+- **`script_b.py`**: Description of script B.
+
+## Usage
+```bash
+./script_a.py --option value
+```
+
+## Directory Structure
+```
+/directory/
+├── script_a.py            # Description
+├── script_b.py            # Description
+├── subdirectory/          # Subdirectory description
+│   ├── helper_a.py        # Description
+│   └── helper_b.py        # Description
+└── utils/                 # Utils description
+    └── common.py          # Description
+```
+
 ### Security Practices
 
 - Implement strict Content Security Policy
@@ -209,6 +253,14 @@ This systematic approach ensures documentation stays in sync with code changes a
 - Include README.md files in each directory explaining its purpose
 - Document API endpoints with examples
 - Include security considerations in component documentation
+- Ensure all README files follow the structure outlined in "README Documentation Structure"
+- Use markdown syntax consistently for improved readability:
+  - Use `**bold**` for emphasis, especially for file/script names
+  - Use ``` code blocks with language specification for code examples
+  - Use `backticks` for inline code references
+  - Use proper heading levels (# for title, ## for major sections, ### for subsections)
+  - Use bullet points for lists of items
+  - Use numbered lists for sequential steps or processes
 
 ### Testing
 
