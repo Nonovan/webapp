@@ -1,4 +1,5 @@
 #!/bin/bash
+# filepath: scripts/utils/common/common_core_functions.sh
 # Core utility functions for Cloud Infrastructure Platform
 # These functions are commonly needed by most scripts
 
@@ -23,6 +24,10 @@ if [[ -z "$SCRIPT_DIR" || -z "$DEFAULT_LOG_DIR" ]]; then
     TIMESTAMP=$(date +"%Y%m%d%H%M%S")
 fi
 
+# Define default file permissions
+DEFAULT_FILE_PERMS="644"
+DEFAULT_DIR_PERMS="755"
+
 #######################################
 # LOGGING FUNCTIONS
 #######################################
@@ -32,11 +37,14 @@ fi
 #   $1 - Message to log
 #   $2 - Log level (INFO, WARNING, ERROR, DEBUG) - defaults to INFO
 #   $3 - Log file (optional - defaults to stdout)
+# Returns:
+#   0 on success, 1 on failure
 log() {
     local message="$1"
     local level="${2:-INFO}"
     local log_file="${3:-}"
     local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
+    local status=0
 
     # Format based on log level
     case "$level" in
@@ -68,8 +76,21 @@ log() {
 
     # Output to log file if specified
     if [[ -n "$log_file" ]]; then
-        echo "$plain_message" >> "$log_file"
+        # Ensure log directory exists before writing to file
+        local log_dir=$(dirname "$log_file")
+        if [[ ! -d "$log_dir" ]]; then
+            mkdir -p "$log_dir" 2>/dev/null || {
+                echo -e "${RED}ERROR${NC}: Failed to create log directory: $log_dir"
+                status=1
+            }
+        fi
+
+        if [[ $status -eq 0 ]]; then
+            echo "$plain_message" >> "$log_file" || status=1
+        fi
     fi
+
+    return $status
 }
 
 # Log an error message and exit
@@ -77,48 +98,67 @@ log() {
 #   $1 - Error message
 #   $2 - Exit code (optional, defaults to 1)
 #   $3 - Log file (optional)
+# Returns:
+#   Does not return if called directly, exits with specified code
+#   Returns exit code if sourced
 error_exit() {
     local message="$1"
     local exit_code="${2:-1}"
     local log_file="${3:-}"
 
     log "$message" "ERROR" "$log_file"
-    exit "$exit_code"
+
+    # Only exit if this is a script, not sourced
+    if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+        exit "$exit_code"
+    else
+        return "$exit_code"
+    fi
 }
 
 # Log a warning message
 # Arguments:
 #   $1 - Warning message
 #   $2 - Log file (optional)
+# Returns:
+#   0 on success, 1 if logging fails
 warn() {
     local message="$1"
     local log_file="${2:-}"
 
     log "$message" "WARNING" "$log_file"
+    return $?
 }
 
 # Log a debug message (only when DEBUG=true)
 # Arguments:
 #   $1 - Debug message
 #   $2 - Log file (optional)
+# Returns:
+#   0 on success, 1 if logging fails
 debug() {
     if [[ "${DEBUG:-false}" == "true" ]]; then
         local message="$1"
         local log_file="${2:-}"
 
         log "$message" "DEBUG" "$log_file"
+        return $?
     fi
+    return 0
 }
 
 # Log an important message (highlighted)
 # Arguments:
 #   $1 - Important message
 #   $2 - Log file (optional)
+# Returns:
+#   0 on success, 1 if logging fails
 important() {
     local message="$1"
     local log_file="${2:-}"
 
     log "${BOLD}${message}${NC}" "INFO" "$log_file"
+    return $?
 }
 
 #######################################
@@ -129,6 +169,8 @@ important() {
 # Arguments:
 #   $1 - Environment name (e.g., production, staging)
 #   $2 - Custom environment file path (optional)
+# Returns:
+#   0 on success, 1 on failure
 load_env() {
     local environment="${1:-$DEFAULT_ENVIRONMENT}"
     local custom_env_file="${2:-}"
@@ -158,6 +200,8 @@ load_env() {
 # Arguments:
 #   $1 - Environment to validate
 #   $2 - Array of valid environments (optional)
+# Returns:
+#   0 if valid, 1 if invalid
 validate_environment() {
     local environment="$1"
     shift
@@ -181,7 +225,11 @@ validate_environment() {
 }
 
 # Get the current environment from ENV variable or hostname
-# Returns the detected environment
+# Arguments:
+#   None
+# Returns:
+#   Outputs detected environment name to stdout
+#   0 on success
 detect_environment() {
     # If ENV is set, use it
     if [[ -n "${ENV:-}" ]]; then
@@ -205,6 +253,7 @@ detect_environment() {
     else
         echo "$DEFAULT_ENVIRONMENT"
     fi
+    return 0
 }
 
 #######################################
@@ -214,7 +263,8 @@ detect_environment() {
 # Check if a command exists
 # Arguments:
 #   $1 - Command to check
-# Returns: 0 if exists, 1 if not
+# Returns:
+#   0 if exists, 1 if not
 command_exists() {
     command -v "$1" &>/dev/null
     return $?
@@ -224,7 +274,8 @@ command_exists() {
 # Arguments:
 #   $1 - File path
 #   $2 - Error message (optional)
-# Returns: 0 if exists, 1 if not
+# Returns:
+#   0 if exists, 1 if not
 file_exists() {
     local file="$1"
     local error_msg="${2:-File does not exist or is not readable: $file}"
