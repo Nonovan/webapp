@@ -23,10 +23,10 @@ The following configuration files are included in this directory:
 
 Each environment (development, staging, production, disaster recovery) has specific overrides to tailor monitoring behavior:
 
-- **`development.conf`**: Development environment settings.
-- **`dr.conf`**: Disaster recovery environment settings.
-- **`production.conf`**: Production environment settings.
-- **`staging.conf`**: Staging environment settings.
+- **`development.conf`**: Development environment configuration settings.
+- **`dr.conf`**: Disaster recovery environment configuration settings.
+- **`production.conf`**: Production environment configuration settings.
+- **`staging.conf`**: Staging environment configuration settings.
 
 ## Usage
 
@@ -34,7 +34,7 @@ Monitoring scripts load configuration files based on the specified environment. 
 
 ```bash
 # Load production monitoring configuration
-./metrics_collector.sh --config config/production.conf
+./metrics_collector.sh --config config/environments/production.conf
 
 # Run with default configuration
 ./health_checker.sh --defaults
@@ -71,6 +71,7 @@ memory_critical=95
 ├── alerts.conf                # Alert thresholds and notification settings
 ├── defaults.conf              # Base configuration values used across all environments
 ├── environments/              # Environment-specific configuration files
+│   ├── ci.conf                # Continuous Integration environment configuration settings
 │   ├── development.conf       # Development environment configuration settings
 │   ├── dr.conf                # Disaster recovery environment configuration settings
 │   ├── production.conf        # Production environment configuration settings
