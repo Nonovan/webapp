@@ -1,3 +1,5 @@
+#!/bin/bash
+# filepath: scripts/utils/common/common_file_operations_functions.sh
 #######################################
 # FILE OPERATIONS FUNCTIONS
 #######################################
@@ -12,7 +14,7 @@ DEFAULT_TEMP_FILE_PERMS="600"    # Restrictive permissions for temporary files
 #   $2 - Backup directory (optional - defaults to DEFAULT_BACKUP_DIR)
 #   $3 - Custom permissions (optional - defaults to DEFAULT_BACKUP_FILE_PERMS)
 # Returns:
-#   Path to backup file on success, 1 on failure
+#   Path to backup file on stdout on success, exits with 1 on failure
 backup_file() {
     local file="$1"
     local backup_dir="${2:-$DEFAULT_BACKUP_DIR}"
@@ -71,7 +73,7 @@ ensure_directory() {
             chown "$owner" "$dir" 2>/dev/null || {
                 warn "Failed to set owner $owner for directory: $dir (continuing anyway)"
             }
-        fi
+        }
 
         # Set permissions
         chmod "$perms" "$dir" 2>/dev/null || {
@@ -80,7 +82,7 @@ ensure_directory() {
         }
 
         debug "Created directory: $dir with permissions $perms"
-    } else {
+    else
         # Directory exists, check if we need to update permissions
         local current_perms
         if command_exists stat; then
@@ -106,21 +108,23 @@ ensure_directory() {
 
         # Set owner if specified and running as root
         if [[ -n "$owner" && "$(id -u)" -eq 0 ]]; then
-            current_owner=$(stat -c '%U:%G' "$dir" 2>/dev/null || echo "unknown:unknown")
-            if [[ "$current_owner" != "$owner" ]]; then
-                chown "$owner" "$dir" 2>/dev/null || {
-                    warn "Failed to update owner for directory: $dir (continuing anyway)"
+            if command_exists stat; then
+                current_owner=$(stat -c '%U:%G' "$dir" 2>/dev/null || echo "unknown:unknown")
+                if [[ "$current_owner" != "$owner" ]]; then
+                    chown "$owner" "$dir" 2>/dev/null || {
+                        warn "Failed to update owner for directory: $dir (continuing anyway)"
+                    }
+                    debug "Updated owner for directory: $dir from $current_owner to $owner"
                 }
-                debug "Updated owner for directory: $dir from $current_owner to $owner"
-            }
+            fi
         }
-    }
+    fi
 
     # Check if directory is writable regardless of creation
     if [[ ! -w "$dir" ]]; then
         error_exit "Directory is not writable: $dir"
         return 1
-    }
+    fi
 
     return 0
 }
@@ -198,7 +202,7 @@ safe_write_file() {
 # Get file age in seconds
 # Arguments:
 #   $1 - File path
-# Returns: File age in seconds or -1 if file not found/error
+# Returns: File age in seconds on stdout or -1 if file not found/error
 file_age() {
     local file="$1"
     local file_time
@@ -210,31 +214,25 @@ file_age() {
         return 1
     }
 
+    # Get file modification time
     if command_exists stat; then
         if [[ "$(uname)" == "Darwin" ]]; then
             # macOS version
-            file_time=$(stat -f %m "$file" 2>/dev/null) || {
-                error_exit "Failed to get file modification time: $file"
-                echo "-1"
-                return 1
-            }
+            file_time=$(stat -f %m "$file" 2>/dev/null)
         else
             # Linux version
-            file_time=$(stat -c %Y "$file" 2>/dev/null) || {
-                error_exit "Failed to get file modification time: $file"
-                echo "-1"
-                return 1
-            }
-        }
+            file_time=$(stat -c %Y "$file" 2>/dev/null)
+        fi
     else
         # Fallback method using ls
         file_time=$(ls -l --time-style=+%s "$file" 2>/dev/null | awk '{print $6}')
-        if [[ -z "$file_time" ]]; then
-            error_exit "Failed to get file modification time using fallback method: $file"
-            echo "-1"
-            return 1
-        }
-    }
+    fi
+
+    if [[ -z "$file_time" || ! "$file_time" =~ ^[0-9]+$ ]]; then
+        error_exit "Failed to get file modification time: $file"
+        echo "-1"
+        return 1
+    fi
 
     current_time=$(date +%s)
     echo $((current_time - file_time))
@@ -250,18 +248,25 @@ is_file_older_than() {
     local file="$1"
     local max_age="$2"
 
+    # Validate input
+    if [[ -z "$max_age" || ! "$max_age" =~ ^[0-9]+$ ]]; then
+        error_exit "Invalid max_age parameter: $max_age (must be a positive number)"
+        return 1
+    fi
+
     if [[ ! -f "$file" ]]; then
         # File doesn't exist, consider it "older"
         return 0
-    }
+    fi
 
     local age
     age=$(file_age "$file")
+    local status=$?
 
-    if [[ $? -ne 0 || "$age" == "-1" ]]; then
+    if [[ $status -ne 0 || "$age" == "-1" ]]; then
         # Error getting age, assume file is too new
         return 1
-    }
+    fi
 
     if (( age > max_age )); then
         # File is older than max_age
@@ -269,7 +274,7 @@ is_file_older_than() {
     else
         # File is newer than max_age
         return 1
-    }
+    fi
 }
 
 # Copy a file with proper permissions
@@ -300,12 +305,12 @@ secure_copy_file() {
             else
                 # Linux version
                 perms=$(stat -c '%a' "$source" 2>/dev/null)
-            }
-        }
+            fi
+        fi
 
         # Default to DEFAULT_FILE_PERMS if we couldn't determine source perms
         perms="${perms:-$DEFAULT_FILE_PERMS}"
-    }
+    fi
 
     # Create parent directory if it doesn't exist
     ensure_directory "$(dirname "$dest")" || {
@@ -344,9 +349,15 @@ create_secure_temp() {
     local prefix="${1:-temp}"
     local perms="${2:-$DEFAULT_TEMP_FILE_PERMS}"
     local temp_file
+    local temp_dir="/tmp"
+
+    # Ensure temp directory exists and is writable
+    if [[ ! -d "$temp_dir" || ! -w "$temp_dir" ]]; then
+        temp_dir="."
+    fi
 
     # Create temporary file
-    temp_file=$(mktemp "/tmp/${prefix}.XXXXXXXX") || {
+    temp_file=$(mktemp "${temp_dir}/${prefix}.XXXXXXXX") || {
         error_exit "Failed to create temporary file with prefix: $prefix"
         return 1
     }
@@ -372,7 +383,13 @@ secure_remove_file() {
     if [[ ! -f "$file" ]]; then
         # File doesn't exist, consider it success
         return 0
-    }
+    fi
+
+    # Validate passes parameter
+    if [[ ! "$passes" =~ ^[0-9]+$ ]]; then
+        warn "Invalid passes parameter: $passes (must be a non-negative number)"
+        passes=1
+    fi
 
     # Check if shred command exists for secure deletion
     if command_exists shred; then
@@ -385,16 +402,21 @@ secure_remove_file() {
         if [[ "$passes" -gt 0 ]]; then
             # Basic secure deletion: overwrite with random data
             for ((i=1; i<=passes; i++)); do
-                dd if=/dev/urandom of="$file" bs=4k conv=notrunc 2>/dev/null || break
+                if command_exists dd && [[ -r "/dev/urandom" ]]; then
+                    dd if=/dev/urandom of="$file" bs=4k conv=notrunc 2>/dev/null || break
+                else
+                    # Even more basic fallback: overwrite with zeros
+                    truncate -s 0 "$file" 2>/dev/null || break
+                fi
             done
-        }
+        fi
 
         # Remove the file
         rm -f "$file" || {
             error_exit "Failed to remove file: $file"
             return 1
         }
-    }
+    fi
 
     debug "Securely removed file: $file"
     return 0

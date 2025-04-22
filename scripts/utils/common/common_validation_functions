@@ -1,3 +1,5 @@
+#!/bin/bash
+# filepath: scripts/utils/common/common_validation_functions
 #######################################
 # VALIDATION FUNCTIONS
 #######################################
@@ -12,6 +14,7 @@ DEFAULT_SECRET_FILE_PERMS="600" # Restrictive permissions for files with secrets
 DEFAULT_SCRIPT_FILE_PERMS="755" # Default permissions for executable scripts
 DEFAULT_KEY_FILE_PERMS="600"    # Restrictive permissions for key files
 DEFAULT_CERT_FILE_PERMS="644"   # Default permissions for certificate files
+DEFAULT_FILE_PERMS="644"        # Default file permissions if not otherwise specified
 
 # Check if a command exists
 # Arguments:
@@ -32,7 +35,7 @@ command_exists() {
         else
             debug "$ERROR_PREFIX Command not found: $cmd"
         fi
-    }
+    fi
 
     return $result
 }
@@ -75,12 +78,12 @@ file_exists() {
     if [[ ! -e "$file" ]]; then
         log "$error_msg" "ERROR"
         return 1
-    }
+    fi
 
     if [[ ! -r "$file" ]]; then
         log "$ERROR_PREFIX File exists but is not readable: $file" "ERROR"
         return 1
-    }
+    fi
 
     # Check permissions
     local file_perms=""
@@ -123,11 +126,11 @@ file_exists() {
                 if [[ "$file_type" == "secret" || "$file_type" == "key" || "$file_type" == "password" ]]; then
                     log "$ERROR_PREFIX Security risk: $file has insecure permissions" "ERROR"
                     return 1
-                }
+                fi
                 # Continue despite warning for non-sensitive files
             fi
-        }
-    }
+        fi
+    fi
 
     return 0
 }
@@ -170,7 +173,7 @@ validate_file_permissions() {
     if [[ ! -e "$file" ]]; then
         log "$ERROR_PREFIX Cannot validate permissions for non-existent file: $file" "ERROR"
         return 1
-    }
+    fi
 
     local file_perms=""
     local permissions_match=false
@@ -187,19 +190,19 @@ validate_file_permissions() {
         if [[ -n "$file_perms" && "$file_perms" == "$expected_perms" ]]; then
             permissions_match=true
         fi
-    } else {
+    else
         # If stat is not available, try to use ls
         local ls_output=$(ls -la "$file" 2>/dev/null)
         # This is a simplified approach and may not be accurate
         if [[ "$ls_output" == *"$expected_perms"* ]]; then
             permissions_match=true
-        }
-    }
+        fi
+    fi
 
     if [[ "$permissions_match" == "true" ]]; then
         debug "File permissions match expected value ($expected_perms) for: $file"
         return 0
-    } elif [[ "$fix_permissions" == "true" ]]; then
+    elif [[ "$fix_permissions" == "true" ]]; then
         debug "Fixing permissions for $file from $file_perms to $expected_perms"
         chmod "$expected_perms" "$file" 2>/dev/null || {
             error_exit "Failed to set permissions $expected_perms on file: $file"
@@ -207,14 +210,14 @@ validate_file_permissions() {
         }
         log "Fixed permissions for $file (from $file_perms to $expected_perms)" "INFO"
         return 0
-    } else {
+    else
         if [[ "$file_type" == "secret" || "$file_type" == "key" || "$file_type" == "password" ]]; then
             log "$ERROR_PREFIX Security risk: File $file has incorrect permissions ($file_perms, should be $expected_perms)" "ERROR"
-        } else {
+        else
             warn "File $file has incorrect permissions: $file_perms (expected: $expected_perms)"
-        }
+        fi
         return 1
-    }
+    fi
 }
 
 # Safely validate if a file with sensitive data is secure
@@ -231,51 +234,113 @@ validate_sensitive_file() {
     if [[ ! -f "$file" ]]; then
         log "$ERROR_PREFIX Sensitive file does not exist: $file" "ERROR"
         return 1
-    }
+    fi
 
     if [[ ! -r "$file" ]]; then
         log "$ERROR_PREFIX Sensitive file exists but is not readable: $file" "ERROR"
         return 1
-    }
+    fi
 
     # Validate owner-only permissions
     validate_file_permissions "$file" "$DEFAULT_SECRET_FILE_PERMS" "$fix_permissions" "secret" || return 1
 
     # Check if file is world-readable
-    if [[ -r "$file" && $(stat -c '%a' "$file" 2>/dev/null | cut -c3) -ne 0 ]]; then
+    local world_readable=false
+    local file_perms
+
+    if command_exists stat; then
+        if [[ "$(uname)" == "Darwin" ]]; then
+            # macOS version
+            file_perms=$(stat -f '%A' "$file" 2>/dev/null)
+            # Check last digit of octal permissions
+            if [[ -n "$file_perms" && "${file_perms: -1}" != "0" ]]; then
+                world_readable=true
+            fi
+        else
+            # Linux version
+            file_perms=$(stat -c '%a' "$file" 2>/dev/null)
+            # Check last digit of octal permissions
+            if [[ -n "$file_perms" && "${file_perms: -1}" != "0" ]]; then
+                world_readable=true
+            fi
+        fi
+    else
+        # Fallback to basic check
+        if [[ -r "$file" ]] && ls -la "$file" | grep -q -- "^-..r"; then
+            world_readable=true
+        fi
+    fi
+
+    if [[ "$world_readable" == "true" ]]; then
         if [[ "$fix_permissions" == "true" ]]; then
             chmod "$DEFAULT_SECRET_FILE_PERMS" "$file" 2>/dev/null || {
                 error_exit "Failed to fix world-readable permissions on sensitive file: $file"
                 return 1
             }
             log "Fixed world-readable permissions on sensitive file: $file" "INFO"
-        } else {
+        else
             error_exit "Security risk: Sensitive file is world-readable: $file"
             return 1
-        }
-    }
+        fi
+    fi
 
     # Check if directory permissions are secure
     local dir=$(dirname "$file")
     if [[ -d "$dir" ]]; then
-        local dir_perms=$(stat -c '%a' "$dir" 2>/dev/null || stat -f '%A' "$dir" 2>/dev/null)
+        local dir_perms=""
+        local world_writable=false
+
+        if command_exists stat; then
+            if [[ "$(uname)" == "Darwin" ]]; then
+                # macOS version
+                dir_perms=$(stat -f '%A' "$dir" 2>/dev/null)
+                # Check if world-writable (last digit > 4)
+                if [[ -n "$dir_perms" && "${dir_perms: -1}" -gt "4" ]]; then
+                    world_writable=true
+                fi
+            else
+                # Linux version
+                dir_perms=$(stat -c '%a' "$dir" 2>/dev/null)
+                # Check if world-writable (last digit > 4)
+                if [[ -n "$dir_perms" && "${dir_perms: -1}" -gt "4" ]]; then
+                    world_writable=true
+                fi
+            fi
+        else
+            # Fallback to basic check
+            if ls -ld "$dir" | grep -q -- "^d..w"; then
+                world_writable=true
+            fi
+        fi
 
         # Directory should not be world-writable
-        if [[ -n "$dir_perms" && $(echo "$dir_perms" | cut -c3) -gt 4 ]]; then
+        if [[ "$world_writable" == "true" ]]; then
             if [[ "$fix_permissions" == "true" ]]; then
                 # Make directory not world-writable but keep other permissions
-                local new_perms=$(echo "$dir_perms" | sed 's/.\(.\)$/0\1/')
-                chmod "$new_perms" "$dir" 2>/dev/null || {
-                    warn "Failed to fix world-writable directory permissions: $dir"
-                    # Continue despite warning
-                }
-                log "Fixed world-writable directory permissions for: $dir (from $dir_perms to $new_perms)" "INFO"
-            } else {
+                local new_perms=""
+
+                if [[ -n "$dir_perms" ]]; then
+                    # Replace last digit with 4 (read-only) or 0 (no access)
+                    new_perms=$(echo "$dir_perms" | sed 's/\(.*\)./\10/')
+                    chmod "$new_perms" "$dir" 2>/dev/null || {
+                        warn "Failed to fix world-writable directory permissions: $dir"
+                        # Continue despite warning
+                    }
+                    log "Fixed world-writable directory permissions for: $dir (from $dir_perms to $new_perms)" "INFO"
+                else
+                    # Fallback to conservative permissions
+                    chmod 750 "$dir" 2>/dev/null || {
+                        warn "Failed to fix world-writable directory permissions: $dir"
+                        # Continue despite warning
+                    }
+                    log "Fixed world-writable directory permissions for: $dir (to 750)" "INFO"
+                fi
+            else
                 warn "Security risk: Directory containing sensitive file is world-writable: $dir"
                 # This is a warning, not an error to return 1
-            }
-        }
-    }
+            fi
+        fi
+    fi
 
     return 0
 }
@@ -340,15 +405,21 @@ is_number() {
     local value="$1"
     local allow_float="${2:-false}"
 
+    # Empty check
+    if [[ -z "$value" ]]; then
+        debug "$ERROR_PREFIX Empty value provided to is_number"
+        return 1
+    fi
+
     if [[ "$allow_float" == "true" ]]; then
-        if [[ "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+        if [[ "$value" =~ ^[+-]?[0-9]+(\.[0-9]+)?$ ]]; then
             return 0
         else
             debug "$ERROR_PREFIX Not a valid floating point number: $value"
             return 1
         fi
     else
-        if [[ "$value" =~ ^[0-9]+$ ]]; then
+        if [[ "$value" =~ ^[+-]?[0-9]+$ ]]; then
             return 0
         else
             debug "$ERROR_PREFIX Not a valid integer: $value"
@@ -383,17 +454,34 @@ validate_required_params() {
 # Validate a URL format
 # Arguments:
 #   $1 - URL to validate
+#   $2 - Require HTTPS (true/false, defaults to false)
 # Returns: 0 if valid, 1 if not
 is_valid_url() {
     local url="$1"
+    local require_https="${2:-false}"
 
-    # Basic URL validation - requires http:// or https:// prefix
-    if [[ "$url" =~ ^https?:// ]]; then
-        return 0
+    if [[ -z "$url" ]]; then
+        debug "$ERROR_PREFIX Empty URL provided"
+        return 1
     fi
 
-    debug "$ERROR_PREFIX Invalid URL format: $url (must start with http:// or https://)"
-    return 1
+    # Check for HTTPS specifically if required
+    if [[ "$require_https" == "true" ]]; then
+        if [[ "$url" =~ ^https:// ]]; then
+            return 0
+        else
+            debug "$ERROR_PREFIX Invalid URL format: $url (must use HTTPS)"
+            return 1
+        fi
+    else
+        # Basic URL validation - requires http:// or https:// prefix
+        if [[ "$url" =~ ^https?:// ]]; then
+            return 0
+        else
+            debug "$ERROR_PREFIX Invalid URL format: $url (must start with http:// or https://)"
+            return 1
+        fi
+    fi
 }
 
 # Validate email format
@@ -403,6 +491,11 @@ is_valid_url() {
 is_valid_email() {
     local email="$1"
 
+    if [[ -z "$email" ]]; then
+        debug "$ERROR_PREFIX Empty email provided"
+        return 1
+    fi
+
     # Basic email validation
     if [[ "$email" =~ ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]]; then
         return 0
@@ -410,6 +503,57 @@ is_valid_email() {
 
     debug "$ERROR_PREFIX Invalid email format: $email"
     return 1
+}
+
+# Validate port number
+# Arguments:
+#   $1 - Port to validate
+#   $2 - Allow system ports (requires root) (true/false, defaults to false)
+# Returns: 0 if valid, 1 if not
+is_valid_port() {
+    local port="$1"
+    local allow_system_ports="${2:-false}"
+
+    # Empty check
+    if [[ -z "$port" ]]; then
+        debug "$ERROR_PREFIX Empty port provided"
+        return 1
+    fi
+
+    # Check if port is a number
+    if ! is_number "$port"; then
+        debug "$ERROR_PREFIX Port must be a number: $port"
+        return 1
+    fi
+
+    # Check port range
+    if [[ "$allow_system_ports" == "true" ]]; then
+        if (( port < 1 || port > 65535 )); then
+            debug "$ERROR_PREFIX Port out of range: $port (must be 1-65535)"
+            return 1
+        fi
+    else
+        # Non-privileged ports only (>1024)
+        if (( port < 1024 || port > 65535 )); then
+            debug "$ERROR_PREFIX Port out of range: $port (must be 1024-65535 without root privileges)"
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
+# Sanitize input to prevent command injection
+# Arguments:
+#   $1 - Input to sanitize
+# Returns: Sanitized string on stdout
+sanitize_input() {
+    local input="$1"
+
+    # Remove dangerous characters
+    local sanitized="${input//[;&|<>$\`\\]/_}"
+
+    echo "$sanitized"
 }
 
 # Export validation functions and constants
@@ -422,8 +566,13 @@ export -f is_number
 export -f validate_required_params
 export -f is_valid_url
 export -f is_valid_email
+export -f is_valid_port
+export -f sanitize_input
 export DEFAULT_CONFIG_FILE_PERMS
 export DEFAULT_SECRET_FILE_PERMS
 export DEFAULT_SCRIPT_FILE_PERMS
 export DEFAULT_KEY_FILE_PERMS
 export DEFAULT_CERT_FILE_PERMS
+export DEFAULT_FILE_PERMS
+export DEFAULT_VALIDATION_TIMEOUT
+export VALIDATION_EMPTY_STRING
