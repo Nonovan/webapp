@@ -1,4 +1,5 @@
 #!/bin/bash
+# filepath: /Users/ivans/Workspace/myproject/scripts/utils/common_functions.sh
 # Common Utility Functions for Cloud Infrastructure Platform
 # Usage: source /scripts/utils/common_functions.sh [modules]
 #
