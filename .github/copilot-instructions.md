@@ -2,20 +2,20 @@
 
 ## Project Overview
 
-This repository contains a Python Flask web application for cloud infrastructure management. The application provides secure management of resources across multiple cloud providers (AWS, Azure, GCP), with features for monitoring, security, and compliance.
+This repository contains a Python Flask web application for cloud infrastructure management providing secure management of resources across multiple cloud providers (AWS, Azure, GCP), with features for monitoring, security, and compliance.
 
 ## Code Structure
 
-- `/api/` - RESTful API endpoints and API-related functionality
-- `/blueprints/` - Flask blueprints for different application modules
+- `/api/` - RESTful API endpoints
+- `/blueprints/` - Flask blueprints for application modules
 - `/cli/` - Command-line interface tools
 - `/config/` - Configuration management
 - `/core/` - Core utilities and security functions
-- `/deployment/` - Deployment scripts and infrastructure configuration
+- `/deployment/` - Deployment scripts and infrastructure
 - `/docs/` - Documentation files
 - `/extensions/` - Flask extensions
 - `/models/` - Database models
-- `/scripts/` - Utility scripts for maintenance, security, compliance, etc.
+- `/scripts/` - Utility scripts (maintenance, security, compliance)
 - `/services/` - Business logic services
 - `/static/` - Static assets (CSS, JS, images)
 - `/tests/` - Automated tests
@@ -23,27 +23,13 @@ This repository contains a Python Flask web application for cloud infrastructure
 
 ## Coding Standards
 
-Please follow these standards when generating code:
-
 ### Python
-
-- Follow PEP 8 style guidelines
-- Use type hints for function parameters and return values
-- Include docstrings for all functions, classes, and modules
-- Handle exceptions appropriately with specific exception types
-- Use context managers for resource cleanup when appropriate
-- Write unit tests for new functionality
-- Prioritize security in all code (input validation, output encoding, etc.)
+- Follow PEP 8, use type hints, docstrings, proper exception handling
+- Use context managers, write unit tests, prioritize security
 
 ### JavaScript
-
-- Use modern ES6+ syntax
-- Prefer const over let, and avoid var
-- Use async/await for asynchronous operations
-- Validate user input
-- Include CSP nonce in inline scripts
-- Implement proper CSRF protection
-- Use strict mode ('use strict')
+- Use ES6+, prefer const/let, async/await, validate inputs
+- Include CSP nonce, implement CSRF protection, use strict mode
 
 ### File Headers and Paths
 
