@@ -210,7 +210,6 @@ Brief description of the component's purpose and functionality.
 - Use configuration files for environment-specific settings
 
 ## Directory Structure
-```
 /directory/
 ├── script_a.py            # Description
 ├── script_b.py            # Description
@@ -219,6 +218,7 @@ Brief description of the component's purpose and functionality.
 │   └── helper_b.py        # Description
 └── utils/                 # Utils description
     └── common.py          # Description
+```
 ```
 
 ### Security Practices
