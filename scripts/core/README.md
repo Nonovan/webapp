@@ -2,16 +2,19 @@
 
 This directory contains core utility scripts that are essential for the operation and maintenance of the Cloud Infrastructure Platform. These scripts provide foundational functionality used across various modules and services.
 
+## Overview
+
+The core scripts in this directory are designed to streamline operations, enhance security, and ensure compliance across the Cloud Infrastructure Platform. These scripts include utilities for managing backups, validating configurations, monitoring file integrity, and performing security audits. Shared utilities and templates are also provided to standardize functionality and reporting.
+
 ## Key Scripts
 
-### 1. `common_functions.sh`
-- **Description**: A library of reusable shell functions for logging, file operations, and system utilities.
-- **Usage**: Source this script in other shell scripts to use its functions.
+### 1. `apply_security_updates.sh`
+- **Description**: Automates the application of security updates across the platform.
+- **Usage**: Run this script to apply security patches and verify system integrity.
 - **Features**:
-  - Logging with different levels (INFO, WARNING, ERROR)
-  - File backup and restoration
-  - Command existence checks
-  - File age calculation
+  - Applies security updates for supported package managers
+  - Verifies critical services after updates
+  - Generates rollback plans for failed updates
 
 ### 2. `backup_manager.sh`
 - **Description**: Manages backups for critical files and directories.
@@ -21,23 +24,16 @@ This directory contains core utility scripts that are essential for the operatio
   - Restoration of specific backups
   - Configurable backup retention policies
 
-### 3. `security_audit.sh`
-- **Description**: Performs security audits to identify vulnerabilities and misconfigurations.
-- **Usage**: Run this script to generate a security audit report.
+### 3. `common_functions.sh`
+- **Description**: A library of reusable shell functions for logging, file operations, and system utilities.
+- **Usage**: Source this script in other shell scripts to use its functions.
 - **Features**:
-  - Checks for outdated packages and security updates
-  - Scans for misconfigured permissions
-  - Generates detailed audit logs
+  - Logging with different levels (INFO, WARNING, ERROR)
+  - File backup and restoration
+  - Command existence checks
+  - File age calculation
 
-### 4. `file_integrity_checker.sh`
-- **Description**: Monitors file changes to ensure integrity.
-- **Usage**: Run this script to detect unauthorized modifications.
-- **Features**:
-  - Hash-based file integrity checks
-  - Detection of permission changes
-  - Alerts for critical file modifications
-
-### 5. `config_validator.sh`
+### 4. `config_validator.sh`
 - **Description**: Validates configuration files against predefined schemas.
 - **Usage**: Run this script to ensure configuration files meet required standards.
 - **Features**:
@@ -45,13 +41,21 @@ This directory contains core utility scripts that are essential for the operatio
   - Schema-based validation for strict compliance
   - Generates detailed validation reports
 
-### 6. `apply_security_updates.sh`
-- **Description**: Automates the application of security updates across the platform.
-- **Usage**: Run this script to apply security patches and verify system integrity.
+### 5. `file_integrity_checker.sh`
+- **Description**: Monitors file changes to ensure integrity.
+- **Usage**: Run this script to detect unauthorized modifications.
 - **Features**:
-  - Applies security updates for supported package managers
-  - Verifies critical services after updates
-  - Generates rollback plans for failed updates
+  - Hash-based file integrity checks
+  - Detection of permission changes
+  - Alerts for critical file modifications
+
+### 6. `security_audit.sh`
+- **Description**: Performs security audits to identify vulnerabilities and misconfigurations.
+- **Usage**: Run this script to generate a security audit report.
+- **Features**:
+  - Checks for outdated packages and security updates
+  - Scans for misconfigured permissions
+  - Generates detailed audit logs
 
 ## Best Practices
 
@@ -68,16 +72,27 @@ This directory contains core utility scripts that are essential for the operatio
 ├── apply_security_updates.sh   # Automates the application of security updates
 ├── backup_manager.sh           # Manages backups for critical files and directories
 ├── common/                     # Shared utilities and helper functions
-│   ├── logging_utils.sh        # Logging utilities for scripts
-│   ├── config_loader.sh        # Configuration file loader
-│   └── validation_utils.sh     # Validation utilities for input and files
+│   ├── config_loader.sh        # Loads environment-specific configuration files
+│   ├── logging_utils.sh        # Provides standardized logging functions
+│   └── validation_utils.sh     # Validates and sanitizes input data
 ├── config_validator.sh         # Validates configuration files against schemas
 ├── file_integrity_checker.sh   # Monitors file changes to ensure integrity
 ├── security_audit.sh           # Performs security audits to identify vulnerabilities
 ├── templates/                  # Template files for reports and configurations
-│   ├── security_audit_template.html  # HTML template for security audit reports
-│   └── config_validation_template.json  # JSON schema for configuration validation
+│   ├── config_validation_template.json  # JSON schema for configuration validation
+│   └── security_audit_template.html     # HTML template for security audit reports
 ```
+
+### Subdirectory Descriptions
+
+#### `common/`
+- **`config_loader.sh`**: Loads configuration files based on the specified environment, ensuring consistent settings across scripts.
+- **`logging_utils.sh`**: Provides reusable logging functions with support for different log levels (INFO, WARNING, ERROR).
+- **`validation_utils.sh`**: Contains utilities for validating and sanitizing input data to prevent errors and security vulnerabilities.
+
+#### `templates/`
+- **`config_validation_template.json`**: A JSON schema template used by `config_validator.sh` to validate configuration files.
+- **`security_audit_template.html`**: An HTML template used by `security_audit.sh` to generate detailed security audit reports.
 
 ## Contributing
 
