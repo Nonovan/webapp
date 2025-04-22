@@ -213,6 +213,68 @@ The platform is designed to help meet requirements from:
 
 For compliance documentation, see [compliance.md](http://compliance.md/).
 
+## Scripts
+
+The platform includes various scripts for automation, maintenance, compliance checking, and security management. These scripts are organized into functional categories within the `/scripts/` directory:
+
+### Core Scripts
+
+- **`common/config_loader.sh`**: Loads environment-specific configuration files
+- **`common/logging_utils.sh`**: Provides standardized logging with multiple levels
+- **`common/validation_utils.sh`**: Validates and sanitizes input data
+- **`file_integrity_checker.sh`**: Monitors file changes to ensure integrity
+- **`security_audit.sh`**: Performs security audits to identify vulnerabilities
+
+### Compliance Scripts
+
+- **`generate-report.sh`**: Generates compliance reports in HTML or JSON format
+- **`validate_compliance.sh`**: Validates configurations against compliance standards (PCI DSS, HIPAA, etc.)
+
+### Database Scripts
+
+- **`optimize.sh`**: Performs database optimization tasks including VACUUM, index rebuilding, and storage optimization
+- **`verify-backups.sh`**: Validates the integrity of database backups
+
+### Deployment Scripts
+
+- **`config/config_validator.sh`**: Validates configuration files against schemas
+- **`config/configure_resources.sh`**: Configures cloud resources based on environment settings
+- **`core/rollback.sh`**: Handles application rollback to a previous version
+- **`dr/update-dns.sh`**: Updates DNS records for disaster recovery failover
+
+### Maintenance Scripts
+
+- **`env_sync.sh`**: Synchronizes configuration between environments
+- **`backup/verify-backups.sh`**: Verifies integrity of system backups
+
+### Monitoring Scripts
+
+- **`config/update-monitoring.sh`**: Updates monitoring configuration during region switches
+- **`tests/performance-test.sh`**: Runs performance tests on the application
+
+### Security Scripts
+
+- **`apply_security_updates.sh`**: Applies security updates with rollback capability
+
+```bash
+# Examples of script usage
+
+# Validate configuration files
+./scripts/deployment/config/config_validator.sh --environment production
+
+# Validate compliance with PCI DSS
+./scripts/compliance/validate_compliance.sh --environment production --standard pci-dss --report compliance-report.json
+
+# Optimize database
+./scripts/database/optimize.sh --env production --apply
+
+# Apply security updates
+./scripts/security/apply_security_updates.sh --environment production
+
+# Update monitoring for DR failover
+./scripts/monitoring/config/update-monitoring.sh --primary-region secondary --dr-mode
+```
+
 ## Development
 
 ### Running Tests
