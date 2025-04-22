@@ -4,43 +4,45 @@ This directory contains configuration files for monitoring tools and services us
 
 ## Overview
 
-These configuration files define how monitoring tools should operate, including thresholds, intervals, and connection details for different environments.
+These configuration files define how monitoring tools should operate, including thresholds, intervals, and connection details for different environments. They ensure consistent monitoring and alerting across all environments.
 
 ## Configuration Files
 
-- `defaults.conf` - Base configuration values used across all environments
-- `prometheus.yml` - Configuration for Prometheus metrics collection
-- `grafana-dashboards.json` - Grafana dashboard definitions
-- `alerts.conf` - Alert thresholds and notification settings
-- `logging-rules.json` - Rules for log processing and analysis
-- `monitoring-targets.json` - List of services and endpoints to monitor
-- `metrics-collection.conf` - Settings for metrics collection frequency
-- `healthcheck.conf` - Health check definitions and expected responses
+The following configuration files are included in this directory:
+
+- **`alerts.conf`**: Alert thresholds and notification settings.
+- **`defaults.conf`**: Base configuration values used across all environments.
+- **`grafana-dashboards.json`**: Grafana dashboard definitions.
+- **`healthcheck.conf`**: Health check definitions and expected responses.
+- **`logging-rules.json`**: Rules for log processing and analysis.
+- **`metrics-collection.conf`**: Settings for metrics collection frequency.
+- **`monitoring-targets.json`**: List of services and endpoints to monitor.
+- **`prometheus.yml`**: Configuration for Prometheus metrics collection.
 
 ## Environment-Specific Configurations
 
-Each environment (development, staging, production) has specific overrides:
+Each environment (development, staging, production, disaster recovery) has specific overrides to tailor monitoring behavior:
 
-- `development.conf` - Development environment settings
-- `staging.conf` - Staging environment settings
-- `production.conf` - Production environment settings
-- `dr.conf` - Disaster recovery environment settings
+- **`development.conf`**: Development environment settings.
+- **`dr.conf`**: Disaster recovery environment settings.
+- **`production.conf`**: Production environment settings.
+- **`staging.conf`**: Staging environment settings.
 
 ## Usage
 
-Configuration files are loaded by monitoring scripts based on the environment:
+Monitoring scripts load configuration files based on the specified environment. Examples:
 
 ```bash
-# Example: Load production monitoring configuration
+# Load production monitoring configuration
 ./metrics_collector.sh --config config/production.conf
 
-# Example: Run with default configuration
+# Run with default configuration
 ./health_checker.sh --defaults
 ```
 
 ## Configuration Structure
 
-Each configuration file follows a consistent format:
+Each configuration file follows a consistent format to ensure compatibility:
 
 ```ini
 [Service]
@@ -54,18 +56,51 @@ timeout=10
 cpu_warning=80
 cpu_critical=95
 memory_warning=85
+memory_critical=95
+```
+
+### Key Sections
+
+- **`[Service]`**: Defines service-specific settings such as endpoints, intervals, and timeouts.
+- **`[Alerts]`**: Specifies alert thresholds for CPU, memory, and other metrics.
+
+## Directory Structure
+
+```
+/scripts/monitoring/config/
+├── alerts.conf                # Alert thresholds and notification settings
+├── defaults.conf              # Base configuration values used across all environments
+├── environments/              # Environment-specific configuration files
+│   ├── development.conf       # Development environment configuration settings
+│   ├── dr.conf                # Disaster recovery environment configuration settings
+│   ├── production.conf        # Production environment configuration settings
+│   └── staging.conf           # Staging environment configuration settings
+├── grafana-dashboards.json    # Grafana dashboard definitions
+├── healthcheck.conf           # Health check definitions and expected responses
+├── logging-rules.json         # Rules for log processing and analysis
+├── metrics-collection.conf    # Settings for metrics collection frequency
+├── monitoring-targets.json    # List of services and endpoints to monitor
+├── prometheus.yml             # Configuration for Prometheus metrics collection
 ```
 
 ## Modifying Configurations
 
-When modifying configuration files:
+When modifying configuration files, follow these best practices:
 
-1. Document changes with comments
-2. Test in development/staging before production
-3. For critical services, ensure alert thresholds are appropriate
-4. Maintain backward compatibility when possible
+1. **Document Changes**: Add comments to explain modifications.
+2. **Test Before Deployment**: Validate changes in development or staging environments before applying them to production.
+3. **Ensure Compatibility**: Maintain backward compatibility to avoid breaking existing scripts.
+4. **Review Alert Thresholds**: Ensure thresholds are appropriate for critical services.
 
 ## Related Documentation
 
+For more details, refer to the following documentation:
+
 - [Monitoring Architecture](../../../docs/operations/monitoring-guide.md)
 - [Configuration Management](../../../docs/operations/configuration.md)
+
+## Change Log
+
+- **2023-10-01**: Added `memory_critical` threshold to `[Alerts]` section.
+- **2023-09-15**: Updated `prometheus.yml` to include new scrape targets.
+- **2023-08-20**: Initial version of the configuration files.
