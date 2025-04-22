@@ -1,3 +1,4 @@
+```markdown
 # GitHub Copilot Instructions for Cloud Infrastructure Platform
 
 ## Project Overview
@@ -44,6 +45,23 @@ Please follow these standards when generating code:
 - Include CSP nonce in inline scripts
 - Implement proper CSRF protection
 - Use strict mode ('use strict')
+
+### File Headers and Paths
+
+- Always use **project-relative paths** in file headers and comments, not absolute paths
+- Never include personal directory information (like usernames or home directory paths)
+- Examples:
+  ```bash
+  # CORRECT:
+  # filepath: scripts/utils/common_functions.sh
+
+  # INCORRECT:
+  # filepath: /Users/username/Workspace/myproject/scripts/utils/common_functions.sh
+
+```
+
+- When referencing files in documentation or comments, use paths relative to the project root
+- For import statements, use appropriate relative or absolute imports based on the language's best practices
 
 ### HTML/Templates
 
