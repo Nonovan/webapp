@@ -175,14 +175,14 @@ All directories should include a README.md file with a consistent structure. The
 
 1. **Title**: Name of the module/component.
 2. **Overview**: Brief description of the purpose and functionality.
-3. **Configuration Files** (if applicable): List of configuration files with descriptions.
-4. **Key Scripts/Components**: Alphabetical list of main files with descriptions.
+3. **Key Scripts/Components**: Alphabetical list of main files with descriptions.
+4. **Configuration Files** (if applicable): List of configuration files with descriptions.
 5. **Directory Structure**: Complete listing of all files and subdirectories, alphabetically organized.
 6. **Usage**: Examples showing how to use the scripts or components.
-7. **Best Practices**: Guidelines for optimal usage, common patterns, and recommendations.
-8. **Security Considerations**: Security-related information specific to the component.
-9. **Common Features**: Shared functionality across the component's scripts/modules.
-10. **Configuration Structure** (if applicable): Format of configuration files with examples.
+7. **Configuration Structure** (if applicable): Format of configuration files with examples.
+8. **Best Practices**: Guidelines for optimal usage, common patterns, and recommendations.
+9. **Security Considerations**: Security-related information specific to the component.
+10. **Common Features**: Shared functionality across the component's scripts/modules.
 11. **Modifying/Extending**: Guidelines for modifications or extensions.
 12. **Related Documentation**: Links to related documentation.
 13. **Contributing**: Guidelines for contributing to this component.
