@@ -1,8 +1,29 @@
 #!/bin/bash
-# filepath: scripts/utils/common/common_validation_functions
+# filepath: scripts/utils/common/common_validation_utils.sh
 #######################################
 # VALIDATION FUNCTIONS
 #######################################
+
+# Version tracking
+VALIDATION_UTILS_VERSION="1.0.0"
+VALIDATION_UTILS_DATE="2024-07-30"
+
+# Get version information for these utilities
+# Arguments:
+#   None
+# Returns:
+#   Version string in format "version (date)"
+get_validation_utils_version() {
+    echo "${VALIDATION_UTILS_VERSION} (${VALIDATION_UTILS_DATE})"
+}
+
+# Check if required functions are available
+for func in debug warn log error_exit; do
+    if ! type -t "$func" &>/dev/null; then
+        echo "Required function $func not available. Make sure to source common_core_utils.sh first." >&2
+        exit 1
+    fi
+done
 
 # Define validation constants
 DEFAULT_VALIDATION_TIMEOUT=5    # Default timeout in seconds for validation operations
@@ -31,9 +52,9 @@ command_exists() {
 
     if [[ $result -ne 0 ]]; then
         if [[ -n "$install_suggestion" ]]; then
-            debug "$ERROR_PREFIX Command not found: $cmd. Try installing with: $install_suggestion"
+            debug "Command not found: $cmd. Try installing with: $install_suggestion"
         else
-            debug "$ERROR_PREFIX Command not found: $cmd"
+            debug "Command not found: $cmd"
         fi
     fi
 
@@ -50,9 +71,21 @@ command_exists() {
 #   0 if exists with proper permissions, 1 if not
 file_exists() {
     local file="$1"
-    local error_msg="${2:-$ERROR_PREFIX File does not exist or is not readable: $file}"
+    local error_msg="${2:-File does not exist or is not readable: $file}"
     local expected_perms="${3:-}"
     local file_type="${4:-general}"
+
+    # Validate input
+    if [[ -z "$file" ]]; then
+        log "No file path provided to file_exists" "ERROR"
+        return 1
+    fi
+
+    # Check for directory traversal attempts
+    if [[ "$file" == *".."* ]]; then
+        log "Potential directory traversal in path: $file" "ERROR"
+        return 1
+    fi
 
     # Determine expected permissions based on file type if not explicitly provided
     if [[ -z "$expected_perms" ]]; then
@@ -81,7 +114,7 @@ file_exists() {
     fi
 
     if [[ ! -r "$file" ]]; then
-        log "$ERROR_PREFIX File exists but is not readable: $file" "ERROR"
+        log "File exists but is not readable: $file" "ERROR"
         return 1
     fi
 
@@ -124,7 +157,7 @@ file_exists() {
 
                 # For sensitive files, return error instead of just warning
                 if [[ "$file_type" == "secret" || "$file_type" == "key" || "$file_type" == "password" ]]; then
-                    log "$ERROR_PREFIX Security risk: $file has insecure permissions" "ERROR"
+                    log "Security risk: $file has insecure permissions" "ERROR"
                     return 1
                 fi
                 # Continue despite warning for non-sensitive files
@@ -149,6 +182,18 @@ validate_file_permissions() {
     local fix_permissions="${3:-false}"
     local file_type="${4:-general}"
 
+    # Validate input
+    if [[ -z "$file" ]]; then
+        log "No file path provided to validate_file_permissions" "ERROR"
+        return 1
+    fi
+
+    # Check for directory traversal attempts
+    if [[ "$file" == *".."* ]]; then
+        log "Potential directory traversal in path: $file" "ERROR"
+        return 1
+    fi
+
     # Set default expected permissions based on file type if not provided
     if [[ -z "$expected_perms" ]]; then
         case "$file_type" in
@@ -171,7 +216,7 @@ validate_file_permissions() {
     fi
 
     if [[ ! -e "$file" ]]; then
-        log "$ERROR_PREFIX Cannot validate permissions for non-existent file: $file" "ERROR"
+        log "Cannot validate permissions for non-existent file: $file" "ERROR"
         return 1
     fi
 
@@ -204,15 +249,15 @@ validate_file_permissions() {
         return 0
     elif [[ "$fix_permissions" == "true" ]]; then
         debug "Fixing permissions for $file from $file_perms to $expected_perms"
-        chmod "$expected_perms" "$file" 2>/dev/null || {
-            error_exit "Failed to set permissions $expected_perms on file: $file"
+        if ! chmod "$expected_perms" "$file" 2>/dev/null; then
+            log "Failed to set permissions $expected_perms on file: $file" "ERROR"
             return 1
-        }
+        fi
         log "Fixed permissions for $file (from $file_perms to $expected_perms)" "INFO"
         return 0
     else
         if [[ "$file_type" == "secret" || "$file_type" == "key" || "$file_type" == "password" ]]; then
-            log "$ERROR_PREFIX Security risk: File $file has incorrect permissions ($file_perms, should be $expected_perms)" "ERROR"
+            log "Security risk: File $file has incorrect permissions ($file_perms, should be $expected_perms)" "ERROR"
         else
             warn "File $file has incorrect permissions: $file_perms (expected: $expected_perms)"
         fi
@@ -230,19 +275,33 @@ validate_sensitive_file() {
     local file="$1"
     local fix_permissions="${2:-false}"
 
+    # Validate input
+    if [[ -z "$file" ]]; then
+        log "No file path provided to validate_sensitive_file" "ERROR"
+        return 1
+    fi
+
+    # Check for directory traversal attempts
+    if [[ "$file" == *".."* ]]; then
+        log "Potential directory traversal in path: $file" "ERROR"
+        return 1
+    }
+
     # Check if file exists and is readable
     if [[ ! -f "$file" ]]; then
-        log "$ERROR_PREFIX Sensitive file does not exist: $file" "ERROR"
+        log "Sensitive file does not exist: $file" "ERROR"
         return 1
     fi
 
     if [[ ! -r "$file" ]]; then
-        log "$ERROR_PREFIX Sensitive file exists but is not readable: $file" "ERROR"
+        log "Sensitive file exists but is not readable: $file" "ERROR"
         return 1
     fi
 
     # Validate owner-only permissions
-    validate_file_permissions "$file" "$DEFAULT_SECRET_FILE_PERMS" "$fix_permissions" "secret" || return 1
+    if ! validate_file_permissions "$file" "$DEFAULT_SECRET_FILE_PERMS" "$fix_permissions" "secret"; then
+        return 1
+    fi
 
     # Check if file is world-readable
     local world_readable=false
@@ -273,13 +332,13 @@ validate_sensitive_file() {
 
     if [[ "$world_readable" == "true" ]]; then
         if [[ "$fix_permissions" == "true" ]]; then
-            chmod "$DEFAULT_SECRET_FILE_PERMS" "$file" 2>/dev/null || {
-                error_exit "Failed to fix world-readable permissions on sensitive file: $file"
+            if ! chmod "$DEFAULT_SECRET_FILE_PERMS" "$file" 2>/dev/null; then
+                log "Failed to fix world-readable permissions on sensitive file: $file" "ERROR"
                 return 1
-            }
+            fi
             log "Fixed world-readable permissions on sensitive file: $file" "INFO"
         else
-            error_exit "Security risk: Sensitive file is world-readable: $file"
+            log "Security risk: Sensitive file is world-readable: $file" "ERROR"
             return 1
         fi
     fi
@@ -322,14 +381,14 @@ validate_sensitive_file() {
                 if [[ -n "$dir_perms" ]]; then
                     # Replace last digit with 4 (read-only) or 0 (no access)
                     new_perms=$(echo "$dir_perms" | sed 's/\(.*\)./\10/')
-                    chmod "$new_perms" "$dir" 2>/dev/null || {
+                    if ! chmod "$new_perms" "$dir" 2>/dev/null; then
                         warn "Failed to fix world-writable directory permissions: $dir"
                         # Continue despite warning
                     }
                     log "Fixed world-writable directory permissions for: $dir (from $dir_perms to $new_perms)" "INFO"
                 else
                     # Fallback to conservative permissions
-                    chmod 750 "$dir" 2>/dev/null || {
+                    if ! chmod 750 "$dir" 2>/dev/null; then
                         warn "Failed to fix world-writable directory permissions: $dir"
                         # Continue despite warning
                     }
@@ -354,6 +413,12 @@ is_valid_ip() {
     local ip="$1"
     local type="${2:-both}"
 
+    # Validate input
+    if [[ -z "$ip" ]]; then
+        debug "Empty IP address provided"
+        return 1
+    fi
+
     case "$type" in
         4|ipv4)
             # IPv4 validation
@@ -363,14 +428,14 @@ is_valid_ip() {
 
                 for octet in "${ip_array[@]}"; do
                     if (( octet < 0 || octet > 255 )); then
-                        debug "$ERROR_PREFIX Invalid IPv4 address: $ip (octet out of range)"
+                        debug "Invalid IPv4 address: $ip (octet out of range)"
                         return 1
                     fi
                 done
 
                 return 0
             fi
-            debug "$ERROR_PREFIX Invalid IPv4 format: $ip"
+            debug "Invalid IPv4 format: $ip"
             return 1
             ;;
         6|ipv6)
@@ -378,19 +443,19 @@ is_valid_ip() {
             if [[ "$ip" =~ ^([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$ ]]; then
                 return 0
             fi
-            debug "$ERROR_PREFIX Invalid IPv6 format: $ip"
+            debug "Invalid IPv6 format: $ip"
             return 1
             ;;
         both)
             if is_valid_ip "$ip" 4 || is_valid_ip "$ip" 6; then
                 return 0
             else
-                debug "$ERROR_PREFIX Invalid IP address (neither IPv4 nor IPv6): $ip"
+                debug "Invalid IP address (neither IPv4 nor IPv6): $ip"
                 return 1
             fi
             ;;
         *)
-            error_exit "Invalid IP type specified: $type. Use 4, 6, or both"
+            log "Invalid IP type specified: $type. Use 4, 6, or both" "ERROR"
             return 1
             ;;
     esac
@@ -407,7 +472,7 @@ is_number() {
 
     # Empty check
     if [[ -z "$value" ]]; then
-        debug "$ERROR_PREFIX Empty value provided to is_number"
+        debug "Empty value provided to is_number"
         return 1
     fi
 
@@ -415,17 +480,65 @@ is_number() {
         if [[ "$value" =~ ^[+-]?[0-9]+(\.[0-9]+)?$ ]]; then
             return 0
         else
-            debug "$ERROR_PREFIX Not a valid floating point number: $value"
+            debug "Not a valid floating point number: $value"
             return 1
         fi
     else
         if [[ "$value" =~ ^[+-]?[0-9]+$ ]]; then
             return 0
         else
-            debug "$ERROR_PREFIX Not a valid integer: $value"
+            debug "Not a valid integer: $value"
             return 1
         fi
     fi
+}
+
+# Check if a value is within a numeric range
+# Arguments:
+#   $1 - Value to check
+#   $2 - Minimum value (inclusive)
+#   $3 - Maximum value (inclusive)
+#   $4 - Allow floating point (true/false, defaults to false)
+# Returns: 0 if in range, 1 if not or not a number
+is_in_range() {
+    local value="$1"
+    local min="$2"
+    local max="$3"
+    local allow_float="${4:-false}"
+
+    # Validate all inputs
+    if [[ -z "$value" || -z "$min" || -z "$max" ]]; then
+        debug "Missing parameter for is_in_range function"
+        return 1
+    fi
+
+    # Check that value is a number
+    if ! is_number "$value" "$allow_float"; then
+        debug "Value is not a valid number: $value"
+        return 1
+    fi
+
+    # Check that min and max are numbers
+    if ! is_number "$min" "$allow_float" || ! is_number "$max" "$allow_float"; then
+        debug "Min or max is not a valid number: min=$min, max=$max"
+        return 1
+    fi
+
+    # Use bc for floating point comparison
+    if [[ "$allow_float" == "true" ]]; then
+        if (( $(echo "$value < $min" | bc -l) )) || (( $(echo "$value > $max" | bc -l) )); then
+            debug "Value $value is outside range $min-$max"
+            return 1
+        fi
+    else
+        # Integer comparison
+        if (( value < min )) || (( value > max )); then
+            debug "Value $value is outside range $min-$max"
+            return 1
+        fi
+    fi
+
+    return 0
 }
 
 # Validate required parameters
@@ -437,14 +550,16 @@ validate_required_params() {
     local missing_params=""
 
     for param in "$@"; do
-        if [[ -z "${!param:-}" ]]; then
+        # Need to use indirect reference
+        local param_value="${!param:-}"
+        if [[ -z "$param_value" ]]; then
             missing=$((missing + 1))
             missing_params="$missing_params $param"
         fi
     done
 
     if (( missing > 0 )); then
-        error_exit "Required parameter(s) missing:$missing_params"
+        log "Required parameter(s) missing:$missing_params" "ERROR"
         return 1
     fi
 
@@ -461,7 +576,13 @@ is_valid_url() {
     local require_https="${2:-false}"
 
     if [[ -z "$url" ]]; then
-        debug "$ERROR_PREFIX Empty URL provided"
+        debug "Empty URL provided"
+        return 1
+    fi
+
+    # Check for potentially dangerous characters indicating injection attempts
+    if [[ "$url" =~ [\'\"\\<>\`$] ]]; then
+        debug "URL contains potentially dangerous characters: $url"
         return 1
     fi
 
@@ -470,7 +591,7 @@ is_valid_url() {
         if [[ "$url" =~ ^https:// ]]; then
             return 0
         else
-            debug "$ERROR_PREFIX Invalid URL format: $url (must use HTTPS)"
+            debug "Invalid URL format: $url (must use HTTPS)"
             return 1
         fi
     else
@@ -478,7 +599,7 @@ is_valid_url() {
         if [[ "$url" =~ ^https?:// ]]; then
             return 0
         else
-            debug "$ERROR_PREFIX Invalid URL format: $url (must start with http:// or https://)"
+            debug "Invalid URL format: $url (must start with http:// or https://)"
             return 1
         fi
     fi
@@ -492,7 +613,13 @@ is_valid_email() {
     local email="$1"
 
     if [[ -z "$email" ]]; then
-        debug "$ERROR_PREFIX Empty email provided"
+        debug "Empty email provided"
+        return 1
+    fi
+
+    # Check for potentially dangerous characters indicating injection attempts
+    if [[ "$email" =~ [\'\"\\<>\`$] ]]; then
+        debug "Email contains potentially dangerous characters: $email"
         return 1
     fi
 
@@ -501,7 +628,7 @@ is_valid_email() {
         return 0
     fi
 
-    debug "$ERROR_PREFIX Invalid email format: $email"
+    debug "Invalid email format: $email"
     return 1
 }
 
@@ -516,28 +643,62 @@ is_valid_port() {
 
     # Empty check
     if [[ -z "$port" ]]; then
-        debug "$ERROR_PREFIX Empty port provided"
+        debug "Empty port provided"
         return 1
     fi
 
     # Check if port is a number
     if ! is_number "$port"; then
-        debug "$ERROR_PREFIX Port must be a number: $port"
+        debug "Port must be a number: $port"
         return 1
     fi
 
     # Check port range
     if [[ "$allow_system_ports" == "true" ]]; then
         if (( port < 1 || port > 65535 )); then
-            debug "$ERROR_PREFIX Port out of range: $port (must be 1-65535)"
+            debug "Port out of range: $port (must be 1-65535)"
             return 1
         fi
     else
         # Non-privileged ports only (>1024)
         if (( port < 1024 || port > 65535 )); then
-            debug "$ERROR_PREFIX Port out of range: $port (must be 1024-65535 without root privileges)"
+            debug "Port out of range: $port (must be 1024-65535 without root privileges)"
             return 1
         fi
+    fi
+
+    return 0
+}
+
+# Check if a string has a minimum length
+# Arguments:
+#   $1 - String to check
+#   $2 - Minimum required length
+# Returns: 0 if valid, 1 if not
+has_min_length() {
+    local string="$1"
+    local min_length="$2"
+
+    # Validate inputs
+    if [[ -z "$min_length" ]]; then
+        debug "Missing minimum length parameter"
+        return 1
+    fi
+
+    if ! is_number "$min_length"; then
+        debug "Minimum length must be a number: $min_length"
+        return 1
+    fi
+
+    # Empty string check
+    if [[ -z "$string" ]]; then
+        debug "Empty string provided to has_min_length"
+        return 1
+    fi
+
+    if (( ${#string} < min_length )); then
+        debug "String length (${#string}) is less than minimum required ($min_length)"
+        return 1
     fi
 
     return 0
@@ -556,6 +717,58 @@ sanitize_input() {
     echo "$sanitized"
 }
 
+# Validate a path is safe (no directory traversal)
+# Arguments:
+#   $1 - Path to check
+#   $2 - Base directory for relative paths (optional)
+# Returns: 0 if safe, 1 if not
+is_safe_path() {
+    local path="$1"
+    local base_dir="${2:-}"
+
+    # Check for empty input
+    if [[ -z "$path" ]]; then
+        debug "Empty path provided"
+        return 1
+    }
+
+    # Check for directory traversal attempts
+    if [[ "$path" == *".."* || "$path" == *"~"* ]]; then
+        debug "Path contains potentially unsafe components: $path"
+        return 1
+    fi
+
+    # If base directory was provided, ensure path doesn't escape it
+    if [[ -n "$base_dir" ]]; then
+        # Convert to absolute paths for comparison
+        local abs_base_dir
+        local full_path
+
+        # Get absolute path of base directory
+        abs_base_dir=$(cd "$base_dir" 2>/dev/null && pwd)
+        if [[ $? -ne 0 ]]; then
+            debug "Invalid base directory: $base_dir"
+            return 1
+        fi
+
+        # Combine and resolve the full path
+        full_path="$abs_base_dir/$path"
+        full_path=$(cd "$(dirname "$full_path")" 2>/dev/null && pwd)/$(basename "$full_path")
+        if [[ $? -ne 0 ]]; then
+            debug "Invalid path: $path"
+            return 1
+        fi
+
+        # Check if the path stays within the base directory
+        if [[ "$full_path" != "$abs_base_dir"/* ]]; then
+            debug "Path escapes the base directory: $path"
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
 # Export validation functions and constants
 export -f command_exists
 export -f file_exists
@@ -563,11 +776,17 @@ export -f validate_file_permissions
 export -f validate_sensitive_file
 export -f is_valid_ip
 export -f is_number
+export -f is_in_range
 export -f validate_required_params
 export -f is_valid_url
 export -f is_valid_email
 export -f is_valid_port
+export -f has_min_length
 export -f sanitize_input
+export -f is_safe_path
+export -f get_validation_utils_version
+
+# Export constants
 export DEFAULT_CONFIG_FILE_PERMS
 export DEFAULT_SECRET_FILE_PERMS
 export DEFAULT_SCRIPT_FILE_PERMS
@@ -576,3 +795,5 @@ export DEFAULT_CERT_FILE_PERMS
 export DEFAULT_FILE_PERMS
 export DEFAULT_VALIDATION_TIMEOUT
 export VALIDATION_EMPTY_STRING
+export VALIDATION_UTILS_VERSION
+export VALIDATION_UTILS_DATE
