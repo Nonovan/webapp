@@ -164,7 +164,7 @@ The update to the `scripts/monitoring/core/README.md` after enhancing several mo
 3. **Add new features** to the relevant sections
 4. **Verify all cross-references** to ensure they point to valid locations
 5. **Update usage examples** with actual, working commands
-4. **Ensure file names are listed alphabetically** in sections like "Key Scripts", "Scripts Directory", or "Usage Examples."
+6. **Ensure file names and directories are listed alphabetically** in sections like "Key Scripts", "Scripts Directory", or "Usage Examples".
 
 This systematic approach ensures documentation stays in sync with code changes and provides users with accurate information.
 
@@ -195,12 +195,12 @@ This systematic approach ensures documentation stays in sync with code changes a
 
 ### Scripts Directory
 
+- Place compliance scripts in `/scripts/compliance/`
+- Put core reusable functions in `/scripts/core/`
 - Place deployment-related scripts in `/scripts/deployment/`
 - Put DR (disaster recovery) scripts in `/scripts/deployment/dr/`
-- Put security-related scripts in `/scripts/security/`
-- Put compliance scripts in `/scripts/compliance/`
 - Place monitoring scripts in `/scripts/monitoring/`
-- Put core reusable functions in `/scripts/core/`
+- Put security-related scripts in `/scripts/security/`
 - Place utility scripts in `/scripts/utils/`
 
 ### Documentation
