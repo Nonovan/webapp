@@ -198,9 +198,7 @@ Brief description of the component's purpose and functionality.
 - **`script_b.py`**: Description of script B.
 
 ## Usage
-```bash
 ./script_a.py --option value
-```
 
 ## Best Practices
 - Always validate inputs before processing
