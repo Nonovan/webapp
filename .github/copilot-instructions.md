@@ -164,6 +164,7 @@ The update to the `scripts/monitoring/core/README.md` after enhancing several mo
 3. **Add new features** to the relevant sections
 4. **Verify all cross-references** to ensure they point to valid locations
 5. **Update usage examples** with actual, working commands
+4. **Ensure file names are listed alphabetically** in sections like "Key Scripts", "Scripts Directory", or "Usage Examples."
 
 This systematic approach ensures documentation stays in sync with code changes and provides users with accurate information.
 
