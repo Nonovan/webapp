@@ -230,12 +230,8 @@ Brief description of the component's purpose and functionality.
 - **`script_b.py`**: Description of script B.
 
 ## Usage
-```
-```bash
 ./script_a.py --option value
-```
 
-```markdown
 ## Best Practices
 - Always validate inputs before processing
 - Use the logging framework instead of print statements
@@ -283,8 +279,7 @@ For configuration-heavy components:
 3. Include default values for all parameters
 4. Document the configuration validation process
 5. Provide troubleshooting tips for common configuration issues
-```
-```ini
+
 [Service]
 # Service-specific settings
 endpoint=https://api.example.com/status  # Required: API endpoint URL
