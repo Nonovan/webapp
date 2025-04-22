@@ -219,7 +219,6 @@ Brief description of the component's purpose and functionality.
 └── utils/                 # Utils description
     └── common.py          # Description
 ```
-```
 
 ### Security Practices
 
