@@ -177,13 +177,13 @@ All directories should include a README.md file with a consistent structure. The
 2. **Overview**: Brief description of the purpose and functionality.
 3. **Configuration Files** (if applicable): List of configuration files with descriptions.
 4. **Key Scripts/Components**: Alphabetical list of main files with descriptions.
-5. **Usage**: Examples showing how to use the scripts or components.
-6. **Best Practices**: Guidelines for optimal usage, common patterns, and recommendations.
-7. **Configuration Structure** (if applicable): Format of configuration files with examples.
-8. **Directory Structure**: Complete listing of all files and subdirectories, alphabetically organized.
-9. **Modifying/Extending**: Guidelines for modifications or extensions.
-10. **Security Considerations**: Security-related information specific to the component.
-11. **Common Features**: Shared functionality across the component's scripts/modules.
+5. **Directory Structure**: Complete listing of all files and subdirectories, alphabetically organized.
+6. **Usage**: Examples showing how to use the scripts or components.
+7. **Best Practices**: Guidelines for optimal usage, common patterns, and recommendations.
+8. **Security Considerations**: Security-related information specific to the component.
+9. **Common Features**: Shared functionality across the component's scripts/modules.
+10. **Configuration Structure** (if applicable): Format of configuration files with examples.
+11. **Modifying/Extending**: Guidelines for modifications or extensions.
 12. **Related Documentation**: Links to related documentation.
 13. **Contributing**: Guidelines for contributing to this component.
 14. **Change Log**: Recent changes to track version history.
@@ -229,16 +229,6 @@ Brief description of the component's purpose and functionality.
 - **`script_a.py`**: Description of script A.
 - **`script_b.py`**: Description of script B.
 
-## Usage
-./script_a.py --option value
-
-## Best Practices
-- Always validate inputs before processing
-- Use the logging framework instead of print statements
-- Follow the principle of least privilege when executing commands
-- Test scripts in a staging environment before running in production
-- Use configuration files for environment-specific settings
-
 ## Directory Structure
 /directory/
 ├── script_a.py            # Description
@@ -248,6 +238,16 @@ Brief description of the component's purpose and functionality.
 │   └── helper_b.py        # Description
 └── utils/                 # Utils description
     └── common.py          # Description
+
+## Usage
+./script_a.py --option value
+
+## Best Practices
+- Always validate inputs before processing
+- Use the logging framework instead of print statements
+- Follow the principle of least privilege when executing commands
+- Test scripts in a staging environment before running in production
+- Use configuration files for environment-specific settings
 
 ## Security Considerations
 - Scripts utilize secure credential handling via environment variables
@@ -260,6 +260,7 @@ Brief description of the component's purpose and functionality.
 - Standardized logging formats
 - Integration with central monitoring systems
 - Historical data collection and trend analysis
+```
 
 #### Environment-Specific Documentation
 
@@ -280,6 +281,7 @@ For configuration-heavy components:
 4. Document the configuration validation process
 5. Provide troubleshooting tips for common configuration issues
 
+```ini
 [Service]
 # Service-specific settings
 endpoint=https://api.example.com/status  # Required: API endpoint URL
