@@ -252,7 +252,6 @@ Brief description of the component's purpose and functionality.
 │   └── helper_b.py        # Description
 └── utils/                 # Utils description
     └── common.py          # Description
-```
 
 ## Security Considerations
 - Scripts utilize secure credential handling via environment variables
@@ -265,7 +264,6 @@ Brief description of the component's purpose and functionality.
 - Standardized logging formats
 - Integration with central monitoring systems
 - Historical data collection and trend analysis
-```
 
 #### Environment-Specific Documentation
 
@@ -285,7 +283,7 @@ For configuration-heavy components:
 3. Include default values for all parameters
 4. Document the configuration validation process
 5. Provide troubleshooting tips for common configuration issues
-
+```
 ```ini
 [Service]
 # Service-specific settings
