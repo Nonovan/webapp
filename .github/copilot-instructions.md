@@ -7,26 +7,26 @@ This repository contains a Python Flask web application for cloud infrastructure
 ## Code Structure
 
 - `/api/` - RESTful API endpoints
-- `/blueprints/` - Flask application modules
-- `/cli/` - Command-line tools
-- `/config/` - Configuration
-- `/core/` - Core utilities and security
-- `/deployment/` - Deployment scripts
-- `/docs/` - Documentation
+- `/blueprints/` - Flask blueprints for application modules
+- `/cli/` - Command-line interface tools
+- `/config/` - Configuration management
+- `/core/` - Core utilities and security functions
+- `/deployment/` - Deployment scripts and infrastructure
+- `/docs/` - Documentation files
 - `/extensions/` - Flask extensions
 - `/models/` - Database models
-- `/scripts/` - Utility scripts
-  - `/compliance/` - Compliance checks
-  - `/core/` - Core functions
+- `/scripts/` - Utility scripts (maintenance, security, compliance)
+  - `/compliance/` - Compliance checking tools
+  - `/core/` - Core reusable functions
   - `/deployment/` - Deployment automation
   - `/dr/` - Disaster recovery
   - `/monitoring/` - System monitoring
   - `/security/` - Security tools
   - `/utils/` - General utilities
-- `/services/` - Business logic
-- `/static/` - Static assets
-- `/tests/` - Tests
-- `/views/` - View helpers
+- `/services/` - Business logic services
+- `/static/` - Static assets (CSS, JS, images)
+- `/tests/` - Automated tests
+- `/views/` - View helpers and template utilities
 
 ## Coding and Organization Standards
 
@@ -34,8 +34,9 @@ This repository contains a Python Flask web application for cloud infrastructure
 - Organize by feature area and functionality
 - Keep related code together
 - Use smaller, focused functions
+- Use dependency injection for better testability
 - Implement proper error handling and logging
-- Document complex logic
+- Document complex logic with comments
 - Use lazy formatting for logging: `logger.error("Failed: %s", error)`
 
 ### Python
@@ -43,15 +44,16 @@ This repository contains a Python Flask web application for cloud infrastructure
 - Use context managers, write unit tests, prioritize security
 
 ### JavaScript
-- Use ES6+, prefer const/let, async/await, validate inputs
-- Include CSP nonce, implement CSRF protection, use strict mode
+- Use ES6+, use async/await, prefer const over let, and avoid var
+- Include CSP nonce, implement CSRF protection, use strict mode, validate inputs
 
 ### HTML/Templates
-- Follow HTML5 standards with ARIA attributes
+- Follow HTML5 standards with proper ARIA attributes for accessibility
 - Use Bootstrap 5 and responsive design
 
 ### File Headers
-- Use **project-relative paths** only:
+- Use **project-relative paths** only
+- Never include personal directory information:
 ```bash
 # CORRECT:
 # filepath: scripts/utils/common_functions.sh
@@ -65,20 +67,21 @@ This repository contains a Python Flask web application for cloud infrastructure
 
 ### Security Best Practices
 
-- Implement Content Security Policy
-- Validate inputs, sanitize outputs
-- Use parameterized queries
-- Implement CSRF protection
-- Follow least privilege principle
-- Use environment variables for credentials
-- Never hardcode sensitive data
-- Log activities for audit
-- Require authentication for sensitive operations
+- Implement strict Content Security Policy
+- Validate all user inputs and sanitize outputs to prevent XSS
+- Use parameterized queries to prevent SQL injection
+- Implement proper authentication checks with CSRF tokens for all forms
+- Follow the principle of least privilege
+- Scripts should utilize secure credential handling via environment variables
+- Never hardcode API keys and sensitive parameters
+- Log all activities for audit purposes
+- Require appropriate authentication for sensitive operations
 
 ### Testing Requirements
 
-- Write unit and integration tests
-- Test authentication and failure scenarios
+- Write unit tests for all new functionality
+- Include integration tests for critical paths
+- Add security tests for authentication and authorization
 - Document coverage requirements
 
 ## Documentation Standards
@@ -90,8 +93,8 @@ All directories should include [README.md](http://readme.md/) with:
 1. **Title & Overview**: Component name and purpose
 2. **Key Components**: Main files with descriptions
 3. **Configuration Files**: If applicable
-4. **Directory Structure**: Brief listing of contents
-5. **Usage**: Examples showing how to use components
+4. **Directory Structure**: Brief listing of contents including all files and subdirectories
+5. **Usage**: Examples showing how to use components with working commands
 6. **Configuration**: Format and examples if applicable
 7. **Best Practices & Security**: Guidelines
 8. **Common Features**: Shared functionality
@@ -101,6 +104,7 @@ All directories should include [README.md](http://readme.md/) with:
 
 - Use markdown formatting:
     - `*bold**` for file/script names
+    - `backticks` for inline code references
     - Code blocks with language specification
     - Proper heading levels (#, ##, ###)
     - Lists for items and steps
@@ -109,15 +113,17 @@ All directories should include [README.md](http://readme.md/) with:
 
 - Use `{{variable_name}}` format
 - Categorize by context (system, environment, metrics)
+- Provide examples of variable usage
 
 ### Documentation Updates
 
 When changing code:
 
-1. Update affected documentation
-2. Revise options and examples
-3. Verify command flags match implementation
-4. Alphabetize file and directory listings
+1. Update affected documentation to reflect new features
+2. Revise command-line options and parameters
+3. Update usage examples with accurate syntax
+4. Verify command flags match implementation
+5. Alphabetize file and directory listings
 
 ### Example README Structure
 
@@ -133,8 +139,13 @@ Brief component description.
 
 ## Directory Structure
 /directory/
-├── script_a.py      # Main script
-└── utils/           # Utility functions
+├── script_a.py            # Description
+├── script_b.py            # Description
+├── subdirectory/          # Subdirectory description
+│   ├── helper_a.py        # Description
+│   └── helper_b.py        # Description
+└── utils/                 # Utils description
+    └── common.py          # Description
 
 ## Usage
 ./script_a.py --option value
@@ -144,23 +155,37 @@ Brief component description.
 - Use logging framework
 - Follow least privilege
 - Test in staging first
+- Use config files for environment-specific settings
 
 ## Security Considerations
 - Use environment variables for credentials
+- Never hardcode API keys and sensitive parameters
 - Log for auditing
+
+## Common Features
+- Integration with central monitoring systems
+- Historical data collection and trend analysis
 
 ```
 
 ### Configuration Documentation
 
-For config files:
+1. **List supported environments** alphabetically (development, staging, production)
+2. **Document environment-specific behaviors** or configurations
+3. **Provide environment-specific examples** where behavior differs
+4. **Document configuration sections** with examples:
 
-```
-[Service]
-endpoint=https://api.example.com/status  # Required: API endpoint
-timeout=10                               # Optional: Timeout in seconds (default: 5)
+    ```
+    [Service]
+    # Service-specific settings
+    endpoint=https://api.example.com/status  # Required: API endpoint URL
+    interval=60                              # Optional: Check interval in seconds (default: 30)
+    timeout=10                               # Optional: Request timeout in seconds (default: 5)
 
-```
+    ```
+
+5. **Explain required vs. optional parameters** with default values
+6. **Document validation process** and provide troubleshooting tips
 
 ## Script Enhancement Approach
 
@@ -171,9 +196,12 @@ When enhancing code:
 Identify improvement areas:
 
 - Security (replace unsafe practices)
-- Reliability (add timeouts)
-- Error handling (implement recovery)
-- Authentication (improve credential management)
+- Reliability (add timeouts to prevent hanging processes)
+- Error handling (implement exponential backoff and circuit breakers)
+- Authentication (Add built-in support for API authentication methods)
+- Performance (connection pooling and optimization)
+
+For any file type, look for similar areas for improvements. When multiple areas are identified, prioritize based on risk and impact.
 
 ### 2. Implementation
 
@@ -181,7 +209,9 @@ Make changes following these principles:
 
 - Maintain backward compatibility
 - Use defensive programming
-- Add validation and focused functions
+- Add validation and sanitization
+- Organize code into focused functions
+- Implement graceful error handling and cleanup
 
 Example:
 
@@ -191,22 +221,24 @@ Example:
 
 ```
 
-### 3. Testing
+### 3. Review and Testing
 
-- Verify functionality
-- Test failure scenarios
-- Check for regression
-- Ensure proper cleanup
+- Verify all features work as expected
+- Test failure scenarios to ensure proper handling
+- Check for regression issues
+- Ensure proper cleanup of resources
 
 ### 4. Documentation
 
+Document all changes:
+
 - Update help text and comments
-- Add examples
-- Summarize benefits
+- Document new features in code comments
+- Add examples in README files
+- Summarize benefits of changes
 
 ## Architectural Patterns
 
-- Use layered architecture (presentation, business logic, data)
-- Follow repository pattern and service layers
-- Use dependency injection
+- Use layered architecture (presentation, business logic, data access)
+- Follow repository pattern for data and service layers for business logic
 - Implement RESTful design for APIs
