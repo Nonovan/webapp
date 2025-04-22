@@ -1,7 +1,14 @@
 #!/bin/bash
-# filepath: scripts/utils/common/common_core_functions.sh
+# filepath: scripts/utils/common/common_core_utils.sh
 # Core utility functions for Cloud Infrastructure Platform
 # These functions are commonly needed by most scripts
+#
+# Provides logging and environment management functions
+# that can be reused across multiple scripts.
+
+# Version tracking
+CORE_UTILS_VERSION="1.1.0"
+CORE_UTILS_DATE="2024-07-18"
 
 # Check that this script is being sourced
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
@@ -29,6 +36,7 @@ DEFAULT_FILE_PERMS="644"
 DEFAULT_DIR_PERMS="755"
 DEFAULT_LOG_FILE_PERMS="640"  # More restrictive for log files
 DEFAULT_LOG_DIR_PERMS="750"   # More restrictive for log directories
+DEFAULT_SECRET_FILE_PERMS="600"  # Restrictive - contains sensitive information
 
 # Define log file settings
 DEFAULT_LOG_MAX_SIZE="10M"    # Maximum log file size before rotation
@@ -40,9 +48,122 @@ WARNING_PREFIX="Warning:"
 INFO_PREFIX="Info:"
 DEBUG_PREFIX="Debug:"
 
+# Get version information for these utilities
+# Arguments:
+#   None
+# Returns:
+#   Version string in format "version (date)"
+get_core_utils_version() {
+    echo "${CORE_UTILS_VERSION} (${CORE_UTILS_DATE})"
+}
+
 #######################################
 # LOGGING FUNCTIONS
 #######################################
+
+# Initialize a log file with proper permissions
+# Arguments:
+#   $1 - Log file path
+# Returns:
+#   0 on success, 1 on failure
+init_log_file() {
+    local log_file="$1"
+    local log_dir
+
+    log_dir=$(dirname "$log_file")
+
+    # Ensure log directory exists
+    ensure_log_directory "$log_dir" || return 1
+
+    # Create empty file with correct permissions
+    touch "$log_file" 2>/dev/null || {
+        echo -e "${RED}${ERROR_PREFIX} Failed to create log file: $log_file${NC}"
+        return 1
+    }
+
+    chmod "$DEFAULT_LOG_FILE_PERMS" "$log_file" 2>/dev/null || {
+        echo -e "${YELLOW}${WARNING_PREFIX} Failed to set permissions on log file: $log_file${NC}"
+        # Continue despite permission warning
+    }
+
+    return 0
+}
+
+# Rotate a log file if it exceeds specified size
+# Arguments:
+#   $1 - Log file path
+#   $2 - Max size (e.g., 10M, 1G)
+# Returns:
+#   0 on success, 1 on failure
+rotate_log_file() {
+    local log_file="$1"
+    local max_size="$2"
+
+    # Check if log file exists
+    if [[ ! -f "$log_file" ]]; then
+        return 0  # Nothing to rotate
+    fi
+
+    # Parse max_size
+    local size_num size_unit
+    size_num=$(echo "$max_size" | sed -e 's/[^0-9].*$//')
+    size_unit=$(echo "$max_size" | sed -e 's/^[0-9]*//')
+
+    # Convert to bytes
+    local max_bytes
+    case "$size_unit" in
+        K|k) max_bytes=$((size_num * 1024)) ;;
+        M|m) max_bytes=$((size_num * 1024 * 1024)) ;;
+        G|g) max_bytes=$((size_num * 1024 * 1024 * 1024)) ;;
+        *)   max_bytes="$size_num" ;;
+    esac
+
+    # Get current file size
+    local file_size
+    if command -v stat &>/dev/null; then
+        if [[ "$(uname)" == "Darwin" ]]; then
+            # macOS
+            file_size=$(stat -f%z "$log_file" 2>/dev/null)
+        else
+            # Linux
+            file_size=$(stat -c%s "$log_file" 2>/dev/null)
+        fi
+    else
+        # Fallback: get size using ls -l
+        file_size=$(ls -l "$log_file" 2>/dev/null | awk '{print $5}')
+    fi
+
+    # Check if we need to rotate
+    if [[ -z "$file_size" || "$file_size" -lt "$max_bytes" ]]; then
+        return 0  # No rotation needed
+    fi
+
+    # Perform rotation
+    local i
+    for ((i=DEFAULT_LOG_BACKUPS; i>0; i--)); do
+        local j=$((i-1))
+        if [[ "$j" -eq 0 ]]; then
+            # Rotate current file
+            if ! mv "$log_file" "${log_file}.1" 2>/dev/null; then
+                echo -e "${YELLOW}${WARNING_PREFIX} Failed to rotate log file: $log_file${NC}"
+                return 1
+            fi
+        else
+            # Rotate backup files
+            if [[ -f "${log_file}.$j" ]]; then
+                if ! mv "${log_file}.$j" "${log_file}.$i" 2>/dev/null; then
+                    echo -e "${YELLOW}${WARNING_PREFIX} Failed to rotate log backup: ${log_file}.$j${NC}"
+                    # Continue with other rotations
+                fi
+            fi
+        fi
+    done
+
+    # Create new empty log file
+    init_log_file "$log_file" || return 1
+
+    return 0
+}
 
 # Ensure log directory exists with proper permissions
 # Arguments:
@@ -70,7 +191,76 @@ ensure_log_directory() {
     if [[ ! -w "$log_dir" ]]; then
         echo -e "${RED}${ERROR_PREFIX} Log directory is not writable: $log_dir${NC}"
         return 1
-    }
+    fi
+
+    return 0
+}
+
+# Write content to a file safely with proper permissions
+# Arguments:
+#   $1 - Content to write
+#   $2 - File to write to
+#   $3 - Use temporary file for atomic write (boolean, optional - defaults to true)
+#   $4 - File permissions (optional - defaults to DEFAULT_FILE_PERMS)
+# Returns:
+#   0 on success, 1 on failure
+safe_write_file() {
+    local content="$1"
+    local file="$2"
+    local use_temp="${3:-true}"
+    local perms="${4:-$DEFAULT_FILE_PERMS}"
+    local dir
+
+    dir=$(dirname "$file")
+
+    # Ensure directory exists
+    if [[ ! -d "$dir" ]]; then
+        mkdir -p "$dir" 2>/dev/null || {
+            echo -e "${RED}${ERROR_PREFIX} Failed to create directory: $dir${NC}"
+            return 1
+        }
+        chmod "$DEFAULT_DIR_PERMS" "$dir" 2>/dev/null || {
+            echo -e "${YELLOW}${WARNING_PREFIX} Failed to set permissions on directory: $dir${NC}"
+            # Continue despite permission warning
+        }
+    fi
+
+    if [[ "$use_temp" == "true" ]]; then
+        # Write to temporary file and move atomically
+        local temp_file
+        temp_file=$(mktemp) || {
+            echo -e "${RED}${ERROR_PREFIX} Failed to create temporary file${NC}"
+            return 1
+        }
+
+        echo -e "$content" > "$temp_file" || {
+            echo -e "${RED}${ERROR_PREFIX} Failed to write to temporary file${NC}"
+            rm -f "$temp_file"
+            return 1
+        }
+
+        chmod "$perms" "$temp_file" 2>/dev/null || {
+            echo -e "${YELLOW}${WARNING_PREFIX} Failed to set permissions on temporary file${NC}"
+            # Continue despite permission warning
+        }
+
+        mv "$temp_file" "$file" || {
+            echo -e "${RED}${ERROR_PREFIX} Failed to move temporary file to: $file${NC}"
+            rm -f "$temp_file"
+            return 1
+        }
+    else
+        # Write directly
+        echo -e "$content" > "$file" || {
+            echo -e "${RED}${ERROR_PREFIX} Failed to write to file: $file${NC}"
+            return 1
+        }
+
+        chmod "$perms" "$file" 2>/dev/null || {
+            echo -e "${YELLOW}${WARNING_PREFIX} Failed to set permissions on file: $file${NC}"
+            # Continue despite permission warning
+        }
+    fi
 
     return 0
 }
@@ -92,7 +282,7 @@ log() {
     local status=0
 
     # Format based on log level
-    case "$level" in
+    case "${level^^}" in
         INFO)
             local colored_level="${GREEN}INFO${NC}"
             local prefix="$INFO_PREFIX"
@@ -122,7 +312,7 @@ log() {
     fi
 
     local log_message="[$timestamp] [${colored_level}] $prefixed_message"
-    local plain_message="[$timestamp] [$level] $prefixed_message"
+    local plain_message="[$timestamp] [${level^^}] $prefixed_message"
 
     # Output to console if not in quiet mode
     if [[ "${QUIET:-false}" != "true" ]]; then
@@ -134,29 +324,23 @@ log() {
         # Before writing, check if we need to initialize/rotate the log file
         if [[ ! -f "$log_file" ]]; then
             init_log_file "$log_file" || status=1
-        } else {
+        else
             # Check for rotation if file exists
             rotate_log_file "$log_file" "$max_size" || status=1
-        }
+        fi
 
         if [[ $status -eq 0 ]]; then
-            # Ensure log directory exists (initial write or after rotation)
-            local log_dir=$(dirname "$log_file")
-            ensure_log_directory "$log_dir" || status=1
-
-            if [[ $status -eq 0 ]]; then
-                # Append to log file
-                echo "$plain_message" >> "$log_file" 2>/dev/null || {
-                    echo -e "${RED}${ERROR_PREFIX} Failed to write to log file: $log_file${NC}"
-                    status=1
-                }
+            # Append to log file
+            echo "$plain_message" >> "$log_file" 2>/dev/null || {
+                echo -e "${RED}${ERROR_PREFIX} Failed to write to log file: $log_file${NC}"
+                status=1
             }
-        }
-    } elif [[ -n "$DEFAULT_LOG_FILE" ]]; then
+        fi
+    elif [[ -n "$DEFAULT_LOG_FILE" ]]; then
         # Use default log file if set
         log "$message" "$level" "$DEFAULT_LOG_FILE" "$max_size"
         status=$?
-    }
+    fi
 
     return $status
 }
@@ -177,7 +361,7 @@ error_exit() {
     # Ensure message has error prefix
     if [[ "$message" != "$ERROR_PREFIX"* ]]; then
         message="$ERROR_PREFIX $message"
-    }
+    fi
 
     # Use log function which already handles log directory creation
     log "$message" "ERROR" "$log_file"
@@ -185,9 +369,9 @@ error_exit() {
     # Only exit if this is a script, not sourced
     if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         exit "$exit_code"
-    } else {
+    else
         return "$exit_code"
-    }
+    fi
 }
 
 # Log a warning message
@@ -283,8 +467,39 @@ ensure_env_directory() {
     if [[ ! -w "$env_dir" ]]; then
         error_exit "Environment directory is not writable: $env_dir"
         return 1
+    fi
+
+    return 0
+}
+
+# Load environment variables from file
+# Arguments:
+#   $1 - Environment file path
+# Returns:
+#   0 on success, 1 on failure
+load_env() {
+    local env_file="$1"
+
+    if [[ ! -f "$env_file" ]]; then
+        error_exit "Environment file does not exist: $env_file"
+        return 1
+    fi
+
+    if [[ ! -r "$env_file" ]]; then
+        error_exit "Environment file is not readable: $env_file"
+        return 1
     }
 
+    # Source the environment file
+    set -a
+    source "$env_file" 2>/dev/null || {
+        error_exit "Failed to load environment file: $env_file"
+        set +a
+        return 1
+    }
+    set +a
+
+    debug "Loaded environment variables from $env_file"
     return 0
 }
 
@@ -318,8 +533,8 @@ save_env() {
     if [[ -n "$custom_env_file" ]]; then
         env_file="$custom_env_file"
     else
-        ensure_env_directory "$ENV_FILE_DIR" || return 1
-        env_file="${ENV_FILE_DIR}/${environment}.env"
+        env_file="${ENV_FILE_DIR:-${SCRIPT_DIR}/env}/${environment}.env"
+        ensure_env_directory "$(dirname "$env_file")" || return 1
     }
 
     # Generate file content
@@ -327,7 +542,7 @@ save_env() {
     content+="# Generated: $(date "+%Y-%m-%d %H:%M:%S")\n\n"
 
     # Get all key-value pairs from array
-    local keys values
+    local keys
     eval "keys=(\"\${!$array_name[@]}\")"
 
     # Sort keys alphabetically for consistency
@@ -400,23 +615,26 @@ detect_environment() {
         echo "development"
     elif [[ "$hostname" =~ (^|[-\.])dr($|[-\.]) ]]; then
         echo "dr-recovery"
-    elif [[ -f "${ENV_FILE_DIR}/environment_map.txt" ]]; then
+    elif [[ -f "${ENV_FILE_DIR:-${SCRIPT_DIR}/env}/environment_map.txt" ]]; then
         # Try to find in environment mapping file
-        grep -i "^$hostname=" "${ENV_FILE_DIR}/environment_map.txt" | cut -d'=' -f2 || echo "$DEFAULT_ENVIRONMENT"
+        local envmap="${ENV_FILE_DIR:-${SCRIPT_DIR}/env}/environment_map.txt"
+        grep -i "^$hostname=" "$envmap" | cut -d'=' -f2 || echo "${DEFAULT_ENVIRONMENT:-development}"
     else
-        echo "$DEFAULT_ENVIRONMENT"
+        echo "${DEFAULT_ENVIRONMENT:-development}"
     fi
 
     debug "Detected environment based on hostname: $hostname"
     return 0
 }
 
-
-
-
+# Export core functions and constants
+export -f get_core_utils_version
 
 # Export logging functions and constants
+export -f init_log_file
+export -f rotate_log_file
 export -f ensure_log_directory
+export -f safe_write_file
 export -f log
 export -f error_exit
 export -f warn
@@ -424,9 +642,12 @@ export -f debug
 export -f important
 export DEFAULT_LOG_FILE_PERMS
 export DEFAULT_LOG_DIR_PERMS
+export DEFAULT_LOG_MAX_SIZE
+export DEFAULT_LOG_BACKUPS
 
 # Export environment functions and constants
 export -f ensure_env_directory
+export -f load_env
 export -f save_env
 export -f validate_environment
 export -f detect_environment
