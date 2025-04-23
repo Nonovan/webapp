@@ -135,17 +135,17 @@ Brief component description.
 
 ## Key Scripts
 - **`script_a.py`**: Does X functionality
-- **Usage**: Use this file to implement various functions of X
-- **Features**:
-  - Exhibits feature #1
-  - Exhibits feature #2
-  - Exhibits feature #3
+  - **Usage**: Use this file to implement various functions of X
+  - **Features**:
+    - Exhibits feature #1
+    - Exhibits feature #2
+    - Exhibits feature #3
 
 - **`script_b.py`**: Handles Y processing
-- **Usage**: Use this file to handle various processes of Y
-- **Features**:
-  - Exhibits feature #1
-  - Exhibits feature #2
+  - **Usage**: Use this file to handle various processes of Y
+  - **Features**:
+    - Exhibits feature #1
+    - Exhibits feature #2
 
 ## Directory Structure
 /directory/
