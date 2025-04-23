@@ -17,13 +17,12 @@ This directory contains core module files for the Cloud Infrastructure Platform'
 ```
 
 scripts/utils/modules/
-├── [assertions.sh](http://assertions.sh/)       # Assertion utilities for verifying test conditions
-├── [core.sh](http://core.sh/)            # Core testing functionality and test execution
-├── [mocking.sh](http://mocking.sh/)         # Mock functionality for unit testing
-├── [README.md](http://readme.md/)          # This documentation
-├── [reporting.sh](http://reporting.sh/)       # Report generation in various formats
-└── [system.sh](http://system.sh/)          # System testing utilities
-
+├── assertions.sh      # Assertion utilities for verifying test conditions
+├── core.sh            # Core testing functionality and test execution
+├── mocking.sh         # Mock functionality for unit testing
+├── README.md          # This documentation
+├── reporting.sh       # Report generation in various formats
+└── system.sh          # System testing utilities
 ```
 
 ## Configuration
