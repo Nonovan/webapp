@@ -16,8 +16,17 @@ Key services in this package:
 """
 
 from .auth_service import AuthService
-from .email_service import EmailService
+from .email_service import EmailService, send_email, send_template_email
 from .newsletter_service import NewsletterService
 
-# Export classes to make them available when importing this package
-__all__ = ['AuthService', 'EmailService', 'NewsletterService']
+# Export classes and functions to make them available when importing this package
+__all__ = [
+    # Service classes
+    'AuthService',
+    'EmailService',
+    'NewsletterService',
+
+    # Utility functions
+    'send_email',
+    'send_template_email',
+]

@@ -6,21 +6,143 @@ This directory contains security-related scripts for the Cloud Infrastructure Pl
 
 These scripts provide essential security controls, monitoring, and management capabilities for the platform. They are designed to enforce security best practices, identify vulnerabilities, and support compliance requirements across development, staging, and production environments.
 
-## Available Scripts
+## Key Scripts
 
-| Script | Description |
-| --- | --- |
-| `security_audit.py` | Comprehensive security audit tool that checks for vulnerabilities, misconfigurations, and security updates |
-| check_permissions.sh | Validates and optionally fixes file/directory permissions and ownership |
-| apply_security_updates.sh | Safely applies security updates with rollback capabilities |
-| `verify_files.py` | File integrity verification tool to detect unauthorized changes |
-| `list_users.sh` | Identifies privileged users and analyzes account security |
-| `firewall_check.sh` | Verifies firewall rules against security policy |
-| `log_analyzer.py` | Analyzes security logs for suspicious activities |
+- **`apply_security_updates.sh`**: Safely applies security updates with rollback capabilities.
+  - **Usage**: Run this script to apply security patches with verification steps.
+  - **Features**:
+    - Environment-specific update application
+    - Rollback plan creation
+    - System snapshot before updates
+    - Automatic service restart
+    - Email notifications
+
+- **`check_certificate_expiration.sh`**: Monitors SSL/TLS certificate expiration dates.
+  - **Usage**: Run this script to identify certificates nearing expiration.
+  - **Features**:
+    - Domain validation
+    - Configurable warning thresholds
+    - Multiple notification channels
+    - Certificate metadata extraction
+    - Integration with renewal workflows
+
+- **`check_permissions.sh`**: Validates and optionally fixes file/directory permissions and ownership.
+  - **Usage**: Run this script to audit and correct file permissions.
+  - **Features**:
+    - Recursive permission checking
+    - Permission fixing capabilities
+    - Sensitive file detection
+    - Comprehensive reporting
+    - Configurable security baselines
+
+- **`firewall_check.sh`**: Verifies firewall rules against security policy.
+  - **Usage**: Run this script to validate firewall configurations.
+  - **Features**:
+    - Policy compliance verification
+    - Rule conflict detection
+    - Unnecessary rule identification
+    - Security gap detection
+    - Support for multiple firewall types
+
+- **`generate_security_keys.py`**: Creates cryptographic keys for secure communications.
+  - **Usage**: Run this script to generate secure keys for various applications.
+  - **Features**:
+    - Multiple key type support
+    - Secure key generation
+    - Custom key parameters
+    - Key rotation capabilities
+    - Key distribution options
+
+- **`list_users.sh`**: Identifies privileged users and analyzes account security.
+  - **Usage**: Run this script to review user account security.
+  - **Features**:
+    - Privilege enumeration
+    - Password policy checking
+    - Last login analysis
+    - Suspicious access detection
+    - Group membership validation
+
+- **`log_analyzer.py`**: Analyzes security logs for suspicious activities.
+  - **Usage**: Run this script to identify potential security incidents in logs.
+  - **Features**:
+    - Pattern-based threat detection
+    - Anomaly detection
+    - Multiple log format support
+    - Correlation analysis
+    - Alert generation
+
+- **`security_audit.py`**: Comprehensive security audit tool.
+  - **Usage**: Run this script to perform complete security assessments.
+  - **Features**:
+    - Vulnerability scanning
+    - Configuration assessment
+    - Security baseline verification
+    - Compliance checking
+    - Detailed reporting
+
+- **`ssl-setup.sh`**: Configures SSL/TLS certificates for secure communications.
+  - **Usage**: Run this script to set up and manage SSL certificates.
+  - **Features**:
+    - Certificate generation
+    - Let's Encrypt integration
+    - Certificate deployment
+    - Configuration validation
+    - Auto-renewal setup
+
+- **`verify_files.py`**: File integrity verification tool to detect unauthorized changes.
+  - **Usage**: Run this script to check for unauthorized file modifications.
+  - **Features**:
+    - Multiple hash algorithm support
+    - Baseline creation
+    - Change detection
+    - Scheduled verification
+    - Tamper alerting
+
+## Directory Structure
+
+```
+scripts/security/
+├── apply_security_updates.sh    # Security update application with rollback capability
+├── check_certificate_expiration.sh # SSL/TLS certificate expiration monitoring
+├── check_permissions.sh         # File and directory permission verification
+├── firewall_check.sh            # Firewall configuration validation
+├── generate_security_keys.py    # Cryptographic key generation utility
+├── list_users.sh                # User account security analysis
+├── log_analyzer.py              # Security log analysis tool
+├── README.md                    # This documentation
+├── security_audit.py            # Comprehensive security audit tool
+├── ssl-setup.sh                 # SSL/TLS certificate configuration
+├── verify_files.py              # File integrity verification
+└── audit/                       # Audit-specific modules and templates
+```
+
+## Best Practices & Security
+
+- All security scripts should be owned by root:root with 750 permissions
+- Always run scripts with appropriate privileges (usually root)
+- Schedule regular execution via cron for continuous security monitoring
+- Always review reports generated by these scripts, especially security_audit.py
+- Log all script activities to `/var/log/cloud-platform/security/`
+- Store sensitive credentials securely in environment variables
+- Never hardcode API keys or passwords in these scripts
+- Test scripts in development environments before running in production
+- Keep all security tools updated to address new threats
+
+## Common Features
+
+- Comprehensive logging with consistent format
+- Multiple output formats (text, JSON, HTML, CSV)
+- Email notification capabilities
+- Integration with monitoring systems
+- Environment-specific configurations
+- Proper error handling and exit codes
+- Clean help and usage documentation
+- Verbose and quiet operation modes
+- Secure handling of credentials and sensitive data
 
 ## Usage
 
-Most scripts support various options to customize their behavior:
+### Security Auditing
 
 ```bash
 # Run a comprehensive security audit
@@ -29,12 +151,26 @@ Most scripts support various options to customize their behavior:
 # Check and fix permissions in the security directory
 ./check_permissions.sh --fix-permissions --verbose
 
+# Verify file integrity
+./verify_files.py --target-dir /etc --report-only
+```
+
+### Security Updates and Maintenance
+
+```bash
 # Apply security updates with notification
 ./apply_security_updates.sh --environment production --notify
 
-# Verify file integrity
-./verify_files.py --target-dir /etc --report-only
+# Check SSL certificate expiration
+./check_certificate_expiration.sh --domain example.com --warn-days 30
 
+# Set up SSL certificates with Let's Encrypt
+./ssl-setup.sh --domain example.com --email admin@example.com
+```
+
+### Security Monitoring
+
+```bash
 # List privileged users
 ./list_users.sh --admins-only
 
@@ -44,26 +180,9 @@ Most scripts support various options to customize their behavior:
 # Analyze security logs
 ./log_analyzer.py --detect-threats --last-hours 24
 
+# Generate security keys
+./generate_security_keys.py --type rsa --size 4096 --output /etc/ssl/private/
 ```
-
-## Security Best Practices
-
-1. **Permissions**: All security scripts should be owned by root:root with 750 permissions
-2. **Execution**: Run these scripts with appropriate privileges (usually root)
-3. **Automation**: Schedule regular execution via cron for continuous security monitoring
-4. **Review**: Always review reports generated by these scripts, especially security_audit.py
-5. **Logging**: All scripts log their activities to `/var/log/cloud-platform/security/`
-
-## Security Controls
-
-These scripts support the following security controls:
-
-- **Vulnerability Management**: Identify and remediate security vulnerabilities
-- **Configuration Management**: Ensure secure system configurations
-- **Access Control**: Validate proper file permissions and user access
-- **Patching**: Secure and reliable security update application
-- **File Integrity**: Detect unauthorized file modifications
-- **Compliance**: Generate reports for compliance requirements
 
 ## Integration
 
@@ -80,15 +199,8 @@ In case of a security incident:
 
 1. Run `security_audit.py --emergency` to perform an immediate full security scan
 2. Review `/var/log/cloud-platform/security/incident*.log` for security events
-3. Contact the security team at [security@example.com](mailto:security@example.com)
+3. Contact the security team at security@example.com
 4. For critical incidents, call the security hotline: +1-555-123-4567
-
-## Maintenance
-
-- Scripts are regularly updated to address new security threats
-- Version control ensures all changes are tracked
-- Testing in development environments before deployment to production
-- Regular validation against security benchmarks (CIS, NIST)
 
 ## Compliance
 
