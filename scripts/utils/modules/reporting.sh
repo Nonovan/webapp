@@ -7,21 +7,31 @@
 # including text, JSON, and JUnit XML. It uses a data-driven approach to reduce code
 # duplication and make the reporting system more maintainable.
 #
+# Part of: Cloud Infrastructure Platform - Testing Framework
+#
 # Usage: source "$(dirname "$0")/reporting.sh"
+#
+# Version: 1.0.0
+# Date: 2023-12-20
 
 # Set strict error handling
 set -o pipefail
+set -o nounset
 
 # Script version for tracking changes
-readonly REPORTING_VERSION="1.0.0"
+readonly REPORTING_MODULE_VERSION="1.0.0"
+readonly REPORTING_MODULE_DATE="2023-12-20"
 
 # Script locations with robust path handling
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MODULES_DIR="$SCRIPT_DIR"
+PROJECT_ROOT="$(cd "$(dirname "$(dirname "$SCRIPT_DIR")")" && pwd)"
 
 # Load core module if available
-if [[ -f "${SCRIPT_DIR}/core.sh" ]]; then
+CORE_MODULE="${MODULES_DIR}/core.sh"
+if [[ -f "$CORE_MODULE" ]]; then
   # shellcheck source=./core.sh
-  source "${SCRIPT_DIR}/core.sh"
+  source "$CORE_MODULE"
 fi
 
 # Basic logging if core module not available
@@ -36,7 +46,16 @@ if ! command -v log &> /dev/null; then
   log_info() { log "INFO" "$1"; }
   log_error() { log "ERROR" "$1"; }
   log_debug() { log "DEBUG" "$1"; }
-  log_warn() { log "WARNING" "$1"; }
+  log_warn() { log "WARN" "$1"; }
+fi
+
+# Color constants if available
+if [[ -z "${GREEN:-}" ]]; then
+  readonly RED='\033[0;31m'
+  readonly GREEN='\033[0;32m'
+  readonly YELLOW='\033[0;33m'
+  readonly BLUE='\033[0;34m'
+  readonly NC='\033[0m' # No Color
 fi
 
 #######################################
@@ -44,9 +63,9 @@ fi
 #######################################
 
 # Variables that will be set from the main test_utils.sh
-TEST_RESULTS=()
-TEST_GROUPS=()
-COVERAGE_DATA=()
+TEST_RESULTS=("${TEST_RESULTS[@]:-}")
+TEST_GROUPS=("${TEST_GROUPS[@]:-}")
+COVERAGE_DATA=("${COVERAGE_DATA[@]:-}")
 TESTS_TOTAL=${TESTS_TOTAL:-0}
 TESTS_PASSED=${TESTS_PASSED:-0}
 TESTS_FAILED=${TESTS_FAILED:-0}
@@ -55,7 +74,8 @@ TEST_TOTAL_TIME=${TEST_TOTAL_TIME:-0}
 
 # Default configuration values
 DEFAULT_REPORT_FORMAT="text"
-DEFAULT_REPORT_DIR="./reports"
+DEFAULT_REPORT_DIR="${REPORT_DIR:-./reports}"
+DEFAULT_REPORT_FILE_PERMS="644"
 
 #######################################
 # HELPER FUNCTIONS
@@ -72,6 +92,9 @@ create_report_temp_dir() {
     return 1
   fi
 
+  # Set secure permissions
+  chmod 700 "$temp_dir" 2>/dev/null
+
   echo "$temp_dir"
 }
 
@@ -79,10 +102,12 @@ create_report_temp_dir() {
 # Arguments:
 #   $1 - Path to write to
 #   $2 - Content to write (optional, reads from stdin if not provided)
+#   $3 - Permissions (optional, default: 644)
 # Returns: 0 on success, 1 on failure
 safe_write() {
   local target_file="$1"
   local content="${2:-}"
+  local perms="${3:-$DEFAULT_REPORT_FILE_PERMS}"
 
   # Create directory if it doesn't exist
   local dir_path
@@ -97,7 +122,7 @@ safe_write() {
 
   # Write content to file
   if [[ -n "$content" ]]; then
-    echo "$content" > "$target_file" || {
+    printf "%s\n" "$content" > "$target_file" || {
       log_error "Failed to write to file: $target_file"
       return 1
     }
@@ -107,6 +132,12 @@ safe_write() {
       return 1
     }
   fi
+
+  # Set permissions on the file
+  chmod "$perms" "$target_file" 2>/dev/null || {
+    log_warn "Failed to set permissions $perms on file: $target_file"
+    # Continue anyway
+  }
 
   return 0
 }
@@ -119,9 +150,20 @@ get_grouped_results() {
   local -A grouped_results=()
   local -a groups=()
 
+  # Handle empty TEST_RESULTS gracefully
+  if [[ ${#TEST_RESULTS[@]:-0} -eq 0 ]]; then
+    log_debug "No test results to process"
+    # Return empty group list
+    echo ""
+    return 0
+  fi
+
   # First pass: identify all groups
   for result in "${TEST_RESULTS[@]}"; do
     IFS='|' read -r name _ _ _ <<< "$result"
+
+    # Skip empty results
+    [[ -z "$name" ]] && continue
 
     local group="ungrouped"
     if [[ "$name" == *": "* ]]; then
@@ -153,6 +195,12 @@ get_unique_coverage_files() {
   local -A unique_files=()
   local -a files=()
 
+  # Handle empty COVERAGE_DATA gracefully
+  if [[ ${#COVERAGE_DATA[@]:-0} -eq 0 ]]; then
+    log_debug "No coverage data to process"
+    return 0
+  fi
+
   for file in "${COVERAGE_DATA[@]}"; do
     if [[ -n "$file" && -z "${unique_files[$file]:-}" ]]; then
       unique_files["$file"]=1
@@ -171,7 +219,7 @@ get_unique_coverage_files() {
 #   $1 - String to escape
 # Returns: Escaped string
 xml_escape() {
-  local string="$1"
+  local string="${1:-}"
   string="${string//&/&amp;}"
   string="${string//</&lt;}"
   string="${string//>/&gt;}"
@@ -185,7 +233,7 @@ xml_escape() {
 #   $1 - String to escape
 # Returns: Escaped string
 json_escape() {
-  local string="$1"
+  local string="${1:-}"
   string="${string//\\/\\\\}"
   string="${string//\"/\\\"}"
   string="${string//	/\\t}"
@@ -199,13 +247,22 @@ json_escape() {
 #   $1 - File or directory to remove
 # Returns: 0 on success
 cleanup_temp_files() {
-  local path="$1"
+  local path="${1:-}"
+
+  if [[ -z "$path" ]]; then
+    return 0
+  fi
 
   if [[ -e "$path" ]]; then
     if [[ -f "$path" ]]; then
       rm -f "$path" 2>/dev/null || log_warn "Failed to remove temporary file: $path"
     elif [[ -d "$path" ]]; then
-      rm -rf "$path" 2>/dev/null || log_warn "Failed to remove temporary directory: $path"
+      # Security check - only remove directories that appear to be temporary
+      if [[ "$path" == */tmp/* || "$path" == */temp/* || "$path" == *test_report_temp* ]]; then
+        rm -rf "$path" 2>/dev/null || log_warn "Failed to remove temporary directory: $path"
+      else
+        log_warn "Refusing to remove directory that doesn't look temporary: $path"
+      fi
     fi
   fi
 
@@ -227,6 +284,29 @@ generate_report() {
   local result=0
 
   log_debug "Generating ${format} report${output_file:+ to $output_file}"
+
+  # Validate format
+  case "$format" in
+    text|json|junit|xml)
+      # Valid format
+      ;;
+    *)
+      log_warn "Unknown report format: $format, defaulting to text"
+      format="text"
+      ;;
+  esac
+
+  # Ensure output directory exists if output file is specified
+  if [[ -n "$output_file" ]]; then
+    local output_dir
+    output_dir=$(dirname "$output_file")
+    if [[ ! -d "$output_dir" ]]; then
+      mkdir -p "$output_dir" || {
+        log_error "Failed to create output directory: $output_dir"
+        return 1
+      }
+    fi
+  fi
 
   # Prepare report data (common for all formats)
   local report_data
@@ -351,7 +431,7 @@ parse_report_data() {
     fi
 
     # Process each section
-    if [[ "$in_section" == "summary" ]]; then
+    if [[ "$in_section" == "summary" && -n "$line" ]]; then
       IFS=':' read -r key value <<< "$line"
       case "$key" in
         total) _total="$value" ;;
@@ -361,10 +441,8 @@ parse_report_data() {
         time) _time="$value" ;;
         timestamp) _timestamp="$value" ;;
       esac
-    elif [[ "$in_section" == "groups" ]]; then
-      if [[ "$line" == *":::"* ]]; then
-        _group_results+=("$line")
-      fi
+    elif [[ "$in_section" == "groups" && "$line" == *":::"* ]]; then
+      _group_results+=("$line")
     elif [[ "$in_section" == "coverage" && -n "$line" ]]; then
       _coverage_files+=("$line")
     fi
@@ -437,14 +515,23 @@ generate_text_from_data() {
           test_name="${name#*: }"
         fi
 
-        # Format the status
+        # Format the status with color if output is a terminal
         local status_text
-        case "$status" in
-          "PASS") status_text="[PASS]  " ;;
-          "FAIL") status_text="[FAIL]  " ;;
-          "SKIP") status_text="[SKIP]  " ;;
-          *) status_text="[?????]  " ;;
-        esac
+        if [[ "$temp_output" == "/dev/stdout" && -t 1 ]]; then
+          case "$status" in
+            "PASS") status_text="${GREEN}[PASS]${NC}  " ;;
+            "FAIL") status_text="${RED}[FAIL]${NC}  " ;;
+            "SKIP") status_text="${YELLOW}[SKIP]${NC}  " ;;
+            *) status_text="[?????]  " ;;
+          esac
+        else
+          case "$status" in
+            "PASS") status_text="[PASS]  " ;;
+            "FAIL") status_text="[FAIL]  " ;;
+            "SKIP") status_text="[SKIP]  " ;;
+            *) status_text="[?????]  " ;;
+          esac
+        fi
 
         # Output the test result
         echo "$status_text $test_name (${duration}s)"
@@ -454,16 +541,18 @@ generate_text_from_data() {
       done <<< "$results"
     done
 
-    # Display coverage info
-    echo
-    echo "========================================"
-    echo "COVERAGE INFO"
-    echo "========================================"
-    echo "Files covered: ${#coverage_files[@]}"
+    # Display coverage info if we have any
+    if [[ ${#coverage_files[@]} -gt 0 ]]; then
+      echo
+      echo "========================================"
+      echo "COVERAGE INFO"
+      echo "========================================"
+      echo "Files covered: ${#coverage_files[@]}"
 
-    for file in "${coverage_files[@]}"; do
-      echo "- $file"
-    done
+      for file in "${coverage_files[@]}"; do
+        echo "- $file"
+      done
+    fi
 
     echo
     echo "Generated: $(date)"
@@ -525,7 +614,8 @@ generate_json_from_data() {
     echo "    \"failed\": $failed,"
     echo "    \"skipped\": $skipped,"
     echo "    \"time\": $time,"
-    echo "    \"timestamp\": \"$timestamp\""
+    echo "    \"timestamp\": \"$timestamp\","
+    echo "    \"version\": \"$REPORTING_MODULE_VERSION\""
     echo "  },"
     echo "  \"tests\": ["
 
@@ -581,11 +671,20 @@ generate_json_from_data() {
         echo ","
       fi
 
-      echo -n "    \"$file\""
+      local escaped_file
+      escaped_file=$(json_escape "$file")
+      echo -n "    \"$escaped_file\""
     done
 
     echo
-    echo "  ]"
+    echo "  ],"
+
+    # Add metadata
+    echo "  \"metadata\": {"
+    echo "    \"generator\": \"Cloud Infrastructure Platform Testing Framework\","
+    echo "    \"generatorVersion\": \"$REPORTING_MODULE_VERSION\","
+    echo "    \"generatedAt\": \"$(date -u "+%Y-%m-%dT%H:%M:%SZ")\""
+    echo "  }"
     echo "}"
 
   } > "$temp_output" || {
@@ -639,7 +738,7 @@ generate_junit_from_data() {
   # Generate the JUnit XML report
   {
     echo '<?xml version="1.0" encoding="UTF-8"?>'
-    echo "<testsuites name=\"Cloud Infrastructure Platform Tests\" time=\"$time\" tests=\"$total\" failures=\"$failed\" skipped=\"$skipped\">"
+    echo "<testsuites name=\"Cloud Infrastructure Platform Tests\" time=\"$time\" tests=\"$total\" failures=\"$failed\" skipped=\"$skipped\" timestamp=\"$timestamp\">"
 
     # Process each test group
     for group_data in "${group_results[@]}"; do
@@ -675,8 +774,12 @@ generate_junit_from_data() {
         esac
       done <<< "$results"
 
+      # Escape group name for XML
+      local escaped_group
+      escaped_group=$(xml_escape "$group")
+
       # Output testsuite element
-      echo "  <testsuite name=\"$group\" tests=\"$group_total\" failures=\"$group_failures\" skipped=\"$group_skipped\" time=\"$group_time\">"
+      echo "  <testsuite name=\"$escaped_group\" tests=\"$group_total\" failures=\"$group_failures\" skipped=\"$group_skipped\" time=\"$group_time\">"
 
       # Second pass to output test cases
       while IFS= read -r result_line; do
@@ -690,11 +793,12 @@ generate_junit_from_data() {
           test_name="${name#*: }"
         fi
 
-        # XML escape message
-        local escaped_message
+        # XML escape name and message
+        local escaped_test_name escaped_message
+        escaped_test_name=$(xml_escape "$test_name")
         escaped_message=$(xml_escape "$message")
 
-        echo "    <testcase name=\"$test_name\" classname=\"$group\" time=\"$duration\">"
+        echo "    <testcase name=\"$escaped_test_name\" classname=\"$escaped_group\" time=\"$duration\">"
 
         case "$status" in
           "FAIL")
@@ -710,6 +814,13 @@ generate_junit_from_data() {
 
       echo "  </testsuite>"
     done
+
+    # Add properties with metadata
+    echo "  <properties>"
+    echo "    <property name=\"generator\" value=\"Cloud Infrastructure Platform Testing Framework\"/>"
+    echo "    <property name=\"generatorVersion\" value=\"$REPORTING_MODULE_VERSION\"/>"
+    echo "    <property name=\"generatedAt\" value=\"$(date -u "+%Y-%m-%dT%H:%M:%SZ")\"/>"
+    echo "  </properties>"
 
     echo "</testsuites>"
 
@@ -758,6 +869,16 @@ reporting_self_test() {
   log_info "Running reporting module self-test"
 
   # Create test data
+  local original_test_results=("${TEST_RESULTS[@]:-}")
+  local original_test_groups=("${TEST_GROUPS[@]:-}")
+  local original_coverage_data=("${COVERAGE_DATA[@]:-}")
+  local original_tests_total=$TESTS_TOTAL
+  local original_tests_passed=$TESTS_PASSED
+  local original_tests_failed=$TESTS_FAILED
+  local original_tests_skipped=$TESTS_SKIPPED
+  local original_test_total_time=$TEST_TOTAL_TIME
+
+  # Set test data
   TEST_RESULTS=(
     "Test Group 1: Test 1|PASS|0.01|Passed successfully"
     "Test Group 1: Test 2|FAIL|0.02|Expected 5 but got 4"
@@ -775,6 +896,12 @@ reporting_self_test() {
 
   local temp_dir
   temp_dir=$(create_report_temp_dir)
+  local result=0
+
+  if [[ -z "$temp_dir" ]]; then
+    log_error "Failed to create temporary directory for self-test"
+    return 1
+  fi
 
   # Generate reports in each format
   local text_report="$temp_dir/report.txt"
@@ -785,7 +912,12 @@ reporting_self_test() {
   generate_report "json" "$json_report" &&
   generate_report "junit" "$xml_report"
 
-  local result=$?
+  result=$?
+
+  # Verify reports exist
+  [[ -f "$text_report" ]] || { log_error "Text report not generated"; result=1; }
+  [[ -f "$json_report" ]] || { log_error "JSON report not generated"; result=1; }
+  [[ -f "$xml_report" ]] || { log_error "XML report not generated"; result=1; }
 
   if [[ $result -eq 0 ]]; then
     log_info "Self-test passed! Reports generated:"
@@ -796,12 +928,33 @@ reporting_self_test() {
     log_error "Self-test failed with code $result"
   fi
 
+  # Clean up test data
+  cleanup_temp_files "$temp_dir"
+
+  # Restore original values
+  TEST_RESULTS=("${original_test_results[@]:-}")
+  TEST_GROUPS=("${original_test_groups[@]:-}")
+  COVERAGE_DATA=("${original_coverage_data[@]:-}")
+  TESTS_TOTAL=$original_tests_total
+  TESTS_PASSED=$original_tests_passed
+  TESTS_FAILED=$original_tests_failed
+  TESTS_SKIPPED=$original_tests_skipped
+  TEST_TOTAL_TIME=$original_test_total_time
+
   return $result
 }
+
+#######################################
+# EXPORT PUBLIC API
+#######################################
 
 # Export functions for external use
 export -f generate_test_report
 export -f reporting_self_test
+
+# Export constants and version information
+export REPORTING_MODULE_VERSION
+export REPORTING_MODULE_DATE
 
 # When executed directly, run self-test
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
