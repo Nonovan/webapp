@@ -94,10 +94,10 @@ All directories should include [README.md](http://readme.md/) with:
 2. **Key Components**: Main files with descriptions
 3. **Configuration Files**: If applicable
 4. **Directory Structure**: Brief listing of contents including all files and subdirectories
-5. **Usage**: Examples showing how to use components with working commands
-6. **Configuration**: Format and examples if applicable
-7. **Best Practices & Security**: Guidelines
-8. **Common Features**: Shared functionality
+5. **Configuration**: Format and examples if applicable
+6. **Best Practices & Security**: Guidelines
+7. **Common Features**: Shared functionality
+8. **Usage**: Examples showing how to use components with working commands
 9. **Related Docs & Extending**: Links and guidelines
 
 ### Documentation Format
