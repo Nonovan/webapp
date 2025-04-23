@@ -10,14 +10,13 @@
 #
 # Usage: source scripts/utils/testing/test_utils.sh
 
-
 # Set strict mode for better error detection
 set -o pipefail
 set -o nounset
 
 # Version tracking
 TEST_UTILS_VERSION="1.0.0"
-TEST_UTILS_DATE="2023-11-30"
+TEST_UTILS_DATE="2023-12-15"
 
 # Script locations with more robust path handling
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,6 +24,10 @@ PROJECT_ROOT="$(cd "$(dirname "$(dirname "$(dirname "$SCRIPT_DIR")")")" && pwd)"
 
 # Path to common functions
 COMMON_FUNCTIONS_PATH="${PROJECT_ROOT}/scripts/utils/common_functions.sh"
+
+# Path to modules
+MODULES_DIR="${PROJECT_ROOT}/scripts/utils/modules"
+REPORTING_MODULE="${MODULES_DIR}/reporting.sh"
 
 #######################################
 # ENVIRONMENT & CONFIGURATION
@@ -555,8 +558,23 @@ wait_for_port() {
 }
 
 #######################################
-# REPORTING FUNCTIONS
+# REPORTING INTEGRATION
 #######################################
+
+# Load reporting module if available
+# Otherwise provide basic report generation functionality
+load_reporting_module() {
+  if [[ -f "$REPORTING_MODULE" ]]; then
+    # shellcheck source=../modules/reporting.sh
+    source "$REPORTING_MODULE"
+    log "DEBUG" "Loaded reporting module from $REPORTING_MODULE"
+    return 0
+  else
+    log "WARN" "Reporting module not found at $REPORTING_MODULE"
+    log "WARN" "Using basic reporting functionality"
+    return 1
+  fi
+}
 
 # Generate a test report
 # Arguments:
@@ -568,365 +586,13 @@ generate_test_report() {
   local format="${1:-$OUTPUT_FORMAT}"
   local output_file="${2:-$OUTPUT_FILE}"
 
-  case "$format" in
-    "json")
-      generate_json_report "$output_file"
-      ;;
-    "junit")
-      generate_junit_report "$output_file"
-      ;;
-    *)
-      generate_text_report "$output_file"
-      ;;
-  esac
-
-  return $?
-}
-
-# Generate a text report
-# Arguments:
-#   $1 - Output file path (optional)
-# Returns:
-#   0 on success, 1 on failure
-generate_text_report() {
-  local output_file="$1"
-  local temp_file
-
-  # Use a temp file if output file is specified
-  if [[ -n "$output_file" ]]; then
-    temp_file=$(mktemp)
-    if [[ ! -f "$temp_file" ]]; then
-      log "ERROR" "Failed to create temporary file for report"
-      return 1
-    fi
-  else
-    temp_file="/dev/stdout"
+  # If reporting module is available, use it
+  if load_reporting_module; then
+    # The reporting module will use our global test data variables
+    # No need to pass them explicitly
+    generate_report "$format" "$output_file"
+    return $?
   fi
-
-  {
-    echo "========================================"
-    echo "TEST RESULTS"
-    echo "========================================"
-    echo "Total Tests: $TESTS_TOTAL"
-    echo "Passed: $TESTS_PASSED"
-    echo "Failed: $TESTS_FAILED"
-    echo "Skipped: $TESTS_SKIPPED"
-    echo "Time: ${TEST_TOTAL_TIME}s"
-    echo "========================================"
-
-    # Group results by test group
-    local current_group=""
-    for result in "${TEST_RESULTS[@]}"; do
-      IFS='|' read -r name status duration message <<< "$result"
-
-      # Extract group from full test name
-      local group=""
-      if [[ "$name" == *": "* ]]; then
-        group="${name%%: *}"
-      fi
-
-      # Print group header if it's a new group
-      if [[ "$group" != "$current_group" && -n "$group" ]]; then
-        echo
-        echo "Group: $group"
-        echo "----------------------------------------"
-        current_group="$group"
-      fi
-
-      # Print test result
-      local test_name="${name#*: }"
-      local status_text
-      case "$status" in
-        "PASS") status_text="[PASS]  " ;;
-        "FAIL") status_text="[FAIL]  " ;;
-        "SKIP") status_text="[SKIP]  " ;;
-      esac
-
-      echo "$status_text $test_name (${duration}s)"
-      if [[ -n "$message" && "$status" != "PASS" ]]; then
-        echo "         $message"
-      fi
-    done
-
-    echo
-    echo "========================================"
-    echo "COVERAGE INFO"
-    echo "========================================"
-
-    # Get unique files covered
-    declare -A unique_files
-    for file in "${COVERAGE_DATA[@]}"; do
-      unique_files["$file"]=1
-    done
-
-    echo "Files covered: ${#unique_files[@]}"
-    for file in "${!unique_files[@]}"; do
-      echo "- $file"
-    done
-
-    echo
-    echo "Generated: $(date)"
-
-  } > "$temp_file"
-
-  # If output file is specified, move temp file to output file
-  if [[ -n "$output_file" && "$temp_file" != "/dev/stdout" ]]; then
-    mkdir -p "$(dirname "$output_file")" || {
-      log "ERROR" "Failed to create directory for report: $(dirname "$output_file")"
-      rm -f "$temp_file"
-      return 1
-    }
-
-    mv "$temp_file" "$output_file" || {
-      log "ERROR" "Failed to write report to $output_file"
-      rm -f "$temp_file"
-      return 1
-    }
-
-    log "INFO" "Report written to $output_file"
-  fi
-
-  return 0
-}
-
-# Generate a JSON report
-# Arguments:
-#   $1 - Output file path (optional)
-# Returns:
-#   0 on success, 1 on failure
-generate_json_report() {
-  local output_file="$1"
-  local temp_file
-
-  # Use a temp file if output file is specified
-  if [[ -n "$output_file" ]]; then
-    temp_file=$(mktemp)
-    if [[ ! -f "$temp_file" ]]; then
-      log "ERROR" "Failed to create temporary file for JSON report"
-      return 1
-    fi
-  else
-    temp_file="/dev/stdout"
-  fi
-
-  {
-    echo "{"
-    echo "  \"summary\": {"
-    echo "    \"total\": $TESTS_TOTAL,"
-    echo "    \"passed\": $TESTS_PASSED,"
-    echo "    \"failed\": $TESTS_FAILED,"
-    echo "    \"skipped\": $TESTS_SKIPPED,"
-    echo "    \"time\": $TEST_TOTAL_TIME,"
-    echo "    \"timestamp\": \"$(date -u "+%Y-%m-%dT%H:%M:%SZ")\""
-    echo "  },"
-    echo "  \"tests\": ["
-
-    local first=true
-    for result in "${TEST_RESULTS[@]}"; do
-      IFS='|' read -r name status duration message <<< "$result"
-
-      if [[ "$first" == "true" ]]; then
-        first=false
-      else
-        echo ","
-      fi
-
-      local group=""
-      local test_name="$name"
-      if [[ "$name" == *": "* ]]; then
-        group="${name%%: *}"
-        test_name="${name#*: }"
-      fi
-
-      echo -n "    {"
-      echo -n "\"group\": \"$group\", "
-      echo -n "\"name\": \"$test_name\", "
-      echo -n "\"status\": \"$status\", "
-      echo -n "\"duration\": $duration, "
-      echo -n "\"message\": \"${message//\"/\\\"}\""
-      echo -n "}"
-    done
-
-    echo
-    echo "  ],"
-
-    echo "  \"coverage\": ["
-
-    # Get unique files
-    declare -A unique_files
-    for file in "${COVERAGE_DATA[@]}"; do
-      unique_files["$file"]=1
-    done
-
-    first=true
-    for file in "${!unique_files[@]}"; do
-      if [[ "$first" == "true" ]]; then
-        first=false
-      else
-        echo ","
-      fi
-
-      echo -n "    \"$file\""
-    done
-
-    echo
-    echo "  ]"
-    echo "}"
-
-  } > "$temp_file"
-
-  # If output file is specified, move temp file to output file
-  if [[ -n "$output_file" && "$temp_file" != "/dev/stdout" ]]; then
-    mkdir -p "$(dirname "$output_file")" || {
-      log "ERROR" "Failed to create directory for JSON report: $(dirname "$output_file")"
-      rm -f "$temp_file"
-      return 1
-    }
-
-    mv "$temp_file" "$output_file" || {
-      log "ERROR" "Failed to write JSON report to $output_file"
-      rm -f "$temp_file"
-      return 1
-    }
-
-    log "INFO" "JSON report written to $output_file"
-  fi
-
-  return 0
-}
-
-# Generate a JUnit XML report
-# Arguments:
-#   $1 - Output file path (optional)
-# Returns:
-#   0 on success, 1 on failure
-generate_junit_report() {
-  local output_file="$1"
-  local temp_file
-
-  # Use a temp file if output file is specified
-  if [[ -n "$output_file" ]]; then
-    temp_file=$(mktemp)
-    if [[ ! -f "$temp_file" ]]; then
-      log "ERROR" "Failed to create temporary file for JUnit report"
-      return 1
-    fi
-  else
-    temp_file="/dev/stdout"
-  fi
-
-  {
-    echo "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-    echo "<testsuites name=\"Cloud Infrastructure Platform Tests\" time=\"$TEST_TOTAL_TIME\" tests=\"$TESTS_TOTAL\" failures=\"$TESTS_FAILED\" skipped=\"$TESTS_SKIPPED\">"
-
-    # Group tests by test group
-    declare -A groups
-    local all_groups=()
-
-    for result in "${TEST_RESULTS[@]}"; do
-      IFS='|' read -r name status duration message <<< "$result"
-
-      local group="ungrouped"
-      if [[ "$name" == *": "* ]]; then
-        group="${name%%: *}"
-      fi
-
-      if [[ -z "${groups[$group]:-}" ]]; then
-        groups["$group"]=1
-        all_groups+=("$group")
-      fi
-    done
-
-    # Output each test suite (group)
-    for group in "${all_groups[@]}"; do
-      local group_tests=()
-      local group_failures=0
-      local group_skipped=0
-      local group_total=0
-      local group_time=0
-
-      # Collect tests for this group
-      for result in "${TEST_RESULTS[@]}"; do
-        IFS='|' read -r name status duration message <<< "$result"
-
-        local test_group="ungrouped"
-        local test_name="$name"
-        if [[ "$name" == *": "* ]]; then
-          test_group="${name%%: *}"
-          test_name="${name#*: }"
-        fi
-
-        if [[ "$test_group" == "$group" ]]; then
-          group_tests+=("$test_name|$status|$duration|$message")
-          ((group_total++))
-
-          # Safely add duration with bc or fallback
-          if command_exists bc; then
-            group_time=$(echo "$group_time + $duration" | bc 2>/dev/null || echo "$group_time")
-          else
-            group_time=$(( group_time + duration ))
-          fi
-
-          if [[ "$status" == "FAIL" ]]; then
-            ((group_failures++))
-          elif [[ "$status" == "SKIP" ]]; then
-            ((group_skipped++))
-          fi
-        fi
-      done
-
-      # Only output groups with tests
-      if [[ ${#group_tests[@]} -gt 0 ]]; then
-        echo "  <testsuite name=\"$group\" tests=\"$group_total\" failures=\"$group_failures\" skipped=\"$group_skipped\" time=\"$group_time\">"
-
-        # Output test cases for this group
-        for test in "${group_tests[@]}"; do
-          IFS='|' read -r name status duration message <<< "$test"
-
-          # XML escape special characters
-          message="${message//&/&amp;}"
-          message="${message//</&lt;}"
-          message="${message//>/&gt;}"
-          message="${message//\"/&quot;}"
-          message="${message//\'/&apos;}"
-
-          echo "    <testcase name=\"$name\" classname=\"$group\" time=\"$duration\">"
-
-          if [[ "$status" == "FAIL" ]]; then
-            echo "      <failure message=\"$message\" type=\"failure\"></failure>"
-          elif [[ "$status" == "SKIP" ]]; then
-            echo "      <skipped message=\"$message\"></skipped>"
-          fi
-
-          echo "    </testcase>"
-        done
-
-        echo "  </testsuite>"
-      fi
-    done
-
-    echo "</testsuites>"
-
-  } > "$temp_file"
-
-  # If output file is specified, move temp file to output file
-  if [[ -n "$output_file" && "$temp_file" != "/dev/stdout" ]]; then
-    mkdir -p "$(dirname "$output_file")" || {
-      log "ERROR" "Failed to create directory for JUnit report: $(dirname "$output_file")"
-      rm -f "$temp_file"
-      return 1
-    }
-
-    mv "$temp_file" "$output_file" || {
-      log "ERROR" "Failed to write JUnit report to $output_file"
-      rm -f "$temp_file"
-      return 1
-    }
-
-    log "INFO" "JUnit XML report written to $output_file"
-  fi
-
-  return 0
 }
 
 #######################################
