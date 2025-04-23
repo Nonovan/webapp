@@ -17,10 +17,14 @@ The extensions module centralizes Flask extension initialization and configurati
 - **`metrics.py`**: Application metrics collection utilities
   - **Usage**: Use this file to define custom metrics and monitoring integration
   - **Features**:
-    - Counter, gauge, and histogram metrics
-    - Request latency tracking
-    - Database performance monitoring
+    - Counter, gauge, histogram, and summary metrics
+    - Request latency tracking and performance monitoring
+    - Database query performance metrics
     - Cloud resource tracking
+    - Security event monitoring
+    - System health metrics and dependency tracking
+    - Circuit breaker pattern for error handling
+    - Task execution monitoring
 
 ## Directory Structure
 
@@ -41,6 +45,9 @@ REDIS_PORT=6379                     # Redis port
 REDIS_DB=0                          # Redis database number
 REDIS_PASSWORD=secret               # Redis password for authentication
 REDIS_SSL=False                     # Whether to use SSL for Redis connection
+REDIS_SOCKET_TIMEOUT=5              # Socket timeout in seconds
+REDIS_SOCKET_CONNECT_TIMEOUT=5      # Socket connection timeout in seconds
+REDIS_HEALTH_CHECK_INTERVAL=30      # Health check interval in seconds
 
 [Security]
 SECURITY_HEADERS_ENABLED=True       # Enable security headers via Talisman
@@ -54,6 +61,9 @@ CONTENT_SECURITY_POLICY={}          # CSP configuration dictionary
 METRICS_AUTH_ENABLED=False          # Enable authentication for metrics endpoint
 METRICS_USERNAME=prometheus         # Username for metrics authentication
 METRICS_PASSWORD=secret             # Password for metrics authentication
+METRICS_ENDPOINT_PATH=/metrics      # Custom path for metrics endpoint
+METRICS_REGISTER_VIEWS=True         # Whether to register metrics views
+
 ```
 
 ## Best Practices & Security
@@ -65,6 +75,8 @@ METRICS_PASSWORD=secret             # Password for metrics authentication
 - Configure rate limiting appropriate to application needs
 - Use the Redis client factory to ensure proper connection pooling
 - Follow the principle of least privilege for all connections
+- Ensure metrics are properly labeled for effective monitoring
+- Implement circuit breaker patterns for external service calls
 
 ## Common Features
 
@@ -73,6 +85,8 @@ METRICS_PASSWORD=secret             # Password for metrics authentication
 - Robust error handling for external services
 - Redis connection pooling for improved performance
 - Comprehensive security headers configuration
+- Performance monitoring with detailed metrics
+- Automatic tracking of important system parameters
 
 ## Usage
 
@@ -85,6 +99,7 @@ from extensions import init_extensions
 app = Flask(__name__)
 app.config.from_object('config.ProductionConfig')
 init_extensions(app)
+
 ```
 
 ### Access Individual Extensions
@@ -100,6 +115,7 @@ token = jwt.create_access_token(identity=user_id)
 
 # Use the cache extension
 result = cache.get('expensive_operation_result')
+
 ```
 
 ### Use Redis Client
@@ -110,6 +126,7 @@ from extensions import get_redis_client
 redis_client = get_redis_client()
 redis_client.set('key', 'value')
 value = redis_client.get('key')
+
 ```
 
 ### Track Custom Metrics
@@ -125,6 +142,55 @@ g.db_status = 'success'
 
 # Increment counter with current context
 db_query_counter.inc()
+
+```
+
+### Monitor Task Performance
+
+```python
+from extensions.metrics import monitor_task_execution
+
+@monitor_task_execution('data_processing')
+def process_data(data):
+    # Processing logic here
+    return processed_data
+
+```
+
+### Track System Health
+
+```python
+from extensions.metrics import update_system_health, update_dependency_health
+
+# Update component health status (0-1 scale)
+update_system_health('database', 'connection_pool', 0.95)
+
+# Record dependency availability
+update_dependency_health('redis_cache', True, 'production')
+
+```
+
+### Track Security Events
+
+```python
+from extensions.metrics import track_security_event
+
+# Record security events with appropriate severity
+track_security_event('failed_login_attempt', 'warning')
+track_security_event('unauthorized_access', 'critical')
+
+```
+
+### Time Function Execution
+
+```python
+from extensions.metrics import timed
+
+@timed('user_validation')
+def validate_user_permissions(user_id, resource):
+    # Validation logic here
+    return is_authorized
+
 ```
 
 ## Related Docs & Extending
@@ -133,9 +199,11 @@ db_query_counter.inc()
 - [Flask Extensions Documentation](https://flask.palletsprojects.com/en/2.0.x/extensions/)
 - [Prometheus Python Client](https://github.com/prometheus/client_python)
 - [Redis-py Documentation](https://redis-py.readthedocs.io/)
+- [Prometheus Best Practices](https://prometheus.io/docs/practices/naming/)
 
 When adding new extensions:
-1. Import and initialize the extension in __init__.py
+
+1. Import and initialize the extension in **init**.py
 2. Add extension to `__all__` list for easy importing
 3. Include configuration in the `init_extensions` function
 4. Update this README with new functionality

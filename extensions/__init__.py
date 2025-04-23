@@ -5,8 +5,8 @@ This module initializes and configures all Flask extensions used by the applicat
 It provides a centralized way to manage extension dependencies and configuration.
 """
 
-from typing import Dict, Any, Optional, Callable
-from flask import request, g, current_app, session
+from typing import Dict, Any, Optional, Callable, Union
+from flask import request, g, current_app, session, Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
@@ -20,6 +20,7 @@ from flask_limiter.util import get_remote_address
 from flask_talisman import Talisman
 from prometheus_flask_exporter import PrometheusMetrics
 import redis
+import logging
 
 # Initialize extensions
 db = SQLAlchemy()
@@ -27,7 +28,7 @@ migrate = Migrate()
 jwt = JWTManager()
 csrf = CSRFProtect()
 cache = Cache()
-session = Session()
+session_extension = Session()  # Renamed to avoid conflict with flask.session
 mail = Mail()
 cors = CORS()
 talisman = Talisman()
@@ -157,12 +158,26 @@ def get_redis_client() -> Optional[redis.Redis]:
     """
     Get a Redis client instance based on application configuration.
 
+    This function creates a Redis client using the configuration from the current Flask application.
+    It supports both connection URL and individual connection parameters.
+
     Returns:
-        Optional[redis.Redis]: Redis client or None if configuration is missing
+        Optional[redis.Redis]: Redis client or None if configuration is missing or connection fails
     """
     try:
+        # Check if we have app context
+        if not current_app:
+            return None
+
+        # Try connection URL first (preferred method)
         if current_app.config.get('REDIS_URL'):
-            return redis.from_url(current_app.config.get('REDIS_URL'))
+            return redis.from_url(
+                current_app.config.get('REDIS_URL'),
+                socket_timeout=current_app.config.get('REDIS_SOCKET_TIMEOUT', 5),
+                socket_connect_timeout=current_app.config.get('REDIS_SOCKET_CONNECT_TIMEOUT', 5)
+            )
+
+        # Fall back to individual connection parameters
         elif all(current_app.config.get(k) for k in ['REDIS_HOST', 'REDIS_PORT']):
             return redis.Redis(
                 host=current_app.config.get('REDIS_HOST'),
@@ -170,17 +185,39 @@ def get_redis_client() -> Optional[redis.Redis]:
                 db=current_app.config.get('REDIS_DB', 0),
                 password=current_app.config.get('REDIS_PASSWORD'),
                 ssl=current_app.config.get('REDIS_SSL', False),
-                decode_responses=False
+                decode_responses=False,
+                socket_timeout=current_app.config.get('REDIS_SOCKET_TIMEOUT', 5),
+                socket_connect_timeout=current_app.config.get('REDIS_SOCKET_CONNECT_TIMEOUT', 5),
+                health_check_interval=current_app.config.get('REDIS_HEALTH_CHECK_INTERVAL', 30)
             )
+
+        # No valid configuration found
+        logging.warning("No Redis configuration found in application config")
         return None
-    except (redis.RedisError, Exception) as e:
-        current_app.logger.error(f"Redis connection error: {e}")
+
+    except redis.RedisError as e:
+        # Specific Redis errors
+        if hasattr(current_app, 'logger'):
+            current_app.logger.error(f"Redis connection error: {e}")
+        else:
+            logging.error(f"Redis connection error: {e}")
+        return None
+
+    except Exception as e:
+        # Generic fallback for unexpected errors
+        if hasattr(current_app, 'logger'):
+            current_app.logger.error(f"Unexpected error when connecting to Redis: {e}")
+        else:
+            logging.error(f"Unexpected error when connecting to Redis: {e}")
         return None
 
 
-def init_extensions(app) -> None:
+def init_extensions(app: Flask) -> None:
     """
     Initialize all Flask extensions with the app.
+
+    This function initializes all Flask extensions with proper configuration
+    and error handling. It should be called during application setup.
 
     Args:
         app: Flask application instance
@@ -193,15 +230,24 @@ def init_extensions(app) -> None:
     jwt.init_app(app)
     csrf.init_app(app)
     limiter.init_app(app)
+
+    # Configure CORS with proper settings
     cors.init_app(
         app,
         resources=app.config.get('CORS_RESOURCES', {}),
-        origins=app.config.get('CORS_ORIGINS', '*')
+        origins=app.config.get('CORS_ORIGINS', '*'),
+        supports_credentials=app.config.get('CORS_SUPPORTS_CREDENTIALS', False),
+        vary_header=app.config.get('CORS_VARY_HEADER', True)
     )
 
     # Session, caching and email
-    cache.init_app(app, config=app.config.get('CACHE_CONFIG', CACHE_CONFIG))
-    session.init_app(app)
+    cache_config = app.config.get('CACHE_CONFIG', CACHE_CONFIG)
+    # If Redis URL is specified in app config but not in cache config, add it
+    if app.config.get('REDIS_URL') and 'CACHE_REDIS_URL' not in cache_config:
+        cache_config['CACHE_REDIS_URL'] = app.config.get('REDIS_URL')
+
+    cache.init_app(app, config=cache_config)
+    session_extension.init_app(app)
     mail.init_app(app)
 
     # Configure metrics with additional settings if provided
@@ -226,6 +272,12 @@ def init_extensions(app) -> None:
             referrer_policy=app.config.get('REFERRER_POLICY', 'strict-origin-when-cross-origin')
         )
 
+    # Register metrics blueprints if applicable
+    if app.config.get('METRICS_REGISTER_VIEWS', True):
+        metrics.register_endpoint(
+            path=app.config.get('METRICS_ENDPOINT_PATH', '/metrics')
+        )
+
 
 # List of all extensions for import in other modules
 __all__ = [
@@ -237,7 +289,7 @@ __all__ = [
     'cors',
     'cache',
     'mail',
-    'session',
+    'session_extension',  # Updated name to avoid conflict
     'talisman',
     'metrics',
     'request_counter',
