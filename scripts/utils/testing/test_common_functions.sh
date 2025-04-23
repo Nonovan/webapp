@@ -18,6 +18,8 @@ PROJECT_ROOT="$(cd "$(dirname "$(dirname "$(dirname "$SCRIPT_DIR")")")" && pwd)"
 COMMON_FUNCTIONS="${PROJECT_ROOT}/scripts/utils/common_functions.sh"
 TEST_CONFIG_DIR="${SCRIPT_DIR}/test_configs"
 TEST_TEMP_DIR="/tmp/common_functions_test_$(date +%s)"
+# Improvement #1: Add isolated module directory for test independence
+TEST_MODULES_DIR="${TEST_TEMP_DIR}/modules"
 
 # Define color codes for test output
 GREEN='\033[0;32m'
@@ -148,6 +150,93 @@ command_exists() {
   command -v "$1" &> /dev/null
 }
 
+# Improvement #1: Function to create isolated module for a specific test
+create_test_module() {
+  local module="$1"
+  local test_name="$2"
+  local test_module_dir="${TEST_MODULES_DIR}/${test_name}"
+  local module_file="${test_module_dir}/common/common_${module}_utils.sh"
+
+  # Create directories if they don't exist
+  mkdir -p "${test_module_dir}/common"
+
+  # Create module file
+  cat > "$module_file" << EOF
+#!/bin/bash
+# filepath: scripts/utils/common/common_${module}_utils.sh
+# Mock ${module} module for testing: $test_name
+
+# Version tracking
+${module^^}_UTILS_VERSION="1.0.0-test"
+${module^^}_UTILS_DATE="$(date '+%Y-%m-%d')"
+
+# Get version information
+get_${module}_utils_version() {
+  echo "\${${module^^}_UTILS_VERSION} (\${${module^^}_UTILS_DATE})"
+}
+
+# Test function to check if this module was loaded
+${module}_test_function() {
+  echo "${module} module loaded successfully for test $test_name"
+  return 0
+}
+
+# Test function with an error
+${module}_test_error() {
+  return 1
+}
+
+# Export functions
+export -f get_${module}_utils_version
+export -f ${module}_test_function
+export -f ${module}_test_error
+EOF
+
+  chmod +x "$module_file"
+
+  # Add logging function to core module
+  if [[ "$module" == "core" ]]; then
+    cat >> "$module_file" << EOF
+
+# Basic logging function required by other modules
+log() {
+  local message="\$1"
+  local level="\${2:-INFO}"
+  echo "[\$(date '+%Y-%m-%d %H:%M:%S')] [\$level] \$message"
+}
+
+# Error exit function
+error_exit() {
+  log "\$1" "ERROR"
+  return 1
+}
+
+# Export additional functions
+export -f log
+export -f error_exit
+EOF
+  fi
+
+  # Return the path to the created module
+  echo "$module_file"
+}
+
+# Improvement #1: Function to prepare test environment for a specific test
+prepare_test_environment() {
+  local test_name="$1"
+  local test_module_dir="${TEST_MODULES_DIR}/${test_name}"
+
+  log "DEBUG" "Preparing isolated test environment for $test_name"
+
+  # Create all modules for this specific test
+  for module in core system advanced file_ops validation health; do
+    create_test_module "$module" "$test_name"
+  done
+
+  # Create a custom COMMON_FUNCTIONS variable pointing to this test's environment
+  echo "export MODULE_PATH_PREFIX=${test_module_dir}"
+}
+
 # Set up test environment
 setup() {
   log "INFO" "Setting up test environment"
@@ -159,7 +248,7 @@ setup() {
   fi
 
   # Create test directories
-  mkdir -p "$TEST_TEMP_DIR" "$TEST_CONFIG_DIR"
+  mkdir -p "$TEST_TEMP_DIR" "$TEST_CONFIG_DIR" "$TEST_MODULES_DIR"
 
   # Create a test configuration file
   cat > "${TEST_CONFIG_DIR}/test_config.conf" << EOF
@@ -313,11 +402,17 @@ test_list_modules() {
 test_load_single_module() {
   start_test "Load Single Module"
 
+  # Improvement #1: Create isolated test environment
+  local test_env_file="${TEST_TEMP_DIR}/test_load_single_env.sh"
+  prepare_test_environment "load_single_module" > "$test_env_file"
+
   local test_script="${TEST_TEMP_DIR}/test_load_single.sh"
 
   cat > "$test_script" << EOF
 #!/bin/bash
-source "$COMMON_FUNCTIONS" --quiet core
+source "$test_env_file"
+MODULE_PATH_OPTION="--module-path \$MODULE_PATH_PREFIX"
+source "$COMMON_FUNCTIONS" \$MODULE_PATH_OPTION --quiet core
 if declare -f core_test_function &>/dev/null; then
   echo "PASS"
 else
@@ -340,11 +435,17 @@ EOF
 test_load_multiple_modules() {
   start_test "Load Multiple Modules"
 
+  # Improvement #1: Create isolated test environment
+  local test_env_file="${TEST_TEMP_DIR}/test_load_multiple_env.sh"
+  prepare_test_environment "load_multiple_modules" > "$test_env_file"
+
   local test_script="${TEST_TEMP_DIR}/test_load_multiple.sh"
 
   cat > "$test_script" << EOF
 #!/bin/bash
-source "$COMMON_FUNCTIONS" --quiet core,validation
+source "$test_env_file"
+MODULE_PATH_OPTION="--module-path \$MODULE_PATH_PREFIX"
+source "$COMMON_FUNCTIONS" \$MODULE_PATH_OPTION --quiet core,validation
 if declare -f core_test_function &>/dev/null && declare -f validation_test_function &>/dev/null; then
   echo "PASS"
 else
@@ -367,20 +468,17 @@ EOF
 test_dependency_resolution() {
   start_test "Dependency Resolution"
 
-  # First, make advanced depend on system
-  local advanced_path="${PROJECT_ROOT}/scripts/utils/common/common_advanced_utils.sh"
-  local original_content=""
+  # Improvement #1: Create isolated test environment
+  local test_env_file="${TEST_TEMP_DIR}/test_dependency_env.sh"
+  local test_module_dir="${TEST_MODULES_DIR}/dependency_resolution"
+  prepare_test_environment "dependency_resolution" > "$test_env_file"
 
-  if [[ -f "$advanced_path" ]]; then
-    original_content=$(cat "$advanced_path")
-    cp "$advanced_path" "${advanced_path}.backup"
-  fi
-
-  # Add dependency detection code
+  # Modify the advanced module to depend on system
+  local advanced_path="${test_module_dir}/common/common_advanced_utils.sh"
   cat > "$advanced_path" << EOF
 #!/bin/bash
 # filepath: scripts/utils/common/common_advanced_utils.sh
-# Mock advanced module for testing
+# Mock advanced module for testing dependency resolution
 
 # Check if required functions are available
 if ! declare -f get_system_info &>/dev/null; then
@@ -409,18 +507,11 @@ export -f advanced_test_function
 EOF
 
   # Add get_system_info to system module
-  local system_path="${PROJECT_ROOT}/scripts/utils/common/common_system_utils.sh"
-  local system_original=""
-
-  if [[ -f "$system_path" ]]; then
-    system_original=$(cat "$system_path")
-    cp "$system_path" "${system_path}.backup"
-  fi
-
+  local system_path="${test_module_dir}/common/common_system_utils.sh"
   cat > "$system_path" << EOF
 #!/bin/bash
 # filepath: scripts/utils/common/common_system_utils.sh
-# Mock system module for testing
+# Mock system module for testing dependency resolution
 
 # Version tracking
 SYSTEM_UTILS_VERSION="1.0.0-test"
@@ -454,7 +545,9 @@ EOF
 
   cat > "$test_script" << EOF
 #!/bin/bash
-source "$COMMON_FUNCTIONS" --quiet advanced
+source "$test_env_file"
+MODULE_PATH_OPTION="--module-path \$MODULE_PATH_PREFIX"
+source "$COMMON_FUNCTIONS" \$MODULE_PATH_OPTION --quiet advanced
 if declare -f get_system_info &>/dev/null && declare -f advanced_test_function &>/dev/null; then
   echo "PASS"
 else
@@ -465,17 +558,6 @@ EOF
 
   local result
   result=$("$test_script")
-
-  # Restore original files if they existed
-  if [[ -n "$original_content" ]]; then
-    cat "${advanced_path}.backup" > "$advanced_path"
-    rm "${advanced_path}.backup"
-  fi
-
-  if [[ -n "$system_original" ]]; then
-    cat "${system_path}.backup" > "$system_path"
-    rm "${system_path}.backup"
-  fi
 
   if [[ "$result" == "PASS" ]]; then
     test_passed "Dependency resolution worked correctly"
@@ -488,11 +570,17 @@ EOF
 test_load_all_modules() {
   start_test "Load All Modules"
 
+  # Improvement #1: Create isolated test environment
+  local test_env_file="${TEST_TEMP_DIR}/test_load_all_env.sh"
+  prepare_test_environment "load_all_modules" > "$test_env_file"
+
   local test_script="${TEST_TEMP_DIR}/test_load_all.sh"
 
   cat > "$test_script" << EOF
 #!/bin/bash
-source "$COMMON_FUNCTIONS" --quiet all
+source "$test_env_file"
+MODULE_PATH_OPTION="--module-path \$MODULE_PATH_PREFIX"
+source "$COMMON_FUNCTIONS" \$MODULE_PATH_OPTION --quiet all
 # Count number of modules actually loaded by checking for their test functions
 loaded=0
 loaded_modules=""
@@ -537,13 +625,21 @@ test_parallel_loading() {
     return
   fi
 
+  # Improvement #1: Create isolated test environment
+  local test_env_file="${TEST_TEMP_DIR}/test_parallel_env.sh"
+  local test_module_dir="${TEST_MODULES_DIR}/parallel_loading"
+  prepare_test_environment "parallel_loading" > "$test_env_file"
+
   local test_script="${TEST_TEMP_DIR}/test_parallel.sh"
 
   cat > "$test_script" << EOF
 #!/bin/bash
+source "$test_env_file"
+MODULE_PATH_OPTION="--module-path \$MODULE_PATH_PREFIX"
+
 # Add sleep to modules to ensure they would take time to load
 for module in core system validation file_ops health advanced; do
-  module_path="\${PROJECT_ROOT}/scripts/utils/common/common_\${module}_utils.sh"
+  module_path="\${MODULE_PATH_PREFIX}/common/common_\${module}_utils.sh"
   if [[ -f "\$module_path" ]]; then
     # Add a sleep to make loading take longer (to test parallelism)
     sed -i.bak '1s/^/sleep 0.5\n/' "\$module_path"
@@ -552,13 +648,13 @@ done
 
 # Time how long it takes to load all modules in parallel
 start_time=\$(date +%s.%N 2>/dev/null || date +%s)
-source "$COMMON_FUNCTIONS" --quiet --parallel core,system,validation,file_ops
+source "$COMMON_FUNCTIONS" \$MODULE_PATH_OPTION --quiet --parallel core,system,validation,file_ops
 end_time=\$(date +%s.%N 2>/dev/null || date +%s)
 parallel_time=\$(echo "\$end_time - \$start_time" | bc 2>/dev/null || echo 0)
 
 # Restore modules
 for module in core system validation file_ops health advanced; do
-  module_path="\${PROJECT_ROOT}/scripts/utils/common/common_\${module}_utils.sh"
+  module_path="\${MODULE_PATH_PREFIX}/common/common_\${module}_utils.sh"
   if [[ -f "\$module_path.bak" ]]; then
     mv "\$module_path.bak" "\$module_path"
   fi
@@ -566,7 +662,7 @@ done
 
 # Time how long it takes to load all modules sequentially
 start_time=\$(date +%s.%N 2>/dev/null || date +%s)
-source "$COMMON_FUNCTIONS" --quiet core,system,validation,file_ops
+source "$COMMON_FUNCTIONS" \$MODULE_PATH_OPTION --quiet core,system,validation,file_ops
 end_time=\$(date +%s.%N 2>/dev/null || date +%s)
 sequential_time=\$(echo "\$end_time - \$start_time" | bc 2>/dev/null || echo 0)
 
@@ -605,11 +701,17 @@ EOF
 test_config_file() {
   start_test "Configuration File Support"
 
+  # Improvement #1: Create isolated test environment
+  local test_env_file="${TEST_TEMP_DIR}/test_config_env.sh"
+  prepare_test_environment "config_file" > "$test_env_file"
+
   local test_script="${TEST_TEMP_DIR}/test_config.sh"
 
   cat > "$test_script" << EOF
 #!/bin/bash
-source "$COMMON_FUNCTIONS" --config "${TEST_CONFIG_DIR}/test_config.conf"
+source "$test_env_file"
+MODULE_PATH_OPTION="--module-path \$MODULE_PATH_PREFIX"
+source "$COMMON_FUNCTIONS" \$MODULE_PATH_OPTION --config "${TEST_CONFIG_DIR}/test_config.conf"
 # Check if the configuration was applied
 if [[ "\$DEFAULT_LOG_DIR" == "${TEST_TEMP_DIR}/logs" &&
       "\$DEFAULT_BACKUP_DIR" == "${TEST_TEMP_DIR}/backups" &&
@@ -637,11 +739,17 @@ EOF
 test_error_handling() {
   start_test "Error Handling"
 
+  # Improvement #1: Create isolated test environment
+  local test_env_file="${TEST_TEMP_DIR}/test_error_env.sh"
+  prepare_test_environment "error_handling" > "$test_env_file"
+
   local test_script="${TEST_TEMP_DIR}/test_error.sh"
 
   cat > "$test_script" << EOF
 #!/bin/bash
-OUTPUT=\$(source "$COMMON_FUNCTIONS" --quiet non_existent_module 2>&1)
+source "$test_env_file"
+MODULE_PATH_OPTION="--module-path \$MODULE_PATH_PREFIX"
+OUTPUT=\$(source "$COMMON_FUNCTIONS" \$MODULE_PATH_OPTION --quiet non_existent_module 2>&1)
 EXIT_CODE=\$?
 if [[ "\$OUTPUT" == *"not found"* || "\$OUTPUT" == *"unknown"* || "\$OUTPUT" == *"No module"* ]]; then
   echo "PASS|\$OUTPUT"
@@ -673,11 +781,17 @@ EOF
 test_module_unloading() {
   start_test "Module Unloading"
 
+  # Improvement #1: Create isolated test environment
+  local test_env_file="${TEST_TEMP_DIR}/test_unload_env.sh"
+  prepare_test_environment "module_unloading" > "$test_env_file"
+
   local test_script="${TEST_TEMP_DIR}/test_unload.sh"
 
   cat > "$test_script" << EOF
 #!/bin/bash
-source "$COMMON_FUNCTIONS" --quiet core
+source "$test_env_file"
+MODULE_PATH_OPTION="--module-path \$MODULE_PATH_PREFIX"
+source "$COMMON_FUNCTIONS" \$MODULE_PATH_OPTION --quiet core
 # Check if module was loaded
 if ! declare -f core_test_function &>/dev/null; then
   echo "FAIL: Module not loaded"
@@ -719,11 +833,17 @@ EOF
 test_exported_variables() {
   start_test "Exported Variables"
 
+  # Improvement #1: Create isolated test environment
+  local test_env_file="${TEST_TEMP_DIR}/test_exports_env.sh"
+  prepare_test_environment "exported_variables" > "$test_env_file"
+
   local test_script="${TEST_TEMP_DIR}/test_exports.sh"
 
   cat > "$test_script" << EOF
 #!/bin/bash
-source "$COMMON_FUNCTIONS" --quiet core
+source "$test_env_file"
+MODULE_PATH_OPTION="--module-path \$MODULE_PATH_PREFIX"
+source "$COMMON_FUNCTIONS" \$MODULE_PATH_OPTION --quiet core
 
 # Check if required variables are exported
 MISSING_VARS=""
