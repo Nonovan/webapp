@@ -15,7 +15,7 @@ This directory contains comprehensive testing utilities for the Cloud Infrastruc
 - **`timing_utils.sh`**: Performance measurement and timing functions
 
 ## Directory Structure
-
+```bash
 /scripts/utils/testing/
 ├── array_utils.sh          # Array manipulation utilities
 ├── file_helpers.sh         # File operation utilities
@@ -28,6 +28,8 @@ This directory contains comprehensive testing utilities for the Cloud Infrastruc
 ├── test_common_functions.sh # Tests for common functions
 ├── test_helpers.sh         # Common testing helper functions
 └── test_utils.sh           # Main testing framework
+
+```
 
 ## Configuration
 

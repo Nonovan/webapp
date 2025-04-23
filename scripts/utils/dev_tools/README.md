@@ -13,8 +13,7 @@ The development tools in this directory provide essential utilities for document
 - **`setup_dev_environment.sh`**: Sets up a development environment for the platform
 
 ## Directory Structure
-
-```
+```bash
 scripts/utils/dev_tools/
 ├── generate_docs.sh           # Documentation generation script
 ├── lint.sh                    # Code linting and formatting utility
@@ -24,6 +23,7 @@ scripts/utils/dev_tools/
     ├── convert_format.py      # Converts documents between formats
     ├── generate_cli_docs.py   # Generates CLI documentation
     └── process_template.py    # Processes template files with variable substitution
+
 ```
 
 ## Usage

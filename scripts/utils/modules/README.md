@@ -13,9 +13,7 @@ This directory contains core module files for the Cloud Infrastructure Platform'
 - **`system.sh`**: Utilities for testing system-level components like ports, processes, and connectivity
 
 ## Directory Structure
-
-```
-
+```bash
 scripts/utils/modules/
 ├── assertions.sh      # Assertion utilities for verifying test conditions
 ├── core.sh            # Core testing functionality and test execution
@@ -23,6 +21,7 @@ scripts/utils/modules/
 ├── README.md          # This documentation
 ├── reporting.sh       # Report generation in various formats
 └── system.sh          # System testing utilities
+
 ```
 
 ## Configuration
