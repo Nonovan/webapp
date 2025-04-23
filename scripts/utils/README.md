@@ -24,6 +24,7 @@ scripts/utils/
 │   ├── common_system_utils.sh   # System utilities
 │   └── common_validation_utils.sh # Input validation utilities
 ├── dev_tools/                   # Development utilities
+│   ├── generate_docs.sh         # Documentation generation utility
 │   ├── lint.sh                  # Code linting utility
 │   └── setup_dev_environment.sh # Development environment setup
 ├── python/                      # Python helper scripts
@@ -41,21 +42,46 @@ scripts/utils/
 
 ```bash
 # Configure environment variables for development
-./utils/env_setup.sh --env development
+./scripts/utils/env_setup.sh --env development
 
 # Configure environment for production
-./utils/env_setup.sh --env production
+./scripts/utils/env_setup.sh --env production
 
 ```
 
-### Development Tools
+### Code Quality Tools
+
+```bash
+# Run linting tools on code
+./scripts/utils/dev_tools/lint.sh
+
+# Run with specific options
+./scripts/utils/dev_tools/lint.sh --fix --path scripts/deployment
+
+```
+
+### Development Environment Setup
 
 ```bash
 # Set up development environment
-./utils/dev_tools/setup_dev_environment.sh
+./scripts/utils/dev_tools/setup_dev_environment.sh
 
-# Run linting tools on code
-./utils/dev_tools/lint.sh
+# Set up environment with specific options
+./scripts/utils/dev_tools/setup_dev_environment.sh --with-cloud-sdk --skip-db
+
+```
+
+### Common Functions Usage
+
+```bash
+# Source common functions in a script
+source "$(dirname "$0")/../utils/common_functions.sh"
+
+# Load specific modules
+source "$(dirname "$0")/../utils/common_functions.sh" core,file_ops,validation
+
+# Load modules in parallel for improved performance
+source "$(dirname "$0")/../utils/common_functions.sh" --parallel core,file_ops,validation
 
 ```
 
@@ -65,3 +91,25 @@ scripts/utils/
 - Source the appropriate environment using env_setup.sh at the beginning of scripts
 - Run linting regularly during development to maintain code quality
 - Keep test coverage high for all utility functions
+- Follow the established error handling patterns for consistent behavior
+- Use the validation functions for input sanitization
+- Always include proper logging with appropriate severity levels
+- Implement timeout mechanisms for operations that might hang
+- Use atomic file operations when modifying configuration files
+- Ensure proper resource cleanup in error cases using trap handlers
+
+## Security Considerations
+
+- Always validate and sanitize user inputs
+- Use dedicated functions from common_validation_utils.sh for input validation
+- Never execute commands with unchecked user input
+- Follow the principle of least privilege
+- Use secure methods for credential handling via environment variables
+- Implement proper error handling and logging for security-related operations
+- Set appropriate file permissions when creating new files
+
+## Additional Resources
+
+- For more information on individual utility modules, see their respective header comments
+- See the Development Guide for more details on script development standards
+- Check the Testing Guide for information on testing utilities
