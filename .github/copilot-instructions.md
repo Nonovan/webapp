@@ -38,6 +38,8 @@ This repository contains a Python Flask web application for cloud infrastructure
 - Implement proper error handling and logging
 - Document complex logic with comments
 - Use lazy formatting for logging: `logger.error("Failed: %s", error)`
+- Prioritize slim, maintainable code over verbose implementations
+- Favor reusable components over duplicate code
 
 ### Python
 - Follow PEP 8, use type hints, docstrings, proper exception handling
@@ -83,6 +85,47 @@ This repository contains a Python Flask web application for cloud infrastructure
 - Include integration tests for critical paths
 - Add security tests for authentication and authorization
 - Document coverage requirements
+
+## Security Standards
+
+### Core Security Principles
+- Follow the principle of least privilege
+- Validate all inputs, sanitize all outputs
+- Never hardcode sensitive data
+- Implement defense in depth
+- Use secure defaults requiring explicit opt-out
+- Apply consistent security controls across all components
+
+### Authentication & Authorization
+- Implement multi-factor authentication for admin interfaces
+- Use OAuth 2.0 with PKCE for frontend/API authentication flows
+- Validate authorization at both client and server sides
+- Apply role-based access control with attribute-based constraints
+- Implement proper session management with secure refresh mechanisms
+
+### Data Protection
+- Use only approved cryptographic libraries and algorithms
+- Implement proper key management with rotation mechanisms
+- Apply envelope encryption for sensitive data storage
+- Use parameterized queries to prevent SQL injection
+
+### API & Interface Security
+- Apply consistent security headers across all HTTP responses
+- Use structured error responses that don't leak implementation details
+- Implement rate limiting at multiple layers
+- Use standard security schemes in API documentation
+
+### Security Architecture
+- Create reusable security primitives in a central `security` package
+- Implement decorator patterns for common security controls
+- Use security middleware for consistent enforcement
+- Implement circuit breakers for external service calls
+
+### Security Monitoring
+- Log all security-relevant events with structured data
+- Use correlation IDs across all system components
+- Implement real-time alerting for suspicious activities
+- Maintain separate audit logs for security events
 
 ## Enhanced Security Standards
 
