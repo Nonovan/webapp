@@ -84,6 +84,75 @@ This repository contains a Python Flask web application for cloud infrastructure
 - Add security tests for authentication and authorization
 - Document coverage requirements
 
+## Enhanced Security Standards
+
+### Credential Management
+- Use a centralized secret management system (e.g., HashiCorp Vault, AWS Secrets Manager)
+- Implement credential rotation policies with versioning support
+- Apply the principle of short-lived credentials where possible
+- Use service accounts with minimal permissions for automated processes
+- Implement just-in-time (JIT) access for privileged operations
+
+### Code Security
+- Implement function-level permission checks for all sensitive operations
+- Use immutable data patterns to prevent unintended modifications
+- Apply defensive coding with input validation at all trust boundaries
+- Implement circuit breakers for external service calls
+- Use security headers consistently across all HTTP responses
+- Centralize security control implementation in reusable modules
+
+### Authentication & Authorization
+- Implement multi-factor authentication for all admin interfaces
+- Use OAuth 2.0 with PKCE for frontend/API authentication flows
+- Apply role-based access control with attribute-based constraints
+- Implement short session timeouts with secure refresh mechanisms
+- Validate authorization on both client and server sides
+
+### Cryptography Standards
+- Use only approved cryptographic libraries and algorithms (AES-256-GCM, RSA-2048+, ECDSA P-256+)
+- Implement proper key management with separation of duties
+- Apply envelope encryption for sensitive data storage
+- Use forward secrecy for all TLS connections
+- Implement secure key rotation mechanisms with versioning
+
+### Code Structure and Reusability
+- Create a central `security` package with reusable security primitives
+- Implement decorator patterns for common security controls:
+  ```python
+  @require_permission('resource:action')
+  @audit_log
+  @rate_limit(limit=10, period=60)
+  def sensitive_operation():
+      # Implementation
+  ```
+- Use security middleware for consistent enforcement of controls
+- Implement security control factories for environment-specific implementations
+- Extract repeated security patterns into dedicated libraries
+
+### Default Security Configuration
+
+- Maintain security defaults in versioned configuration files
+- Implement secure default configurations that require explicit opt-out
+- Use security configuration validation on application startup
+- Document all security configuration options with secure default values
+- Apply tiered security defaults based on environment (dev/staging/production)
+
+### Monitoring and Auditing
+
+- Implement comprehensive security event logging with structured data
+- Use correlation IDs across all system components
+- Apply non-repudiation techniques for audit trails
+- Implement real-time security alerting for suspicious activities
+- Maintain separate audit logs for security-relevant events
+
+### API Security
+
+- Implement API gateway patterns with centralized security controls
+- Use structured error responses that don't leak implementation details
+- Apply rate limiting at multiple layers (IP, user, endpoint)
+- Implement GraphQL-specific protections (query complexity, depth limiting)
+- Use standard security schemes in OpenAPI/Swagger documentation
+
 ## Documentation Standards
 
 ### Documentation Structure
