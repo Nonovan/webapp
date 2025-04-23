@@ -174,16 +174,14 @@ Brief component description.
 2. **Document environment-specific behaviors** or configurations
 3. **Provide environment-specific examples** where behavior differs
 4. **Document configuration sections** with examples:
+```ini
+[Service]
+# Service-specific settings
+endpoint=https://api.example.com/status  # Required: API endpoint URL
+interval=60                              # Optional: Check interval in seconds (default: 30)
+timeout=10                               # Optional: Request timeout in seconds (default: 5)
 
-    ```
-    [Service]
-    # Service-specific settings
-    endpoint=https://api.example.com/status  # Required: API endpoint URL
-    interval=60                              # Optional: Check interval in seconds (default: 30)
-    timeout=10                               # Optional: Request timeout in seconds (default: 5)
-
-    ```
-
+```
 5. **Explain required vs. optional parameters** with default values
 6. **Document validation process** and provide troubleshooting tips
 
