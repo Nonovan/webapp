@@ -29,27 +29,6 @@ This directory contains comprehensive testing utilities for the Cloud Infrastruc
 ├── test_helpers.sh         # Common testing helper functions
 └── test_utils.sh           # Main testing framework
 
-## Usage
-
-```bash
-# Source the test utilities in your test file
-source "$(dirname "$0")/../utils/testing/test_utils.sh"
-
-# Create a test group
-begin_test_group "API Functions"
-
-# Run individual tests
-run_test "API Connection" "curl -s -o /dev/null -w '%{http_code}' <http://api.example.com/health> | grep -q 200"
-run_test "Data Validation" "validate_response_data response.json"
-
-# End the test group
-end_test_group
-
-# Run a test file
-./scripts/utils/testing/test_utils.sh --dir ./tests/api --pattern "*_api_test.sh" --format junit --output junit-report.xml
-
-```
-
 ## Configuration
 
 The testing framework supports multiple configuration options:
@@ -84,6 +63,27 @@ The testing framework supports multiple configuration options:
 - Comprehensive assertion library
 - Test coverage tracking
 - Mock functionality for unit testing
+
+## Usage
+
+```bash
+# Source the test utilities in your test file
+source "$(dirname "$0")/../utils/testing/test_utils.sh"
+
+# Create a test group
+begin_test_group "API Functions"
+
+# Run individual tests
+run_test "API Connection" "curl -s -o /dev/null -w '%{http_code}' <http://api.example.com/health> | grep -q 200"
+run_test "Data Validation" "validate_response_data response.json"
+
+# End the test group
+end_test_group
+
+# Run a test file
+./scripts/utils/testing/test_utils.sh --dir ./tests/api --pattern "*_api_test.sh" --format junit --output junit-report.xml
+
+```
 
 ## Assertion Examples
 
