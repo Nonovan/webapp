@@ -5,8 +5,8 @@ This module initializes and configures all Flask extensions used by the applicat
 It provides a centralized way to manage extension dependencies and configuration.
 """
 
-from typing import Dict, Any
-from flask import request, g, current_app
+from typing import Dict, Any, Optional, Callable
+from flask import request, g, current_app, session
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
@@ -19,17 +19,17 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_talisman import Talisman
 from prometheus_flask_exporter import PrometheusMetrics
-
+import redis
 
 # Initialize extensions
 db = SQLAlchemy()
 migrate = Migrate()
 jwt = JWTManager()
 csrf = CSRFProtect()
-limiter = Limiter(key_func=get_remote_address)
 cache = Cache()
 session = Session()
 mail = Mail()
+cors = CORS()
 talisman = Talisman()
 
 # Security extensions
@@ -37,7 +37,6 @@ limiter = Limiter(
     key_func=get_remote_address,
     default_limits=["200 per day", "50 per hour"]
 )  # Rate limiting to prevent abuse
-cors = CORS()  # Cross-Origin Resource Sharing support
 
 # Cache configuration
 CACHE_CONFIG: Dict[str, Any] = {
@@ -45,7 +44,6 @@ CACHE_CONFIG: Dict[str, Any] = {
     'CACHE_DEFAULT_TIMEOUT': 300,
     'CACHE_KEY_PREFIX': 'myapp_'
 }
-cache = Cache(config=CACHE_CONFIG)  # Application cache using Redis
 
 # Metrics configuration
 metrics = PrometheusMetrics.for_app_factory(
@@ -63,8 +61,8 @@ request_counter = metrics.counter(
     labels={
         'method': lambda: request.method,
         'endpoint': lambda: request.endpoint,
-        'user_role': lambda: session.get('role', 'anonymous'),
-        'is_authenticated': lambda: 'user_id' in session
+        'user_role': lambda: session.get('role', 'anonymous') if hasattr(session, 'get') else 'unknown',
+        'is_authenticated': lambda: 'user_id' in session if hasattr(session, '__contains__') else False
     }
 )  # Counter for overall HTTP requests
 
@@ -95,7 +93,7 @@ security_event_counter = metrics.counter(
     labels={
         'event_type': lambda: g.get('security_event_type', 'unknown'),
         'severity': lambda: g.get('security_event_severity', 'info'),
-        'authenticated': lambda: 'user_id' in session
+        'authenticated': lambda: 'user_id' in session if hasattr(session, '__contains__') else False
     }
 )  # Counter for security events
 
@@ -154,27 +152,82 @@ cloud_resource_gauge = metrics.gauge(
     registry=metrics.registry
 )  # Gauge for cloud resources
 
-def init_extensions(app):
-    """Initialize all Flask extensions with the app."""
+
+def get_redis_client() -> Optional[redis.Redis]:
+    """
+    Get a Redis client instance based on application configuration.
+
+    Returns:
+        Optional[redis.Redis]: Redis client or None if configuration is missing
+    """
+    try:
+        if current_app.config.get('REDIS_URL'):
+            return redis.from_url(current_app.config.get('REDIS_URL'))
+        elif all(current_app.config.get(k) for k in ['REDIS_HOST', 'REDIS_PORT']):
+            return redis.Redis(
+                host=current_app.config.get('REDIS_HOST'),
+                port=current_app.config.get('REDIS_PORT'),
+                db=current_app.config.get('REDIS_DB', 0),
+                password=current_app.config.get('REDIS_PASSWORD'),
+                ssl=current_app.config.get('REDIS_SSL', False),
+                decode_responses=False
+            )
+        return None
+    except (redis.RedisError, Exception) as e:
+        current_app.logger.error(f"Redis connection error: {e}")
+        return None
+
+
+def init_extensions(app) -> None:
+    """
+    Initialize all Flask extensions with the app.
+
+    Args:
+        app: Flask application instance
+    """
+    # Database and ORM
     db.init_app(app)
     migrate.init_app(app, db)
+
+    # Security-related extensions
     jwt.init_app(app)
     csrf.init_app(app)
     limiter.init_app(app)
-    cache.init_app(app)
+    cors.init_app(
+        app,
+        resources=app.config.get('CORS_RESOURCES', {}),
+        origins=app.config.get('CORS_ORIGINS', '*')
+    )
+
+    # Session, caching and email
+    cache.init_app(app, config=app.config.get('CACHE_CONFIG', CACHE_CONFIG))
     session.init_app(app)
     mail.init_app(app)
-    
-    # Only enable Talisman in production or if explicitly configured
-    if app.config.get('SECURITY_HEADERS_ENABLED', False) or app.config.get('ENV') == 'production':
-        talisman.init_app(
-            app,
-            content_security_policy=app.config.get('CONTENT_SECURITY_POLICY'),
-            force_https=app.config.get('FORCE_HTTPS', True),
-            session_cookie_secure=app.config.get('SESSION_COOKIE_SECURE', True),
-            strict_transport_security=app.config.get('STRICT_TRANSPORT_SECURITY', True),
+
+    # Configure metrics with additional settings if provided
+    if app.config.get('METRICS_AUTH_ENABLED'):
+        metrics.configure_with_auth(
+            username=app.config.get('METRICS_USERNAME'),
+            password=app.config.get('METRICS_PASSWORD')
         )
 
+    # Only enable Talisman in production or if explicitly configured
+    if app.config.get('SECURITY_HEADERS_ENABLED', False) or app.config.get('ENV') == 'production':
+        csp = app.config.get('CONTENT_SECURITY_POLICY')
+        talisman.init_app(
+            app,
+            content_security_policy=csp,
+            content_security_policy_nonce_in=['script-src'] if csp else None,
+            force_https=app.config.get('FORCE_HTTPS', True),
+            session_cookie_secure=app.config.get('SESSION_COOKIE_SECURE', True),
+            session_cookie_http_only=app.config.get('SESSION_COOKIE_HTTPONLY', True),
+            strict_transport_security=app.config.get('STRICT_TRANSPORT_SECURITY', True),
+            strict_transport_security_preload=app.config.get('HSTS_PRELOAD', False),
+            referrer_policy=app.config.get('REFERRER_POLICY', 'strict-origin-when-cross-origin')
+        )
+
+
+# List of all extensions for import in other modules
 __all__ = [
     'db',
     'migrate',
@@ -195,5 +248,7 @@ __all__ = [
     'ics_gauge',
     'request_latency',
     'db_query_counter',
-    'cloud_resource_gauge'
+    'cloud_resource_gauge',
+    'get_redis_client',
+    'init_extensions'
 ]

@@ -32,7 +32,7 @@ from models.base import BaseModel
 class AuditLog(BaseModel):
     """
     A model representing security-relevant events for auditing and monitoring.
-    
+
     This model stores comprehensive information about system and user actions
     for security auditing, compliance reporting, and anomaly detection. Each
     record represents a discrete event that may be relevant for security
@@ -47,12 +47,14 @@ class AuditLog(BaseModel):
         description: Text description of the event
         details: Additional context or details about the event (JSON or text)
         severity: Importance level of the event (info, warning, error, critical)
+        related_id: ID of related entity (optional)
+        related_type: Type of related entity (optional)
         created_at: When the event occurred (inherited from BaseModel)
         updated_at: When the log entry was last updated (inherited from BaseModel)
     """
-    
+
     __tablename__ = 'audit_logs'
-    
+
     # Event type constants
     EVENT_LOGIN_SUCCESS: ClassVar[str] = 'login_success'
     EVENT_LOGIN_FAILED: ClassVar[str] = 'login_failed'
@@ -71,16 +73,17 @@ class AuditLog(BaseModel):
     EVENT_CONFIG_CHANGE: ClassVar[str] = 'config_change'
     EVENT_SECURITY_BREACH_ATTEMPT: ClassVar[str] = 'security_breach_attempt'
     EVENT_SECURITY_COUNTERMEASURE: ClassVar[str] = 'security_countermeasure'
+    EVENT_SECURITY_INCIDENT_UPDATE: ClassVar[str] = 'security_incident_update'
     EVENT_DATABASE_ACCESS: ClassVar[str] = 'database_access'
     EVENT_RATE_LIMIT_EXCEEDED: ClassVar[str] = 'rate_limit_exceeded'
     EVENT_API_ABUSE: ClassVar[str] = 'api_abuse'
-    
+
     # Severity constants
     SEVERITY_INFO: ClassVar[str] = 'info'
     SEVERITY_WARNING: ClassVar[str] = 'warning'
     SEVERITY_ERROR: ClassVar[str] = 'error'
     SEVERITY_CRITICAL: ClassVar[str] = 'critical'
-    
+
     # Column definitions
     id = db.Column(db.Integer, primary_key=True)
     event_type = db.Column(db.String(50), nullable=False, index=True)
@@ -89,15 +92,18 @@ class AuditLog(BaseModel):
     user_agent = db.Column(db.String(255), nullable=True)
     description = db.Column(db.String(255), nullable=False)
     details = db.Column(db.Text, nullable=True)
-    severity = db.Column(db.String(20), nullable=False, default='info', index=True)
-    
-    def __init__(self, event_type: str, description: str, user_id: Optional[int] = None, 
-                ip_address: Optional[str] = None, user_agent: Optional[str] = None, 
-                details: Optional[str] = None, severity: str = 'info', 
-                created_at: Optional[datetime] = None):
+    severity = db.Column(db.String(20), nullable=False, default=SEVERITY_INFO, index=True)
+    related_id = db.Column(db.Integer, nullable=True, index=True)  # For linking to other entities
+    related_type = db.Column(db.String(50), nullable=True)  # Type of the related entity
+
+    def __init__(self, event_type: str, description: str, user_id: Optional[int] = None,
+                ip_address: Optional[str] = None, user_agent: Optional[str] = None,
+                details: Optional[str] = None, severity: str = SEVERITY_INFO,
+                created_at: Optional[datetime] = None,
+                related_id: Optional[int] = None, related_type: Optional[str] = None):
         """
         Initialize a new AuditLog entry.
-        
+
         Args:
             event_type: Type of event (use EVENT_* constants)
             description: Human-readable description of the event
@@ -107,6 +113,8 @@ class AuditLog(BaseModel):
             details: Additional context information (may be JSON or text)
             severity: Event importance (info, warning, error, critical)
             created_at: Override the event timestamp (defaults to now)
+            related_id: ID of a related entity (e.g., for linking to specific resources)
+            related_type: Type of the related entity
         """
         self.event_type = event_type
         self.description = description
@@ -115,21 +123,26 @@ class AuditLog(BaseModel):
         self.user_agent = user_agent
         self.details = details
         self.severity = severity
-        
+        self.related_id = related_id
+        self.related_type = related_type
+
+        # Only pass created_at to the parent class if it's provided
         if created_at:
-            if created_at:
-                super().__init__(created_at=created_at)
-    
+            super().__init__(created_at=created_at)
+        else:
+            super().__init__()
+
     @classmethod
-    def create(cls, event_type: str, description: str, user_id: Optional[int] = None, 
+    def create(cls, event_type: str, description: str, user_id: Optional[int] = None,
               ip_address: Optional[str] = None, user_agent: Optional[str] = None,
-              details: Optional[str] = None, severity: str = 'info') -> 'AuditLog':
+              details: Optional[str] = None, severity: str = SEVERITY_INFO,
+              related_id: Optional[int] = None, related_type: Optional[str] = None) -> 'AuditLog':
         """
         Create and save a new audit log entry.
-        
+
         This is a convenience method that creates a new AuditLog instance,
         adds it to the session, and commits it in one step.
-        
+
         Args:
             event_type: Type of event (use EVENT_* constants)
             description: Human-readable description of the event
@@ -138,10 +151,12 @@ class AuditLog(BaseModel):
             user_agent: User agent string from the request
             details: Additional context information (may be JSON or text)
             severity: Event importance (info, warning, error, critical)
-            
+            related_id: ID of a related entity (e.g., for linking to specific resources)
+            related_type: Type of the related entity
+
         Returns:
             AuditLog: The created audit log entry
-            
+
         Raises:
             SQLAlchemyError: If the database operation fails
         """
@@ -153,58 +168,61 @@ class AuditLog(BaseModel):
                 ip_address=ip_address,
                 user_agent=user_agent,
                 details=details,
-                severity=severity
+                severity=severity,
+                related_id=related_id,
+                related_type=related_type
             )
             db.session.add(log)
             db.session.commit()
             return log
         except SQLAlchemyError as e:
             db.session.rollback()
-            current_app.logger.error(f"Failed to create audit log: {e}")
+            if current_app:
+                current_app.logger.error("Failed to create audit log: %s", str(e))
             # Re-raise or handle as needed by your application
             raise
-    
+
     @classmethod
     def get_by_ip(cls, ip_address: str, limit: int = 100) -> List['AuditLog']:
         """
         Get audit log entries from a specific IP address.
-        
+
         Args:
             ip_address: IP address to filter by
             limit: Maximum number of entries to return
-            
+
         Returns:
             List[AuditLog]: List of matching audit log entries
         """
         return cls.query.filter_by(ip_address=ip_address)\
                        .order_by(desc(cls.created_at))\
                        .limit(limit).all()
-    
+
     @classmethod
     def get_by_user(cls, user_id: int, limit: int = 100) -> List['AuditLog']:
         """
         Get audit log entries for a specific user.
-        
+
         Args:
             user_id: User ID to filter by
             limit: Maximum number of entries to return
-            
+
         Returns:
             List[AuditLog]: List of matching audit log entries
         """
         return cls.query.filter_by(user_id=user_id)\
                        .order_by(desc(cls.created_at))\
                        .limit(limit).all()
-    
+
     @classmethod
     def get_security_events(cls, hours: int = 24, limit: int = 100) -> List['AuditLog']:
         """
         Get recent security-related events.
-        
+
         Args:
             hours: How many hours back to look
             limit: Maximum number of entries to return
-            
+
         Returns:
             List[AuditLog]: List of matching security events
         """
@@ -215,6 +233,7 @@ class AuditLog(BaseModel):
             cls.EVENT_PERMISSION_DENIED,
             cls.EVENT_SECURITY_BREACH_ATTEMPT,
             cls.EVENT_SECURITY_COUNTERMEASURE,
+            cls.EVENT_SECURITY_INCIDENT_UPDATE,
             cls.EVENT_FILE_INTEGRITY,
             cls.EVENT_RATE_LIMIT_EXCEEDED,
             cls.EVENT_CONFIG_CHANGE,        # Track configuration changes
@@ -222,25 +241,25 @@ class AuditLog(BaseModel):
             cls.EVENT_PASSWORD_RESET,       # Track password resets
             cls.EVENT_API_ABUSE             # Track API abuse
         ]
-        
+
         # Calculate the cutoff time
         cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
-        
+
         # Query the database
         return cls.query.filter(
                 cls.event_type.in_(security_events),
                 cls.created_at >= cutoff
             ).order_by(desc(cls.created_at)).limit(limit).all()
-    
+
     @classmethod
     def count_by_event_type(cls, event_type: str, hours: int = 24) -> int:
         """
         Count occurrences of a specific event type within a time period.
-        
+
         Args:
             event_type: Event type to count
             hours: How many hours back to look
-            
+
         Returns:
             int: Count of matching events
         """
@@ -249,32 +268,32 @@ class AuditLog(BaseModel):
                 cls.event_type == event_type,
                 cls.created_at >= cutoff
             ).count()
-            
+
     @classmethod
     def get_login_failures_by_ip(cls, hours: int = 24, min_count: int = 5) -> List[Tuple[str, int]]:
         """
         Get IPs with multiple failed login attempts.
-        
+
         This method finds IP addresses with suspicious login activity
         that might indicate brute force attacks.
-        
+
         Args:
             hours: How many hours back to look
             min_count: Minimum number of failures to be considered suspicious
-            
+
         Returns:
             List[Tuple[str, int]]: List of (ip_address, failure_count) tuples
         """
         cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
-        
+
         # Use SQLAlchemy to count failed logins grouped by IP
         result = db.session.query(
-                cls.ip_address, 
+                cls.ip_address,
                 func.count(cls.id).label('count')
             ).filter(
                 cls.event_type == cls.EVENT_LOGIN_FAILED,
                 cls.created_at >= cutoff,
-                cls.ip_address != None  # Ensure IP is not null
+                cls.ip_address.isnot(None)  # Ensure IP is not null
             ).group_by(
                 cls.ip_address
             ).having(
@@ -282,27 +301,27 @@ class AuditLog(BaseModel):
             ).order_by(
                 desc('count')
             ).all()
-            
+
         return result
-        
+
     @classmethod
     def get_security_timeline(cls, user_id: Optional[int] = None, hours: int = 24) -> List['AuditLog']:
         """
         Get a timeline of security-relevant events for analysis.
-        
+
         This method provides a chronological sequence of security events
         for a specific user or system-wide if no user is specified.
-        
+
         Args:
             user_id: Optional user ID to filter by
             hours: How many hours back to look
-            
+
         Returns:
-            List['AuditLog']: List of audit log entries in chronological order
+            List[AuditLog]: List of audit log entries in chronological order
         """
         cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
         query = cls.query.filter(cls.created_at >= cutoff)
-        
+
         # Filter by security-relevant events
         query = query.filter(cls.event_type.in_([
             cls.EVENT_LOGIN_SUCCESS,
@@ -311,42 +330,61 @@ class AuditLog(BaseModel):
             cls.EVENT_PASSWORD_RESET,
             cls.EVENT_SECURITY_BREACH_ATTEMPT,
             cls.EVENT_SECURITY_COUNTERMEASURE,
+            cls.EVENT_SECURITY_INCIDENT_UPDATE,
             cls.EVENT_ADMIN_ACTION,
             cls.EVENT_CONFIG_CHANGE,
             cls.EVENT_API_ACCESS
         ]))
-        
+
         # Filter by user if specified
         if user_id is not None:
             query = query.filter(cls.user_id == user_id)
-        
+
         # Order chronologically
         return query.order_by(cls.created_at).all()
-    
+
     @classmethod
     def get_critical_events(cls, hours: int = 24) -> List['AuditLog']:
         """
         Get high-severity security events that require attention.
-        
+
         This method finds critical security events that may indicate
         a breach or require immediate response.
-        
+
         Args:
             hours: How many hours back to look
-            
+
         Returns:
-            List['AuditLog']: List of critical audit log entries
+            List[AuditLog]: List of critical audit log entries
         """
         cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
         return cls.query.filter(
             cls.severity.in_([cls.SEVERITY_CRITICAL, cls.SEVERITY_ERROR]),
             cls.created_at >= cutoff
         ).order_by(desc(cls.created_at)).all()
-    
+
+    @classmethod
+    def get_events_by_related_entity(cls, related_type: str, related_id: int, limit: int = 100) -> List['AuditLog']:
+        """
+        Get audit log entries related to a specific entity.
+
+        Args:
+            related_type: Type of the related entity
+            related_id: ID of the related entity
+            limit: Maximum number of entries to return
+
+        Returns:
+            List[AuditLog]: List of audit log entries for the entity
+        """
+        return cls.query.filter_by(
+                related_type=related_type,
+                related_id=related_id
+            ).order_by(desc(cls.created_at)).limit(limit).all()
+
     def to_dict(self) -> Dict[str, Any]:
         """
         Convert the audit log entry to a dictionary for serialization.
-        
+
         Returns:
             Dict[str, Any]: Dictionary representation of the audit log entry
         """
