@@ -103,9 +103,9 @@ All directories should include [README.md](http://readme.md/) with:
 ### Documentation Format
 
 - Use markdown formatting:
-  - `*bold**` for file/script names
-  - `backticks` for inline code references
-  - Code blocks with language specification
+  - `**bold**` for file/script names
+  - `backticks` for inline code and `function_naming` references
+  - Code blocks with language specification (e.g., ```bash)
   - Proper heading levels (#, ##, ###)
   - Lists for items and steps
 
@@ -235,7 +235,7 @@ curl "${curl_args[@]}" "$url"
 
 ```
 
-Demonstrate a preference for referencing pre-existing code in other scripts/files before drafting duplicative code. If the code or something similar in behavior appears in multiple locations, consider extracting the code to its own separate script/function to be reusable to all files.
+Demonstrate a preference for referencing pre-existing code in other scripts/files before drafting duplicative code. If the code or snippet similar in functionality appears in multiple locations, consider extracting the code to its own separate script/function to be reusable to all files.
 
 ### 3. Review and Testing
 

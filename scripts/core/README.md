@@ -4,102 +4,173 @@ This directory contains core utility scripts that are essential for the operatio
 
 ## Overview
 
-The core scripts in this directory are designed to streamline operations, enhance security, and ensure compliance across the Cloud Infrastructure Platform. These scripts include utilities for managing backups, validating configurations, monitoring file integrity, and performing security audits. Shared utilities and templates are also provided to standardize functionality and reporting.
+The core scripts in this directory are designed to streamline operations, enhance security, and ensure compliance across the Cloud Infrastructure Platform. These scripts include utilities for system information, resource monitoring, error handling, logging, configuration loading, and security functions. These core scripts form the foundation for the platform's operational capabilities.
 
 ## Key Scripts
 
-### 1. `apply_security_updates.sh`
-- **Description**: Automates the application of security updates across the platform.
-- **Usage**: Run this script to apply security patches and verify system integrity.
-- **Features**:
-  - Applies security updates for supported package managers
-  - Verifies critical services after updates
-  - Generates rollback plans for failed updates
+- **`common.sh`**: Core shell utility functions used across multiple scripts.
+  - **Usage**: Source this script in other shell scripts to use its functions.
+  - **Features**:
+    - Common utility functions
+    - Cross-platform compatibility functions
+    - Environment detection
 
-### 2. `backup_manager.sh`
-- **Description**: Manages backups for critical files and directories.
-- **Usage**: Run this script to create or restore backups.
-- **Features**:
-  - Automated backup creation with timestamps
-  - Restoration of specific backups
-  - Configurable backup retention policies
+- **`config_loader.py`**: Loads and validates configuration from various sources.
+  - **Usage**: Import this module to handle configuration loading.
+  - **Features**:
+    - Multi-format configuration support (JSON, YAML, INI)
+    - Environment-specific configuration
+    - Configuration validation
 
-### 3. `common_functions.sh`
-- **Description**: A library of reusable shell functions for logging, file operations, and system utilities.
-- **Usage**: Source this script in other shell scripts to use its functions.
-- **Features**:
-  - Logging with different levels (INFO, WARNING, ERROR)
-  - File backup and restoration
-  - Command existence checks
-  - File age calculation
+- **`environment.py`**: Manages environment variables and settings.
+  - **Usage**: Import this module to access environment settings.
+  - **Features**:
+    - Environment variable management
+    - Runtime environment detection
+    - Environment-specific behavior
 
-### 4. `config_validator.sh`
-- **Description**: Validates configuration files against predefined schemas.
-- **Usage**: Run this script to ensure configuration files meet required standards.
-- **Features**:
-  - Supports JSON, YAML, and INI file validation
-  - Schema-based validation for strict compliance
-  - Generates detailed validation reports
+- **`error_handler.py`**: Provides standardized error handling.
+  - **Usage**: Import this module to implement consistent error handling.
+  - **Features**:
+    - Structured error reporting
+    - Error categorization
+    - Custom exception types
 
-### 5. `file_integrity_checker.sh`
-- **Description**: Monitors file changes to ensure integrity.
-- **Usage**: Run this script to detect unauthorized modifications.
-- **Features**:
-  - Hash-based file integrity checks
-  - Detection of permission changes
-  - Alerts for critical file modifications
+- **`logger.py`**: Provides a standardized logging interface.
+  - **Usage**: Import this module to implement consistent logging.
+  - **Features**:
+    - Multiple log levels (DEBUG, INFO, WARNING, ERROR)
+    - Configurable log destinations
+    - Log rotation and management
 
-### 6. `security_audit.sh`
-- **Description**: Performs security audits to identify vulnerabilities and misconfigurations.
-- **Usage**: Run this script to generate a security audit report.
-- **Features**:
-  - Checks for outdated packages and security updates
-  - Scans for misconfigured permissions
-  - Generates detailed audit logs
+- **`notification.py`**: Sends notifications through various channels.
+  - **Usage**: Import this module to send notifications.
+  - **Features**:
+    - Multiple notification channels
+    - Templated notifications
+    - Notification priorities
+
+## Security Module
+
+The `security/` directory contains specific security-related functionality:
+
+- **`crypto.py`**: Provides cryptographic operations.
+  - **Usage**: Import this module for secure encryption and decryption.
+  - **Features**:
+    - Symmetric and asymmetric encryption
+    - Secure hash functions
+    - Key management
+
+- **`integrity_check.py`**: Ensures file integrity through hash verification.
+  - **Usage**: Import this module to verify file integrity.
+  - **Features**:
+    - Multiple hash algorithm support
+    - Automated verification
+    - Change detection
+
+- **`permissions.py`**: Manages file and resource permissions.
+  - **Usage**: Import this module to handle permission checks and changes.
+  - **Features**:
+    - Permission validation
+    - Secure permission setting
+    - Permission audit functions
+
+## System Module
+
+The `system/` directory contains functionality for system operations:
+
+- **`cloud_provider.py`**: Manages interactions with cloud providers.
+  - **Usage**: Import this module to interact with cloud services.
+  - **Features**:
+    - Multi-cloud provider support
+    - Cloud resource management
+    - Provider-specific functionality
+
+- **`resource_monitor.py`**: Monitors system resource usage.
+  - **Usage**: Import this module to track resource utilization.
+  - **Features**:
+    - CPU, memory, disk, and network monitoring
+    - Resource utilization alerts
+    - Performance metrics collection
+
+- **`system_info.py`**: Collects system information.
+  - **Usage**: Import this module to gather system details.
+  - **Features**:
+    - Hardware information collection
+    - Operating system details
+    - Network configuration data
 
 ## Best Practices
 
-- **Reusability**: Use `common_functions.sh` for shared functionality to avoid code duplication.
-- **Security**: Ensure scripts are executed with the least privilege required.
-- **Logging**: Review logs generated by these scripts regularly for anomalies.
+- **Reusability**: Import appropriate modules rather than duplicating functionality.
+- **Security**: Use security functions from the security module for all sensitive operations.
+- **Logging**: Use the logger module consistently for all log messages.
+- **Error Handling**: Implement proper error handling with the `error_handler` module.
+- **Configuration**: Use the `config_loader` to ensure consistent configuration management.
 - **Testing**: Test scripts in a staging environment before deploying to production.
-- **Validation**: Use `config_validator.sh` to validate configuration files before applying changes.
 
 ## Directory Structure
 
+```bash
+scripts/core/
+├── common.sh               # Common shell utility functions
+├── config_loader.py        # Configuration loading and validation
+├── environment.py          # Environment variable and settings management
+├── error_handler.py        # Standardized error handling
+├── logger.py               # Logging functionality
+├── notification.py         # Notification services
+├── README.md               # This documentation
+├── security/               # Security-related functionality
+│   ├── crypto.py           # Cryptographic operations
+│   ├── integrity_check.py  # File integrity verification
+│   └── permissions.py      # Permission management
+└── system/                 # System operation functionality
+    ├── cloud_provider.py   # Cloud provider interactions
+    ├── resource_monitor.py # System resource monitoring
+    └── system_info.py      # System information collection
 ```
-/scripts/core/
-├── apply_security_updates.sh   # Automates the application of security updates
-├── backup_manager.sh           # Manages backups for critical files and directories
-├── common/                     # Shared utilities and helper functions
-│   ├── config_loader.sh        # Loads environment-specific configuration files
-│   ├── logging_utils.sh        # Provides standardized logging functions
-│   └── validation_utils.sh     # Validates and sanitizes input data
-├── config_validator.sh         # Validates configuration files against schemas
-├── file_integrity_checker.sh   # Monitors file changes to ensure integrity
-├── security_audit.sh           # Performs security audits to identify vulnerabilities
-├── templates/                  # Template files for reports and configurations
-│   ├── config_validation_template.json  # JSON schema for configuration validation
-│   └── security_audit_template.html     # HTML template for security audit reports
+
+## Usage Examples
+
+### Python Modules
+
+```python
+# Using the logger
+from scripts.core.logger import Logger
+
+log = Logger.get_logger("my_module")
+log.info("Operation completed successfully")
+log.error("Failed to connect to service", exc_info=True)
+
+# Using configuration loader
+from scripts.core.config_loader import ConfigLoader
+
+config = ConfigLoader.load("config/app.yaml")
+database_url = config.get("database.url")
+
+# Using resource monitoring
+from scripts.core.system.resource_monitor import ResourceMonitor
+
+monitor = ResourceMonitor()
+cpu_usage = monitor.get_cpu_usage()
+if cpu_usage > 90:
+    monitor.send_alert("High CPU Usage", f"Current usage: {cpu_usage}%")
 ```
 
-### Subdirectory Descriptions
+### Shell Scripts
 
-#### `common/`
-- **`config_loader.sh`**: Loads configuration files based on the specified environment, ensuring consistent settings across scripts.
-- **`logging_utils.sh`**: Provides reusable logging functions with support for different log levels (INFO, WARNING, ERROR).
-- **`validation_utils.sh`**: Contains utilities for validating and sanitizing input data to prevent errors and security vulnerabilities.
+```bash
+# Source common shell functions
+source "$(dirname "$0")/../core/common.sh"
 
-#### `templates/`
-- **`config_validation_template.json`**: A JSON schema template used by `config_validator.sh` to validate configuration files.
-- **`security_audit_template.html`**: An HTML template used by `security_audit.sh` to generate detailed security audit reports.
-
-## Contributing
-
-If you want to contribute to these scripts:
-1. Follow the project's coding standards.
-2. Test your changes thoroughly.
-3. Submit a pull request with a detailed description of your changes.
+# Use functions from common.sh
+if command_exists "aws"; then
+    log_info "AWS CLI is available"
+else
+    log_error "AWS CLI not found"
+    exit 1
+fi
+```
 
 ## License
 
