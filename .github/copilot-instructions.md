@@ -117,13 +117,13 @@ All directories should include [README.md](http://readme.md/) with:
 
 ### Documentation Updates
 
-When changing code:
+When drafting or changing code:
 
 1. Update affected documentation to reflect new features
 2. Revise command-line options and parameters
 3. Update usage examples with accurate syntax
 4. Verify command flags match implementation
-5. Alphabetize file and directory listings
+5. Alphabetize all file listings and all directory/subdirectory listings
 
 ### Example README Structure
 
@@ -187,7 +187,7 @@ timeout=10                               # Optional: Request timeout in seconds 
 
 ## Script Enhancement Approach
 
-When enhancing code:
+When drafting or enhancing code:
 
 ### 1. Assessment
 
@@ -205,7 +205,7 @@ For any file type, look for similar areas for improvements. When multiple areas 
 
 Make changes following these principles:
 
-- Maintain backward compatibility
+- Maintain backward compatibility (if code is currently in use by other files)
 - Use defensive programming
 - Add validation and sanitization
 - Organize code into focused functions
@@ -224,6 +224,8 @@ curl_args=(-s -o /dev/null -w '%{time_total},%{http_code}' -X "$method")
 curl "${curl_args[@]}" "$url"
 
 ```
+
+Demonstrate a preference for referencing pre-existing code in other scripts/files before drafting duplicative code. If the code or something similar in behavior appears in multiple locations, consider extracting the code to its own separate script/function to be reusable to all files.
 
 ### 3. Review and Testing
 
