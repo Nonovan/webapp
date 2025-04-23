@@ -1,20 +1,18 @@
 #!/bin/bash
 # filepath: scripts/utils/testing/test_common_functions.sh
 #
-# Test utilities for common_functions.sh
+# Test suite for common_functions.sh
 #
-# This script provides specialized testing functions for the common_functions.sh
-# script and its modules. It builds upon the test_utils.sh framework to provide
-# specific utilities for testing the core functionality of common_functions.sh.
+# This script provides a simplified and more maintainable approach to testing
+# the functionality of common_functions.sh and its modules.
 #
-# Usage: source scripts/utils/testing/test_common_functions.sh
+# Usage: ./test_common_functions.sh [--verbose] [--focus test_name]
 
-# Set strict mode for better error detection
 set -o pipefail
 
 # Version tracking
-TEST_COMMON_FUNCTIONS_VERSION="1.0.0"
-TEST_COMMON_FUNCTIONS_DATE="2023-09-01"
+TEST_COMMON_FUNCTIONS_VERSION="2.0.0"
+TEST_COMMON_FUNCTIONS_DATE="2023-11-15"
 
 # Get script locations
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,61 +22,117 @@ PROJECT_ROOT="$(cd "$(dirname "$(dirname "$(dirname "$SCRIPT_DIR")")")" && pwd)"
 COMMON_FUNCTIONS_PATH="${PROJECT_ROOT}/scripts/utils/common_functions.sh"
 TEST_UTILS_PATH="${SCRIPT_DIR}/test_utils.sh"
 
-# First, load the general test utilities
+# Set default options
+VERBOSE=false
+FOCUS_TEST=""
+KEEP_TEMP=false
+FORMAT="text"
+OUTPUT_FILE=""
+EXIT_CODE=0
+
+# Test environment variables
+TEST_ENV_DIR="/tmp/common_functions_test_$(date +%s)"
+TEST_CONFIG_DIR="${TEST_ENV_DIR}/configs"
+TEST_MODULE_DIR="${TEST_ENV_DIR}/modules"
+MODULE_LIST=("core" "system" "advanced" "file_ops" "validation" "health" "network" "database" "cloud")
+
+#######################################
+# UTILITY FUNCTIONS
+#######################################
+
+# Load test utilities if available
 if [[ -f "$TEST_UTILS_PATH" ]]; then
     source "$TEST_UTILS_PATH"
 else
-    echo "Error: test_utils.sh not found at $TEST_UTILS_PATH" >&2
-    exit 1
+    echo "Warning: test_utils.sh not found at $TEST_UTILS_PATH"
+    echo "Basic testing functionality will still be available"
+
+    # Define minimal test utilities if not available
+    command_exists() { command -v "$1" &> /dev/null; }
+    log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$1] $2"; }
+    begin_test_group() { echo -e "\n=== $1 ==="; }
+    end_test_group() { echo -e "=== End ===\n"; }
 fi
 
-# Directory for isolated test environments
-TEST_ENV_DIR="/tmp/common_functions_test_$(date +%s)"
-
-# Configuration for module testing
-MODULE_LIST=("core" "system" "advanced" "file_ops" "validation" "health" "network" "database" "cloud")
-DEFAULT_TEST_TIMEOUT=30
-
-# Test environment setup variables
-TEST_CONFIG_DIR="${TEST_ENV_DIR}/configs"
-TEST_MODULE_DIR="${TEST_ENV_DIR}/modules"
-
-#######################################
-# TEST ENVIRONMENT SETUP FUNCTIONS
-#######################################
-
-# Setup a clean test environment
-# Arguments: None
-# Returns: 0 on success, 1 on failure
-setup_test_environment() {
-    log "INFO" "Setting up test environment"
-
-    # Create test directories
-    mkdir -p "$TEST_ENV_DIR" "$TEST_CONFIG_DIR" "$TEST_MODULE_DIR"
-
-    # Check if common_functions.sh exists
-    if [[ ! -f "$COMMON_FUNCTIONS_PATH" ]]; then
-        log "ERROR" "common_functions.sh not found at $COMMON_FUNCTIONS_PATH"
-        return 1
-    fi
-
-    # Create a test configuration file
-    create_test_config_file
-
-    # Setup isolated module directory structure
-    setup_module_directories
-
-    log "INFO" "Test environment setup complete"
-    return 0
+# Parse command line options
+parse_options() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --verbose|-v)
+                VERBOSE=true
+                shift
+                ;;
+            --focus|-f)
+                if [[ -n "$2" ]]; then
+                    FOCUS_TEST="$2"
+                    shift 2
+                else
+                    echo "Error: --focus requires a test function name"
+                    exit 1
+                fi
+                ;;
+            --keep-temp|-k)
+                KEEP_TEMP=true
+                shift
+                ;;
+            --format)
+                FORMAT="$2"
+                shift 2
+                ;;
+            --output|-o)
+                OUTPUT_FILE="$2"
+                shift 2
+                ;;
+            --help|-h)
+                show_usage
+                exit 0
+                ;;
+            *)
+                echo "Unknown option: $1"
+                echo "Use --help for usage information"
+                exit 1
+                ;;
+        esac
+    done
 }
 
-# Create a test configuration file
-# Arguments: None
-# Returns: 0 on success, 1 on failure
-create_test_config_file() {
-    local config_file="${TEST_CONFIG_DIR}/test_config.conf"
+# Show usage information
+show_usage() {
+    cat <<USAGE
+Usage: $(basename "$0") [OPTIONS]
 
-    cat > "$config_file" << EOF
+Test suite for common_functions.sh v${TEST_COMMON_FUNCTIONS_VERSION}
+
+OPTIONS:
+  --verbose, -v         Show more detailed output
+  --focus, -f NAME      Run only the specified test
+  --keep-temp, -k       Don't delete temporary test files
+  --format FORMAT       Output format: text, json, or junit
+  --output, -o FILE     Output file for test results
+  --help, -h            Show this help message
+
+Examples:
+  ./test_common_functions.sh
+  ./test_common_functions.sh --verbose
+  ./test_common_functions.sh --focus test_module_loading
+USAGE
+}
+
+#######################################
+# TEST ENVIRONMENT SETUP
+#######################################
+
+# Create test environment with all necessary directories
+setup_test_environment() {
+    if [[ "$VERBOSE" == "true" ]]; then
+        log "INFO" "Setting up test environment at $TEST_ENV_DIR"
+    fi
+
+    # Create test directories
+    mkdir -p "$TEST_CONFIG_DIR" "$TEST_MODULE_DIR/common"
+
+    # Create test configuration file
+    cat > "${TEST_CONFIG_DIR}/test_config.conf" << EOF
 # Test configuration file for common_functions.sh testing
 DEFAULT_LOG_DIR=${TEST_ENV_DIR}/logs
 DEFAULT_BACKUP_DIR=${TEST_ENV_DIR}/backups
@@ -89,33 +143,13 @@ PARALLEL_LOAD=true
 PARALLEL_LOAD_MAX=2
 EOF
 
-    if [[ $? -ne 0 ]]; then
-        log "ERROR" "Failed to create test config file"
-        return 1
-    fi
-
-    log "DEBUG" "Created test config at $config_file"
-    return 0
-}
-
-# Setup module directories for isolated testing
-# Arguments: None
-# Returns: 0 on success, 1 on failure
-setup_module_directories() {
-    mkdir -p "${TEST_MODULE_DIR}/common"
-
+    # Create mock modules for testing
     for module in "${MODULE_LIST[@]}"; do
-        log "DEBUG" "Setting up test module: $module"
         create_mock_module "$module"
     done
-
-    return 0
 }
 
-# Creates a mock module for testing
-# Arguments:
-#   $1 - Module name
-# Returns: 0 on success, 1 on failure
+# Create a mock module for testing
 create_mock_module() {
     local module="$1"
     local module_path="${TEST_MODULE_DIR}/common/common_${module}_utils.sh"
@@ -144,7 +178,7 @@ export -f get_${module}_utils_version
 export -f ${module}_test_function
 EOF
 
-    # Add logging function to core module
+    # Add core functionality to the core module
     if [[ "$module" == "core" ]]; then
         cat >> "$module_path" << EOF
 
@@ -161,15 +195,9 @@ error_exit() {
     return 1
 }
 
-# Warning function
-warn() {
-    log "\$1" "WARNING"
-}
-
-# Debug logging
-debug() {
-    log "\$1" "DEBUG"
-}
+# Warning and debug functions
+warn() { log "\$1" "WARNING"; }
+debug() { log "\$1" "DEBUG"; }
 
 # Export logging functions
 export -f log
@@ -179,7 +207,7 @@ export -f debug
 EOF
     fi
 
-    # Additional functions for validation module
+    # Add validation functions to validation module
     if [[ "$module" == "validation" ]]; then
         cat >> "$module_path" << EOF
 
@@ -207,302 +235,264 @@ export -f is_safe_path
 EOF
     fi
 
-    # Make the module executable
     chmod +x "$module_path"
-
-    return 0
 }
 
-# Cleanup test environment
-# Arguments: None
-# Returns: 0 on success, 1 on failure
+# Clean up test environment
 cleanup_test_environment() {
-    local keep_temp="${1:-false}"
-
-    if [[ "$keep_temp" != "true" ]]; then
-        log "INFO" "Cleaning up test environment"
+    if [[ "$KEEP_TEMP" != "true" ]]; then
+        if [[ "$VERBOSE" == "true" ]]; then
+            log "INFO" "Cleaning up test environment at $TEST_ENV_DIR"
+        fi
         rm -rf "$TEST_ENV_DIR"
     else
-        log "INFO" "Keeping test environment at $TEST_ENV_DIR"
+        log "INFO" "Keeping temporary files in $TEST_ENV_DIR"
     fi
-
-    return 0
 }
 
 #######################################
-# TEST MODULE FUNCTIONS
+# TEST CASES
 #######################################
 
-# Test module loading
-# Arguments:
-#   $1 - Module name
-#   $2 - Additional args for common_functions.sh (optional)
-# Returns: 0 if module loaded successfully, 1 otherwise
-test_module_load() {
-    local module="$1"
-    local extra_args="${2:-}"
-    local output
-    local exit_code
-
-    log "INFO" "Testing loading of module: $module"
-
-    # Create a temporary test script
-    local test_script="${TEST_ENV_DIR}/test_${module}_load.sh"
+# Test module loading functionality
+test_module_loading() {
+    local test_script="${TEST_ENV_DIR}/test_module_load.sh"
 
     cat > "$test_script" << EOF
 #!/bin/bash
-source "${COMMON_FUNCTIONS_PATH}" --quiet --module-path "${TEST_MODULE_DIR}" ${module} ${extra_args}
-if declare -f ${module}_test_function &>/dev/null; then
-    echo "SUCCESS: Module ${module} loaded"
+source "${COMMON_FUNCTIONS_PATH}" --quiet --module-path "${TEST_MODULE_DIR}" core
+if declare -f core_test_function &>/dev/null; then
+    echo "PASS: Core module loaded successfully"
     exit 0
 else
-    echo "FAILURE: Module ${module} not loaded"
+    echo "FAIL: Core module not loaded"
     exit 1
 fi
 EOF
-
     chmod +x "$test_script"
 
-    # Run the test script
-    output=$("$test_script" 2>&1)
-    exit_code=$?
-
-    if [[ $exit_code -eq 0 ]]; then
-        log "SUCCESS" "Module $module loaded successfully"
+    if $test_script; then
+        echo "✓ Module loading test passed"
         return 0
     else
-        log "ERROR" "Failed to load module $module: $output"
+        echo "✗ Module loading test failed"
+        EXIT_CODE=1
+        return 1
+    fi
+}
+
+# Test multiple module loading
+test_multiple_modules() {
+    local test_script="${TEST_ENV_DIR}/test_multiple_modules.sh"
+
+    cat > "$test_script" << EOF
+#!/bin/bash
+source "${COMMON_FUNCTIONS_PATH}" --quiet --module-path "${TEST_MODULE_DIR}" core,validation
+if declare -f core_test_function &>/dev/null && declare -f validation_test_function &>/dev/null; then
+    echo "PASS: Multiple modules loaded successfully"
+    exit 0
+else
+    echo "FAIL: Not all modules were loaded"
+    exit 1
+fi
+EOF
+    chmod +x "$test_script"
+
+    if $test_script; then
+        echo "✓ Multiple module loading test passed"
+        return 0
+    else
+        echo "✗ Multiple module loading test failed"
+        EXIT_CODE=1
         return 1
     fi
 }
 
 # Test dependency resolution between modules
-# Arguments:
-#   $1 - Module that depends on others
-#   $2 - Dependencies that should be loaded (comma-separated)
-# Returns: 0 if dependencies resolved correctly, 1 otherwise
 test_dependency_resolution() {
-    local module="$1"
-    local dependencies="$2"
-    local output
-    local exit_code
+    # Setup: Make advanced module depend on system
+    local advanced_path="${TEST_MODULE_DIR}/common/common_advanced_utils.sh"
+    local system_path="${TEST_MODULE_DIR}/common/common_system_utils.sh"
 
-    log "INFO" "Testing dependency resolution for module: $module"
+    # Backup original advanced module
+    cp "$advanced_path" "${advanced_path}.bak"
 
-    # Add dependency information to the module
-    local module_path="${TEST_MODULE_DIR}/common/common_${module}_utils.sh"
+    # Add dependency check
+    cat > "$advanced_path" << EOF
+#!/bin/bash
+# Check for system module dependency
+if ! declare -f system_test_function &>/dev/null; then
+    echo "Error: Required dependency system not loaded" >&2
+    exit 1
+fi
 
-    # Backup the original module
-    cp "$module_path" "${module_path}.bak"
+# Version tracking
+ADVANCED_UTILS_VERSION="1.0.0-test"
+ADVANCED_UTILS_DATE="$(date '+%Y-%m-%d')"
 
-    # Add dependency check to the module
-    IFS=',' read -ra deps <<< "$dependencies"
-    echo -e "\n# Check dependencies" >> "$module_path"
-    for dep in "${deps[@]}"; do
-        echo "if ! declare -f ${dep}_test_function &>/dev/null; then" >> "$module_path"
-        echo "    echo \"Error: Required dependency ${dep} not loaded\" >&2" >> "$module_path"
-        echo "    exit 1" >> "$module_path"
-        echo "fi" >> "$module_path"
-    done
+# Get version information
+get_advanced_utils_version() {
+    echo "\${ADVANCED_UTILS_VERSION} (\${ADVANCED_UTILS_DATE})"
+}
 
-    # Create a temporary test script
-    local test_script="${TEST_ENV_DIR}/test_${module}_deps.sh"
+# Test function to check if this module was loaded
+advanced_test_function() {
+    echo "advanced module loaded successfully (with system dependency)"
+    return 0
+}
+
+# Export functions
+export -f get_advanced_utils_version
+export -f advanced_test_function
+EOF
+    chmod +x "$advanced_path"
+
+    # Add function to system module that advanced will call
+    cat >> "$system_path" << EOF
+
+# Function required by advanced module
+get_system_info() {
+    echo "System info: Test Environment"
+    return 0
+}
+
+export -f get_system_info
+EOF
+
+    # Test script
+    local test_script="${TEST_ENV_DIR}/test_dependency.sh"
 
     cat > "$test_script" << EOF
 #!/bin/bash
-source "${COMMON_FUNCTIONS_PATH}" --quiet --module-path "${TEST_MODULE_DIR}" ${module}
-
-# Check if all dependencies were loaded
-success=true
-EOF
-
-    for dep in "${deps[@]}"; do
-        echo "if ! declare -f ${dep}_test_function &>/dev/null; then" >> "$test_script"
-        echo "    echo \"FAILURE: Dependency ${dep} was not loaded\"" >> "$test_script"
-        echo "    success=false" >> "$test_script"
-        echo "fi" >> "$test_script"
-    done
-
-    cat >> "$test_script" << EOF
-if [[ "\$success" == "true" ]]; then
-    echo "SUCCESS: All dependencies loaded correctly"
+source "${COMMON_FUNCTIONS_PATH}" --quiet --module-path "${TEST_MODULE_DIR}" advanced
+if declare -f system_test_function &>/dev/null && declare -f advanced_test_function &>/dev/null; then
+    echo "PASS: Dependency resolution worked correctly"
     exit 0
 else
+    echo "FAIL: Dependency resolution failed"
     exit 1
 fi
 EOF
-
     chmod +x "$test_script"
 
-    # Run the test script
-    output=$("$test_script" 2>&1)
-    exit_code=$?
-
-    # Restore the original module
-    mv "${module_path}.bak" "$module_path"
-
-    if [[ $exit_code -eq 0 ]]; then
-        log "SUCCESS" "Dependencies for module $module resolved correctly"
-        return 0
+    # Run test and restore original file
+    local result=0
+    if $test_script; then
+        echo "✓ Dependency resolution test passed"
     else
-        log "ERROR" "Dependency resolution failed for module $module: $output"
-        return 1
+        echo "✗ Dependency resolution test failed"
+        EXIT_CODE=1
+        result=1
     fi
+
+    # Restore original file
+    mv "${advanced_path}.bak" "$advanced_path"
+    return $result
 }
 
 # Test parallel module loading
-# Arguments:
-#   $1 - Modules to load in parallel (comma-separated)
-# Returns: 0 if parallel loading works, 1 otherwise
 test_parallel_loading() {
-    local modules="$1"
-    local output
+    # Only test if the shell supports job control
+    if ! jobs -p &>/dev/null; then
+        echo "⚠ Parallel loading test skipped (job control not supported)"
+        return 0
+    fi
 
-    log "INFO" "Testing parallel loading of modules: $modules"
+    # Check for bc command
+    if ! command_exists bc; then
+        echo "⚠ Parallel loading test skipped (bc command not available)"
+        return 0
+    fi
 
-    # Add sleeps to modules to ensure timing differences are detectable
-    for module in ${modules//,/ }; do
+    # Add delays to modules to make timing differences measurable
+    for module in core system validation file_ops; do
         local module_path="${TEST_MODULE_DIR}/common/common_${module}_utils.sh"
-        # Backup the original file
+        # Backup the file
         cp "$module_path" "${module_path}.bak"
-        # Add a sleep at the beginning
+        # Add sleep
         sed -i.tmp '1s/^/sleep 0.5\n/' "$module_path"
         rm -f "${module_path}.tmp"
     done
 
-    # Create test scripts for parallel and sequential loading
+    # Create test scripts
     local parallel_script="${TEST_ENV_DIR}/test_parallel_load.sh"
     local sequential_script="${TEST_ENV_DIR}/test_sequential_load.sh"
 
     cat > "$parallel_script" << EOF
 #!/bin/bash
 start_time=\$(date +%s.%N)
-source "${COMMON_FUNCTIONS_PATH}" --quiet --module-path "${TEST_MODULE_DIR}" --parallel ${modules}
+source "${COMMON_FUNCTIONS_PATH}" --quiet --module-path "${TEST_MODULE_DIR}" --parallel core,system,validation,file_ops
 end_time=\$(date +%s.%N)
-parallel_time=\$(echo "\$end_time - \$start_time" | bc 2>/dev/null || echo "0")
-echo "\$parallel_time"
-exit 0
+echo "\$(echo "\$end_time - \$start_time" | bc)"
 EOF
 
     cat > "$sequential_script" << EOF
 #!/bin/bash
 start_time=\$(date +%s.%N)
-source "${COMMON_FUNCTIONS_PATH}" --quiet --module-path "${TEST_MODULE_DIR}" ${modules}
+source "${COMMON_FUNCTIONS_PATH}" --quiet --module-path "${TEST_MODULE_DIR}" core,system,validation,file_ops
 end_time=\$(date +%s.%N)
-sequential_time=\$(echo "\$end_time - \$start_time" | bc 2>/dev/null || echo "0")
-echo "\$sequential_time"
-exit 0
+echo "\$(echo "\$end_time - \$start_time" | bc)"
 EOF
 
     chmod +x "$parallel_script" "$sequential_script"
 
-    # Run both scripts and get times
-    local parallel_time sequential_time
-    parallel_time=$("$parallel_script")
-    sequential_time=$("$sequential_script")
+    # Run tests
+    local parallel_time=$("$parallel_script")
+    local sequential_time=$("$sequential_script")
 
-    # Restore the original modules
-    for module in ${modules//,/ }; do
-        local module_path="${TEST_MODULE_DIR}/common/common_${module}_utils.sh"
-        mv "${module_path}.bak" "$module_path"
+    # Restore original modules
+    for module in core system validation file_ops; do
+        mv "${TEST_MODULE_DIR}/common/common_${module}_utils.sh.bak" "${TEST_MODULE_DIR}/common/common_${module}_utils.sh"
     done
 
     # Compare times
-    if command_exists bc; then
-        local time_diff=$(echo "$sequential_time - $parallel_time" | bc)
-        local is_faster=$(echo "$time_diff > 0.1" | bc)
+    local time_diff=$(echo "$sequential_time - $parallel_time" | bc)
+    local is_faster=$(echo "$time_diff > 0.1" | bc)
 
-        if [[ "$is_faster" -eq 1 ]]; then
-            log "SUCCESS" "Parallel loading was faster: $parallel_time vs $sequential_time"
-            return 0
-        else
-            log "WARNING" "Parallel loading was not significantly faster: $parallel_time vs $sequential_time"
-            # Return success anyway, as this can be environmentally dependent
-            return 0
-        fi
+    if [[ "$is_faster" -eq 1 ]]; then
+        echo "✓ Parallel loading test passed (saved $time_diff seconds)"
+        return 0
     else
-        log "WARNING" "Could not compare times accurately (bc not available)"
-        # We'll consider it a success as we can't reliably measure
+        echo "⚠ Parallel loading test inconclusive (parallel: $parallel_time, sequential: $sequential_time)"
         return 0
     fi
 }
 
-# Test configuration file loading
-# Arguments:
-#   $1 - Path to config file
-# Returns: 0 if config loaded correctly, 1 otherwise
+# Test config file loading
 test_config_file_loading() {
-    local config_file="$1"
-    local output
-    local exit_code
-
-    log "INFO" "Testing configuration file loading: $config_file"
-
-    # Create a temporary test script
     local test_script="${TEST_ENV_DIR}/test_config_load.sh"
 
     cat > "$test_script" << EOF
 #!/bin/bash
-source "${COMMON_FUNCTIONS_PATH}" --quiet --module-path "${TEST_MODULE_DIR}" --config "${config_file}"
+source "${COMMON_FUNCTIONS_PATH}" --quiet --module-path "${TEST_MODULE_DIR}" --config "${TEST_CONFIG_DIR}/test_config.conf"
 
-# Check if key settings were applied
-env_vars=(
-  "DEFAULT_LOG_DIR=${TEST_ENV_DIR}/logs"
-  "DEFAULT_BACKUP_DIR=${TEST_ENV_DIR}/backups"
-  "DEFAULT_ENVIRONMENT=test"
-)
-
-success=true
-for var in "\${env_vars[@]}"; do
-  key=\${var%%=*}
-  expected_value=\${var#*=}
-  actual_value=\${!key}
-
-  if [[ "\$actual_value" != "\$expected_value" ]]; then
-    echo "Config error: \$key expected '\$expected_value', got '\$actual_value'"
-    success=false
-  fi
-done
-
-# Check if modules were loaded
-if ! declare -f core_test_function &>/dev/null || ! declare -f validation_test_function &>/dev/null; then
-  echo "Config error: Modules were not loaded correctly"
-  success=false
-fi
-
-if [[ "\$success" == "true" ]]; then
-  echo "SUCCESS: Configuration loaded correctly"
-  exit 0
+# Check environment variables
+if [[ "\$DEFAULT_LOG_DIR" == "${TEST_ENV_DIR}/logs" &&
+      "\$DEFAULT_BACKUP_DIR" == "${TEST_ENV_DIR}/backups" &&
+      "\$DEFAULT_ENVIRONMENT" == "test" ]] &&
+   declare -f core_test_function &>/dev/null &&
+   declare -f validation_test_function &>/dev/null; then
+    echo "PASS: Configuration loaded correctly"
+    exit 0
 else
-  exit 1
+    echo "FAIL: Configuration not loaded correctly"
+    exit 1
 fi
 EOF
-
     chmod +x "$test_script"
 
-    # Run the test script
-    output=$("$test_script" 2>&1)
-    exit_code=$?
-
-    if [[ $exit_code -eq 0 ]]; then
-        log "SUCCESS" "Configuration file loaded correctly"
+    if $test_script; then
+        echo "✓ Config file loading test passed"
         return 0
     else
-        log "ERROR" "Configuration file loading failed: $output"
+        echo "✗ Config file loading test failed"
+        EXIT_CODE=1
         return 1
     fi
 }
 
-# Test error handling for non-existent modules
-# Arguments: None
-# Returns: 0 if error handling works, 1 otherwise
+# Test error handling
 test_error_handling() {
-    local output
-    local exit_code
-
-    log "INFO" "Testing error handling for non-existent modules"
-
-    # Create a temporary test script
     local test_script="${TEST_ENV_DIR}/test_error_handling.sh"
 
     cat > "$test_script" << EOF
@@ -511,218 +501,84 @@ output=\$(source "${COMMON_FUNCTIONS_PATH}" --quiet --module-path "${TEST_MODULE
 exit_code=\$?
 
 if [[ \$exit_code -ne 0 && "\$output" == *"not found"* || "\$output" == *"unknown"* || "\$output" == *"No module"* ]]; then
-  echo "SUCCESS: Error was correctly reported for non-existent module"
-  exit 0
+    echo "PASS: Error handling works correctly"
+    exit 0
 else
-  echo "FAILURE: Error handling did not work as expected"
-  echo "Exit code: \$exit_code"
-  echo "Output: \$output"
-  exit 1
+    echo "FAIL: Error handling failed"
+    exit 1
 fi
 EOF
-
     chmod +x "$test_script"
 
-    # Run the test script
-    output=$("$test_script" 2>&1)
-    exit_code=$?
-
-    if [[ $exit_code -eq 0 ]]; then
-        log "SUCCESS" "Error handling works correctly"
+    if $test_script; then
+        echo "✓ Error handling test passed"
         return 0
     else
-        log "ERROR" "Error handling test failed: $output"
+        echo "✗ Error handling test failed"
+        EXIT_CODE=1
         return 1
     fi
 }
 
-#######################################
-# TEST RUNNERS
-#######################################
+# Run all tests
+run_tests() {
+    # Set up test environment
+    setup_test_environment
 
-# Run a specific test by name
-# Arguments:
-#   $1 - Test name
-# Returns: 0 if test passes, 1 otherwise
-run_specific_test() {
-    local test_name="$1"
-
-    log "INFO" "Running specific test: $test_name"
-
-    # Check if the test function exists
-    if declare -f "$test_name" &>/dev/null; then
-        begin_test_group "$(echo "$test_name" | sed 's/^test_//')"
-        run_test "$test_name" "$test_name"
-        end_test_group
-        return 0
-    else
-        log "ERROR" "Test function not found: $test_name"
-        return 1
-    fi
-}
-
-# Run all common function tests
-# Arguments:
-#   $1 - Keep temp files flag (true/false, optional)
-# Returns: 0 if all tests pass, 1 if any test fails
-run_all_tests() {
-    local keep_temp="${1:-false}"
-
-    # Setup test environment
-    setup_test_environment || return 1
-
-    # Start the test group
     begin_test_group "Common Functions Tests"
 
-    # Run tests for core functionality
-    run_test "Module Loading (Core)" "test_module_load core"
-    run_test "Module Loading (Multiple)" "test_module_load 'core,validation'"
-    run_test "Dependency Resolution" "test_dependency_resolution advanced 'core,system'"
-    run_test "Parallel Loading" "test_parallel_loading 'core,system,validation,file_ops'"
-    run_test "Configuration File" "test_config_file_loading '${TEST_CONFIG_DIR}/test_config.conf'"
-    run_test "Error Handling" "test_error_handling"
+    # Determine which tests to run
+    if [[ -n "$FOCUS_TEST" ]]; then
+        if declare -f "$FOCUS_TEST" &>/dev/null; then
+            echo "Running only test: $FOCUS_TEST"
+            "$FOCUS_TEST"
+        else
+            echo "Error: Test function not found: $FOCUS_TEST"
+            echo "Available test functions:"
+            declare -F | grep -E "test_" | awk '{print $3}'
+            EXIT_CODE=1
+        fi
+    else
+        # Run all tests
+        echo "Running all tests..."
+        test_module_loading
+        test_multiple_modules
+        test_dependency_resolution
+        test_parallel_loading
+        test_config_file_loading
+        test_error_handling
+    fi
 
-    # End test group
     end_test_group
 
-    # Generate test report
-    generate_test_report
+    # Clean up
+    cleanup_test_environment
 
-    # Cleanup
-    cleanup_test_environment "$keep_temp"
-
-    # Return overall status
-    if [[ $TESTS_FAILED -eq 0 ]]; then
-        log "SUCCESS" "All tests passed! 🎉"
-        return 0
+    # Output results
+    if [[ $EXIT_CODE -eq 0 ]]; then
+        echo -e "\n✅ All tests passed!"
     else
-        log "ERROR" "Some tests failed! ❌"
-        return 1
+        echo -e "\n❌ Some tests failed!"
     fi
+
+    # If we have test_utils.sh, try to generate a report
+    if declare -f generate_test_report &>/dev/null; then
+        generate_test_report "$FORMAT" "$OUTPUT_FILE"
+    elif [[ -n "$OUTPUT_FILE" ]]; then
+        echo "Warning: Cannot generate detailed report without test_utils.sh"
+    fi
+
+    return $EXIT_CODE
 }
 
 #######################################
 # MAIN
 #######################################
 
-# Show script usage
-show_usage() {
-    cat <<EOF
-USAGE: $(basename "$0") [OPTIONS]
+# Parse command line options
+parse_options "$@"
 
-Test utilities for common_functions.sh v$TEST_COMMON_FUNCTIONS_VERSION
+# Run tests
+run_tests
 
-OPTIONS:
-  --test=NAME, -t NAME     Run a specific test by name
-  --verbose, -v            Show more detailed output
-  --keep-temp, -k          Keep temporary test files
-  --report=FORMAT, -r FMT  Report format: text, json, or junit (default: text)
-  --output=FILE, -o FILE   Save test results to FILE
-  --help, -h               Show this help message
-
-EXAMPLES:
-  # Run all tests
-  $(basename "$0")
-
-  # Run all tests with detailed output
-  $(basename "$0") --verbose
-
-  # Run specific test
-  $(basename "$0") --test=test_module_load
-
-  # Generate a JUnit XML report
-  $(basename "$0") --report=junit --output=common_functions_test_results.xml
-EOF
-}
-
-# Parse command line arguments
-parse_test_args() {
-    local specific_test=""
-    local keep_temp=false
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --test=*)
-                specific_test="${1#*=}"
-                shift
-                ;;
-            -t|--test)
-                if [[ -n "$2" && "$2" != -* ]]; then
-                    specific_test="$2"
-                    shift 2
-                else
-                    log "ERROR" "Option --test requires an argument"
-                    exit 1
-                fi
-                ;;
-            --verbose|-v)
-                VERBOSE=true
-                shift
-                ;;
-            --keep-temp|-k)
-                keep_temp=true
-                shift
-                ;;
-            --report=*)
-                OUTPUT_FORMAT="${1#*=}"
-                shift
-                ;;
-            -r|--report)
-                if [[ -n "$2" && "$2" =~ ^(text|json|junit)$ ]]; then
-                    OUTPUT_FORMAT="$2"
-                    shift 2
-                else
-                    log "ERROR" "Option --report requires an argument: text, json, or junit"
-                    exit 1
-                fi
-                ;;
-            --output=*)
-                OUTPUT_FILE="${1#*=}"
-                shift
-                ;;
-            -o|--output)
-                if [[ -n "$2" ]]; then
-                    OUTPUT_FILE="$2"
-                    shift 2
-                else
-                    log "ERROR" "Option --output requires an argument"
-                    exit 1
-                fi
-                ;;
-            --help|-h)
-                show_usage
-                exit 0
-                ;;
-            *)
-                log "ERROR" "Unknown option: $1"
-                show_usage
-                exit 1
-                ;;
-        esac
-    done
-
-    # Run tests
-    if [[ -n "$specific_test" ]]; then
-        run_specific_test "$specific_test"
-    else
-        run_all_tests "$keep_temp"
-    fi
-}
-
-# Export test functions
-export -f setup_test_environment
-export -f cleanup_test_environment
-export -f create_mock_module
-export -f test_module_load
-export -f test_dependency_resolution
-export -f test_parallel_loading
-export -f test_config_file_loading
-export -f test_error_handling
-export -f run_specific_test
-export -f run_all_tests
-
-# If script is executed directly, run the tests
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    parse_test_args "$@"
-    exit $?
-fi
+exit $EXIT_CODE

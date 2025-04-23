@@ -10,19 +10,25 @@
 #
 # Usage: source scripts/utils/testing/test_utils.sh
 
-# Set strict mode
+
+# Set strict mode for better error detection
 set -o pipefail
+set -o nounset
 
 # Version tracking
 TEST_UTILS_VERSION="1.0.0"
-TEST_UTILS_DATE="2023-08-15"
+TEST_UTILS_DATE="2023-11-30"
 
-# Script locations
+# Script locations with more robust path handling
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$(dirname "$(dirname "$(dirname "$SCRIPT_DIR")")")" && pwd)"
 
 # Path to common functions
 COMMON_FUNCTIONS_PATH="${PROJECT_ROOT}/scripts/utils/common_functions.sh"
+
+#######################################
+# ENVIRONMENT & CONFIGURATION
+#######################################
 
 # Test output formatting
 BOLD='\033[1m'
@@ -31,7 +37,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
-NC='\033[0m'
+NC='\033[0m' # No Color
 
 # Test counters
 TESTS_TOTAL=0
@@ -47,7 +53,7 @@ COVERAGE_DATA=()
 TEST_START_TIME=0
 TEST_TOTAL_TIME=0
 
-# Test output settings
+# Test output settings with better default assignments
 VERBOSE=${VERBOSE:-false}
 QUIET=${QUIET:-false}
 OUTPUT_FORMAT=${OUTPUT_FORMAT:-"text"}  # Options: text, json, junit
@@ -59,11 +65,20 @@ EXIT_ON_FAILURE=${EXIT_ON_FAILURE:-false}
 #######################################
 
 # Check if a command exists
+# Arguments:
+#   $1 - Command to check
+# Returns:
+#   0 if command exists, 1 otherwise
 command_exists() {
   command -v "$1" &> /dev/null
 }
 
 # Log a message if not in quiet mode
+# Arguments:
+#   $1 - Log level (INFO, SUCCESS, WARN, ERROR, DEBUG)
+#   $2 - Message to log
+# Returns:
+#   None
 log() {
   local level="$1"
   local message="$2"
@@ -80,15 +95,43 @@ log() {
 
   # Skip debug messages unless verbose mode is enabled
   if [[ "$level" == "DEBUG" && "$VERBOSE" != "true" ]]; then
-    return
+    return 0
   fi
 
   # Skip all messages if quiet mode is enabled, except for errors
   if [[ "$QUIET" == "true" && "$level" != "ERROR" ]]; then
-    return
+    return 0
   fi
 
   echo -e "${color}[$(date '+%Y-%m-%d %H:%M:%S')] [$level] $message${NC}" >&2
+}
+
+# Create a temporary directory with proper error handling
+# Returns:
+#   Path to the temporary directory or exits with error
+create_temp_dir() {
+  local temp_dir
+  temp_dir=$(mktemp -d 2>/dev/null || mktemp -d -t 'test_utils_temp')
+
+  if [[ ! -d "$temp_dir" ]]; then
+    log "ERROR" "Failed to create temporary directory"
+    exit 1
+  fi
+
+  echo "$temp_dir"
+}
+
+# Safely remove a directory
+# Arguments:
+#   $1 - Directory path to remove
+# Returns:
+#   None
+safe_rm_dir() {
+  local dir="$1"
+
+  if [[ -d "$dir" && "$dir" == /tmp/* ]]; then
+    rm -rf "$dir" 2>/dev/null || log "WARN" "Failed to remove directory: $dir"
+  fi
 }
 
 #######################################
@@ -96,6 +139,10 @@ log() {
 #######################################
 
 # Begin a test group
+# Arguments:
+#   $1 - Group name
+# Returns:
+#   None
 begin_test_group() {
   CURRENT_GROUP="$1"
   TEST_GROUPS+=("$CURRENT_GROUP")
@@ -103,6 +150,10 @@ begin_test_group() {
 }
 
 # End current test group
+# Arguments:
+#   None
+# Returns:
+#   None
 end_test_group() {
   local group_name="${CURRENT_GROUP:-Unknown group}"
   log "INFO" "Finished test group: $group_name"
@@ -113,6 +164,9 @@ end_test_group() {
 # Arguments:
 #   $1 - Test name
 #   $2 - Test function or command to run
+#   $3 - Optional flag to skip the test (default: false)
+# Returns:
+#   None - Updates global test counters
 run_test() {
   local test_name="$1"
   local test_cmd="$2"
@@ -121,7 +175,8 @@ run_test() {
   local full_test_name="${CURRENT_GROUP:+$CURRENT_GROUP: }$test_name"
   local test_result="PASS"
   local test_message=""
-  local test_start=$(date +%s.%N)
+  local test_start
+  test_start=$(date +%s.%N 2>/dev/null || date +%s)
 
   ((TESTS_TOTAL++))
 
@@ -134,14 +189,15 @@ run_test() {
     log "WARN" "⚠️ SKIPPED: $full_test_name - $test_message"
   else
     # Create isolated test directory
-    local test_dir="/tmp/test_utils_${TESTS_TOTAL}_$(date +%s)"
-    mkdir -p "$test_dir"
+    local test_dir
+    test_dir=$(create_temp_dir)
 
     # Run the test in a subshell to isolate it
     local output_file="$test_dir/output.txt"
     local error_file="$test_dir/error.txt"
 
-    if ( eval "$test_cmd" > "$output_file" 2> "$error_file" ); then
+    # Use eval with appropriate error handling
+    if ( set -o pipefail; eval "$test_cmd" > "$output_file" 2> "$error_file" ); then
       ((TESTS_PASSED++))
       log "SUCCESS" "✅ PASSED: $full_test_name"
       test_result="PASS"
@@ -158,35 +214,44 @@ run_test() {
       test_result="FAIL"
 
       if [[ "$EXIT_ON_FAILURE" == "true" ]]; then
-        rm -rf "$test_dir"
+        safe_rm_dir "$test_dir"
         log "ERROR" "Exiting due to test failure"
         exit 1
       fi
     fi
 
     # Clean up
-    rm -rf "$test_dir"
+    safe_rm_dir "$test_dir"
   fi
 
   # Calculate test duration
-  local test_end=$(date +%s.%N)
-  local duration=$(echo "$test_end - $test_start" | bc)
+  local test_end
+  test_end=$(date +%s.%N 2>/dev/null || date +%s)
+  local duration
+  duration=$(echo "$test_end - $test_start" | bc 2>/dev/null || echo "0")
 
   # Store test result
   TEST_RESULTS+=("$full_test_name|$test_result|$duration|$test_message")
 
   # Track file coverage if relevant
   if [[ "$test_cmd" == *"source "* ]]; then
-    local file=$(echo "$test_cmd" | grep -o "source [^ ]*" | cut -d' ' -f2)
+    local file
+    file=$(echo "$test_cmd" | grep -o "source [^ ]*" | cut -d' ' -f2)
     COVERAGE_DATA+=("$file")
   fi
 }
+
+#######################################
+# ASSERTION METHODS
+#######################################
 
 # Assert that two values are equal
 # Arguments:
 #   $1 - Actual value
 #   $2 - Expected value
 #   $3 - Optional message
+# Returns:
+#   0 if values are equal, 1 otherwise
 assert_equals() {
   local actual="$1"
   local expected="$2"
@@ -207,6 +272,8 @@ assert_equals() {
 #   $1 - String to search in
 #   $2 - Substring to search for
 #   $3 - Optional message
+# Returns:
+#   0 if string contains substring, 1 otherwise
 assert_contains() {
   local string="$1"
   local substring="$2"
@@ -225,6 +292,8 @@ assert_contains() {
 # Assert that a command succeeds
 # Arguments:
 #   $@ - Command and its arguments
+# Returns:
+#   0 if command succeeds, 1 otherwise
 assert_success() {
   local exit_code=0
   local output
@@ -243,6 +312,8 @@ assert_success() {
 # Assert that a command fails
 # Arguments:
 #   $@ - Command and its arguments
+# Returns:
+#   0 if command fails, 1 otherwise
 assert_fails() {
   local exit_code=0
   local output
@@ -262,6 +333,8 @@ assert_fails() {
 # Arguments:
 #   $1 - File path
 #   $2 - Optional message
+# Returns:
+#   0 if file exists, 1 otherwise
 assert_file_exists() {
   local file="$1"
   local message="${2:-File should exist}"
@@ -279,6 +352,8 @@ assert_file_exists() {
 # Arguments:
 #   $1 - Directory path
 #   $2 - Optional message
+# Returns:
+#   0 if directory exists, 1 otherwise
 assert_dir_exists() {
   local dir="$1"
   local message="${2:-Directory should exist}"
@@ -288,6 +363,34 @@ assert_dir_exists() {
   else
     echo "Assertion failed: $message" >&2
     echo "Directory does not exist: $dir" >&2
+    return 1
+  fi
+}
+
+# Assert that a file contains a specific string
+# Arguments:
+#   $1 - File path
+#   $2 - String to search for
+#   $3 - Optional message
+# Returns:
+#   0 if file contains string, 1 otherwise
+assert_file_contains() {
+  local file="$1"
+  local search_string="$2"
+  local message="${3:-File should contain the specified string}"
+
+  if [[ ! -f "$file" ]]; then
+    echo "Assertion failed: File does not exist" >&2
+    echo "File path: $file" >&2
+    return 1
+  fi
+
+  if grep -q "$search_string" "$file"; then
+    return 0
+  else
+    echo "Assertion failed: $message" >&2
+    echo "File: $file" >&2
+    echo "Does not contain: '$search_string'" >&2
     return 1
   fi
 }
@@ -303,9 +406,9 @@ assert_dir_exists() {
 #   Path to the mock directory
 create_mock_environment() {
   local name="$1"
-  local mock_dir="/tmp/test_utils_mock_${name}_$(date +%s)"
+  local mock_dir
+  mock_dir=$(create_temp_dir)
 
-  mkdir -p "$mock_dir"
   echo "$mock_dir"
 }
 
@@ -313,28 +416,43 @@ create_mock_environment() {
 # Arguments:
 #   $1 - Path to the mock file
 #   $2 - Content for the file
+# Returns:
+#   0 on success, 1 on failure
 create_mock_file() {
   local file_path="$1"
   local content="$2"
 
-  mkdir -p "$(dirname "$file_path")"
-  echo "$content" > "$file_path"
+  mkdir -p "$(dirname "$file_path")" || {
+    echo "Failed to create directory for mock file: $(dirname "$file_path")" >&2
+    return 1
+  }
+
+  echo "$content" > "$file_path" || {
+    echo "Failed to write content to mock file: $file_path" >&2
+    return 1
+  }
 
   if [[ "$file_path" == *.sh ]]; then
-    chmod +x "$file_path"
+    chmod +x "$file_path" || {
+      echo "Failed to make mock script executable: $file_path" >&2
+      return 1
+    }
   fi
+
+  return 0
 }
 
 # Create a mock function that replaces a real command
 # Arguments:
 #   $1 - Command to mock
 #   $2 - Script content to execute instead
+# Returns:
+#   Path to the mock directory
 mock_command() {
   local cmd="$1"
   local script="$2"
-  local mock_dir="/tmp/test_utils_mock_bin_$(date +%s)"
-
-  mkdir -p "$mock_dir"
+  local mock_dir
+  mock_dir=$(create_temp_dir)
 
   # Create mock script
   echo "#!/bin/bash" > "$mock_dir/$cmd"
@@ -350,15 +468,19 @@ mock_command() {
 # Remove a mock command
 # Arguments:
 #   $1 - Path returned by mock_command
+# Returns:
+#   0 on success, 1 on failure
 remove_mock_command() {
   local mock_dir="$1"
 
   if [[ -d "$mock_dir" ]]; then
-    rm -rf "$mock_dir"
+    safe_rm_dir "$mock_dir"
   fi
 
   # Restore original PATH
   export PATH=$(echo "$PATH" | sed "s|${mock_dir}:||")
+
+  return 0
 }
 
 #######################################
@@ -368,8 +490,16 @@ remove_mock_command() {
 # Check if a port is available
 # Arguments:
 #   $1 - Port number to check
+# Returns:
+#   0 if port is available, 1 if in use or error
 port_is_available() {
   local port="$1"
+
+  if ! [[ "$port" =~ ^[0-9]+$ ]]; then
+    echo "Invalid port number: $port" >&2
+    return 1
+  fi
+
   ! (echo > "/dev/tcp/127.0.0.1/$port") 2>/dev/null
 }
 
@@ -378,9 +508,17 @@ port_is_available() {
 #   An available port number
 find_available_port() {
   local port=0
+  local max_attempts=50
+  local attempt=0
 
   while [[ $port -eq 0 || ! $(port_is_available "$port") ]]; do
     port=$((10000 + RANDOM % 50000))
+    ((attempt++))
+
+    if [[ $attempt -ge $max_attempts ]]; then
+      echo "Failed to find available port after $max_attempts attempts" >&2
+      return 1
+    fi
   done
 
   echo "$port"
@@ -391,18 +529,22 @@ find_available_port() {
 #   $1 - Host
 #   $2 - Port
 #   $3 - Timeout in seconds (optional, default: 30)
+# Returns:
+#   0 if service becomes available, 1 on timeout
 wait_for_port() {
   local host="$1"
   local port="$2"
   local timeout="${3:-30}"
-  local start_time=$(date +%s)
+  local start_time
+  start_time=$(date +%s)
 
   while true; do
     if (echo > "/dev/tcp/$host/$port") 2>/dev/null; then
       return 0
     fi
 
-    local current_time=$(date +%s)
+    local current_time
+    current_time=$(date +%s)
     if (( current_time - start_time >= timeout )); then
       log "ERROR" "Timed out waiting for $host:$port to become available"
       return 1
@@ -420,6 +562,8 @@ wait_for_port() {
 # Arguments:
 #   $1 - Output format (text, json, junit)
 #   $2 - Output file path (optional)
+# Returns:
+#   0 on success, 1 on failure
 generate_test_report() {
   local format="${1:-$OUTPUT_FORMAT}"
   local output_file="${2:-$OUTPUT_FILE}"
@@ -435,11 +579,15 @@ generate_test_report() {
       generate_text_report "$output_file"
       ;;
   esac
+
+  return $?
 }
 
 # Generate a text report
 # Arguments:
 #   $1 - Output file path (optional)
+# Returns:
+#   0 on success, 1 on failure
 generate_text_report() {
   local output_file="$1"
   local temp_file
@@ -447,6 +595,10 @@ generate_text_report() {
   # Use a temp file if output file is specified
   if [[ -n "$output_file" ]]; then
     temp_file=$(mktemp)
+    if [[ ! -f "$temp_file" ]]; then
+      log "ERROR" "Failed to create temporary file for report"
+      return 1
+    fi
   else
     temp_file="/dev/stdout"
   fi
@@ -483,14 +635,14 @@ generate_text_report() {
 
       # Print test result
       local test_name="${name#*: }"
-      local status_color
+      local status_text
       case "$status" in
-        "PASS") status_color="[PASS]  " ;;
-        "FAIL") status_color="[FAIL]  " ;;
-        "SKIP") status_color="[SKIP]  " ;;
+        "PASS") status_text="[PASS]  " ;;
+        "FAIL") status_text="[FAIL]  " ;;
+        "SKIP") status_text="[SKIP]  " ;;
       esac
 
-      echo "$status_color $test_name (${duration}s)"
+      echo "$status_text $test_name (${duration}s)"
       if [[ -n "$message" && "$status" != "PASS" ]]; then
         echo "         $message"
       fi
@@ -502,30 +654,46 @@ generate_text_report() {
     echo "========================================"
 
     # Get unique files covered
-    local covered_files=()
+    declare -A unique_files
     for file in "${COVERAGE_DATA[@]}"; do
-      if [[ ! " ${covered_files[*]} " =~ " ${file} " ]]; then
-        covered_files+=("$file")
-      fi
+      unique_files["$file"]=1
     done
 
-    echo "Files covered: ${#covered_files[@]}"
-    for file in "${covered_files[@]}"; do
+    echo "Files covered: ${#unique_files[@]}"
+    for file in "${!unique_files[@]}"; do
       echo "- $file"
     done
+
+    echo
+    echo "Generated: $(date)"
 
   } > "$temp_file"
 
   # If output file is specified, move temp file to output file
   if [[ -n "$output_file" && "$temp_file" != "/dev/stdout" ]]; then
-    mkdir -p "$(dirname "$output_file")"
-    mv "$temp_file" "$output_file"
+    mkdir -p "$(dirname "$output_file")" || {
+      log "ERROR" "Failed to create directory for report: $(dirname "$output_file")"
+      rm -f "$temp_file"
+      return 1
+    }
+
+    mv "$temp_file" "$output_file" || {
+      log "ERROR" "Failed to write report to $output_file"
+      rm -f "$temp_file"
+      return 1
+    }
+
+    log "INFO" "Report written to $output_file"
   fi
+
+  return 0
 }
 
 # Generate a JSON report
 # Arguments:
 #   $1 - Output file path (optional)
+# Returns:
+#   0 on success, 1 on failure
 generate_json_report() {
   local output_file="$1"
   local temp_file
@@ -533,6 +701,10 @@ generate_json_report() {
   # Use a temp file if output file is specified
   if [[ -n "$output_file" ]]; then
     temp_file=$(mktemp)
+    if [[ ! -f "$temp_file" ]]; then
+      log "ERROR" "Failed to create temporary file for JSON report"
+      return 1
+    fi
   else
     temp_file="/dev/stdout"
   fi
@@ -544,7 +716,8 @@ generate_json_report() {
     echo "    \"passed\": $TESTS_PASSED,"
     echo "    \"failed\": $TESTS_FAILED,"
     echo "    \"skipped\": $TESTS_SKIPPED,"
-    echo "    \"time\": $TEST_TOTAL_TIME"
+    echo "    \"time\": $TEST_TOTAL_TIME,"
+    echo "    \"timestamp\": \"$(date -u "+%Y-%m-%dT%H:%M:%SZ")\""
     echo "  },"
     echo "  \"tests\": ["
 
@@ -579,8 +752,14 @@ generate_json_report() {
 
     echo "  \"coverage\": ["
 
+    # Get unique files
+    declare -A unique_files
+    for file in "${COVERAGE_DATA[@]}"; do
+      unique_files["$file"]=1
+    done
+
     first=true
-    for file in $(echo "${COVERAGE_DATA[@]}" | tr ' ' '\n' | sort -u); do
+    for file in "${!unique_files[@]}"; do
       if [[ "$first" == "true" ]]; then
         first=false
       else
@@ -598,14 +777,29 @@ generate_json_report() {
 
   # If output file is specified, move temp file to output file
   if [[ -n "$output_file" && "$temp_file" != "/dev/stdout" ]]; then
-    mkdir -p "$(dirname "$output_file")"
-    mv "$temp_file" "$output_file"
+    mkdir -p "$(dirname "$output_file")" || {
+      log "ERROR" "Failed to create directory for JSON report: $(dirname "$output_file")"
+      rm -f "$temp_file"
+      return 1
+    }
+
+    mv "$temp_file" "$output_file" || {
+      log "ERROR" "Failed to write JSON report to $output_file"
+      rm -f "$temp_file"
+      return 1
+    }
+
+    log "INFO" "JSON report written to $output_file"
   fi
+
+  return 0
 }
 
 # Generate a JUnit XML report
 # Arguments:
 #   $1 - Output file path (optional)
+# Returns:
+#   0 on success, 1 on failure
 generate_junit_report() {
   local output_file="$1"
   local temp_file
@@ -613,6 +807,10 @@ generate_junit_report() {
   # Use a temp file if output file is specified
   if [[ -n "$output_file" ]]; then
     temp_file=$(mktemp)
+    if [[ ! -f "$temp_file" ]]; then
+      log "ERROR" "Failed to create temporary file for JUnit report"
+      return 1
+    fi
   else
     temp_file="/dev/stdout"
   fi
@@ -622,73 +820,89 @@ generate_junit_report() {
     echo "<testsuites name=\"Cloud Infrastructure Platform Tests\" time=\"$TEST_TOTAL_TIME\" tests=\"$TESTS_TOTAL\" failures=\"$TESTS_FAILED\" skipped=\"$TESTS_SKIPPED\">"
 
     # Group tests by test group
-    local groups=()
-    local group_tests=()
+    declare -A groups
+    local all_groups=()
 
     for result in "${TEST_RESULTS[@]}"; do
       IFS='|' read -r name status duration message <<< "$result"
 
       local group="ungrouped"
-      local test_name="$name"
       if [[ "$name" == *": "* ]]; then
         group="${name%%: *}"
-        test_name="${name#*: }"
       fi
 
-      if [[ ! " ${groups[*]} " =~ " ${group} " ]]; then
-        groups+=("$group")
+      if [[ -z "${groups[$group]:-}" ]]; then
+        groups["$group"]=1
+        all_groups+=("$group")
       fi
-
-      group_tests+=("$group|$test_name|$status|$duration|$message")
     done
 
     # Output each test suite (group)
-    for group in "${groups[@]}"; do
+    for group in "${all_groups[@]}"; do
+      local group_tests=()
       local group_failures=0
       local group_skipped=0
       local group_total=0
       local group_time=0
 
-      # Count metrics for this group
-      for entry in "${group_tests[@]}"; do
-        IFS='|' read -r g name status duration message <<< "$entry"
+      # Collect tests for this group
+      for result in "${TEST_RESULTS[@]}"; do
+        IFS='|' read -r name status duration message <<< "$result"
 
-        if [[ "$g" != "$group" ]]; then
-          continue
+        local test_group="ungrouped"
+        local test_name="$name"
+        if [[ "$name" == *": "* ]]; then
+          test_group="${name%%: *}"
+          test_name="${name#*: }"
         fi
 
-        ((group_total++))
-        group_time=$(echo "$group_time + $duration" | bc)
+        if [[ "$test_group" == "$group" ]]; then
+          group_tests+=("$test_name|$status|$duration|$message")
+          ((group_total++))
 
-        if [[ "$status" == "FAIL" ]]; then
-          ((group_failures++))
-        elif [[ "$status" == "SKIP" ]]; then
-          ((group_skipped++))
+          # Safely add duration with bc or fallback
+          if command_exists bc; then
+            group_time=$(echo "$group_time + $duration" | bc 2>/dev/null || echo "$group_time")
+          else
+            group_time=$(( group_time + duration ))
+          fi
+
+          if [[ "$status" == "FAIL" ]]; then
+            ((group_failures++))
+          elif [[ "$status" == "SKIP" ]]; then
+            ((group_skipped++))
+          fi
         fi
       done
 
-      echo "  <testsuite name=\"$group\" tests=\"$group_total\" failures=\"$group_failures\" skipped=\"$group_skipped\" time=\"$group_time\">"
+      # Only output groups with tests
+      if [[ ${#group_tests[@]} -gt 0 ]]; then
+        echo "  <testsuite name=\"$group\" tests=\"$group_total\" failures=\"$group_failures\" skipped=\"$group_skipped\" time=\"$group_time\">"
 
-      # Output test cases for this group
-      for entry in "${group_tests[@]}"; do
-        IFS='|' read -r g name status duration message <<< "$entry"
+        # Output test cases for this group
+        for test in "${group_tests[@]}"; do
+          IFS='|' read -r name status duration message <<< "$test"
 
-        if [[ "$g" != "$group" ]]; then
-          continue
-        fi
+          # XML escape special characters
+          message="${message//&/&amp;}"
+          message="${message//</&lt;}"
+          message="${message//>/&gt;}"
+          message="${message//\"/&quot;}"
+          message="${message//\'/&apos;}"
 
-        echo "    <testcase name=\"$name\" classname=\"$group\" time=\"$duration\">"
+          echo "    <testcase name=\"$name\" classname=\"$group\" time=\"$duration\">"
 
-        if [[ "$status" == "FAIL" ]]; then
-          echo "      <failure message=\"${message//\"/\&quot;}\" type=\"failure\"></failure>"
-        elif [[ "$status" == "SKIP" ]]; then
-          echo "      <skipped message=\"${message//\"/\&quot;}\"></skipped>"
-        fi
+          if [[ "$status" == "FAIL" ]]; then
+            echo "      <failure message=\"$message\" type=\"failure\"></failure>"
+          elif [[ "$status" == "SKIP" ]]; then
+            echo "      <skipped message=\"$message\"></skipped>"
+          fi
 
-        echo "    </testcase>"
-      done
+          echo "    </testcase>"
+        done
 
-      echo "  </testsuite>"
+        echo "  </testsuite>"
+      fi
     done
 
     echo "</testsuites>"
@@ -697,9 +911,22 @@ generate_junit_report() {
 
   # If output file is specified, move temp file to output file
   if [[ -n "$output_file" && "$temp_file" != "/dev/stdout" ]]; then
-    mkdir -p "$(dirname "$output_file")"
-    mv "$temp_file" "$output_file"
+    mkdir -p "$(dirname "$output_file")" || {
+      log "ERROR" "Failed to create directory for JUnit report: $(dirname "$output_file")"
+      rm -f "$temp_file"
+      return 1
+    }
+
+    mv "$temp_file" "$output_file" || {
+      log "ERROR" "Failed to write JUnit report to $output_file"
+      rm -f "$temp_file"
+      return 1
+    }
+
+    log "INFO" "JUnit XML report written to $output_file"
   fi
+
+  return 0
 }
 
 #######################################
@@ -707,6 +934,10 @@ generate_junit_report() {
 #######################################
 
 # Parse command line arguments
+# Arguments:
+#   $@ - Command line arguments
+# Returns:
+#   0 on success, 1 on failure
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -719,12 +950,12 @@ parse_args() {
         shift
         ;;
       --output|-o)
-        if [[ -n "$2" ]]; then
+        if [[ -n "$2" && "$2" != -* ]]; then
           OUTPUT_FILE="$2"
           shift 2
         else
           log "ERROR" "Option --output requires an argument"
-          exit 1
+          return 1
         fi
         ;;
       --format|-f)
@@ -733,7 +964,7 @@ parse_args() {
           shift 2
         else
           log "ERROR" "Option --format requires an argument: text, json, or junit"
-          exit 1
+          return 1
         fi
         ;;
       --exit-on-failure|-x)
@@ -747,13 +978,19 @@ parse_args() {
       *)
         log "ERROR" "Unknown option: $1"
         show_usage
-        exit 1
+        return 1
         ;;
     esac
   done
+
+  return 0
 }
 
 # Show script usage
+# Arguments:
+#   None
+# Returns:
+#   None
 show_usage() {
   cat <<EOF
 USAGE: $(basename "$0") [OPTIONS]
@@ -774,6 +1011,9 @@ EXAMPLES:
 
   # Generate a JUnit XML report
   $(basename "$0") --format junit --output results.xml
+
+  # Run silently but exit on first failure
+  $(basename "$0") --quiet --exit-on-failure
 EOF
 }
 
@@ -782,14 +1022,21 @@ EOF
 #######################################
 
 # Main function to run all tests
+# Arguments:
+#   None
+# Returns:
+#   0 if all tests pass, 1 if any tests fail
 run_tests() {
   log "INFO" "Starting test execution"
 
-  local start_time=$(date +%s)
+  local start_time
+  start_time=$(date +%s)
 
   # Run tests here...
+  # This is a placeholder - specific tests should be added by the user
 
-  local end_time=$(date +%s)
+  local end_time
+  end_time=$(date +%s)
   TEST_TOTAL_TIME=$((end_time - start_time))
 
   log "INFO" "Completed test execution in ${TEST_TOTAL_TIME}s"
@@ -800,6 +1047,10 @@ run_tests() {
 }
 
 # Self-test function
+# Arguments:
+#   None
+# Returns:
+#   0 if all self-tests pass, 1 otherwise
 self_test() {
   begin_test_group "Self-Tests"
 
@@ -809,22 +1060,29 @@ self_test() {
   run_test "Failure assertion" 'assert_fails false'
 
   # Test mock functionality
-  local mock_dir=$(create_mock_environment "self_test")
+  local mock_dir
+  mock_dir=$(create_mock_environment "self_test")
   create_mock_file "$mock_dir/test.txt" "Hello world"
   run_test "Mock file creation" "test -f '$mock_dir/test.txt'"
 
   # Test mock command
-  local mock_bin=$(mock_command "custom_cmd" "echo 'This is a mock'")
+  local mock_bin
+  mock_bin=$(mock_command "custom_cmd" "echo 'This is a mock'")
   run_test "Mock command" "custom_cmd | grep -q 'This is a mock'"
   remove_mock_command "$mock_bin"
 
+  # Test file assertion
+  create_mock_file "$mock_dir/assert_file.txt" "Test content"
+  run_test "File exists assertion" "assert_file_exists '$mock_dir/assert_file.txt'"
+  run_test "File contains assertion" "assert_file_contains '$mock_dir/assert_file.txt' 'Test content'"
+
   # Clean up
-  rm -rf "$mock_dir"
+  safe_rm_dir "$mock_dir"
 
   end_test_group
 }
 
-# Export all public functions
+# Export all public functions for sourcing
 export -f begin_test_group
 export -f end_test_group
 export -f run_test
@@ -834,6 +1092,7 @@ export -f assert_success
 export -f assert_fails
 export -f assert_file_exists
 export -f assert_dir_exists
+export -f assert_file_contains
 export -f create_mock_environment
 export -f create_mock_file
 export -f mock_command
@@ -842,10 +1101,17 @@ export -f port_is_available
 export -f find_available_port
 export -f wait_for_port
 export -f generate_test_report
+export -f command_exists
+export -f log
+export -f create_temp_dir
+export -f safe_rm_dir
 
-# When executed directly, run self-test and example usage
+# When executed directly, run self-test
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  parse_args "$@"
+  if ! parse_args "$@"; then
+    exit 1
+  fi
+
   log "INFO" "Test utils v${TEST_UTILS_VERSION} (${TEST_UTILS_DATE})"
   self_test
   exit $?
