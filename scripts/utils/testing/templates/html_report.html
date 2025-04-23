@@ -1,0 +1,503 @@
+/html_report.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+    <!-- Security headers -->
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="X-Frame-Options" content="DENY">
+    <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
+    <meta http-equiv="Permissions-Policy" content="geolocation=(), camera=(), microphone=(), payment=()">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'nonce-{{csp_nonce}}'; style-src 'self' 'unsafe-inline';">
+
+    <title>{{report_title}} - Cloud Infrastructure Platform</title>
+
+    <style>
+        :root {
+            --primary-color: #0078d4;
+            --success-color: #27ae60;
+            --warning-color: #f39c12;
+            --danger-color: #e74c3c;
+            --info-color: #3498db;
+            --background-color: #f5f5f5;
+            --card-color: #ffffff;
+            --text-color: #333333;
+            --border-color: #dddddd;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            background-color: var(--background-color);
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background-color: var(--card-color);
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        h1, h2, h3, h4 {
+            color: var(--primary-color);
+            margin-top: 0;
+        }
+
+        h1 {
+            font-size: 24px;
+            border-bottom: 2px solid var(--primary-color);
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
+        h2 {
+            font-size: 20px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 8px;
+            margin: 25px 0 15px 0;
+        }
+
+        .metadata {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            background-color: rgba(0, 120, 212, 0.05);
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+
+        .metadata-item {
+            margin-right: 20px;
+            margin-bottom: 10px;
+        }
+
+        .metadata-label {
+            font-weight: bold;
+            margin-right: 5px;
+        }
+
+        .summary {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .summary-box {
+            flex: 1;
+            min-width: 150px;
+            background-color: var(--card-color);
+            border-radius: 5px;
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .summary-count {
+            font-size: 32px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+
+        .passed {
+            color: var(--success-color);
+        }
+
+        .failed {
+            color: var(--danger-color);
+        }
+
+        .skipped {
+            color: var(--warning-color);
+        }
+
+        .status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+
+        .status-passed {
+            background-color: rgba(39, 174, 96, 0.2);
+            color: var(--success-color);
+        }
+
+        .status-failed {
+            background-color: rgba(231, 76, 60, 0.2);
+            color: var(--danger-color);
+        }
+
+        .status-skipped {
+            background-color: rgba(243, 156, 18, 0.2);
+            color: var(--warning-color);
+        }
+
+        .section {
+            background-color: var(--card-color);
+            border-radius: 5px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background-color: rgba(0, 120, 212, 0.05);
+            font-weight: bold;
+        }
+
+        tr:hover {
+            background-color: rgba(0, 0, 0, 0.02);
+        }
+
+        .test-details {
+            background-color: rgba(0, 0, 0, 0.02);
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 5px;
+            white-space: pre-wrap;
+        }
+
+        .chart-container {
+            height: 300px;
+            margin-bottom: 20px;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding: 20px;
+            color: #7f8c8d;
+            font-size: 14px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .footer a {
+            color: var(--primary-color);
+            text-decoration: none;
+        }
+
+        .print-button {
+            padding: 10px 15px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 20px auto;
+            display: block;
+        }
+
+        /* Accessibility improvements */
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            margin: -1px;
+            padding: 0;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            border: 0;
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .summary {
+                flex-direction: column;
+            }
+
+            .summary-box {
+                min-width: 100%;
+            }
+
+            .metadata {
+                flex-direction: column;
+            }
+
+            table {
+                display: block;
+                overflow-x: auto;
+                white-space: nowrap;
+            }
+        }
+
+        /* Print styles */
+        @media print {
+            body {
+                background-color: white;
+                padding: 0;
+            }
+
+            .container {
+                max-width: 100%;
+                padding: 0;
+                margin: 0;
+            }
+
+            .section, header {
+                box-shadow: none;
+                border: 1px solid #ddd;
+                margin-bottom: 20px;
+            }
+
+            .no-print {
+                display: none !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>{{report_title}}</h1>
+            <div class="metadata">
+                <div class="metadata-item">
+                    <span class="metadata-label">Environment:</span>
+                    <span>{{environment}}</span>
+                </div>
+                <div class="metadata-item">
+                    <span class="metadata-label">Date:</span>
+                    <span>{{timestamp}}</span>
+                </div>
+                <div class="metadata-item">
+                    <span class="metadata-label">Duration:</span>
+                    <span>{{total_duration}}s</span>
+                </div>
+                <div class="metadata-item">
+                    <span class="metadata-label">Status:</span>
+                    <span class="status status-{{overall_status}}">{{overall_status}}</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="section">
+            <h2>Summary</h2>
+            <div class="summary">
+                <div class="summary-box">
+                    <div class="summary-label">Total</div>
+                    <div class="summary-count">{{total_tests}}</div>
+                    <div>Tests</div>
+                </div>
+                <div class="summary-box">
+                    <div class="summary-label">Passed</div>
+                    <div class="summary-count passed">{{passed_tests}}</div>
+                    <div>Tests</div>
+                </div>
+                <div class="summary-box">
+                    <div class="summary-label">Failed</div>
+                    <div class="summary-count failed">{{failed_tests}}</div>
+                    <div>Tests</div>
+                </div>
+                <div class="summary-box">
+                    <div class="summary-label">Skipped</div>
+                    <div class="summary-count skipped">{{skipped_tests}}</div>
+                    <div>Tests</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Detailed Results</h2>
+            <table aria-label="Test Results">
+                <thead>
+                    <tr>
+                        <th scope="col">Test Name</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Duration (s)</th>
+                        <th scope="col">Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{#tests}}
+                    <tr>
+                        <td>{{name}}</td>
+                        <td><span class="status status-{{status}}">{{status}}</span></td>
+                        <td>{{duration}}</td>
+                        <td>
+                            {{#message}}
+                            <div class="test-details">{{message}}</div>
+                            {{/message}}
+                        </td>
+                    </tr>
+                    {{/tests}}
+                </tbody>
+            </table>
+        </div>
+
+        {{#has_performance_data}}
+        <div class="section">
+            <h2>Performance Metrics</h2>
+            <div class="chart-container" id="performanceChart" aria-label="Performance metrics chart">
+                <!-- Chart will be inserted here by JavaScript -->
+            </div>
+            <table aria-label="Performance Metrics">
+                <thead>
+                    <tr>
+                        <th scope="col">Metric</th>
+                        <th scope="col">Average</th>
+                        <th scope="col">P90</th>
+                        <th scope="col">Max</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{#performance_metrics}}
+                    <tr>
+                        <td>{{name}}</td>
+                        <td>{{avg_value}}</td>
+                        <td>{{p90_value}}</td>
+                        <td>{{max_value}}</td>
+                    </tr>
+                    {{/performance_metrics}}
+                </tbody>
+            </table>
+        </div>
+        {{/has_performance_data}}
+
+        {{#has_failures}}
+        <div class="section">
+            <h2>Failures Analysis</h2>
+            <div class="failures-list">
+                {{#failures}}
+                <div class="failure-item">
+                    <h3>{{name}}</h3>
+                    <div class="test-details">{{details}}</div>
+                    {{#has_recommendation}}
+                    <p><strong>Recommendation:</strong> {{recommendation}}</p>
+                    {{/has_recommendation}}
+                </div>
+                {{/failures}}
+            </div>
+        </div>
+        {{/has_failures}}
+
+        <div class="footer">
+            <p>Generated by Cloud Infrastructure Platform Test Framework {{version}}</p>
+            <p>For more information, contact the DevOps team or visit the <a href="{{documentation_url}}">documentation portal</a>.</p>
+            <p class="no-print">Report generated on {{timestamp}}</p>
+        </div>
+    </div>
+
+    {{#has_performance_data}}
+    <script nonce="{{csp_nonce}}">
+        document.addEventListener('DOMContentLoaded', function() {
+            // Performance chart initialization
+            const chartContainer = document.getElementById('performanceChart');
+            if (chartContainer && typeof Chart !== 'undefined') {
+                try {
+                    const ctx = document.createElement('canvas');
+                    chartContainer.appendChild(ctx);
+
+                    // Parse performance data
+                    const metrics = {{performance_metrics_json}};
+
+                    // Create chart configuration
+                    const chartConfig = {
+                        type: 'bar',
+                        data: {
+                            labels: metrics.map(item => item.name),
+                            datasets: [
+                                {
+                                    label: 'Average',
+                                    data: metrics.map(item => item.avg_value),
+                                    backgroundColor: 'rgba(52, 152, 219, 0.5)'
+                                },
+                                {
+                                    label: 'P90',
+                                    data: metrics.map(item => item.p90_value),
+                                    backgroundColor: 'rgba(243, 156, 18, 0.5)'
+                                },
+                                {
+                                    label: 'Max',
+                                    data: metrics.map(item => item.max_value),
+                                    backgroundColor: 'rgba(231, 76, 60, 0.5)'
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false
+                        }
+                    };
+
+                    // Create the chart
+                    new Chart(ctx, chartConfig);
+                } catch (error) {
+                    console.error('Failed to initialize performance chart:', error);
+                    chartContainer.textContent = 'Chart initialization failed. See console for details.';
+                }
+            }
+        });
+    </script>
+    {{/has_performance_data}}
+
+    <script nonce="{{csp_nonce}}">
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add print button
+            const container = document.querySelector('.container');
+            const printButton = document.createElement('button');
+            printButton.textContent = 'Print/Save PDF';
+            printButton.className = 'print-button no-print';
+            printButton.setAttribute('aria-label', 'Print or save report as PDF');
+            printButton.addEventListener('click', function() {
+                window.print();
+            });
+            container.appendChild(printButton);
+
+            // Add interactivity to test result rows
+            const rows = document.querySelectorAll('tbody tr');
+            rows.forEach(row => {
+                const details = row.querySelector('.test-details');
+                if (details) {
+                    // Make row clickable only if it has details
+                    row.setAttribute('role', 'button');
+                    row.setAttribute('tabindex', '0');
+                    row.setAttribute('aria-expanded', 'false');
+                    row.setAttribute('aria-controls', 'detail-' + Math.random().toString(36).substring(2, 10));
+                    details.id = row.getAttribute('aria-controls');
+                    details.style.display = 'none';
+
+                    const toggleDetails = function() {
+                        const expanded = row.getAttribute('aria-expanded') === 'true';
+                        details.style.display = expanded ? 'none' : 'block';
+                        row.setAttribute('aria-expanded', !expanded);
+                    };
+
+                    row.addEventListener('click', toggleDetails);
+                    row.addEventListener('keydown', function(event) {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            toggleDetails();
+                        }
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>

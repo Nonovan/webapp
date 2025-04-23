@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="{{suite_name}}"
+             tests="{{tests}}"
+             failures="{{failures}}"
+             errors="{{errors}}"
+             skipped="{{skipped}}"
+             time="{{time}}"
+             timestamp="{{timestamp}}"
+             hostname="{{hostname}}"
+             id="{{testsuite_id}}">
+    <properties>
+      <property name="environment" value="{{environment}}"/>
+      <property name="platform" value="{{platform}}"/>
+      <property name="framework_version" value="{{framework_version}}"/>
+    </properties>
+{{testcases}}
+    <system-out><![CDATA[{{system_out}}]]></system-out>
+    <system-err><![CDATA[{{system_err}}]]></system-err>
+  </testsuite>
+</testsuites>
