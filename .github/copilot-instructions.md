@@ -89,6 +89,7 @@ This repository contains a Python Flask web application for cloud infrastructure
 ## Security Standards
 
 ### Core Security Principles
+
 - Follow the principle of least privilege
 - Validate all inputs, sanitize all outputs
 - Never hardcode sensitive data
@@ -97,6 +98,7 @@ This repository contains a Python Flask web application for cloud infrastructure
 - Apply consistent security controls across all components
 
 ### Authentication & Authorization
+
 - Implement multi-factor authentication for admin interfaces
 - Use OAuth 2.0 with PKCE for frontend/API authentication flows
 - Validate authorization at both client and server sides
@@ -104,24 +106,28 @@ This repository contains a Python Flask web application for cloud infrastructure
 - Implement proper session management with secure refresh mechanisms
 
 ### Data Protection
+
 - Use only approved cryptographic libraries and algorithms
 - Implement proper key management with rotation mechanisms
 - Apply envelope encryption for sensitive data storage
 - Use parameterized queries to prevent SQL injection
 
 ### API & Interface Security
+
 - Apply consistent security headers across all HTTP responses
 - Use structured error responses that don't leak implementation details
 - Implement rate limiting at multiple layers
 - Use standard security schemes in API documentation
 
 ### Security Architecture
+
 - Create reusable security primitives in a central `security` package
 - Implement decorator patterns for common security controls
 - Use security middleware for consistent enforcement
 - Implement circuit breakers for external service calls
 
 ### Security Monitoring
+
 - Log all security-relevant events with structured data
 - Use correlation IDs across all system components
 - Implement real-time alerting for suspicious activities
@@ -130,6 +136,7 @@ This repository contains a Python Flask web application for cloud infrastructure
 ## Enhanced Security Standards
 
 ### Credential Management
+
 - Use a centralized secret management system (e.g., HashiCorp Vault, AWS Secrets Manager)
 - Implement credential rotation policies with versioning support
 - Apply the principle of short-lived credentials where possible
@@ -137,21 +144,15 @@ This repository contains a Python Flask web application for cloud infrastructure
 - Implement just-in-time (JIT) access for privileged operations
 
 ### Code Security
+
 - Implement function-level permission checks for all sensitive operations
 - Use immutable data patterns to prevent unintended modifications
 - Apply defensive coding with input validation at all trust boundaries
 - Implement circuit breakers for external service calls
-- Use security headers consistently across all HTTP responses
 - Centralize security control implementation in reusable modules
 
-### Authentication & Authorization
-- Implement multi-factor authentication for all admin interfaces
-- Use OAuth 2.0 with PKCE for frontend/API authentication flows
-- Apply role-based access control with attribute-based constraints
-- Implement short session timeouts with secure refresh mechanisms
-- Validate authorization on both client and server sides
-
 ### Cryptography Standards
+
 - Use only approved cryptographic libraries and algorithms (AES-256-GCM, RSA-2048+, ECDSA P-256+)
 - Implement proper key management with separation of duties
 - Apply envelope encryption for sensitive data storage
@@ -159,15 +160,19 @@ This repository contains a Python Flask web application for cloud infrastructure
 - Implement secure key rotation mechanisms with versioning
 
 ### Code Structure and Reusability
+
 - Create a central `security` package with reusable security primitives
 - Implement decorator patterns for common security controls:
-  ```python
-  @require_permission('resource:action')
-  @audit_log
-  @rate_limit(limit=10, period=60)
-  def sensitive_operation():
-      # Implementation
-  ```
+
+    ```python
+    @require_permission('resource:action')
+    @audit_log
+    @rate_limit(limit=10, period=60)
+    def sensitive_operation():
+        # Implementation
+
+    ```
+
 - Use security middleware for consistent enforcement of controls
 - Implement security control factories for environment-specific implementations
 - Extract repeated security patterns into dedicated libraries
@@ -180,14 +185,6 @@ This repository contains a Python Flask web application for cloud infrastructure
 - Document all security configuration options with secure default values
 - Apply tiered security defaults based on environment (dev/staging/production)
 
-### Monitoring and Auditing
-
-- Implement comprehensive security event logging with structured data
-- Use correlation IDs across all system components
-- Apply non-repudiation techniques for audit trails
-- Implement real-time security alerting for suspicious activities
-- Maintain separate audit logs for security-relevant events
-
 ### API Security
 
 - Implement API gateway patterns with centralized security controls
@@ -198,114 +195,53 @@ This repository contains a Python Flask web application for cloud infrastructure
 
 ## Documentation Standards
 
-### Documentation Structure
+### README Structure
 
-All directories should include [README.md](http://readme.md/) with:
+Every directory should include a [README.md](http://readme.md/) with these sections:
 
-1. **Title & Overview**: Component name and purpose
-2. **Key Components**: Main files with descriptions (decscription, usage, features)
-3. **Configuration Files**: If applicable
-4. **Directory Structure**: Brief listing of contents including all files and subdirectories
-5. **Configuration**: Format and examples if applicable
-6. **Best Practices & Security**: Guidelines
-7. **Common Features**: Shared functionality
-8. **Usage**: Examples showing how to use components with working commands
-9. **Related Docs & Extending**: Links and guidelines
+1. **Title & Overview** - Component name and purpose
+2. **Key Components** - Main files with descriptions of usage and features
+3. **Directory Structure** - List of files and subdirectories with descriptions
+4. **Configuration** - Format and examples when applicable
+5. **Best Practices & Security** - Implementation guidelines
+6. **Common Features** - Shared functionality
+7. **Usage Examples** - Command examples with syntax
+8. **Related Documentation** - Links to additional resources
 
-### Documentation Format
+### Formatting Guidelines
 
-- Use markdown formatting:
-  - `**bold**` for file/script names
-  - `backticks` for inline code and `function_naming` references
-  - Code blocks with language specification (e.g., ```bash)
-  - Proper heading levels (#, ##, ###)
-  - Lists for items and steps
+- Use **bold** for file/script names
+- Use `backticks` for inline code and function names
+- Include language specifiers in code blocks (```python)
+- Follow proper heading hierarchy (#, ##, ###)
+- Use bullet lists for features and numbered lists for sequential steps
+- Set configuration examples in code blocks with comments for documentation:
 
-### Template Variables
+    ```
+    # Required settings
+    endpoint=https://api.example.com/v1  # API endpoint URL
 
-- Use `{{variable_name}}` format
-- Categorize by context (system, environment, metrics)
-- Provide examples of variable usage
+    # Optional settings
+    timeout=30  # Request timeout in seconds (default: 10)
+
+    ```
+
 
 ### Documentation Updates
 
-When drafting or changing code:
+When modifying code:
 
-1. Update affected documentation to reflect new features
-2. Revise command-line options and parameters
-3. Update usage examples with accurate syntax
-4. Verify command flags match implementation
-5. Alphabetize all file listings and all directory/subdirectory listings
+1. Update relevant documentation to reflect changes
+2. Ensure command examples match current implementation
+3. Verify parameter names and defaults are accurate
+4. Organize file/directory listings alphabetically
+5. Include security implications of changes
 
-### Example README Structure
+### Template Variables
 
-```markdown
-# Component Name
-
-## Overview
-Brief component description.
-
-## Key Scripts
-- **`script_a.py`**: Does X functionality
-  - **Usage**: Use this file to implement various functions of X
-  - **Features**:
-    - Exhibits feature #1
-    - Exhibits feature #2
-    - Exhibits feature #3
-
-- **`script_b.py`**: Handles Y processing
-  - **Usage**: Use this file to handle various processes of Y
-  - **Features**:
-    - Exhibits feature #1
-    - Exhibits feature #2
-
-## Directory Structure
-/directory/
-├── script_a.py            # Description
-├── script_b.py            # Description
-├── subdirectory/          # Subdirectory description
-│   ├── helper_a.py        # Description
-│   └── helper_b.py        # Description
-└── utils/                 # Utils description
-    └── common.py          # Description
-
-## Best Practices
-- Validate inputs
-- Use logging framework
-- Follow least privilege
-- Test in staging first
-- Use config files for environment-specific settings
-
-## Security Considerations
-- Use environment variables for credentials
-- Never hardcode API keys and sensitive parameters
-- Log for auditing
-
-## Common Features
-- Integration with central monitoring systems
-- Historical data collection and trend analysis
-
-## Usage
-./script_a.py --option value
-
-```
-
-### Configuration Documentation
-
-1. **List supported environments** alphabetically (development, staging, production)
-2. **Document environment-specific behaviors** or configurations
-3. **Provide environment-specific examples** where behavior differs
-4. **Document configuration sections** with examples:
-```ini
-[Service]
-# Service-specific settings
-endpoint=https://api.example.com/status  # Required: API endpoint URL
-interval=60                              # Optional: Check interval in seconds (default: 30)
-timeout=10                               # Optional: Request timeout in seconds (default: 5)
-
-```
-5. **Explain required vs. optional parameters** with default values
-6. **Document validation process** and provide troubleshooting tips
+- Use consistent `{{variable_name}}` format for templates
+- Group variables by context (system, environment, metrics)
+- Document all template variables with descriptions and examples
 
 ## Script Enhancement Approach
 
