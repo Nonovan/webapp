@@ -91,7 +91,7 @@ This repository contains a Python Flask web application for cloud infrastructure
 All directories should include [README.md](http://readme.md/) with:
 
 1. **Title & Overview**: Component name and purpose
-2. **Key Components**: Main files with descriptions
+2. **Key Components**: Main files with descriptions (decscription, usage, features)
 3. **Configuration Files**: If applicable
 4. **Directory Structure**: Brief listing of contents including all files and subdirectories
 5. **Configuration**: Format and examples if applicable
@@ -103,11 +103,11 @@ All directories should include [README.md](http://readme.md/) with:
 ### Documentation Format
 
 - Use markdown formatting:
-    - `*bold**` for file/script names
-    - `backticks` for inline code references
-    - Code blocks with language specification
-    - Proper heading levels (#, ##, ###)
-    - Lists for items and steps
+  - `*bold**` for file/script names
+  - `backticks` for inline code references
+  - Code blocks with language specification
+  - Proper heading levels (#, ##, ###)
+  - Lists for items and steps
 
 ### Template Variables
 
@@ -135,7 +135,17 @@ Brief component description.
 
 ## Key Scripts
 - **`script_a.py`**: Does X functionality
+- **Usage**: Use this file to implement various functions of X
+- **Features**:
+  - Exhibits feature #1
+  - Exhibits feature #2
+  - Exhibits feature #3
+
 - **`script_b.py`**: Handles Y processing
+- **Usage**: Use this file to handle various processes of Y
+- **Features**:
+  - Exhibits feature #1
+  - Exhibits feature #2
 
 ## Directory Structure
 /directory/
@@ -146,9 +156,6 @@ Brief component description.
 │   └── helper_b.py        # Description
 └── utils/                 # Utils description
     └── common.py          # Description
-
-## Usage
-./script_a.py --option value
 
 ## Best Practices
 - Validate inputs
@@ -165,6 +172,9 @@ Brief component description.
 ## Common Features
 - Integration with central monitoring systems
 - Historical data collection and trend analysis
+
+## Usage
+./script_a.py --option value
 
 ```
 
