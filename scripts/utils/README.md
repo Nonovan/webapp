@@ -24,7 +24,7 @@ This directory contains utility scripts for configuring, managing, and maintaini
 
 ## Directory Structure
 
-```
+```plaintext
 scripts/utils/
 ├── common_functions.sh          # Core functions script
 ├── env_setup.sh                 # Environment setup utility

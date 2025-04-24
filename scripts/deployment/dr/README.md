@@ -37,7 +37,7 @@ The disaster recovery scripts automate critical failover operations between prim
 
 ## Directory Structure
 
-```
+```plaintext
 scripts/deployment/dr/
 ├── dr-activate.sh        # DR infrastructure activation script
 ├── dr-failover.sh        # Application failover management

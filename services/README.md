@@ -37,7 +37,7 @@ Services encapsulate complex operations and provide clean APIs for controllers/r
 
 ## Directory Structure
 
-```
+```plaintext
 services/
 ├── __init__.py           # Package initialization with exported components
 ├── auth_service.py       # Authentication and authorization service

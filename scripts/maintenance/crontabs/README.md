@@ -41,7 +41,7 @@ The crontabs defined in this directory automate routine maintenance tasks includ
 
 ## Directory Structure
 
-```
+```plaintext
 scripts/maintenance/crontabs/
 ├── crontab.example       # Example crontab with documentation
 ├── development.crontab   # Development environment scheduled tasks

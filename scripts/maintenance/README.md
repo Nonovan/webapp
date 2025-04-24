@@ -52,7 +52,7 @@ The maintenance scripts automate key operational tasks across development, stagi
 
 ## Directory Structure
 
-```
+```plaintext
 scripts/maintenance/
 ├── archive_audit_logs.sh   # Secure archival of audit logs
 ├── clean_old_logs.sh       # Cleanup of outdated log files

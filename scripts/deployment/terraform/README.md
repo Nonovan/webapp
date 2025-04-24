@@ -50,7 +50,7 @@ The Terraform deployment scripts provide a consistent interface for managing inf
 
 ## Directory Structure
 
-```
+```plaintext
 scripts/deployment/terraform/
 ├── apply.sh         # Applies Terraform configurations
 ├── destroy.sh       # Destroys Terraform-managed infrastructure

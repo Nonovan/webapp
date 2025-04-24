@@ -55,7 +55,7 @@ The core deployment scripts handle critical deployment operations including pre-
 
 ## Directory Structure
 
-```
+```plaintext
 scripts/deployment/core/
 ├── collect_static.sh      # Static asset compilation and optimization
 ├── deploy.sh              # Main deployment script

@@ -34,7 +34,7 @@ The configuration scripts automate and standardize the process of configuring in
 
 ## Directory Structure
 
-```bash
+```plaintext
 scripts/deployment/config/
 ├── config_validator.sh       # Configuration validation tool
 ├── configure_connections.sh  # Connection configuration management

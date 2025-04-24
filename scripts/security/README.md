@@ -100,7 +100,7 @@ These scripts provide essential security controls, monitoring, and management ca
 
 ## Directory Structure
 
-```
+```plaintext
 scripts/security/
 ├── apply_security_updates.sh    # Security update application with rollback capability
 ├── check_certificate_expiration.sh # SSL/TLS certificate expiration monitoring
@@ -199,7 +199,7 @@ In case of a security incident:
 
 1. Run `security_audit.py --emergency` to perform an immediate full security scan
 2. Review `/var/log/cloud-platform/security/incident*.log` for security events
-3. Contact the security team at security@example.com
+3. Contact the security team at <security@example.com>
 4. For critical incidents, call the security hotline: +1-555-123-4567
 
 ## Compliance

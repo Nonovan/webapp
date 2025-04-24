@@ -74,14 +74,19 @@ For optimal database performance, follow this maintenance schedule:
 
 - **Daily**: Run basic ANALYZE to update statistics
 - **Weekly**: Run standard optimization during low-traffic periods
+
 ```bash
 ./optimize.sh --env production --apply
 ```
+
 - **Monthly**: Perform full vacuum and reindex
+
 ```bash
 ./optimize.sh --env production --full-vacuum --reindex --apply
 ```
+
 - **Monthly**: Verify backup integrity
+
 ```bash
 ./database-manager.sh verify-db --env production
 ```
@@ -159,8 +164,6 @@ The seed_data.py script populates the database with initial data:
 # Force seeding even if database is not empty
 ./seed_data.py --env development --force
 ```
-
-
 
 ## Note
 

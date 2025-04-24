@@ -5,6 +5,7 @@ The models package provides the data model layer for the Cloud Infrastructure Pl
 ## Overview
 
 This package defines the application's data model layer with a focus on:
+
 - Domain separation through subdirectories
 - Common base functionality through inheritance
 - Comprehensive type annotations and documentation
@@ -12,7 +13,7 @@ This package defines the application's data model layer with a focus on:
 
 ## Directory Structure
 
-```
+```plaintext
 models/
 ├── __init__.py              # Package exports and event listeners
 ├── base.py                  # Base model classes and mixins
@@ -98,10 +99,10 @@ models/
 - Most models implement a `to_dict()` method for serialization
 - Many models include comprehensive validation and error handling
 - Several domains implement specialized features:
-    - Cloud models include cost and security monitoring
-    - Security models have built-in alerting and incident management
-    - Content models support hierarchical structures
-    - Storage models include file validation and security scanning
+  - Cloud models include cost and security monitoring
+  - Security models have built-in alerting and incident management
+  - Content models support hierarchical structures
+  - Storage models include file validation and security scanning
 
 ## Key Features
 
@@ -208,7 +209,7 @@ When adding new models:
 3. Include comprehensive docstrings
 4. Add type annotations for all fields and methods
 5. Implement required validation logic
-6. Add the model to __init__.py exports
+6. Add the model to **init**.py exports
 7. Consider security implications and add to audit listeners if needed
 8. Write unit tests for the model's functionality
 

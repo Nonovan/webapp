@@ -42,7 +42,7 @@ The monitoring scripts provide comprehensive system health verification, perform
 
 ## Directory Structure
 
-```
+```plaintext
 scripts/monitoring/
 ├── alerts/              # Scripts for configuring, managing, and processing alerts
 ├── common/              # Common utilities and shared functions used across monitoring scripts
@@ -89,6 +89,7 @@ Most monitoring scripts support environment parameters and follow a consistent p
 ```
 
 For example:
+
 ```bash
 ./core/health-check.sh production --region primary --format json
 ./alerts/alert_manager.sh staging --create --type warning --message "Disk space warning"
