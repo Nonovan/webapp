@@ -164,14 +164,14 @@ This repository contains a Python Flask web application for cloud infrastructure
 - Create a central `security` package with reusable security primitives
 - Implement decorator patterns for common security controls:
 
-    ```python
-    @require_permission('resource:action')
-    @audit_log
-    @rate_limit(limit=10, period=60)
-    def sensitive_operation():
-        # Implementation
+```python
+@require_permission('resource:action')
+@audit_log
+@rate_limit(limit=10, period=60)
+def sensitive_operation():
+    # Implementation
 
-    ```
+```
 
 - Use security middleware for consistent enforcement of controls
 - Implement security control factories for environment-specific implementations
@@ -231,14 +231,14 @@ Every directory should include a [README.md](http://readme.md/) with these secti
 - Use bullet lists for features and numbered lists for sequential steps
 - Set configuration examples in code blocks with comments for documentation:
 
-    ```
-    # Required settings
-    endpoint=https://api.example.com/v1  # API endpoint URL
+```
+# Required settings
+endpoint=https://api.example.com/v1  # API endpoint URL
 
-    # Optional settings
-    timeout=30  # Request timeout in seconds (default: 10)
+# Optional settings
+timeout=30  # Request timeout in seconds (default: 10)
 
-    ```
+```
 
 
 ### Documentation Updates
