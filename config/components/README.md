@@ -139,7 +139,7 @@ user_retention_months = privacy_config['data_retention']['user_account_retention
 
 ## Related Documentation
 
-- Configuration Management
-- Environment Setup
-- Security Configuration Guide
-- Compliance Documentation
+- [Configuration Management](../../docs/deployment/configuration.md)
+- [Environment Setup](../../docs/development/setup.md)
+- [Security Configuration Guide](../../docs/security/configuration.md)
+- [Compliance Documentation](../../docs/compliance/overview.md)
