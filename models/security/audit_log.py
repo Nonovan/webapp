@@ -19,13 +19,14 @@ security investigations.
 """
 
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, Optional, List, Tuple, ClassVar
+from typing import Dict, Any, Optional, List, Tuple, ClassVar, Union
 
-from flask import current_app
-from sqlalchemy import desc, func
+from flask import current_app, request, g
+from sqlalchemy import desc, func, and_, or_
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.dialects.postgresql import JSONB
 
-from extensions import db
+from extensions import db, metrics
 from models.base import BaseModel
 
 
@@ -49,13 +50,15 @@ class AuditLog(BaseModel):
         severity: Importance level of the event (info, warning, error, critical)
         related_id: ID of related entity (optional)
         related_type: Type of related entity (optional)
+        object_id: ID of the object being acted upon (optional)
+        object_type: Type of the object being acted upon (optional)
         created_at: When the event occurred (inherited from BaseModel)
         updated_at: When the log entry was last updated (inherited from BaseModel)
     """
 
     __tablename__ = 'audit_logs'
 
-    # Event type constants
+    # Event type constants for authentication events
     EVENT_LOGIN_SUCCESS: ClassVar[str] = 'login_success'
     EVENT_LOGIN_FAILED: ClassVar[str] = 'login_failed'
     EVENT_LOGOUT: ClassVar[str] = 'logout'
@@ -64,13 +67,29 @@ class AuditLog(BaseModel):
     EVENT_ACCOUNT_LOCKOUT: ClassVar[str] = 'account_lockout'
     EVENT_PASSWORD_RESET: ClassVar[str] = 'password_reset'
     EVENT_PASSWORD_CHANGED: ClassVar[str] = 'password_changed'
+    EVENT_MFA_ENABLED: ClassVar[str] = 'mfa_enabled'
+    EVENT_MFA_DISABLED: ClassVar[str] = 'mfa_disabled'
+    EVENT_MFA_CHALLENGE: ClassVar[str] = 'mfa_challenge'
+
+    # Event type constants for authorization events
     EVENT_PERMISSION_DENIED: ClassVar[str] = 'permission_denied'
+    EVENT_ROLE_ASSIGNED: ClassVar[str] = 'role_assigned'
+    EVENT_ROLE_REMOVED: ClassVar[str] = 'role_removed'
+    EVENT_PERMISSION_GRANTED: ClassVar[str] = 'permission_granted'
+    EVENT_PERMISSION_REVOKED: ClassVar[str] = 'permission_revoked'
+
+    # Event type constants for system events
     EVENT_API_ACCESS: ClassVar[str] = 'api_access'
     EVENT_ADMIN_ACTION: ClassVar[str] = 'admin_action'
     EVENT_FILE_UPLOAD: ClassVar[str] = 'file_upload'
     EVENT_FILE_DOWNLOAD: ClassVar[str] = 'file_download'
     EVENT_FILE_INTEGRITY: ClassVar[str] = 'file_integrity'
     EVENT_CONFIG_CHANGE: ClassVar[str] = 'config_change'
+    EVENT_OBJECT_CREATED: ClassVar[str] = 'object_created'
+    EVENT_OBJECT_UPDATED: ClassVar[str] = 'object_updated'
+    EVENT_OBJECT_DELETED: ClassVar[str] = 'object_deleted'
+
+    # Event type constants for security events
     EVENT_SECURITY_BREACH_ATTEMPT: ClassVar[str] = 'security_breach_attempt'
     EVENT_SECURITY_COUNTERMEASURE: ClassVar[str] = 'security_countermeasure'
     EVENT_SECURITY_INCIDENT_UPDATE: ClassVar[str] = 'security_incident_update'
@@ -78,11 +97,22 @@ class AuditLog(BaseModel):
     EVENT_RATE_LIMIT_EXCEEDED: ClassVar[str] = 'rate_limit_exceeded'
     EVENT_API_ABUSE: ClassVar[str] = 'api_abuse'
 
+    # Event categories
+    EVENT_CATEGORY_AUTH: ClassVar[str] = 'authentication'
+    EVENT_CATEGORY_ACCESS: ClassVar[str] = 'access_control'
+    EVENT_CATEGORY_DATA: ClassVar[str] = 'data_access'
+    EVENT_CATEGORY_ADMIN: ClassVar[str] = 'administrative'
+    EVENT_CATEGORY_SECURITY: ClassVar[str] = 'security'
+    EVENT_CATEGORY_SYSTEM: ClassVar[str] = 'system'
+
     # Severity constants
     SEVERITY_INFO: ClassVar[str] = 'info'
     SEVERITY_WARNING: ClassVar[str] = 'warning'
     SEVERITY_ERROR: ClassVar[str] = 'error'
     SEVERITY_CRITICAL: ClassVar[str] = 'critical'
+
+    # Valid severity levels
+    VALID_SEVERITIES = [SEVERITY_INFO, SEVERITY_WARNING, SEVERITY_ERROR, SEVERITY_CRITICAL]
 
     # Column definitions
     id = db.Column(db.Integer, primary_key=True)
@@ -91,16 +121,25 @@ class AuditLog(BaseModel):
     ip_address = db.Column(db.String(45), nullable=True, index=True)  # IPv6 can be up to 45 chars
     user_agent = db.Column(db.String(255), nullable=True)
     description = db.Column(db.String(255), nullable=False)
-    details = db.Column(db.Text, nullable=True)
+    details = db.Column(db.JSON, nullable=True)  # Use native JSON type where supported
     severity = db.Column(db.String(20), nullable=False, default=SEVERITY_INFO, index=True)
     related_id = db.Column(db.Integer, nullable=True, index=True)  # For linking to other entities
-    related_type = db.Column(db.String(50), nullable=True)  # Type of the related entity
+    related_type = db.Column(db.String(50), nullable=True, index=True)  # Type of the related entity
+    object_id = db.Column(db.Integer, nullable=True, index=True)  # Object being acted upon
+    object_type = db.Column(db.String(50), nullable=True, index=True)  # Type of object
+    category = db.Column(db.String(50), nullable=True, index=True)  # Event category
+
+    # Relationships
+    user = db.relationship('User', foreign_keys=[user_id], lazy='joined',
+                          backref=db.backref('audit_logs', lazy='dynamic'))
 
     def __init__(self, event_type: str, description: str, user_id: Optional[int] = None,
                 ip_address: Optional[str] = None, user_agent: Optional[str] = None,
-                details: Optional[str] = None, severity: str = SEVERITY_INFO,
+                details: Optional[Union[Dict, str]] = None, severity: str = SEVERITY_INFO,
                 created_at: Optional[datetime] = None,
-                related_id: Optional[int] = None, related_type: Optional[str] = None):
+                related_id: Optional[int] = None, related_type: Optional[str] = None,
+                object_id: Optional[int] = None, object_type: Optional[str] = None,
+                category: Optional[str] = None):
         """
         Initialize a new AuditLog entry.
 
@@ -115,7 +154,16 @@ class AuditLog(BaseModel):
             created_at: Override the event timestamp (defaults to now)
             related_id: ID of a related entity (e.g., for linking to specific resources)
             related_type: Type of the related entity
+            object_id: ID of the object being acted upon
+            object_type: Type of the object being acted upon
+            category: Category of the event (auth, access, data, etc.)
         """
+        # Validate severity
+        if severity not in self.VALID_SEVERITIES:
+            if current_app:
+                current_app.logger.warning(f"Invalid severity: {severity}. Using {self.SEVERITY_INFO} instead.")
+            severity = self.SEVERITY_INFO
+
         self.event_type = event_type
         self.description = description
         self.user_id = user_id
@@ -125,6 +173,13 @@ class AuditLog(BaseModel):
         self.severity = severity
         self.related_id = related_id
         self.related_type = related_type
+        self.object_id = object_id
+        self.object_type = object_type
+        self.category = category
+
+        # Automatically determine category if not provided
+        if not category:
+            self.category = self._determine_category(event_type)
 
         # Only pass created_at to the parent class if it's provided
         if created_at:
@@ -132,16 +187,64 @@ class AuditLog(BaseModel):
         else:
             super().__init__()
 
+    def _determine_category(self, event_type: str) -> str:
+        """
+        Determine the event category based on event type.
+
+        Args:
+            event_type: The type of event
+
+        Returns:
+            str: The event category
+        """
+        # Authentication events
+        if event_type in [self.EVENT_LOGIN_SUCCESS, self.EVENT_LOGIN_FAILED,
+                         self.EVENT_LOGOUT, self.EVENT_ACCOUNT_CREATED,
+                         self.EVENT_ACCOUNT_MODIFIED, self.EVENT_ACCOUNT_LOCKOUT,
+                         self.EVENT_PASSWORD_RESET, self.EVENT_PASSWORD_CHANGED,
+                         self.EVENT_MFA_ENABLED, self.EVENT_MFA_DISABLED,
+                         self.EVENT_MFA_CHALLENGE]:
+            return self.EVENT_CATEGORY_AUTH
+
+        # Access control events
+        elif event_type in [self.EVENT_PERMISSION_DENIED, self.EVENT_ROLE_ASSIGNED,
+                           self.EVENT_ROLE_REMOVED, self.EVENT_PERMISSION_GRANTED,
+                           self.EVENT_PERMISSION_REVOKED]:
+            return self.EVENT_CATEGORY_ACCESS
+
+        # Security events
+        elif event_type in [self.EVENT_SECURITY_BREACH_ATTEMPT, self.EVENT_SECURITY_COUNTERMEASURE,
+                           self.EVENT_SECURITY_INCIDENT_UPDATE, self.EVENT_RATE_LIMIT_EXCEEDED,
+                           self.EVENT_API_ABUSE]:
+            return self.EVENT_CATEGORY_SECURITY
+
+        # Administrative events
+        elif event_type in [self.EVENT_ADMIN_ACTION, self.EVENT_CONFIG_CHANGE]:
+            return self.EVENT_CATEGORY_ADMIN
+
+        # Data access events
+        elif event_type in [self.EVENT_FILE_UPLOAD, self.EVENT_FILE_DOWNLOAD,
+                           self.EVENT_DATABASE_ACCESS, self.EVENT_FILE_INTEGRITY,
+                           self.EVENT_OBJECT_CREATED, self.EVENT_OBJECT_UPDATED,
+                           self.EVENT_OBJECT_DELETED]:
+            return self.EVENT_CATEGORY_DATA
+
+        # Default to system
+        else:
+            return self.EVENT_CATEGORY_SYSTEM
+
     @classmethod
     def create(cls, event_type: str, description: str, user_id: Optional[int] = None,
               ip_address: Optional[str] = None, user_agent: Optional[str] = None,
-              details: Optional[str] = None, severity: str = SEVERITY_INFO,
-              related_id: Optional[int] = None, related_type: Optional[str] = None) -> 'AuditLog':
+              details: Optional[Union[Dict, str]] = None, severity: str = SEVERITY_INFO,
+              related_id: Optional[int] = None, related_type: Optional[str] = None,
+              object_id: Optional[int] = None, object_type: Optional[str] = None) -> 'AuditLog':
         """
         Create and save a new audit log entry.
 
         This is a convenience method that creates a new AuditLog instance,
-        adds it to the session, and commits it in one step.
+        adds it to the session, and commits it in one step. It also collects
+        request information if not explicitly provided.
 
         Args:
             event_type: Type of event (use EVENT_* constants)
@@ -153,6 +256,8 @@ class AuditLog(BaseModel):
             severity: Event importance (info, warning, error, critical)
             related_id: ID of a related entity (e.g., for linking to specific resources)
             related_type: Type of the related entity
+            object_id: ID of the object being acted upon
+            object_type: Type of the object being acted upon
 
         Returns:
             AuditLog: The created audit log entry
@@ -161,6 +266,18 @@ class AuditLog(BaseModel):
             SQLAlchemyError: If the database operation fails
         """
         try:
+            # Auto-populate user_id from Flask g if available and not provided
+            if user_id is None and hasattr(g, 'user_id'):
+                user_id = g.get('user_id')
+
+            # Auto-populate IP address and user agent from Flask request if available
+            if request:
+                if not ip_address:
+                    ip_address = request.remote_addr
+
+                if not user_agent and hasattr(request, 'user_agent'):
+                    user_agent = str(request.user_agent)
+
             log = cls(
                 event_type=event_type,
                 description=description,
@@ -170,16 +287,36 @@ class AuditLog(BaseModel):
                 details=details,
                 severity=severity,
                 related_id=related_id,
-                related_type=related_type
+                related_type=related_type,
+                object_id=object_id,
+                object_type=object_type
             )
+
             db.session.add(log)
             db.session.commit()
+
+            # Record metrics if available
+            try:
+                metrics.counter(
+                    'audit_log_events_total',
+                    1,
+                    labels={
+                        'event_type': event_type,
+                        'severity': severity,
+                        'category': log.category
+                    }
+                )
+            except Exception as e:
+                # Don't fail logging if metrics fail
+                if current_app:
+                    current_app.logger.debug(f"Failed to record audit log metrics: {e}")
+
             return log
         except SQLAlchemyError as e:
             db.session.rollback()
             if current_app:
                 current_app.logger.error("Failed to create audit log: %s", str(e))
-            # Re-raise or handle as needed by your application
+            # Re-raise to allow caller to handle
             raise
 
     @classmethod
@@ -248,6 +385,25 @@ class AuditLog(BaseModel):
         # Query the database
         return cls.query.filter(
                 cls.event_type.in_(security_events),
+                cls.created_at >= cutoff
+            ).order_by(desc(cls.created_at)).limit(limit).all()
+
+    @classmethod
+    def get_by_category(cls, category: str, hours: int = 24, limit: int = 100) -> List['AuditLog']:
+        """
+        Get audit log entries by category.
+
+        Args:
+            category: Category to filter by (use EVENT_CATEGORY_* constants)
+            hours: How many hours back to look
+            limit: Maximum number of entries to return
+
+        Returns:
+            List[AuditLog]: List of matching audit log entries
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        return cls.query.filter(
+                cls.category == category,
                 cls.created_at >= cutoff
             ).order_by(desc(cls.created_at)).limit(limit).all()
 
@@ -381,6 +537,130 @@ class AuditLog(BaseModel):
                 related_id=related_id
             ).order_by(desc(cls.created_at)).limit(limit).all()
 
+    @classmethod
+    def get_events_by_object(cls, object_type: str, object_id: int, limit: int = 100) -> List['AuditLog']:
+        """
+        Get audit trail for a specific object.
+
+        Args:
+            object_type: Type of the object
+            object_id: ID of the object
+            limit: Maximum number of entries to return
+
+        Returns:
+            List[AuditLog]: List of audit log entries for the object
+        """
+        return cls.query.filter_by(
+                object_type=object_type,
+                object_id=object_id
+            ).order_by(desc(cls.created_at)).limit(limit).all()
+
+    @classmethod
+    def search(cls, query_params: Dict[str, Any], start_date: Optional[datetime] = None,
+              end_date: Optional[datetime] = None, limit: int = 100) -> List['AuditLog']:
+        """
+        Search audit logs with flexible filtering.
+
+        Args:
+            query_params: Dictionary of search parameters
+            start_date: Start date for search range
+            end_date: End date for search range
+            limit: Maximum number of results to return
+
+        Returns:
+            List[AuditLog]: Matching audit log entries
+        """
+        search_query = cls.query
+
+        # Apply date range filter
+        if start_date:
+            search_query = search_query.filter(cls.created_at >= start_date)
+        if end_date:
+            search_query = search_query.filter(cls.created_at <= end_date)
+
+        # Apply filters based on query parameters
+        for key, value in query_params.items():
+            if hasattr(cls, key) and value is not None:
+                if isinstance(value, list):
+                    search_query = search_query.filter(getattr(cls, key).in_(value))
+                else:
+                    search_query = search_query.filter(getattr(cls, key) == value)
+
+        # Order by creation date descending
+        return search_query.order_by(desc(cls.created_at)).limit(limit).all()
+
+    @classmethod
+    def get_statistics(cls, days: int = 30) -> Dict[str, Any]:
+        """
+        Get statistical summary of audit log entries.
+
+        Args:
+            days: Number of days to include in statistics
+
+        Returns:
+            Dict: Dictionary with statistical information
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+        # Total events
+        total_events = cls.query.filter(cls.created_at >= cutoff).count()
+
+        # Events by severity
+        severity_counts = {}
+        for severity in cls.VALID_SEVERITIES:
+            count = cls.query.filter(cls.created_at >= cutoff, cls.severity == severity).count()
+            severity_counts[severity] = count
+
+        # Events by category
+        category_counts = db.session.query(
+            cls.category, func.count(cls.id)
+        ).filter(
+            cls.created_at >= cutoff
+        ).group_by(cls.category).all()
+
+        # Most common event types
+        event_type_counts = db.session.query(
+            cls.event_type, func.count(cls.id)
+        ).filter(
+            cls.created_at >= cutoff
+        ).group_by(cls.event_type).order_by(desc(func.count(cls.id))).limit(10).all()
+
+        return {
+            'total_events': total_events,
+            'severity_counts': dict(severity_counts),
+            'category_counts': dict(category_counts),
+            'event_type_counts': dict(event_type_counts),
+            'period_days': days
+        }
+
+    @classmethod
+    def cleanup_old_logs(cls, retention_days: int = 365) -> Tuple[bool, int]:
+        """
+        Delete audit logs older than the retention period.
+
+        Args:
+            retention_days: Number of days to retain logs
+
+        Returns:
+            Tuple[bool, int]: Success status and number of logs deleted
+        """
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+
+            # Use bulk delete for efficiency
+            count = cls.query.filter(cls.created_at < cutoff).delete()
+            db.session.commit()
+
+            if current_app:
+                current_app.logger.info(f"Cleaned up {count} audit logs older than {retention_days} days")
+
+            return True, count
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            if current_app:
+                current_app.logger.error(f"Error cleaning up old audit logs: {str(e)}")
+            return False, 0
+
     def to_dict(self) -> Dict[str, Any]:
         """
         Convert the audit log entry to a dictionary for serialization.
@@ -400,5 +680,8 @@ class AuditLog(BaseModel):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'timestamp': self.created_at.timestamp() if self.created_at else None,
             'related_id': self.related_id,
-            'related_type': self.related_type
+            'related_type': self.related_type,
+            'object_id': self.object_id,
+            'object_type': self.object_type,
+            'category': self.category
         }
