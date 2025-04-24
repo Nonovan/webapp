@@ -19,32 +19,43 @@ models/
 ├── base.py                  # Base model classes and mixins
 ├── README.md                # Documentation (this file)
 ├── auth/                    # Authentication and user management
+│   ├── __init__.py          # Auth module exports
+│   ├── permission.py        # Permission model for RBAC
+│   ├── role.py              # Role model for access control
 │   ├── user.py              # User account model
 │   ├── user_activity.py     # User activity logging
 │   └── user_session.py      # User session tracking
 ├── cloud/                   # Cloud infrastructure models
+│   ├── __init__.py          # Cloud module exports
 │   ├── cloud_alert.py       # Alert configurations
 │   ├── cloud_metric.py      # Resource metrics and monitoring
 │   ├── cloud_provider.py    # Cloud provider configurations
 │   └── cloud_resource.py    # Infrastructure resources
 ├── communication/           # Communication-related models
+│   ├── __init__.py          # Communication module exports
 │   ├── newsletter.py        # Newsletter subscribers and lists
 │   ├── notification.py      # User notifications
 │   ├── subscriber.py        # Subscriber management
 │   └── webhook.py           # Webhook subscriptions
 ├── content/                 # Content management models
+│   ├── __init__.py          # Content module exports
 │   ├── category.py          # Content categorization
-│   └── post.py              # Blog/news post content
+│   ├── post.py              # Blog/news post content
+│   └── tag.py               # Content tagging
 ├── ics/                     # Industrial Control Systems
+│   ├── __init__.py          # ICS module exports
 │   ├── ics_control_log.py   # Control operation logging
 │   ├── ics_device.py        # ICS device inventory
 │   └── ics_reading.py       # Sensor readings and telemetry
 ├── security/                # Security-related models
+│   ├── __init__.py          # Security module exports
 │   ├── audit_log.py         # Security audit records
 │   ├── security_incident.py # Security incidents
 │   └── system_config.py     # Security configurations
 └── storage/                 # Storage-related models
+    ├── __init__.py          # Storage module exports
     └── file_upload.py       # File upload tracking
+
 ```
 
 ## Key Components
@@ -55,6 +66,8 @@ models/
     - `AuditableMixin`: Adds security auditing capabilities
 2. **Authentication (`auth/`)**:
     - User management and authentication
+    - Role-based access control (RBAC)
+    - Permission management
     - Session tracking and management
     - User activity logging
 3. **Cloud Infrastructure (`cloud/`)**:
@@ -71,6 +84,7 @@ models/
     - Blog posts and content articles
     - Content categorization
     - Hierarchical category structure
+    - Content tagging
 6. **Industrial Control Systems (`ics/`)**:
     - Device inventory management
     - Sensor reading collection
@@ -88,6 +102,8 @@ models/
 
 - **`__init__.py`**: Main package initialization with event listeners for audit logging
 - **`base.py`**: Contains the core base classes and mixins
+- **`auth/permission.py`**: Fine-grained permission model for RBAC
+- **`auth/role.py`**: Role model with permission inheritance
 - **`security/audit_log.py`**: Comprehensive security auditing system
 - **`cloud/cloud_resource.py`**: Cloud resource management with cost tracking
 - **`security/system_config.py`**: System-wide configuration storage
@@ -103,6 +119,7 @@ models/
   - Security models have built-in alerting and incident management
   - Content models support hierarchical structures
   - Storage models include file validation and security scanning
+  - Auth models implement full RBAC with permission inheritance
 
 ## Key Features
 
@@ -112,6 +129,7 @@ models/
 - **Audit Tracking**: `AuditableMixin` provides security audit capabilities
 - **Serialization**: Standard `to_dict()` methods for API responses
 - **Event Listeners**: Automatic timestamp tracking and audit logging
+- **Role-Based Access Control**: Complete RBAC implementation with roles and permissions
 
 ## Base Model Structure
 
@@ -132,6 +150,7 @@ class MyModel(BaseModel):
     # Define fields...
 
     # Define relationships...
+
 ```
 
 ## Usage Examples
@@ -156,6 +175,7 @@ post.save()
 # Delete a model instance
 user_session = UserSession.query.get(session_id)
 user_session.delete()
+
 ```
 
 ### Working with Relationships
@@ -176,6 +196,29 @@ tech_posts = Post.query.join(Category).filter(
 # Using relationship properties
 for subscriber in newsletter_list.subscribers:
     print(f"Sending to: {subscriber.email}")
+
+```
+
+### Role-Based Access Control
+
+```python
+# Create a permission
+view_reports = Permission(name="reports:view", description="View system reports")
+view_reports.save()
+
+# Create a role with permissions
+analyst_role = Role(name="Analyst", description="Data analyst")
+analyst_role.add_permission(view_reports)
+analyst_role.save()
+
+# Assign role to user
+user = User.query.filter_by(email="analyst@example.com").first()
+user.assign_role(analyst_role)
+
+# Check permissions
+if user.has_permission("reports:view"):
+    print("User can view reports")
+
 ```
 
 ### Security-Enhanced Models
@@ -188,6 +231,7 @@ incident = SecurityIncident(
     description="Multiple failed login attempts detected"
 )
 incident.save()  # Automatically logs the creation event
+
 ```
 
 ## Security Considerations
@@ -199,6 +243,8 @@ incident.save()  # Automatically logs the creation event
 - **Input Validation**: Field validations prevent invalid or harmful data
 - **SQL Injection Prevention**: All queries use parameterized statements
 - **Session Management**: Secure session handling with proper timeout and rotation
+- **Permission Model**: Fine-grained permission system with resource:action pattern
+- **Role Hierarchy**: Supports role inheritance for complex permission structures
 
 ## Contributing New Models
 
@@ -218,3 +264,4 @@ When adding new models:
 - Database Migration Guide
 - Security Controls
 - API Documentation
+- Authentication Guide

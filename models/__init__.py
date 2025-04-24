@@ -32,17 +32,21 @@ from .base import BaseModel, TimestampMixin, AuditableMixin
 # Import models by domain
 # Auth models
 from .auth.user import User
+from .auth.role import Role
+from .auth.permission import Permission
 from .auth.user_session import UserSession
 from .auth.user_activity import UserActivity
 
 # Content models
 from .content.post import Post
 from .content.category import Category
+from .content.tag import Tag
 
 # Communication models
-from .communication.newsletter import Subscriber, MailingList
+from .communication.newsletter import Subscriber, MailingList, SubscriberList
 from .communication.notification import Notification
-from .communication.webhook import WebhookSubscription
+from .communication.webhook import WebhookSubscription, WebhookDelivery
+from .communication.subscriber import SubscriberCategory
 
 # Security models
 from .security.security_incident import SecurityIncident
@@ -69,13 +73,14 @@ __all__ = [
     'db', 'BaseModel', 'TimestampMixin', 'AuditableMixin',
 
     # Auth models
-    'User', 'UserSession', 'UserActivity',
+    'User', 'Role', 'Permission', 'UserSession', 'UserActivity',
 
     # Content models
-    'Post', 'Category',
+    'Post', 'Category', 'Tag',
 
     # Communication models
-    'Subscriber', 'MailingList', 'Notification', 'WebhookSubscription',
+    'Subscriber', 'MailingList', 'SubscriberList', 'Notification',
+    'WebhookSubscription', 'WebhookDelivery', 'SubscriberCategory',
 
     # Security models
     'SecurityIncident', 'AuditLog', 'SystemConfig',
@@ -101,6 +106,8 @@ def _setup_audit_listeners():
     # Add models that need security audit logging
     models_to_audit = [
         User,
+        Role,
+        Permission,
         SecurityIncident,
         SystemConfig,
         CloudResource,
@@ -109,8 +116,8 @@ def _setup_audit_listeners():
         CloudAlert,
         ICSDevice,
         WebhookSubscription,
-        FileUpload,  # Add FileUpload for auditing storage operations
-        MailingList  # Add MailingList for auditing communication changes
+        FileUpload,
+        MailingList
     ]
 
     for model in models_to_audit:
@@ -144,14 +151,17 @@ def _log_model_insert(_mapper, _connection, target):
                 details = _sanitize_log_data(target.to_dict())
             except Exception:
                 # Fallback if to_dict fails
-                details = {"id": target.id}
+                details = {"id": getattr(target, 'id', None)}
+
+        # Handle case where AuditLog might not be imported yet
+        from .security.audit_log import AuditLog
 
         AuditLog.create(
             event_type=AuditLog.EVENT_OBJECT_CREATED,
             user_id=user_id,
             object_type=target.__class__.__name__,
-            object_id=target.id,
-            description=f"Created {target.__class__.__name__} with ID {target.id}",
+            object_id=getattr(target, 'id', None),
+            description=f"Created {target.__class__.__name__} with ID {getattr(target, 'id', 'unknown')}",
             ip_address=ip_address,
             details=details
         )
@@ -184,6 +194,23 @@ def _log_model_update(_mapper, _connection, target):
             except Exception:
                 pass
 
+        # Check if target is an AuditableMixin and has security critical fields
+        if hasattr(target, 'SECURITY_CRITICAL_FIELDS'):
+            # Add to details if a security critical field was modified
+            changed_fields = details.get("changed_columns", [])
+            critical_changes = [f for f in changed_fields if f in target.SECURITY_CRITICAL_FIELDS]
+            if critical_changes:
+                details["security_critical"] = True
+                details["critical_fields_changed"] = critical_changes
+
+        # Handle case where AuditLog might not be imported yet
+        from .security.audit_log import AuditLog
+
+        # Determine severity based on criticality
+        severity = AuditLog.SEVERITY_INFO
+        if details.get("security_critical", False):
+            severity = AuditLog.SEVERITY_WARNING
+
         AuditLog.create(
             event_type=AuditLog.EVENT_OBJECT_UPDATED,
             user_id=user_id,
@@ -191,7 +218,8 @@ def _log_model_update(_mapper, _connection, target):
             object_id=target.id,
             description=f"Updated {target.__class__.__name__} with ID {target.id}",
             ip_address=ip_address,
-            details=details
+            details=details,
+            severity=severity
         )
     except Exception as e:
         if current_app:
@@ -202,8 +230,8 @@ def _log_model_delete(_mapper, _connection, target):
     Log when a model instance is deleted.
 
     Args:
-        _mapper: SQLAlchemy mapper object
-        _connection: SQLAlchemy connection object
+        _mapper: SQLAlchemy mapper object (unused)
+        _connection: SQLAlchemy connection object (unused)
         target: Model instance that was deleted
     """
     if not has_request_context():
@@ -214,12 +242,15 @@ def _log_model_delete(_mapper, _connection, target):
         user_id = getattr(g, 'user_id', None)
         ip_address = request.remote_addr if request else None
 
+        # Handle case where AuditLog might not be imported yet
+        from .security.audit_log import AuditLog
+
         AuditLog.create(
             event_type=AuditLog.EVENT_OBJECT_DELETED,
             user_id=user_id,
             object_type=target.__class__.__name__,
-            object_id=target.id,
-            description=f"Deleted {target.__class__.__name__} with ID {target.id}",
+            object_id=getattr(target, 'id', None),
+            description=f"Deleted {target.__class__.__name__} with ID {getattr(target, 'id', 'unknown')}",
             ip_address=ip_address,
             severity=AuditLog.SEVERITY_WARNING  # Deletions get higher severity
         )
@@ -245,7 +276,8 @@ def _sanitize_log_data(data: Dict[str, Any]) -> Dict[str, Any]:
         'password', 'password_hash', 'token', 'secret', 'key',
         'private_key', 'access_key', 'secret_key', 'api_key',
         'auth_token', 'confirmation_token', 'reset_token',
-        'unsubscribe_token', 'salt'
+        'unsubscribe_token', 'salt', 'credentials', 'api_secret',
+        'encryption_key', 'security_answer', 'verification_code'
     }
 
     # Create a copy to avoid modifying the original
@@ -255,6 +287,13 @@ def _sanitize_log_data(data: Dict[str, Any]) -> Dict[str, Any]:
     for field in sensitive_fields:
         if field in result:
             result[field] = '[REDACTED]'
+
+    # Check for nested dictionaries that might contain sensitive data
+    for key, value in result.items():
+        if isinstance(value, dict):
+            result[key] = _sanitize_log_data(value)
+        elif isinstance(value, list) and value and isinstance(value[0], dict):
+            result[key] = [_sanitize_log_data(item) if isinstance(item, dict) else item for item in value]
 
     # Look for custom _redacted_fields attribute on model
     for field in data.get('_redacted_fields', []):

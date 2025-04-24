@@ -12,6 +12,10 @@ Modules:
 
 Usage:
 Import the necessary models or utilities from this package for authentication-related operations.
+
+Examples:
+    from models.auth import User, Role, Permission
+    from models.auth.user_activity import UserActivity
 """
 
 from .user import User
