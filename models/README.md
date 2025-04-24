@@ -12,13 +12,104 @@ This package defines the application's data model layer with a focus on:
 
 ## Directory Structure
 
-- **base.py** - Base model classes and mixins
-- **auth/** - User authentication and activity tracking
-- **cloud/** - Cloud infrastructure resources and monitoring
-- **content/** - Content management (posts, pages)
-- **communication/** - Notifications and subscriptions
-- **ics/** - Industrial Control Systems models
-- **security/** - Security, auditing, and system configuration
+```
+models/
+├── __init__.py              # Package exports and event listeners
+├── base.py                  # Base model classes and mixins
+├── README.md                # Documentation (this file)
+├── auth/                    # Authentication and user management
+│   ├── __init__.py
+│   ├── user.py              # User account model
+│   ├── user_session.py      # User session tracking
+│   └── user_activity.py     # User activity logging
+├── cloud/                   # Cloud infrastructure models
+│   ├── __init__.py
+│   ├── cloud_alert.py       # Alert configurations
+│   ├── cloud_metric.py      # Resource metrics and monitoring
+│   ├── cloud_provider.py    # Cloud provider configurations
+│   └── cloud_resource.py    # Infrastructure resources
+├── communication/           # Communication-related models
+│   ├── __init__.py
+│   ├── newsletter.py        # Newsletter subscribers and lists
+│   ├── notification.py      # User notifications
+│   ├── subscriber.py        # Subscriber management
+│   └── webhook.py           # Webhook subscriptions
+├── content/                 # Content management models
+│   ├── __init__.py
+│   ├── category.py          # Content categorization
+│   └── post.py              # Blog/news post content
+├── ics/                     # Industrial Control Systems
+│   ├── __init__.py
+│   ├── ics_control_log.py   # Control operation logging
+│   ├── ics_device.py        # ICS device inventory
+│   └── ics_reading.py       # Sensor readings and telemetry
+├── security/                # Security-related models
+│   ├── __init__.py
+│   ├── audit_log.py         # Security audit records
+│   ├── security_incident.py # Security incidents
+│   └── system_config.py     # Security configurations
+└── storage/                 # Storage-related models
+    ├── __init__.py
+    └── file_upload.py       # File upload tracking
+
+```
+
+## Key Components
+
+1. **Base Classes (`base.py`)**:
+    - `BaseModel`: Core base class that all models inherit from
+    - `TimestampMixin`: Provides automatic timestamp tracking
+    - `AuditableMixin`: Adds security auditing capabilities
+2. **Authentication (`auth/`)**:
+    - User management and authentication
+    - Session tracking and management
+    - User activity logging
+3. **Cloud Infrastructure (`cloud/`)**:
+    - Cloud provider configurations (AWS, Azure, GCP)
+    - Resource management (VMs, storage, etc.)
+    - Metrics collection and alerting
+    - Cost tracking and monitoring
+4. **Communication (`communication/`)**:
+    - Newsletter management
+    - User notification systems
+    - Subscriber management
+    - Webhook integrations
+5. **Content Management (`content/`)**:
+    - Blog posts and content articles
+    - Content categorization
+    - Hierarchical category structure
+6. **Industrial Control Systems (`ics/`)**:
+    - Device inventory management
+    - Sensor reading collection
+    - Control operation logging
+7. **Security (`security/`)**:
+    - Security incident tracking
+    - Comprehensive audit logging
+    - System configuration management
+    - Security controls
+8. **Storage (`storage/`)**:
+    - File upload tracking and management
+    - File scanning and validation
+
+## Notable Files
+
+- **`__init__.py`**: Main package initialization with event listeners for audit logging
+- **`base.py`**: Contains the core base classes and mixins
+- **`security/audit_log.py`**: Comprehensive security auditing system
+- **`cloud/cloud_resource.py`**: Cloud resource management with cost tracking
+- **`security/system_config.py`**: System-wide configuration storage
+
+## Implementation Notes
+
+- All models inherit from `BaseModel` which provides common CRUD operations
+- Security-sensitive models also use the `AuditableMixin` for automatic audit logging
+- Most models implement a `to_dict()` method for serialization
+- Many models include comprehensive validation and error handling
+- Several domains implement specialized features:
+    - Cloud models include cost and security monitoring
+    - Security models have built-in alerting and incident management
+    - Content models support hierarchical structures
+    - Storage models include file validation and security scanning
 
 ## Key Features
 
@@ -29,9 +120,30 @@ This package defines the application's data model layer with a focus on:
 - **Serialization**: Standard `to_dict()` methods for API responses
 - **Event Listeners**: Automatic timestamp tracking and audit logging
 
-## Usage
+## Base Model Structure
 
-Models can be imported directly from the package:
+All models inherit from the `BaseModel` class, which provides:
+
+- Core CRUD operations (save, update, delete)
+- Timestamp tracking (created_at, updated_at)
+- Type annotations for better IDE support
+- Common query methods
+- JSON serialization via `to_dict()`
+
+```python
+from models.base import BaseModel
+
+class MyModel(BaseModel):
+    __tablename__ = 'my_model'
+
+    # Define fields...
+
+    # Define relationships...
+```
+
+## Usage Examples
+
+### Basic Model Operations
 
 ```python
 from models import User, Post, CloudResource
@@ -43,12 +155,73 @@ user.save()
 # Query resources by type
 resources = CloudResource.get_by_type("vm", active_only=True)
 
+# Update an existing model
+post = Post.query.filter_by(slug="welcome-post").first()
+post.title = "Updated Title"
+post.save()
+
+# Delete a model instance
+user_session = UserSession.query.get(session_id)
+user_session.delete()
+```
+
+### Working with Relationships
+
+```python
+# Create related objects
+category = Category(name="Technology")
+category.save()
+
+post = Post(title="New Tech Post", category_id=category.id)
+post.save()
+
+# Query with joins
+tech_posts = Post.query.join(Category).filter(
+    Category.name == "Technology"
+).all()
+
+# Using relationship properties
+for subscriber in newsletter_list.subscribers:
+    print(f"Sending to: {subscriber.email}")
+```
+
+### Security-Enhanced Models
+
+```python
+# Create an audited model instance
+incident = SecurityIncident(
+    title="Unauthorized Access Attempt",
+    severity="HIGH",
+    description="Multiple failed login attempts detected"
+)
+incident.save()  # Automatically logs the creation event
 ```
 
 ## Security Considerations
 
-- Sensitive fields are encrypted at rest
-- Password fields use strong hashing
-- Security-critical operations are audit-logged
-- Access to models is controlled through the `AuditableMixin`
-- Model validations prevent invalid or harmful data
+- **Encrypted Fields**: Sensitive fields are encrypted at rest using AES-256
+- **Password Protection**: Password fields use Argon2 hashing with appropriate work factors
+- **Audit Logging**: Security-critical operations are automatically logged
+- **Access Control**: Model access is controlled through the `AuditableMixin`
+- **Input Validation**: Field validations prevent invalid or harmful data
+- **SQL Injection Prevention**: All queries use parameterized statements
+- **Session Management**: Secure session handling with proper timeout and rotation
+
+## Contributing New Models
+
+When adding new models:
+
+1. Determine the appropriate domain subdirectory
+2. Inherit from appropriate base classes
+3. Include comprehensive docstrings
+4. Add type annotations for all fields and methods
+5. Implement required validation logic
+6. Add the model to __init__.py exports
+7. Consider security implications and add to audit listeners if needed
+8. Write unit tests for the model's functionality
+
+## Related Documentation
+
+- Database Migration Guide
+- Security Controls
+- API Documentation
