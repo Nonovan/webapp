@@ -10,7 +10,7 @@ import os
 import json
 import configparser
 from pathlib import Path
-from typing import Optional, Dict, Any, Union, List
+from typing import Optional, Dict, Any, Union, List, TypeVar, cast
 
 # Try to import yaml if available
 try:
@@ -24,9 +24,12 @@ CONFIG_ROOT = Path(__file__).parent.parent
 COMPONENTS_DIR = CONFIG_ROOT / 'components'
 ENVIRONMENT_DIR = CONFIG_ROOT / 'environments'
 
+# Type definitions for better type hinting
+ConfigType = TypeVar('ConfigType', configparser.ConfigParser, Dict[str, Any])
+
 
 def resolve_path(component_name: str, environment: Optional[str] = None,
-               extension: Optional[str] = None) -> Path:
+                extension: Optional[str] = None) -> Path:
     """
     Resolve the path to a configuration file based on component name and environment.
 
@@ -38,6 +41,9 @@ def resolve_path(component_name: str, environment: Optional[str] = None,
     Returns:
         Path: The resolved configuration file path
     """
+    if not component_name:
+        raise ValueError("Component name must be specified")
+
     # Handle file extension
     if extension:
         if not extension.startswith('.'):
@@ -45,6 +51,7 @@ def resolve_path(component_name: str, environment: Optional[str] = None,
     else:
         # Try to detect extension based on existing files
         extensions = ['.ini', '.json', '.yaml', '.yml']
+        extension = None
         for ext in extensions:
             if (COMPONENTS_DIR / f"{component_name}{ext}").exists():
                 extension = ext
@@ -67,7 +74,7 @@ def resolve_path(component_name: str, environment: Optional[str] = None,
 
 def load_component_config(component_name: str, environment: Optional[str] = None,
                         extension: Optional[str] = None,
-                        use_env_vars: bool = True) -> Union[configparser.ConfigParser, Dict[str, Any]]:
+                        use_env_vars: bool = True) -> ConfigType:
     """
     Load configuration for a specific component with optional environment override.
 
@@ -79,18 +86,24 @@ def load_component_config(component_name: str, environment: Optional[str] = None
 
     Returns:
         ConfigParser or dict: Loaded configuration
+
+    Raises:
+        FileNotFoundError: If the configuration file doesn't exist
+        ImportError: If PyYAML is required but not installed
+        ValueError: If an unsupported file format is specified
     """
     base_config_path = resolve_path(component_name, None, extension)
+
+    # Check if the file exists before proceeding
+    if not base_config_path.exists():
+        raise FileNotFoundError(f"Configuration file not found: {base_config_path}")
 
     # Initialize proper config object based on file type
     file_extension = base_config_path.suffix.lower()
 
-    if not base_config_path.exists():
-        raise FileNotFoundError(f"Configuration file not found: {base_config_path}")
-
     # Load base configuration based on file type
     if file_extension in ['.ini']:
-        config = configparser.ConfigParser()
+        config = configparser.ConfigParser(interpolation=configparser.ExtendedInterpolation())
         config.read(base_config_path)
 
         # Load environment override if specified and exists
@@ -103,48 +116,48 @@ def load_component_config(component_name: str, environment: Optional[str] = None
         if use_env_vars:
             _apply_env_var_overrides(config, component_name)
 
-        return config
+        return cast(ConfigType, config)
 
     elif file_extension in ['.json']:
-        with open(base_config_path, 'r') as f:
+        with open(base_config_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
 
         # Load environment override if specified and exists
         if environment:
             env_config_path = ENVIRONMENT_DIR / environment / base_config_path.name
             if env_config_path.exists():
-                with open(env_config_path, 'r') as f:
+                with open(env_config_path, 'r', encoding='utf-8') as f:
                     env_config = json.load(f)
                 # Merge configs (deep update)
                 _deep_update(config, env_config)
 
         # Apply environment variable overrides if requested
         if use_env_vars:
-            _apply_json_env_var_overrides(config, component_name)
+            _apply_dict_env_var_overrides(config, component_name)
 
-        return config
+        return cast(ConfigType, config)
 
     elif file_extension in ['.yaml', '.yml']:
         if not YAML_AVAILABLE:
             raise ImportError("PyYAML is required to load YAML configuration files.")
 
-        with open(base_config_path, 'r') as f:
+        with open(base_config_path, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f)
 
         # Load environment override if specified and exists
         if environment:
             env_config_path = ENVIRONMENT_DIR / environment / base_config_path.name
             if env_config_path.exists():
-                with open(env_config_path, 'r') as f:
+                with open(env_config_path, 'r', encoding='utf-8') as f:
                     env_config = yaml.safe_load(f)
                 # Merge configs (deep update)
                 _deep_update(config, env_config)
 
         # Apply environment variable overrides if requested
         if use_env_vars:
-            _apply_json_env_var_overrides(config, component_name)
+            _apply_dict_env_var_overrides(config, component_name)
 
-        return config
+        return cast(ConfigType, config)
 
     else:
         raise ValueError(f"Unsupported configuration file format: {file_extension}")
@@ -189,6 +202,8 @@ def _apply_env_var_overrides(config: configparser.ConfigParser, component_name: 
             _, _, section_key = env_var.partition(prefix)
             if '_' in section_key:
                 section, key = section_key.split('_', 1)
+                section = section.lower()
+                key = key.lower()
 
                 # Ensure section exists
                 if section not in config:
@@ -198,7 +213,7 @@ def _apply_env_var_overrides(config: configparser.ConfigParser, component_name: 
                 config[section][key] = value
 
 
-def _apply_json_env_var_overrides(config: Dict[str, Any], component_name: str) -> None:
+def _apply_dict_env_var_overrides(config: Dict[str, Any], component_name: str) -> None:
     """
     Apply environment variable overrides to a dictionary config.
 
@@ -225,6 +240,9 @@ def _apply_json_env_var_overrides(config: Dict[str, Any], component_name: str) -
             for i, key in enumerate(keys[:-1]):
                 if key not in current:
                     current[key] = {}
+                elif not isinstance(current[key], dict):
+                    # Handle case where the path would override a non-dict value
+                    current[key] = {}
                 current = current[key]
 
             # Set the value at the final position
@@ -241,6 +259,10 @@ def _convert_env_value(value: str) -> Any:
     Returns:
         The value converted to an appropriate type
     """
+    # Return None for empty strings
+    if value == '':
+        return None
+
     # Check for boolean
     if value.lower() in ('true', 'yes', '1'):
         return True
@@ -271,8 +293,28 @@ def _convert_env_value(value: str) -> Any:
     return value
 
 
+def get_all_component_names() -> List[str]:
+    """
+    Get a list of all available component names based on files in the components directory.
+
+    Returns:
+        List[str]: List of component names without file extensions
+    """
+    component_files = []
+
+    # Collect files with supported extensions
+    for ext in ['.ini', '.json', '.yaml', '.yml']:
+        component_files.extend(COMPONENTS_DIR.glob(f'*{ext}'))
+
+    # Extract component names by removing extensions
+    component_names = [path.stem for path in component_files]
+
+    return sorted(list(set(component_names)))
+
+
 # Export public functions
 __all__ = [
     'load_component_config',
     'resolve_path',
+    'get_all_component_names',
 ]
