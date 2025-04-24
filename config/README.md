@@ -10,6 +10,7 @@ The configuration system follows these principles:
 - **Layered Configuration**: Core settings are inherited and overridden by environment-specific settings
 - **Component Organization**: Configuration is separated by functional component
 - **Schema Validation**: Configuration files are validated against schemas for consistency
+- **Security by Design**: Sensitive information is managed separately from code
 
 ## Key Components
 
@@ -17,6 +18,7 @@ The configuration system follows these principles:
 - **`development.py`, `staging.py`, `production.py`**: Environment-specific configurations
 - **`local.py`**: Local development overrides (not version controlled)
 - **`environments.py`**: Environment detection and handling logic
+- **`components/`**: Component-specific configuration files
 - **`schemas/`**: JSON schemas for configuration validation
 
 ## Directory Structure
@@ -24,29 +26,39 @@ The configuration system follows these principles:
 ```plaintext
 config/
 ├── __init__.py               # Package initialization
-├── api_endpoints.json        # API endpoint definitions
-├── api.ini                   # API gateway configuration
-├── app.ini                   # Core application settings
-├── backup.ini                # Backup and disaster recovery
 ├── base.py                   # Base configuration class
-├── cache.ini                 # Caching configuration
-├── compliance.ini            # Compliance and regulatory settings
-├── database.ini              # Database connection settings
 ├── development.py            # Development environment configuration
-├── email.ini                 # Email service configuration
 ├── environments.py           # Environment detection logic
 ├── local.py                  # Local development overrides
-├── logging.ini               # Logging configuration
-├── monitoring.ini            # Monitoring system settings
-├── network.ini               # Network and connectivity settings
-├── privacy.ini               # Privacy and data protection
 ├── production.py             # Production environment configuration
 ├── README.md                 # Configuration documentation (this file)
-├── security.ini              # Security settings
 ├── staging.py                # Staging environment configuration
-├── storage.ini               # Storage system configuration
 ├── testing.py                # Testing environment configuration
+├── components/               # Component-specific configurations
+│   ├── __init__.py           # Component configuration utilities
+│   ├── api.ini               # API gateway configuration
+│   ├── api_endpoints.json    # API endpoint definitions
+│   ├── app.ini               # Core application settings
+│   ├── backup.ini            # Backup and disaster recovery
+│   ├── cache.ini             # Caching configuration
+│   ├── compliance.ini        # Compliance and regulatory settings
+│   ├── database.ini          # Database connection settings
+│   ├── email.ini             # Email service configuration
+│   ├── logging.ini           # Logging configuration
+│   ├── monitoring.ini        # Monitoring system settings
+│   ├── network.ini           # Network and connectivity settings
+│   ├── privacy.ini           # Privacy and data protection
+│   ├── README.md             # Component configuration documentation
+│   ├── security.ini          # Security settings
+│   └── storage.ini           # Storage system configuration
+├── environments/             # Environment-specific overrides
+│   ├── __init__.py           # Environment utilities
+│   ├── development/          # Development environment overrides
+│   ├── production/           # Production environment overrides
+│   ├── staging/              # Staging environment overrides
+│   └── testing/              # Testing environment overrides
 └── schemas/                  # JSON schemas for validation
+    ├── __init__.py           # Schema validation utilities
     ├── *.json.schema         # JSON file schemas
     ├── *.yaml.schema         # YAML file schemas
     ├── api.ini.schema        # API configuration schema
@@ -59,6 +71,7 @@ config/
     ├── deployment.yaml.schema # Deployment configuration schema
     ├── email.ini.schema      # Email settings schema
     └── ...                   # Other schema files
+
 ```
 
 ## Configuration Files
@@ -85,6 +98,7 @@ config/
 - **`network.ini`**: Network settings, proxy configuration, and connectivity
 - **`storage.ini`**: File storage configuration (S3, Azure Blob, local)
 - **`compliance.ini`**: Compliance and regulatory settings
+- **`privacy.ini`**: Privacy settings (data retention, consent, GDPR)
 
 ### JSON Configuration
 
@@ -97,64 +111,83 @@ config/
 The Python configuration classes define a hierarchy where environment-specific classes inherit from the base Config class:
 
 ```python
-from config import Config, DevelopmentConfig, ProductionConfig
+from config import get_config, get_config_instance
 
-# Base configuration with fallback values
-app_config = Config()
+# Method 1: Get configuration class (not instantiated)
+config_class = get_config('production')
+app.config.from_object(config_class)
 
-# Environment-specific configuration (overrides base config)
-if app.debug:
-    app_config = DevelopmentConfig()
-else:
-    app_config = ProductionConfig()
+# Method 2: Get instantiated configuration
+config = get_config_instance('production')
+app.config.update(config.__dict__)
+
+# Method 3: Auto-detect environment
+config = get_config_instance()  # Detects from APP_ENV environment variable
+
 ```
 
-### INI File Configuration
+### Component Configuration
 
-INI files are used for component-specific configuration:
+Component configurations can be loaded through the utilities in the `components` module:
 
 ```python
-import configparser
+from config.components import load_component_config
 
-# Load configuration
-config = configparser.ConfigParser()
-config.read('config/database.ini')
+# Load security configuration for production environment
+security_config = load_component_config('security', environment='production')
 
-# Access configuration sections
-db_config = config['production']
-host = db_config.get('host')
-port = db_config.getint('port', 5432)
+# Access configuration values
+password_min_length = security_config['authentication']['password_min_length']
+mfa_enabled = security_config['authentication']['mfa_enabled']
+
+# Load API endpoints configuration (JSON)
+endpoints_config = load_component_config('api_endpoints', extension='json')
+
 ```
 
-## Environment Variables
+### Environment Variable Overrides
 
 Configuration values can be overridden by environment variables:
 
 - Environment variables take precedence over configuration files
-- Variable names should follow the pattern: `CLOUDPLATFORM_SECTION_KEY`
-- Example: `CLOUDPLATFORM_DATABASE_HOST` overrides the database host
+- Variable names follow the pattern: `CLOUDPLATFORM_SECTION_KEY`
+- For component configs, use: `CLOUDPLATFORM_COMPONENT_SECTION_KEY`
+- Examples:
+  - `CLOUDPLATFORM_DATABASE_HOST` overrides the database host
+  - `CLOUDPLATFORM_SECURITY_AUTHENTICATION_MFA_ENABLED=false` disables MFA
 
-## Schema Validation
+### Validation
 
-Configuration files are validated against schemas in the `schemas/` directory:
+Configuration validation ensures correctness:
 
-- JSON schemas follow the JSON Schema standard
-- INI schemas define required sections and key-value pairs
-- Validation occurs during application startup and deployment
+```python
+from config.components import validate_component_config
+from config.schemas import validate_config
+
+# Validate a component configuration
+is_valid = validate_component_config('security', environment='production')
+
+# Validate a Python configuration class against its schema
+is_valid = validate_config(production_config)
+
+```
 
 ## Best Practices & Security
 
-- Never store sensitive information (passwords, API keys) in configuration files
-- Use environment variables or a secure vault for sensitive data
-- All configuration files should be validated during CI/CD
-- Production configuration should disable debug features
-- Use the strictest security settings in production
-- Maintain consistent configuration naming across environments
-- Document all configuration options with comments and examples
+- **Sensitive Information**: Never store passwords, API keys, or tokens in configuration files
+- **Secure Storage**: Use environment variables or a secrets manager (Vault, AWS Secrets Manager)
+- **Validation**: All configuration files should be validated during CI/CD pipelines
+- **Environment Isolation**: Use the strictest security settings in production
+- **Naming Consistency**: Maintain consistent naming conventions across environments
+- **Documentation**: Document all configuration options with comments
+- **Principle of Least Privilege**: Configure minimum necessary permissions
+- **Validation Before Deployment**: Use validation tools before applying configurations
+- **Audit Trail**: Track configuration changes in version control
 
 ## Related Documentation
 
 - Deployment Guide
 - Environment Setup
-- Security Configuration
+- Security Configuration Guide
 - Monitoring Configuration
+- Component Configuration Guide

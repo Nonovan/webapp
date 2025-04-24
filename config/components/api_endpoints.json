@@ -1,87 +1,207 @@
 {
+  "version": "1.0.0",
+  "description": "API endpoints configuration for Cloud Infrastructure Platform",
   "endpoints": [
     {
       "name": "Health Check",
       "path": "/health",
       "method": "GET",
       "critical": true,
-      "description": "Basic API health check endpoint"
+      "description": "Basic API health check endpoint",
+      "requires_auth": false,
+      "rate_limit": {
+        "enabled": true,
+        "limit": 60,
+        "period_seconds": 60
+      }
     },
     {
       "name": "API Authentication",
       "path": "/api/auth/status",
       "method": "GET",
       "critical": true,
-      "description": "Authentication status verification"
+      "description": "Authentication status verification",
+      "requires_auth": true,
+      "rate_limit": {
+        "enabled": true,
+        "limit": 30,
+        "period_seconds": 60
+      }
     },
     {
       "name": "Cloud Metrics",
       "path": "/api/cloud/metrics",
       "method": "GET",
-      "headers": "Authorization: Bearer ${API_TOKEN}",
+      "headers": {
+        "Authorization": "Bearer ${API_TOKEN}"
+      },
       "critical": true,
-      "description": "Cloud infrastructure performance metrics"
+      "description": "Cloud infrastructure performance metrics",
+      "requires_auth": true,
+      "permissions": ["metrics:read"],
+      "rate_limit": {
+        "enabled": true,
+        "limit": 20,
+        "period_seconds": 60
+      },
+      "cache_ttl_seconds": 300
     },
     {
       "name": "User Login",
       "path": "/api/auth/login",
       "method": "POST",
-      "data": "{\"username\":\"test\",\"password\":\"test\"}",
-      "headers": "Content-Type: application/json",
+      "sample_data": {
+        "username": "test",
+        "password": "test"
+      },
+      "headers": {
+        "Content-Type": "application/json"
+      },
       "critical": true,
-      "description": "User authentication endpoint"
+      "description": "User authentication endpoint",
+      "requires_auth": false,
+      "rate_limit": {
+        "enabled": true,
+        "limit": 10,
+        "period_seconds": 60
+      },
+      "validation_schema": "login_schema"
     },
     {
       "name": "Resources List",
       "path": "/api/resources",
       "method": "GET",
       "critical": false,
-      "description": "List available cloud resources"
+      "description": "List available cloud resources",
+      "requires_auth": true,
+      "permissions": ["resources:list"],
+      "rate_limit": {
+        "enabled": true,
+        "limit": 30,
+        "period_seconds": 60
+      },
+      "pagination": true
     },
     {
       "name": "Webhook Status",
       "path": "/api/webhooks/status",
       "method": "GET",
       "critical": false,
-      "description": "Check webhook integration status"
+      "description": "Check webhook integration status",
+      "requires_auth": true,
+      "permissions": ["webhooks:read"],
+      "rate_limit": {
+        "enabled": true,
+        "limit": 20,
+        "period_seconds": 60
+      }
     },
     {
       "name": "Version Info",
       "path": "/api/version",
       "method": "GET",
       "critical": true,
-      "description": "API version information"
+      "description": "API version information",
+      "requires_auth": false,
+      "rate_limit": {
+        "enabled": true,
+        "limit": 60,
+        "period_seconds": 60
+      }
     },
     {
       "name": "User Profile",
       "path": "/api/users/profile",
       "method": "GET",
-      "headers": "Authorization: Bearer ${API_TOKEN}",
+      "headers": {
+        "Authorization": "Bearer ${API_TOKEN}"
+      },
       "critical": false,
-      "description": "Get current user profile information"
+      "description": "Get current user profile information",
+      "requires_auth": true,
+      "permissions": ["profile:read"],
+      "rate_limit": {
+        "enabled": true,
+        "limit": 30,
+        "period_seconds": 60
+      }
     },
     {
       "name": "System Status",
       "path": "/api/system/status",
       "method": "GET",
       "critical": true,
-      "description": "Overall system status including dependencies"
+      "description": "Overall system status including dependencies",
+      "requires_auth": true,
+      "permissions": ["system:status:read"],
+      "rate_limit": {
+        "enabled": true,
+        "limit": 20,
+        "period_seconds": 60
+      },
+      "cache_ttl_seconds": 60
     },
     {
       "name": "Newsletter Subscription",
       "path": "/api/newsletter/subscribe",
       "method": "POST",
-      "data": "{\"email\":\"test@example.com\"}",
-      "headers": "Content-Type: application/json",
+      "sample_data": {
+        "email": "test@example.com"
+      },
+      "headers": {
+        "Content-Type": "application/json"
+      },
       "critical": false,
-      "description": "Subscribe to newsletter updates"
+      "description": "Subscribe to newsletter updates",
+      "requires_auth": false,
+      "rate_limit": {
+        "enabled": true,
+        "limit": 5,
+        "period_seconds": 60
+      },
+      "validation_schema": "newsletter_schema"
     },
     {
       "name": "Static Asset",
       "path": "/static/css/main.css",
       "method": "GET",
       "critical": false,
-      "description": "Verify static asset serving"
+      "description": "Verify static asset serving",
+      "requires_auth": false,
+      "rate_limit": {
+        "enabled": false
+      },
+      "cache_ttl_seconds": 3600
     }
-  ]
+  ],
+  "global_settings": {
+    "base_path": "/api/v1",
+    "default_rate_limit": {
+      "enabled": true,
+      "limit": 100,
+      "period_seconds": 60
+    },
+    "cors": {
+      "enabled": true,
+      "allow_origins": ["https://*.example.com"],
+      "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      "allow_headers": ["Content-Type", "Authorization", "X-Requested-With", "X-Request-ID"],
+      "expose_headers": ["X-Rate-Limit-Remaining", "X-Rate-Limit-Reset"],
+      "max_age": 3600
+    },
+    "security": {
+      "require_https": true,
+      "add_security_headers": true,
+      "rate_limit_strategy": "sliding_window",
+      "circuit_breaker": {
+        "enabled": true,
+        "failure_threshold": 5,
+        "reset_timeout_seconds": 30
+      }
+    },
+    "validation": {
+      "schemas_path": "/etc/cloud-platform/api/schemas/",
+      "validate_request_body": true
+    }
+  }
 }

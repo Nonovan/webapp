@@ -40,6 +40,9 @@ def resolve_path(component_name: str, environment: Optional[str] = None,
 
     Returns:
         Path: The resolved configuration file path
+
+    Raises:
+        ValueError: If component name is not provided
     """
     if not component_name:
         raise ValueError("Component name must be specified")
@@ -85,7 +88,7 @@ def load_component_config(component_name: str, environment: Optional[str] = None
         use_env_vars: Whether to apply environment variable overrides
 
     Returns:
-        ConfigParser or dict: Loaded configuration
+        ConfigType: Loaded configuration (ConfigParser for INI, Dict for JSON/YAML)
 
     Raises:
         FileNotFoundError: If the configuration file doesn't exist
@@ -312,9 +315,58 @@ def get_all_component_names() -> List[str]:
     return sorted(list(set(component_names)))
 
 
+def validate_component_config(component_name: str, environment: Optional[str] = None) -> bool:
+    """
+    Validate a component configuration for correct format and syntax.
+
+    Args:
+        component_name: Name of the component to validate
+        environment: Optional environment to validate
+
+    Returns:
+        bool: True if the configuration is valid, False otherwise
+    """
+    try:
+        # Attempt to load the configuration
+        config_path = resolve_path(component_name, environment)
+        if not config_path.exists():
+            return False
+
+        # Check format based on file extension
+        file_extension = config_path.suffix.lower()
+
+        if file_extension == '.ini':
+            # Validate INI format
+            parser = configparser.ConfigParser()
+            with open(config_path, 'r', encoding='utf-8') as f:
+                parser.read_file(f)
+
+        elif file_extension == '.json':
+            # Validate JSON format
+            with open(config_path, 'r', encoding='utf-8') as f:
+                json.load(f)
+
+        elif file_extension in ('.yaml', '.yml'):
+            # Validate YAML format
+            if not YAML_AVAILABLE:
+                raise ImportError("PyYAML is required to validate YAML files")
+
+            with open(config_path, 'r', encoding='utf-8') as f:
+                yaml.safe_load(f)
+
+        else:
+            return False
+
+        return True
+
+    except (configparser.Error, json.JSONDecodeError, yaml.YAMLError, ImportError):
+        return False
+
+
 # Export public functions
 __all__ = [
     'load_component_config',
     'resolve_path',
     'get_all_component_names',
+    'validate_component_config',
 ]

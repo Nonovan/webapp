@@ -18,8 +18,8 @@ The component configuration system implements a modular approach to configuratio
 - **`security.ini`**: Security settings (authentication, authorization, encryption)
 - **`monitoring.ini`**: Monitoring and alerting configuration
 - **`logging.ini`**: Logging configuration and rotation settings
-- **`compliance.ini`**: Regulatory compliance settings
 - **`privacy.ini`**: Data privacy and protection controls
+- **`api_endpoints.json`**: API endpoint definitions and routing rules
 
 ## Directory Structure
 
@@ -41,6 +41,7 @@ config/components/
 ├── README.md               # This documentation
 ├── security.ini            # Security settings
 └── storage.ini             # Storage system configuration
+
 ```
 
 ## Configuration
@@ -61,7 +62,16 @@ mfa_enabled = security_config['authentication']['mfa_enabled']
 
 # Load monitoring configuration
 monitoring_config = load_component_config('monitoring')
+
 ```
+
+### Configuration Formats
+
+The system supports multiple configuration formats:
+
+- **INI**: For most configuration files (security.ini, monitoring.ini)
+- **JSON**: For structured data (api_endpoints.json)
+- **YAML**: For complex configuration scenarios (optional)
 
 ### Environment Variable Overrides
 
@@ -69,12 +79,25 @@ Configuration values can be overridden using environment variables following thi
 
 ```plaintext
 CLOUDPLATFORM_{COMPONENT}_{SECTION}_{KEY}=value
+
 ```
 
 For example:
 
 - `CLOUDPLATFORM_SECURITY_AUTHENTICATION_MFA_ENABLED=false` would override the MFA setting
 - `CLOUDPLATFORM_LOGGING_GENERAL_LOG_LEVEL=DEBUG` would set the log level to DEBUG
+
+### Validation
+
+Component configurations can be validated using the `validate_component_config()` function:
+
+```python
+from config.components import validate_component_config
+
+# Validate configuration for a specific component
+is_valid = validate_component_config('security', environment='production')
+
+```
 
 ## Best Practices & Security
 
@@ -84,6 +107,8 @@ For example:
 - Use the strictest security settings in production environments
 - Maintain consistent configuration naming across environments
 - Document all configuration options with comments
+- Use the built-in validation utilities before applying configuration changes
+- Apply the principle of least privilege when configuring access controls
 
 ## Common Features
 
@@ -109,6 +134,26 @@ security_config = load_component_config('security')
 if security_config['authentication']['mfa_required_for_admins']:
     # Enforce MFA for admin users
     enforce_mfa()
+
+```
+
+### API Endpoints Configuration
+
+```python
+from config.components import load_component_config
+
+# Load API endpoints configuration
+endpoints_config = load_component_config('api_endpoints', extension='json')
+
+# Get all defined endpoints
+for endpoint in endpoints_config['endpoints']:
+    path = endpoint['path']
+    method = endpoint['method']
+    requires_auth = endpoint['requires_auth']
+
+    # Register endpoint with appropriate middleware
+    register_endpoint(path, method, requires_auth)
+
 ```
 
 ### Compliance Configuration
@@ -123,6 +168,7 @@ compliance_config = load_component_config('compliance')
 if compliance_config['frameworks']['gdpr_enabled']:
     # Apply GDPR-specific handling
     apply_gdpr_controls()
+
 ```
 
 ### Privacy Configuration
@@ -135,11 +181,12 @@ privacy_config = load_component_config('privacy')
 
 # Check data retention policies
 user_retention_months = privacy_config['data_retention']['user_account_retention_months']
+
 ```
 
 ## Related Documentation
 
-- [Configuration Management](../../docs/deployment/configuration.md)
-- [Environment Setup](../../docs/development/setup.md)
-- [Security Configuration Guide](../../docs/security/configuration.md)
-- [Compliance Documentation](../../docs/compliance/overview.md)
+- Configuration Management
+- Environment Setup
+- Security Configuration Guide
+- Compliance Documentation

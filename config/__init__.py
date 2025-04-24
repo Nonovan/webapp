@@ -7,7 +7,7 @@ interface for accessing configuration based on the current environment.
 """
 
 import os
-from typing import Optional, Type
+from typing import Optional, Type, Dict, Any
 
 from .base import Config
 from .environments import (
@@ -75,8 +75,35 @@ def get_config_instance(environment: Optional[str] = None) -> Config:
     return get_environment_config(environment)
 
 
+def load_component_config(component_name: str, environment: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Load configuration for a specific component with optional environment override.
+
+    This function loads and merges component configuration from the components directory,
+    applying any environment-specific overrides.
+
+    Args:
+        component_name: The name of the component (e.g., 'logging', 'security', 'database')
+        environment: Optional environment name to load environment-specific overrides
+
+    Returns:
+        A dictionary containing the merged configuration
+
+    Example:
+        logging_config = load_component_config('logging', 'production')
+        setup_logging(logging_config)
+    """
+    # Import here to avoid circular imports
+    from .components import load_component_config as _load_component
+
+    if not environment:
+        environment = detect_environment()
+
+    return _load_component(component_name, environment)
+
+
 # Version information
-__version__ = '1.2.0'
+__version__ = '0.0.0'
 
 # Define public exports
 __all__ = [
@@ -89,5 +116,6 @@ __all__ = [
     'get_config',
     'get_config_instance',
     'detect_environment',
+    'load_component_config',
     'CONFIG_REGISTRY'
 ]

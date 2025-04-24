@@ -68,7 +68,8 @@
         "enabled": true,
         "limit": 10,
         "period_seconds": 60
-      }
+      },
+      "validation_schema": "resource_create"
     },
     {
       "name": "Update Resource",
@@ -82,7 +83,8 @@
         "enabled": true,
         "limit": 20,
         "period_seconds": 60
-      }
+      },
+      "validation_schema": "resource_update"
     },
     {
       "name": "Delete Resource",
@@ -124,7 +126,8 @@
         "enabled": true,
         "limit": 30,
         "period_seconds": 60
-      }
+      },
+      "cache_ttl_seconds": 300
     },
     {
       "name": "User Profile",
@@ -136,6 +139,34 @@
       "rate_limit": {
         "enabled": true,
         "limit": 30,
+        "period_seconds": 60
+      }
+    },
+    {
+      "name": "Update User Profile",
+      "path": "/api/users/profile",
+      "method": "PUT",
+      "critical": false,
+      "description": "Update user profile information",
+      "requires_auth": true,
+      "rate_limit": {
+        "enabled": true,
+        "limit": 10,
+        "period_seconds": 60
+      },
+      "validation_schema": "user_profile_update"
+    },
+    {
+      "name": "Health Check Details",
+      "path": "/api/health/details",
+      "method": "GET",
+      "critical": true,
+      "description": "Detailed system health information",
+      "requires_auth": true,
+      "permissions": ["system:health:read"],
+      "rate_limit": {
+        "enabled": true,
+        "limit": 20,
         "period_seconds": 60
       }
     }
@@ -151,13 +182,27 @@
       "enabled": true,
       "allow_origins": ["https://*.example.com"],
       "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-      "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+      "allow_headers": ["Content-Type", "Authorization", "X-Requested-With", "X-Request-ID"],
       "expose_headers": ["X-Rate-Limit-Remaining", "X-Rate-Limit-Reset"],
       "max_age": 3600
     },
     "security": {
       "require_https": true,
-      "add_security_headers": true
+      "add_security_headers": true,
+      "rate_limit_strategy": "sliding_window",
+      "rate_limit_by_ip": true,
+      "rate_limit_by_user": true,
+      "circuit_breaker": {
+        "enabled": true,
+        "failure_threshold": 5,
+        "reset_timeout_seconds": 30
+      }
+    },
+    "validation": {
+      "schemas_path": "/etc/cloud-platform/api/schemas/",
+      "validate_request_body": true,
+      "validate_response_body": false,
+      "sanitize_inputs": true
     }
   }
 }
