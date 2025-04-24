@@ -208,6 +208,20 @@ Every directory should include a [README.md](http://readme.md/) with these secti
 7. **Usage Examples** - Command examples with syntax
 8. **Related Documentation** - Links to additional resources
 
+#### Directory Structure Example
+```
+## Directory Structure
+/directory/
+├── script_a.py            # Description
+├── script_b.py            # Description
+├── subdirectory/          # Subdirectory description
+│   ├── helper_a.py        # Description
+│   └── helper_b.py        # Description
+└── utils/                 # Utils description
+    └── common.py          # Description
+
+```
+
 ### Formatting Guidelines
 
 - Use **bold** for file/script names
