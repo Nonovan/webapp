@@ -31,6 +31,7 @@ This repository contains a Python Flask web application for cloud infrastructure
 ## Coding and Organization Standards
 
 ### General Standards
+
 - Organize by feature area and functionality
 - Keep related code together
 - Use smaller, focused functions
@@ -42,20 +43,25 @@ This repository contains a Python Flask web application for cloud infrastructure
 - Favor reusable components over duplicate code
 
 ### Python
+
 - Follow PEP 8, use type hints, docstrings, proper exception handling
 - Use context managers, write unit tests, prioritize security
 
 ### JavaScript
+
 - Use ES6+, use async/await, prefer const over let, and avoid var
 - Include CSP nonce, implement CSRF protection, use strict mode, validate inputs
 
 ### HTML/Templates
+
 - Follow HTML5 standards with proper ARIA attributes for accessibility
 - Use Bootstrap 5 and responsive design
 
 ### File Headers
+
 - Use **project-relative paths** only
 - Never include personal directory information:
+
 ```bash
 # CORRECT:
 # filepath: scripts/utils/common_functions.sh
@@ -209,8 +215,10 @@ Every directory should include a [README.md](http://readme.md/) with these secti
 8. **Related Documentation** - Links to additional resources
 
 #### Directory Structure Example
-```
+
+```plaintext
 ## Directory Structure
+
 /directory/
 ├── script_a.py            # Description
 ├── script_b.py            # Description
@@ -231,7 +239,7 @@ Every directory should include a [README.md](http://readme.md/) with these secti
 - Use bullet lists for features and numbered lists for sequential steps
 - Set configuration examples in code blocks with comments for documentation:
 
-```
+```plaintext
 # Required settings
 endpoint=https://api.example.com/v1  # API endpoint URL
 
@@ -239,7 +247,6 @@ endpoint=https://api.example.com/v1  # API endpoint URL
 timeout=30  # Request timeout in seconds (default: 10)
 
 ```
-
 
 ### Documentation Updates
 
