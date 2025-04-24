@@ -1,0 +1,34 @@
+{
+  "assistant": {
+    "default_model": {
+      "provider": "copilot_chat",
+      "model": "claude-3-7-sonnet"
+    },
+    "version": "2"
+  },
+  "features": {
+    "edit_prediction_provider": "zed"
+  },
+  "ui_font_size": 16,
+  "buffer_font_size": 13.0,
+  "theme": {
+    "mode": "system",
+    "light": "One Light",
+    "dark": "Ayu Mirage"
+  },
+  "telemetry": {
+    "diagnostics": false,
+    "metrics": true
+  },
+  "editor": {
+    "auto_save": {
+      "after_delay": {
+        "milliseconds": 1000
+      }
+    },
+    "soft_wrap": "preferred_line_length"
+  },
+  "terminal": {
+    "font_size": 13.0
+  }
+}
