@@ -18,40 +18,32 @@ models/
 ├── base.py                  # Base model classes and mixins
 ├── README.md                # Documentation (this file)
 ├── auth/                    # Authentication and user management
-│   ├── __init__.py
 │   ├── user.py              # User account model
-│   ├── user_session.py      # User session tracking
-│   └── user_activity.py     # User activity logging
+│   ├── user_activity.py     # User activity logging
+│   └── user_session.py      # User session tracking
 ├── cloud/                   # Cloud infrastructure models
-│   ├── __init__.py
 │   ├── cloud_alert.py       # Alert configurations
 │   ├── cloud_metric.py      # Resource metrics and monitoring
 │   ├── cloud_provider.py    # Cloud provider configurations
 │   └── cloud_resource.py    # Infrastructure resources
 ├── communication/           # Communication-related models
-│   ├── __init__.py
 │   ├── newsletter.py        # Newsletter subscribers and lists
 │   ├── notification.py      # User notifications
 │   ├── subscriber.py        # Subscriber management
 │   └── webhook.py           # Webhook subscriptions
 ├── content/                 # Content management models
-│   ├── __init__.py
 │   ├── category.py          # Content categorization
 │   └── post.py              # Blog/news post content
 ├── ics/                     # Industrial Control Systems
-│   ├── __init__.py
 │   ├── ics_control_log.py   # Control operation logging
 │   ├── ics_device.py        # ICS device inventory
 │   └── ics_reading.py       # Sensor readings and telemetry
 ├── security/                # Security-related models
-│   ├── __init__.py
 │   ├── audit_log.py         # Security audit records
 │   ├── security_incident.py # Security incidents
 │   └── system_config.py     # Security configurations
 └── storage/                 # Storage-related models
-    ├── __init__.py
     └── file_upload.py       # File upload tracking
-
 ```
 
 ## Key Components
