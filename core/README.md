@@ -2,6 +2,18 @@
 
 This directory contains core components and utilities that provide the foundational functionality for the Cloud Infrastructure Platform. The core package implements essential services like security middleware, metrics collection, configuration management, and system health monitoring used throughout the application.
 
+## Contents
+
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Configuration](#configuration)
+- [Best Practices & Security](#best-practices--security)
+- [Common Features](#common-features)
+- [Usage Examples](#usage-examples)
+- [Related Documentation](#related-documentation)
+- [Version Information](#version-information)
+
 ## Overview
 
 The core package serves as the backbone of the Cloud Infrastructure Platform, providing critical infrastructure components that are used by multiple modules across the system. It implements application-wide concerns including security controls, metrics collection, middleware functionality, configuration management, and system health monitoring.
@@ -194,6 +206,6 @@ is_debug = Config.get('DEBUG', False)
 
 ## Version Information
 
-- **Version**: 0.0.0
+- **Version**: 0.0.1
 - **Last Updated**: 2023-10-15
 - **Maintainers**: Platform Engineering Team

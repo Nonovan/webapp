@@ -1,4 +1,6 @@
 """
+Configuration management for the Cloud Infrastructure Platform.
+
 This module handles the loading, validation, and access of configuration settings
 from environment variables and configuration files. It provides a centralized
 configuration system that ensures all required settings are available before
@@ -16,14 +18,25 @@ Configuration priorities:
 3. Default values (lowest priority)
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+import hashlib
 import ipaddress
 import logging
 import os
 import secrets
 import socket
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Union, Set, Callable, TypeVar, cast
 import subprocess
+from pathlib import Path
+from flask import Flask
+
+# Type definitions
+ConfigDict = Dict[str, Any]
+T = TypeVar('T')
+
+# Constants
+DEFAULT_HASH_ALGORITHM = 'sha256'
+SMALL_FILE_THRESHOLD = 10240  # 10KB
 
 
 class Config:
@@ -38,6 +51,9 @@ class Config:
     Class Attributes:
         REQUIRED_VARS (List[str]): List of required environment variables
         ENV_DEFAULTS (Dict[str, Any]): Default values for environment settings
+        DEV_OVERRIDES (Dict[str, Any]): Development environment overrides
+        TEST_OVERRIDES (Dict[str, Any]): Test environment overrides
+        PROD_REQUIREMENTS (List[str]): Required settings for production
     """
 
     # Required environment variables - must be set for application to run
@@ -136,7 +152,37 @@ class Config:
         'FEATURE_DARK_MODE': True,
         'FEATURE_ICS_CONTROL': True,
         'FEATURE_CLOUD_MANAGEMENT': True,
-        'FEATURE_MFA': True
+        'FEATURE_MFA': True,
+
+        # Content security policy settings
+        'CSP_DEFAULT_SRC': ["'self'"],
+        'CSP_SCRIPT_SRC': ["'self'", "'unsafe-inline'"],
+        'CSP_STYLE_SRC': ["'self'", "'unsafe-inline'"],
+        'CSP_IMG_SRC': ["'self'", "data:"],
+        'CSP_CONNECT_SRC': ["'self'"],
+        'CSP_FONT_SRC': ["'self'"],
+        'CSP_OBJECT_SRC': ["'none'"],
+        'CSP_MEDIA_SRC': ["'self'"],
+        'CSP_FRAME_SRC': ["'self'"],
+        'CSP_FRAME_ANCESTORS': ["'self'"],
+        'CSP_FORM_ACTION': ["'self'"],
+        'CSP_BASE_URI': ["'self'"],
+        'CSP_REPORT_TO': "default",
+
+        # Security audit logging
+        'AUDIT_LOG_ENABLED': True,
+        'AUDIT_LOG_EVENTS': ['authentication', 'authorization', 'data_access', 'configuration_change'],
+        'AUDIT_LOG_RETENTION_DAYS': 90,
+
+        # File integrity monitoring
+        'ENABLE_FILE_INTEGRITY_MONITORING': True,
+        'FILE_HASH_ALGORITHM': 'sha256',
+        'FILE_INTEGRITY_CHECK_INTERVAL': 3600,  # 1 hour
+
+        # API security settings
+        'API_RATE_LIMIT_ENABLED': True,
+        'API_RATE_LIMIT_DEFAULT': '100/hour',
+        'API_REQUIRE_HTTPS': True
     }
 
     # Development-specific overrides
@@ -149,6 +195,7 @@ class Config:
         'SECURITY_HEADERS_ENABLED': True,
         'METRICS_ENABLED': True,
         'LOG_LEVEL': 'DEBUG',
+        'API_REQUIRE_HTTPS': False,  # Allow HTTP in dev for easier testing
     }
 
     # Test-specific overrides
@@ -159,6 +206,7 @@ class Config:
         'SERVER_NAME': 'localhost',
         'METRICS_ENABLED': False,
         'SECURITY_CHECK_FILE_INTEGRITY': False,
+        'AUDIT_LOG_ENABLED': False,  # Disable audit logging in tests
     }
 
     # Production-specific security requirements
@@ -169,21 +217,45 @@ class Config:
         'REMEMBER_COOKIE_HTTPONLY',
         'WTF_CSRF_ENABLED',
         'SECURITY_HEADERS_ENABLED',
+        'API_REQUIRE_HTTPS',
+        'JWT_BLACKLIST_ENABLED',
+        'AUDIT_LOG_ENABLED'
     ]
 
+    # Constants
+    ALLOWED_ENVIRONMENTS = {'development', 'testing', 'staging', 'production'}
+    SECURE_ENVIRONMENTS = {'staging', 'production'}
+
+    # Loggers
+    logger = logging.getLogger(__name__)
+    security_logger = logging.getLogger('security')
+
     @classmethod
-    def init_app(cls, app) -> None:
+    def init_app(cls, app: Flask) -> None:
         """
         Initialize the application with configuration settings.
 
+        This method configures a Flask application with appropriate settings based on
+        the current environment, loading configuration from environment variables,
+        validating security requirements, and setting up derived values.
+
         Args:
-            app: Flask application instance
+            app: Flask application instance to configure
 
         Raises:
             ValueError: If required environment variables are missing in production
+                       or if security settings are inappropriately configured
+            RuntimeError: If the environment is not valid
         """
-        # Load environment-specific configuration
+        # Get environment from environment variable or default to development
         environment = os.environ.get('ENVIRONMENT', 'development').lower()
+
+        # Validate environment value
+        if environment not in cls.ALLOWED_ENVIRONMENTS:
+            raise RuntimeError(f"Invalid environment: {environment}. Allowed values are: {', '.join(cls.ALLOWED_ENVIRONMENTS)}")
+
+        app.config['ENVIRONMENT'] = environment
+        cls.logger.info(f"Initializing application in {environment} environment")
 
         # Load default configuration
         for key, value in cls.ENV_DEFAULTS.items():
@@ -207,8 +279,34 @@ class Config:
         cls._setup_derived_values(app)
 
         # Register config values to be accessible in the app context
+        cls._register_template_context(app)
+
+        # Initialize file integrity monitoring if enabled
+        if app.config.get('ENABLE_FILE_INTEGRITY_MONITORING', True):
+            app.config = cls.initialize_file_hashes(app.config, app.root_path)
+            cls.logger.info("File integrity monitoring initialized")
+
+        # Log initialization complete with security-relevant info
+        cls.security_logger.info(
+            "Application configuration initialized",
+            extra={
+                "environment": environment,
+                "security_headers_enabled": app.config.get('SECURITY_HEADERS_ENABLED'),
+                "file_integrity_monitoring": app.config.get('ENABLE_FILE_INTEGRITY_MONITORING'),
+                "audit_logging_enabled": app.config.get('AUDIT_LOG_ENABLED')
+            }
+        )
+
+    @classmethod
+    def _register_template_context(cls, app: Flask) -> None:
+        """
+        Register configuration values to be available in templates.
+
+        Args:
+            app: Flask application instance
+        """
         @app.context_processor
-        def inject_config():
+        def inject_config() -> Dict[str, Dict[str, Any]]:
             """Make selected config values available in templates."""
             return {
                 'config': {
@@ -218,11 +316,12 @@ class Config:
                     'FEATURE_ICS_CONTROL': app.config.get('FEATURE_ICS_CONTROL', True),
                     'FEATURE_CLOUD_MANAGEMENT': app.config.get('FEATURE_CLOUD_MANAGEMENT', True),
                     'FEATURE_MFA': app.config.get('FEATURE_MFA', True),
+                    'CSP_NONCE': cls.generate_csp_nonce(),
                 }
             }
 
     @classmethod
-    def _load_from_environment(cls, app) -> None:
+    def _load_from_environment(cls, app: Flask) -> None:
         """
         Load configuration from environment variables.
 
@@ -236,20 +335,7 @@ class Config:
         for key, value in os.environ.items():
             if key.startswith('FLASK_'):
                 app_key = key[6:]  # Remove FLASK_ prefix
-
-                # Handle boolean values
-                if value.lower() in ('true', 'yes', '1'):
-                    app.config[app_key] = True
-                elif value.lower() in ('false', 'no', '0'):
-                    app.config[app_key] = False
-                # Handle integer values
-                elif value.isdigit():
-                    app.config[app_key] = int(value)
-                # Handle float values
-                elif value.replace('.', '', 1).isdigit() and value.count('.') == 1:
-                    app.config[app_key] = float(value)
-                else:
-                    app.config[app_key] = value
+                app.config[app_key] = cls._convert_env_value(value)
 
         # Set required variables and overrides
         for var in cls.REQUIRED_VARS:
@@ -258,9 +344,44 @@ class Config:
 
         # Set database URL
         if 'DATABASE_URL' in os.environ:
-            app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URL']
+            app.config['SQLALCHEMY_DATABASE_URI'] = cls._sanitize_database_url(os.environ['DATABASE_URL'])
 
         # Handle ICS restricted IPs - parse as valid IP addresses
+        cls._load_ips_from_environment(app)
+
+    @staticmethod
+    def _convert_env_value(value: str) -> Any:
+        """
+        Convert environment variable string to appropriate Python type.
+
+        Args:
+            value: String value from environment variable
+
+        Returns:
+            The converted value with appropriate type
+        """
+        # Handle boolean values
+        if value.lower() in ('true', 'yes', '1'):
+            return True
+        elif value.lower() in ('false', 'no', '0'):
+            return False
+        # Handle integer values
+        elif value.isdigit():
+            return int(value)
+        # Handle float values
+        elif value.replace('.', '', 1).isdigit() and value.count('.') == 1:
+            return float(value)
+        # Return as string for other values
+        return value
+
+    @classmethod
+    def _load_ips_from_environment(cls, app: Flask) -> None:
+        """
+        Load and validate IP addresses from the environment variable.
+
+        Args:
+            app: Flask application instance
+        """
         if 'ICS_RESTRICTED_IPS' in os.environ:
             try:
                 ips_str = os.environ['ICS_RESTRICTED_IPS']
@@ -274,14 +395,38 @@ class Config:
                             ipaddress.ip_network(ip_str, strict=False)
                             ip_list.append(ip_str)
                         except ValueError:
-                            logging.warning("Invalid IP address or CIDR in ICS_RESTRICTED_IPS: %s", ip_str)
+                            cls.logger.warning(f"Invalid IP address or CIDR in ICS_RESTRICTED_IPS: {ip_str}")
 
                 app.config['ICS_RESTRICTED_IPS'] = ip_list
+                cls.logger.info(f"Loaded {len(ip_list)} restricted IPs for ICS access")
             except ValueError as e:
-                logging.error("Error parsing ICS_RESTRICTED_IPS: %s", str(e))
+                cls.logger.error(f"Error parsing ICS_RESTRICTED_IPS: {str(e)}")
+
+    @staticmethod
+    def _sanitize_database_url(url: str) -> str:
+        """
+        Sanitize database URL to ensure it's properly formatted and secure.
+
+        Args:
+            url: Database URL string
+
+        Returns:
+            Sanitized database URL
+
+        Raises:
+            ValueError: If the database URL is malformed
+        """
+        # Validate that the URL starts with a known database protocol
+        valid_prefixes = ['postgresql://', 'mysql://', 'sqlite:///', 'oracle://',
+                          'mssql://', 'postgresql+psycopg2://', 'mysql+pymysql://']
+
+        if not any(url.startswith(prefix) for prefix in valid_prefixes):
+            raise ValueError(f"Invalid database URL. Must start with one of: {', '.join(valid_prefixes)}")
+
+        return url
 
     @classmethod
-    def _validate_configuration(cls, app) -> None:
+    def _validate_configuration(cls, app: Flask) -> None:
         """
         Validate that all required configuration is present and properly formatted.
 
@@ -297,33 +442,40 @@ class Config:
         environment = app.config.get('ENVIRONMENT', 'development')
 
         # Skip strict validation for development and testing
-        if environment not in ('production', 'staging'):
+        if environment not in cls.SECURE_ENVIRONMENTS:
             return
 
         # Check required variables in production
-        missing_vars = []
-        for var in cls.REQUIRED_VARS:
-            if var not in app.config or not app.config[var]:
-                missing_vars.append(var)
+        missing_vars = [var for var in cls.REQUIRED_VARS
+                       if var not in app.config or not app.config[var]]
 
         if missing_vars:
+            cls.security_logger.error(f"Missing required environment variables: {', '.join(missing_vars)}")
             raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
 
         # Check security settings in production
-        insecure_settings = []
-        for setting in cls.PROD_REQUIREMENTS:
-            if setting in app.config and not app.config[setting]:
-                insecure_settings.append(setting)
+        insecure_settings = [setting for setting in cls.PROD_REQUIREMENTS
+                            if setting in app.config and not app.config[setting]]
 
         if insecure_settings:
+            cls.security_logger.error(f"Insecure settings in production: {', '.join(insecure_settings)}")
             raise ValueError(f"Insecure settings in production: {', '.join(insecure_settings)}")
 
         # Check for development SECRET_KEY in production
-        if app.config.get('SECRET_KEY') == 'dev':
+        if app.config.get('SECRET_KEY') in ('dev', 'development', 'secret', 'changeme'):
+            cls.security_logger.error("Development SECRET_KEY used in production environment")
             raise ValueError("Development SECRET_KEY used in production environment")
 
+        # Check for minimum password requirements
+        if app.config.get('PASSWORD_MIN_LENGTH', 0) < 12:
+            cls.security_logger.warning("PASSWORD_MIN_LENGTH should be at least 12 characters")
+
+        # Check session lifetime
+        if app.config.get('PERMANENT_SESSION_LIFETIME', timedelta(days=31)) > timedelta(days=30):
+            cls.security_logger.warning("PERMANENT_SESSION_LIFETIME exceeds recommended 30 days")
+
     @classmethod
-    def _setup_derived_values(cls, app) -> None:
+    def _setup_derived_values(cls, app: Flask) -> None:
         """
         Set up derived configuration values based on other settings.
 
@@ -332,7 +484,7 @@ class Config:
         - Redis URL for caching when available
         - Debug settings for development
         - File paths based on application root
-        
+
         Args:
             app: Flask application instance
         """
@@ -344,15 +496,24 @@ class Config:
 
             # Also use Redis for session storage if available
             app.config['SESSION_TYPE'] = 'redis'
-            app.config['SESSION_REDIS'] = os.environ['REDIS_URL']
+            app.config['SESSION_REDIS'] = redis.from_url(os.environ['REDIS_URL'])
         else:
             # Default to SimpleCache
             app.config['CACHE_TYPE'] = 'SimpleCache'
             app.config['SESSION_TYPE'] = 'filesystem'
 
         # Set up upload folder
-        app.config['UPLOAD_FOLDER'] = os.path.join(app.root_path, 'uploads')
-        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+        uploads_path = os.path.join(app.root_path, 'uploads')
+        app.config['UPLOAD_FOLDER'] = uploads_path
+
+        # Create upload directory with secure permissions if it doesn't exist
+        try:
+            if not os.path.exists(uploads_path):
+                # Create with restricted permissions (0o750 = rwxr-x---)
+                os.makedirs(uploads_path, mode=0o750, exist_ok=True)
+                cls.logger.info(f"Created upload directory: {uploads_path}")
+        except (IOError, OSError) as e:
+            cls.logger.error(f"Failed to create upload directory {uploads_path}: {str(e)}")
 
         # Generate a self-identification string for logs/metrics
         hostname = socket.gethostname()
@@ -360,19 +521,54 @@ class Config:
 
         # Set application version (try to get from Git if available)
         if 'VERSION' not in app.config:
-            try:
-                result = subprocess.run(
-                    ['git', 'describe', '--tags', '--always'], 
-                    stdout=subprocess.PIPE, 
-                    stderr=subprocess.PIPE, 
-                    check=True
-                )
-                app.config['VERSION'] = result.stdout.decode('utf-8').strip()
-            except subprocess.CalledProcessError:
-                app.config['VERSION'] = '1.0.0'
+            app.config['VERSION'] = cls._get_application_version()
 
-    @staticmethod
-    def load_from_name(name: str) -> Dict[str, Any]:
+        # Set build timestamp
+        app.config.setdefault('BUILD_TIMESTAMP', cls.format_timestamp())
+
+        # Set log directory with proper permissions
+        log_dir = os.path.join(app.root_path, 'logs')
+        try:
+            if not os.path.exists(log_dir):
+                # Create with restricted permissions (0o750 = rwxr-x---)
+                os.makedirs(log_dir, mode=0o750, exist_ok=True)
+                cls.logger.info(f"Created log directory: {log_dir}")
+        except (IOError, OSError) as e:
+            cls.logger.error(f"Failed to create log directory {log_dir}: {str(e)}")
+
+        # Setup absolute paths for security-critical directories
+        app.config['LOG_DIR'] = log_dir
+        app.config['TEMP_DIR'] = os.path.join(app.root_path, 'tmp')
+
+        # Create temp directory if needed
+        try:
+            os.makedirs(app.config['TEMP_DIR'], mode=0o750, exist_ok=True)
+        except (IOError, OSError) as e:
+            cls.logger.error(f"Failed to create temp directory: {str(e)}")
+
+    @classmethod
+    def _get_application_version(cls) -> str:
+        """
+        Get the application version from git tags or default to a fixed version.
+
+        Returns:
+            The application version string
+        """
+        try:
+            result = subprocess.run(
+                ['git', 'describe', '--tags', '--always'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+                timeout=2  # Timeout after 2 seconds
+            )
+            return result.stdout.decode('utf-8').strip()
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            cls.logger.debug(f"Could not determine version from git: {str(e)}")
+            return '1.0.0'
+
+    @classmethod
+    def get_config(cls, name: str) -> ConfigDict:
         """
         Load configuration by environment name.
 
@@ -381,16 +577,16 @@ class Config:
         quick configuration switching.
 
         Args:
-            name (str): Environment name ('development', 'production', 'testing')
+            name: Environment name ('development', 'production', 'testing')
 
         Returns:
-            Dict[str, Any]: Environment-specific configuration dictionary
+            Environment-specific configuration dictionary
 
         Raises:
             ValueError: If the specified environment name is not recognized
 
         Example:
-            test_config = Config.load_from_name('testing')
+            test_config = Config.get_config('testing')
             app.config.update(test_config)
         """
         configs = {
@@ -415,10 +611,20 @@ class Config:
                 'ENABLE_AUTO_COUNTERMEASURES': False,
                 'WTF_CSRF_ENABLED': False,
                 'SESSION_COOKIE_SECURE': False,
+            },
+            'staging': {
+                'DEBUG': False,
+                'TESTING': False,
+                'ENABLE_AUTO_COUNTERMEASURES': True,
+                'SESSION_COOKIE_SECURE': True,
+                'SESSION_COOKIE_HTTPONLY': True,
+                'SESSION_COOKIE_SAMESITE': 'Lax',
             }
         }
 
+        name = name.lower()
         if name not in configs:
+            cls.logger.error(f"Unknown configuration name: {name}")
             raise ValueError(f"Unknown configuration name: {name}")
 
         return configs[name]
@@ -427,35 +633,32 @@ class Config:
     def generate_csp_nonce() -> str:
         """
         Generate a cryptographically secure nonce for CSP.
-        
+
         Returns:
-            str: Generated nonce as a URL-safe base64 string
+            Generated nonce as a URL-safe base64 string
         """
         return secrets.token_urlsafe(16)
 
     @classmethod
-    def initialize_file_hashes(cls, config: Dict[str, Any], app_root: str) -> Dict[str, Any]:
+    def initialize_file_hashes(cls, config: ConfigDict, app_root: str) -> ConfigDict:
         """
         Initialize file integrity hashes for critical files.
-        
+
         This method computes hash values for security-critical files to enable
-        integrity monitoring during application runtime. It uses the Argon2 
-        algorithm for advanced hashing security where appropriate, and falls
-        back to SHA-256 for larger files for performance reasons.
-        
+        integrity monitoring during application runtime. It uses the specified
+        algorithm for hashing, with SHA-256 as a fallback for larger files.
+
         Args:
             config: Current application configuration dictionary
             app_root: Application root directory path
-            
+
         Returns:
-            Dict[str, Any]: Updated configuration with file hashes
-            
+            Updated configuration with file hashes
+
         Example:
             app.config = Config.initialize_file_hashes(app.config, app_root_path)
         """
-        from core.utils import calculate_file_hash
-
-        # Only compute hashes if file integrity monitoring is enabled
+        # If file integrity monitoring is disabled, return early
         if not config.get('ENABLE_FILE_INTEGRITY_MONITORING', True):
             return config
 
@@ -474,7 +677,7 @@ class Config:
             os.path.join(app_root, 'app.py'),
             os.path.join(app_root, 'wsgi.py'),
             os.path.join(app_root, 'core', 'utils.py'),
-            os.path.join(app_root, 'core', 'security.py'),
+            os.path.join(app_root, 'core', 'security_utils.py'),
             os.path.join(app_root, 'core', 'auth.py'),
             os.path.join(app_root, 'extensions.py'),
             os.path.join(app_root, 'blueprints', 'monitoring', 'routes.py'),
@@ -483,31 +686,17 @@ class Config:
             os.path.join(app_root, 'models', 'user.py')
         ]
 
-        # Compute hashes for config files - use algorithm based on file size
-        config_hashes = {}
-        algorithm = config.get('FILE_HASH_ALGORITHM', 'sha256')
-
-        for file_path in config_files:
-            if os.path.exists(file_path):
-                try:
-                    file_size = os.path.getsize(file_path)
-                    # For security-critical but small config files, we can use a stronger hash
-                    if file_size < 1024 * 10:  # 10KB or smaller
-                        config_hashes[file_path] = calculate_file_hash(file_path, algorithm)
-                    else:
-                        # For larger files, use SHA-256 for better performance
-                        config_hashes[file_path] = calculate_file_hash(file_path, 'sha256')
-                except (IOError, OSError) as e:
-                    logging.warning("Could not hash config file %s: %s", file_path, e)
+        # Compute hashes for config files
+        config_hashes = cls._compute_file_hashes(
+            config_files,
+            config.get('FILE_HASH_ALGORITHM', DEFAULT_HASH_ALGORITHM)
+        )
 
         # Compute hashes for critical files
-        critical_hashes = {}
-        for file_path in critical_files:
-            if os.path.exists(file_path):
-                try:
-                    critical_hashes[file_path] = calculate_file_hash(file_path, algorithm)
-                except (IOError, OSError) as e:
-                    logging.warning("Could not hash critical file %s: %s", file_path, e)
+        critical_hashes = cls._compute_file_hashes(
+            critical_files,
+            config.get('FILE_HASH_ALGORITHM', DEFAULT_HASH_ALGORITHM)
+        )
 
         # Add monitored directories (these will be checked for unexpected files)
         monitored_directories = [
@@ -516,16 +705,218 @@ class Config:
             os.path.join(app_root, 'blueprints', 'auth'),
             os.path.join(app_root, 'blueprints', 'monitoring')
         ]
-        config['MONITORED_DIRECTORIES'] = monitored_directories
-        
+
         # Update configuration
+        config['MONITORED_DIRECTORIES'] = monitored_directories
         config['CONFIG_FILE_HASHES'] = config_hashes
         config['CRITICAL_FILE_HASHES'] = critical_hashes
         config['FILE_HASH_TIMESTAMP'] = cls.format_timestamp()
-        
+
+        cls.logger.info(f"Computed file hashes for {len(config_hashes)} config files and {len(critical_hashes)} critical files")
         return config
+
+    @classmethod
+    def _compute_file_hashes(cls, file_paths: List[str], default_algorithm: str) -> Dict[str, str]:
+        """
+        Compute hashes for a list of files.
+
+        Args:
+            file_paths: List of file paths to hash
+            default_algorithm: Default hashing algorithm to use
+
+        Returns:
+            Dictionary mapping file paths to their hash values
+        """
+        hashes = {}
+
+        for file_path in file_paths:
+            if os.path.exists(file_path):
+                try:
+                    file_size = os.path.getsize(file_path)
+                    algorithm = default_algorithm
+
+                    # For large files, always use SHA-256 for performance
+                    if file_size > SMALL_FILE_THRESHOLD:
+                        algorithm = 'sha256'
+
+                    hashes[file_path] = cls._calculate_file_hash(file_path, algorithm)
+                except (IOError, OSError) as e:
+                    cls.logger.warning(f"Could not hash file {file_path}: {str(e)}")
+            else:
+                cls.logger.debug(f"File not found for hash computation: {file_path}")
+
+        return hashes
+
+    @staticmethod
+    def _calculate_file_hash(file_path: str, algorithm: str = 'sha256') -> str:
+        """
+        Calculate hash for a file.
+
+        Args:
+            file_path: Path to the file
+            algorithm: Hashing algorithm to use (default: sha256)
+
+        Returns:
+            File hash as a hex string
+
+        Raises:
+            IOError: If the file cannot be read
+            ValueError: If the algorithm is not supported
+        """
+        hash_algorithms = {
+            'md5': hashlib.md5,
+            'sha1': hashlib.sha1,
+            'sha256': hashlib.sha256,
+            'sha384': hashlib.sha384,
+            'sha512': hashlib.sha512
+        }
+
+        if algorithm not in hash_algorithms:
+            raise ValueError(f"Unsupported hash algorithm: {algorithm}")
+
+        hasher = hash_algorithms[algorithm]()
+
+        with open(file_path, 'rb') as f:
+            # Read and update hash in chunks for memory efficiency
+            for chunk in iter(lambda: f.read(4096), b''):
+                hasher.update(chunk)
+
+        return hasher.hexdigest()
 
     @staticmethod
     def format_timestamp() -> str:
-        """Format current datetime as ISO 8601 string."""
-        return datetime.utcnow().isoformat()
+        """
+        Format current datetime as ISO 8601 string with timezone information.
+
+        Returns:
+            Current datetime as ISO 8601 formatted string
+        """
+        return datetime.now(timezone.utc).isoformat()
+
+    @classmethod
+    def get(cls, key: str, default: T = None) -> Union[Any, T]:
+        """
+        Get a configuration value from the current Flask application.
+
+        This provides a convenient way to access configuration values
+        without directly accessing the Flask application instance.
+
+        Args:
+            key: Configuration key to retrieve
+            default: Default value if key is not found
+
+        Returns:
+            The configuration value or default if not found
+
+        Example:
+            debug_mode = Config.get('DEBUG', False)
+        """
+        from flask import current_app
+
+        try:
+            return current_app.config.get(key, default)
+        except RuntimeError:
+            # If outside Flask application context
+            cls.logger.warning(f"Attempted to access config key '{key}' outside application context")
+            return default
+
+    @classmethod
+    def verify_integrity(cls) -> Dict[str, bool]:
+        """
+        Verify the integrity of monitored files.
+
+        Returns:
+            Dictionary reporting integrity status for each monitored file
+        """
+        from flask import current_app
+
+        try:
+            app = current_app
+            integrity_status = {}
+
+            # Check config files
+            config_hashes = app.config.get('CONFIG_FILE_HASHES', {})
+            for file_path, expected_hash in config_hashes.items():
+                try:
+                    algorithm = app.config.get('FILE_HASH_ALGORITHM', DEFAULT_HASH_ALGORITHM)
+                    if os.path.getsize(file_path) > SMALL_FILE_THRESHOLD:
+                        algorithm = 'sha256'
+
+                    current_hash = cls._calculate_file_hash(file_path, algorithm)
+                    integrity_status[file_path] = current_hash == expected_hash
+
+                    if current_hash != expected_hash:
+                        cls.security_logger.warning(
+                            f"Integrity check failed for {file_path}",
+                            extra={
+                                "expected_hash": expected_hash,
+                                "current_hash": current_hash
+                            }
+                        )
+                except (IOError, OSError) as e:
+                    cls.logger.error(f"Failed to verify file integrity for {file_path}: {str(e)}")
+                    integrity_status[file_path] = False
+
+            # Check critical files
+            critical_hashes = app.config.get('CRITICAL_FILE_HASHES', {})
+            for file_path, expected_hash in critical_hashes.items():
+                try:
+                    algorithm = app.config.get('FILE_HASH_ALGORITHM', DEFAULT_HASH_ALGORITHM)
+                    current_hash = cls._calculate_file_hash(file_path, algorithm)
+                    integrity_status[file_path] = current_hash == expected_hash
+
+                    if current_hash != expected_hash:
+                        cls.security_logger.warning(
+                            f"Integrity check failed for critical file {file_path}",
+                            extra={
+                                "expected_hash": expected_hash,
+                                "current_hash": current_hash,
+                                "severity": "high"
+                            }
+                        )
+                except (IOError, OSError) as e:
+                    cls.logger.error(f"Failed to verify file integrity for critical file {file_path}: {str(e)}")
+                    integrity_status[file_path] = False
+
+            return integrity_status
+        except RuntimeError:
+            cls.logger.warning("Attempted to verify integrity outside application context")
+            return {}
+
+    @classmethod
+    def get_allowed_extensions(cls) -> Set[str]:
+        """
+        Get the set of allowed file extensions for uploads.
+
+        Returns:
+            Set of allowed file extensions
+        """
+        try:
+            from flask import current_app
+            return set(current_app.config.get('ALLOWED_EXTENSIONS', set()))
+        except RuntimeError:
+            # Default if not in application context
+            return {'pdf', 'png', 'jpg', 'jpeg', 'csv', 'xlsx'}
+
+    @classmethod
+    def is_production(cls) -> bool:
+        """
+        Check if the application is running in a production environment.
+
+        Returns:
+            True if in production, False otherwise
+        """
+        try:
+            from flask import current_app
+            return current_app.config.get('ENVIRONMENT', 'development').lower() == 'production'
+        except RuntimeError:
+            # Default to False if not in application context
+            return False
+
+
+# Import after Config definition to avoid circular imports
+try:
+    import redis
+except ImportError:
+    # Redis support is optional
+    pass
