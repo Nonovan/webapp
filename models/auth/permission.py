@@ -10,7 +10,7 @@ The model supports resource-action based permission naming, hierarchical organiz
 and comprehensive validation to ensure security constraints are maintained.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional, Set, Union, cast
 from sqlalchemy import and_, or_, func
 from sqlalchemy.exc import SQLAlchemyError
@@ -318,6 +318,47 @@ class Permission(BaseModel, AuditableMixin):
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
 
+    def to_detailed_dict(self) -> Dict[str, Any]:
+        """
+        Convert permission to a detailed dictionary representation.
+
+        Returns:
+            Dict[str, Any]: Detailed dictionary containing permission data and related information
+        """
+        basic_dict = self.to_dict()
+
+        # Add statistics about permission usage if possible
+        try:
+            from models.auth.role import Role
+
+            # Get roles with this permission
+            roles_with_permission = Role.query.join(Role.permissions).filter(
+                Permission.id == self.id
+            ).all()
+
+            # Add usage information
+            basic_dict['usage'] = {
+                'roles_count': len(roles_with_permission),
+                'roles': [r.name for r in roles_with_permission],
+                'is_orphaned': len(roles_with_permission) == 0
+            }
+
+            # Add dynamic rules if any
+            basic_dict['dynamic_rules'] = [
+                {
+                    'id': rule.id,
+                    'attribute': rule.attribute_name,
+                    'operator': rule.operator,
+                    'value': rule.value
+                }
+                for rule in self.dynamic_rules
+            ] if hasattr(self, 'dynamic_rules') else []
+
+        except Exception as e:
+            current_app.logger.warning(f"Could not get detailed permission information: {str(e)}")
+
+        return basic_dict
+
     @classmethod
     def get_by_name(cls, name: str) -> Optional['Permission']:
         """
@@ -447,6 +488,32 @@ class Permission(BaseModel, AuditableMixin):
 
         result = db.session.execute(query)
         return [row[0] for row in result]
+
+    @classmethod
+    def get_grouped_by_resource(cls, active_only: bool = True) -> Dict[str, List['Permission']]:
+        """
+        Group permissions by resource name.
+
+        Args:
+            active_only: Whether to include only active permissions
+
+        Returns:
+            Dict[str, List['Permission']]: Dictionary of resource names to permission lists
+        """
+        query = cls.query
+        if active_only:
+            query = query.filter_by(is_active=True)
+
+        permissions = query.all()
+        grouped = {}
+
+        for perm in permissions:
+            resource = perm.resource
+            if resource not in grouped:
+                grouped[resource] = []
+            grouped[resource].append(perm)
+
+        return grouped
 
     @classmethod
     def initialize_default_permissions(cls) -> None:
@@ -726,3 +793,316 @@ class Permission(BaseModel, AuditableMixin):
     def __repr__(self) -> str:
         """String representation of the Permission object."""
         return f"<Permission {self.id}: {self.name}>"
+
+
+class DynamicPermissionRule(BaseModel):
+    """Represents a dynamic rule for permission checking."""
+    __tablename__ = 'dynamic_permission_rules'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    permission_id = db.Column(db.Integer, db.ForeignKey('permissions.id', ondelete='CASCADE'))
+    attribute_name = db.Column(db.String(100), nullable=False)
+    operator = db.Column(db.String(20), nullable=False)  # eq, ne, gt, lt, contains, etc.
+    value = db.Column(db.String(255), nullable=False)
+
+    # Relationship to permission
+    permission = relationship('Permission', backref='dynamic_rules')
+
+    # Timestamps
+    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True),
+                         default=lambda: datetime.now(timezone.utc),
+                         onupdate=lambda: datetime.now(timezone.utc),
+                         nullable=False)
+
+    def evaluate(self, context: Dict[str, Any]) -> bool:
+        """
+        Evaluate this rule against a context.
+
+        Args:
+            context: Dictionary containing contextual attributes to check against
+
+        Returns:
+            bool: True if the rule matches the context, False otherwise
+        """
+        if self.attribute_name not in context:
+            return False
+
+        attr_value = context[self.attribute_name]
+
+        if self.operator == 'eq':
+            return str(attr_value) == self.value
+        elif self.operator == 'ne':
+            return str(attr_value) != self.value
+        elif self.operator == 'contains':
+            return self.value in str(attr_value)
+        elif self.operator == 'gt':
+            try:
+                return float(attr_value) > float(self.value)
+            except (ValueError, TypeError):
+                return False
+        elif self.operator == 'lt':
+            try:
+                return float(attr_value) < float(self.value)
+            except (ValueError, TypeError):
+                return False
+        elif self.operator == 'gte':
+            try:
+                return float(attr_value) >= float(self.value)
+            except (ValueError, TypeError):
+                return False
+        elif self.operator == 'lte':
+            try:
+                return float(attr_value) <= float(self.value)
+            except (ValueError, TypeError):
+                return False
+        elif self.operator == 'in':
+            try:
+                values = [v.strip() for v in self.value.split(',')]
+                return str(attr_value) in values
+            except Exception:
+                return False
+        elif self.operator == 'not_in':
+            try:
+                values = [v.strip() for v in self.value.split(',')]
+                return str(attr_value) not in values
+            except Exception:
+                return False
+        elif self.operator == 'starts_with':
+            return str(attr_value).startswith(self.value)
+        elif self.operator == 'ends_with':
+            return str(attr_value).endswith(self.value)
+
+        return False
+
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert rule to dictionary representation.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing rule data
+        """
+        return {
+            'id': self.id,
+            'permission_id': self.permission_id,
+            'attribute_name': self.attribute_name,
+            'operator': self.operator,
+            'value': self.value,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+    def __repr__(self) -> str:
+        """String representation of the DynamicPermissionRule object."""
+        return f"<DynamicPermissionRule {self.id}: {self.attribute_name} {self.operator} {self.value}>"
+
+
+class PermissionDelegation(BaseModel, AuditableMixin):
+    """Represents a temporary delegation of permissions between users."""
+    __tablename__ = 'permission_delegations'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    delegator_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'))
+    delegate_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'))
+    permission_id = db.Column(db.Integer, db.ForeignKey('permissions.id', ondelete='CASCADE'))
+    reason = db.Column(db.String(255), nullable=True)
+    valid_from = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    valid_until = db.Column(db.DateTime(timezone=True), nullable=False)
+    is_active = db.Column(db.Boolean, default=True)
+
+    # Relationships
+    delegator = relationship('User', foreign_keys=[delegator_id])
+    delegate = relationship('User', foreign_keys=[delegate_id])
+    permission = relationship('Permission')
+
+    # Security critical fields that trigger enhanced auditing
+    SECURITY_CRITICAL_FIELDS = ['delegate_id', 'permission_id', 'valid_until', 'is_active']
+
+    # Enable access auditing for this model due to its sensitive nature
+    AUDIT_ACCESS = True
+
+    @validates('valid_until')
+    def validate_valid_until(self, key, valid_until):
+        """
+        Validate delegation expiration date.
+
+        Args:
+            key: Field name being validated
+            valid_until: Expiration date to validate
+
+        Returns:
+            datetime: Validated expiration date
+
+        Raises:
+            ValueError: If expiration date is not in the future
+        """
+        if valid_until <= datetime.now(timezone.utc):
+            raise ValueError("Delegation expiration must be in the future")
+
+        # Maximum delegation period (e.g., 7 days)
+        max_period = datetime.now(timezone.utc) + timedelta(days=7)
+        if valid_until > max_period:
+            return max_period
+
+        return valid_until
+
+    def revoke(self, revoked_by_id: int, reason: Optional[str] = None) -> bool:
+        """
+        Revoke this delegation before its expiration time.
+
+        Args:
+            revoked_by_id: ID of the user revoking the delegation
+            reason: Optional reason for revocation
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.is_active:
+            # Already revoked
+            return True
+
+        try:
+            self.is_active = False
+            db.session.commit()
+
+            # Log the revocation
+            revocation_details = {
+                "revoked_by_id": revoked_by_id,
+                "delegation_id": self.id,
+                "permission": self.permission.name if self.permission else None,
+                "delegate": self.delegate.email if self.delegate else None,
+                "delegator": self.delegator.email if self.delegator else None
+            }
+
+            if reason:
+                revocation_details["reason"] = reason
+
+            # Record audit
+            self.log_change(
+                fields_changed=["is_active"],
+                details=f"Permission delegation revoked: {self.permission.name if self.permission else 'unknown'}"
+            )
+
+            # Log security event
+            log_security_event(
+                event_type="permission_delegation_revoked",
+                description=f"Permission delegation of '{self.permission.name if self.permission else 'unknown'}' was revoked",
+                severity="info",
+                details=revocation_details
+            )
+
+            return True
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            current_app.logger.error(f"Error revoking permission delegation: {str(e)}")
+            return False
+
+    def is_valid(self) -> bool:
+        """
+        Check if the delegation is currently valid.
+
+        Returns:
+            bool: True if delegation is active and within its validity period
+        """
+        now = datetime.now(timezone.utc)
+        return (self.is_active and
+                self.valid_from <= now <= self.valid_until)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert delegation to dictionary representation.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing delegation data
+        """
+        return {
+            'id': self.id,
+            'delegator_id': self.delegator_id,
+            'delegate_id': self.delegate_id,
+            'permission_id': self.permission_id,
+            'permission_name': self.permission.name if self.permission else None,
+            'reason': self.reason,
+            'valid_from': self.valid_from.isoformat() if self.valid_from else None,
+            'valid_until': self.valid_until.isoformat() if self.valid_until else None,
+            'is_active': self.is_active,
+            'is_valid': self.is_valid(),
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+    @classmethod
+    def create_delegation(cls, delegator_id: int, delegate_id: int,
+                         permission_id: int, valid_until: datetime,
+                         reason: Optional[str] = None) -> Optional['PermissionDelegation']:
+        """
+        Create a new permission delegation.
+
+        Args:
+            delegator_id: ID of the user delegating the permission
+            delegate_id: ID of the user receiving the delegation
+            permission_id: ID of the permission being delegated
+            valid_until: When the delegation expires
+            reason: Optional reason for the delegation
+
+        Returns:
+            Optional[PermissionDelegation]: The created delegation if successful, None otherwise
+        """
+        try:
+            delegation = cls(
+                delegator_id=delegator_id,
+                delegate_id=delegate_id,
+                permission_id=permission_id,
+                valid_until=valid_until,
+                reason=reason
+            )
+
+            db.session.add(delegation)
+            db.session.commit()
+
+            # Log security event
+            from models.auth.permission import Permission
+            permission = Permission.query.get(permission_id)
+            permission_name = permission.name if permission else "unknown"
+
+            log_security_event(
+                event_type="permission_delegation_created",
+                description=f"Permission '{permission_name}' delegated",
+                severity="info",
+                details={
+                    "delegator_id": delegator_id,
+                    "delegate_id": delegate_id,
+                    "permission_id": permission_id,
+                    "permission_name": permission_name,
+                    "valid_until": valid_until.isoformat(),
+                    "reason": reason
+                }
+            )
+
+            return delegation
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Error creating permission delegation: {str(e)}")
+            return None
+
+    @classmethod
+    def get_active_for_user(cls, user_id: int) -> List['PermissionDelegation']:
+        """
+        Get all active delegations for a specific user.
+
+        Args:
+            user_id: ID of the user to get delegations for
+
+        Returns:
+            List[PermissionDelegation]: List of active delegations
+        """
+        now = datetime.now(timezone.utc)
+        return cls.query.filter(
+            cls.delegate_id == user_id,
+            cls.is_active == True,
+            cls.valid_from <= now,
+            cls.valid_until >= now
+        ).all()
+
+    def __repr__(self) -> str:
+        """String representation of the PermissionDelegation object."""
+        return f"<PermissionDelegation {self.id}: {self.delegator_id} -> {self.delegate_id}>"

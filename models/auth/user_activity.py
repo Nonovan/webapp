@@ -14,6 +14,8 @@ from sqlalchemy import func, desc, text
 
 from extensions import db, metrics
 from models.base import BaseModel
+from core.security_utils import log_security_event
+
 
 class UserActivity(BaseModel):
     """
@@ -32,16 +34,39 @@ class UserActivity(BaseModel):
     - infrastructure_operation: Cloud resource creation/modification/deletion
     - security_event: Security-related actions
     - ics_control: Industrial Control System interactions
+
+    Attributes:
+        id: Primary key
+        user_id: ID of the user performing the action (nullable for system actions)
+        session_id: ID of the user session where the activity occurred
+        activity_type: Type of activity (see constants)
+        resource_type: Type of resource being accessed or modified
+        resource_id: ID of the specific resource
+        action: Action performed (create, read, update, delete)
+        status: Outcome status (success, failure, error)
+        ip_address: IP address where the activity originated
+        user_agent: Browser/client user agent string
+        path: API endpoint or URL path accessed
+        method: HTTP method used (GET, POST, etc.)
+        data: Additional contextual data (JSON)
+        geo_location: Geographic location based on IP
+        cloud_region: Cloud region where the activity occurred
+        device_type: Type of device used (desktop, mobile, etc.)
+        created_at: When the activity occurred
+        duration_ms: Duration of the activity in milliseconds
     """
 
     __tablename__ = 'user_activities'
 
+    # Security critical fields that trigger enhanced auditing
+    SECURITY_CRITICAL_FIELDS = ['user_id', 'activity_type', 'resource_type', 'resource_id', 'status']
+
     # Core fields
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'),
-                      nullable=True, index=True)
+                       nullable=True, index=True)
     session_id = db.Column(db.String(64), db.ForeignKey('user_sessions.session_id', ondelete='CASCADE'),
-                         nullable=True, index=True)
+                          nullable=True, index=True)
     activity_type = db.Column(db.String(32), nullable=False, index=True)
 
     # Activity details
@@ -64,8 +89,8 @@ class UserActivity(BaseModel):
 
     # Timestamps with timezone awareness
     created_at = db.Column(db.DateTime(timezone=True),
-                        default=lambda: datetime.now(timezone.utc),
-                        nullable=False, index=True)
+                          default=lambda: datetime.now(timezone.utc),
+                          nullable=False, index=True)
     duration_ms = db.Column(db.Integer, nullable=True)  # Duration of activity in milliseconds
 
     # Define relationships
@@ -81,6 +106,10 @@ class UserActivity(BaseModel):
     ACTIVITY_INFRA_OPERATION = 'infrastructure_operation'
     ACTIVITY_SECURITY_EVENT = 'security_event'
     ACTIVITY_ICS_CONTROL = 'ics_control'
+    ACTIVITY_AUTH_CHANGE = 'auth_change'
+    ACTIVITY_ADMIN_ACTION = 'admin_action'
+    ACTIVITY_USER_MANAGEMENT = 'user_management'
+    ACTIVITY_COMPLIANCE_CHECK = 'compliance_check'
 
     # Constants for status values
     STATUS_SUCCESS = 'success'
@@ -88,17 +117,36 @@ class UserActivity(BaseModel):
     STATUS_ERROR = 'error'
     STATUS_WARNING = 'warning'
     STATUS_UNAUTHORIZED = 'unauthorized'
+    STATUS_PENDING = 'pending'
+    STATUS_CANCELED = 'canceled'
+
+    # Constants for actions
+    ACTION_CREATE = 'create'
+    ACTION_READ = 'read'
+    ACTION_UPDATE = 'update'
+    ACTION_DELETE = 'delete'
+    ACTION_EXPORT = 'export'
+    ACTION_IMPORT = 'import'
+    ACTION_APPROVE = 'approve'
+    ACTION_REJECT = 'reject'
 
     # Valid activity types and statuses
     VALID_ACTIVITY_TYPES = [
         ACTIVITY_LOGIN, ACTIVITY_LOGOUT, ACTIVITY_RESOURCE_ACCESS,
         ACTIVITY_CONFIG_CHANGE, ACTIVITY_API_ACCESS, ACTIVITY_INFRA_OPERATION,
-        ACTIVITY_SECURITY_EVENT, ACTIVITY_ICS_CONTROL
+        ACTIVITY_SECURITY_EVENT, ACTIVITY_ICS_CONTROL, ACTIVITY_AUTH_CHANGE,
+        ACTIVITY_ADMIN_ACTION, ACTIVITY_USER_MANAGEMENT, ACTIVITY_COMPLIANCE_CHECK
     ]
 
     VALID_STATUSES = [
         STATUS_SUCCESS, STATUS_FAILURE, STATUS_ERROR,
-        STATUS_WARNING, STATUS_UNAUTHORIZED
+        STATUS_WARNING, STATUS_UNAUTHORIZED, STATUS_PENDING,
+        STATUS_CANCELED
+    ]
+
+    VALID_ACTIONS = [
+        ACTION_CREATE, ACTION_READ, ACTION_UPDATE, ACTION_DELETE,
+        ACTION_EXPORT, ACTION_IMPORT, ACTION_APPROVE, ACTION_REJECT
     ]
 
     def __init__(self, user_id: Optional[int] = None, activity_type: Optional[str] = None, **kwargs: Any) -> None:
@@ -124,6 +172,12 @@ class UserActivity(BaseModel):
             if hasattr(self, key):
                 setattr(self, key, value)
 
+        # Validate action value if provided
+        if hasattr(self, 'action') and self.action and self.action not in self.VALID_ACTIONS:
+            # Don't overwrite custom actions, but log a warning
+            if current_app:
+                current_app.logger.warning(f"Non-standard action value: {self.action}")
+
         # Validate status value if provided
         if hasattr(self, 'status') and self.status and self.status not in self.VALID_STATUSES:
             if current_app:
@@ -135,11 +189,18 @@ class UserActivity(BaseModel):
             self.session_id = g.session_id
 
         # Get request info if available and not already set
-        if request and not self.path:
-            self.path = request.path[:255] if request.path else None
-            self.method = request.method[:16] if request.method else None
-            self.ip_address = request.remote_addr[:45] if request.remote_addr else None
-            self.user_agent = request.user_agent.string[:255] if request.user_agent.string else None
+        if request:
+            if not self.path and hasattr(request, 'path'):
+                self.path = request.path[:255] if request.path else None
+
+            if not self.method and hasattr(request, 'method'):
+                self.method = request.method[:16] if request.method else None
+
+            if not self.ip_address and hasattr(request, 'remote_addr'):
+                self.ip_address = request.remote_addr[:45] if request.remote_addr else None
+
+            if not self.user_agent and hasattr(request, 'user_agent') and hasattr(request.user_agent, 'string'):
+                self.user_agent = request.user_agent.string[:255] if request.user_agent.string else None
 
         # Default created_at if not provided
         if not self.created_at:
@@ -177,6 +238,33 @@ class UserActivity(BaseModel):
             'data': self.filter_sensitive_data(self.data) if self.data else None
         }
 
+    def to_detailed_dict(self) -> Dict[str, Any]:
+        """
+        Convert activity to detailed dictionary with additional information.
+
+        Returns:
+            Dict[str, Any]: Detailed dictionary representation of the activity
+        """
+        basic_dict = self.to_dict()
+
+        # Add user information if available
+        if self.user:
+            basic_dict['user'] = {
+                'id': self.user.id,
+                'username': self.user.username,
+                'display_name': getattr(self.user, 'display_name', self.user.username)
+            }
+
+        # Add session information if available
+        if self.session:
+            basic_dict['session'] = {
+                'id': self.session.id,
+                'session_id': self.session.session_id,
+                'client_type': self.session.client_type
+            }
+
+        return basic_dict
+
     @staticmethod
     def filter_sensitive_data(data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -198,17 +286,23 @@ class UserActivity(BaseModel):
         sensitive_keys = [
             'password', 'token', 'secret', 'key', 'auth',
             'credential', 'apikey', 'api_key', 'access_key',
-            'private_key'
+            'private_key', 'passphrase', 'csrf', 'session',
+            'cookie', 'ssn', 'social', 'account'
         ]
 
         # Remove or mask sensitive information
         for key in list(filtered.keys()):
             lower_key = key.lower()
+            # Check if the key contains any of the sensitive words
             if any(sensitive in lower_key for sensitive in sensitive_keys):
                 filtered[key] = '******'
             elif isinstance(filtered[key], dict):
                 # Recursively filter nested dictionaries
                 filtered[key] = UserActivity.filter_sensitive_data(filtered[key])
+            elif isinstance(filtered[key], list) and filtered[key] and isinstance(filtered[key][0], dict):
+                # Handle lists of dictionaries
+                filtered[key] = [UserActivity.filter_sensitive_data(item) if isinstance(item, dict) else item
+                               for item in filtered[key]]
 
         return filtered
 
@@ -270,6 +364,30 @@ class UserActivity(BaseModel):
             db.session.add(activity)
             db.session.commit()
 
+            # Log security events for sensitive activities
+            if activity_type in [cls.ACTIVITY_LOGIN, cls.ACTIVITY_LOGOUT,
+                               cls.ACTIVITY_AUTH_CHANGE, cls.ACTIVITY_ADMIN_ACTION,
+                               cls.ACTIVITY_SECURITY_EVENT]:
+                severity = "info"
+                if status in [cls.STATUS_FAILURE, cls.STATUS_ERROR, cls.STATUS_UNAUTHORIZED]:
+                    severity = "warning"
+
+                log_security_event(
+                    event_type=f"user_{activity_type}",
+                    description=f"User activity: {activity_type} - {resource_type}:{resource_id}",
+                    severity=severity,
+                    details={
+                        "user_id": user_id,
+                        "activity_type": activity_type,
+                        "resource_type": resource_type,
+                        "resource_id": resource_id,
+                        "action": action,
+                        "status": status,
+                        "ip_address": activity.ip_address,
+                        "path": activity.path
+                    }
+                )
+
             return activity
 
         except SQLAlchemyError as e:
@@ -284,10 +402,67 @@ class UserActivity(BaseModel):
             return None
 
     @classmethod
+    def log_batch_activities(cls, activities: List[Dict[str, Any]]) -> Tuple[bool, int]:
+        """
+        Log multiple activities in batch for better performance.
+
+        Args:
+            activities: List of activity dictionaries with required fields
+
+        Returns:
+            Tuple[bool, int]: Success status and number of activities recorded
+        """
+        if not activities:
+            return True, 0
+
+        try:
+            activity_objects = []
+            for activity_data in activities:
+                # Create Activity object from dictionary
+                activity = cls(**activity_data)
+                activity_objects.append(activity)
+
+            # Bulk insert
+            db.session.bulk_save_objects(activity_objects)
+            db.session.commit()
+
+            # Record batch metric
+            try:
+                metrics.counter(
+                    'user_activity_batch_total',
+                    len(activity_objects),
+                    labels={"success": "true"}
+                )
+            except Exception:
+                # Ignore metrics errors
+                pass
+
+            return True, len(activity_objects)
+
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            if current_app:
+                current_app.logger.error(f"Failed to log batch activities: {str(e)}")
+
+            # Record failure metric
+            try:
+                metrics.counter(
+                    'user_activity_batch_total',
+                    1,
+                    labels={"success": "false"}
+                )
+            except Exception:
+                pass
+
+            return False, 0
+
+    @classmethod
     def get_recent_activities(cls, user_id: Optional[int] = None,
                              activity_type: Optional[str] = None,
                              resource_type: Optional[str] = None,
                              status: Optional[str] = None,
+                             start_date: Optional[datetime] = None,
+                             end_date: Optional[datetime] = None,
                              limit: int = 100) -> List['UserActivity']:
         """
         Retrieve recent user activities with optional filtering.
@@ -297,6 +472,8 @@ class UserActivity(BaseModel):
             activity_type: Filter by activity type
             resource_type: Filter by resource type
             status: Filter by status
+            start_date: Filter activities after this date
+            end_date: Filter activities before this date
             limit: Maximum number of activities to return
 
         Returns:
@@ -316,6 +493,12 @@ class UserActivity(BaseModel):
 
             if status is not None:
                 query = query.filter(cls.status == status)
+
+            if start_date is not None:
+                query = query.filter(cls.created_at >= start_date)
+
+            if end_date is not None:
+                query = query.filter(cls.created_at <= end_date)
 
             # Ensure limit is reasonable
             if limit <= 0 or limit > 1000:
@@ -399,7 +582,7 @@ class UserActivity(BaseModel):
                             'id': user.id,
                             'username': user.username,
                             'email': user.email,
-                            'full_name': getattr(user, 'full_name', user.username)
+                            'display_name': getattr(user, 'display_name', user.username)
                         }
                     else:
                         activity_dict['user'] = None
@@ -421,13 +604,15 @@ class UserActivity(BaseModel):
             return []
 
     @classmethod
-    def get_activity_trend(cls, days: int = 30, interval: str = 'day') -> List[Dict[str, Any]]:
+    def get_activity_trend(cls, days: int = 30, interval: str = 'day',
+                         activity_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Get activity trend data for charts and analytics.
 
         Args:
             days: Number of days to include in the trend
             interval: Time interval for grouping ('hour', 'day', 'week', 'month')
+            activity_type: Optional filter for specific activity type
 
         Returns:
             List[Dict[str, Any]]: List of data points with date and count
@@ -442,6 +627,13 @@ class UserActivity(BaseModel):
                 interval = 'day'
 
             cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+
+            # Start building the query
+            base_query = cls.query.filter(cls.created_at >= cutoff_date)
+
+            # Apply activity type filter if provided
+            if activity_type:
+                base_query = base_query.filter(cls.activity_type == activity_type)
 
             # Define date trunc function based on dialect
             if db.engine.dialect.name == 'postgresql':
@@ -476,7 +668,13 @@ class UserActivity(BaseModel):
                 func.count(func.distinct(cls.user_id)).label('user_count')
             ).filter(
                 cls.created_at >= cutoff_date
-            ).group_by(date_trunc).order_by(date_trunc).all()
+            )
+
+            # Apply activity type filter if provided
+            if activity_type:
+                result = result.filter(cls.activity_type == activity_type)
+
+            result = result.group_by(date_trunc).order_by(date_trunc).all()
 
             # Format the result
             trend_data = []
@@ -502,6 +700,86 @@ class UserActivity(BaseModel):
             return []
 
     @classmethod
+    def get_activity_hotspots(cls, days: int = 7) -> Dict[str, Any]:
+        """
+        Get activity hotspots showing areas with unusual activity volume.
+
+        Identifies resources, users, and endpoints with abnormally high
+        activity levels over the specified time period.
+
+        Args:
+            days: Number of days to analyze
+
+        Returns:
+            Dict[str, Any]: Dictionary with hotspot data by category
+        """
+        try:
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+
+            # Get hotspot resources (resources with most activity)
+            resource_hotspots = db.session.query(
+                cls.resource_type,
+                cls.resource_id,
+                func.count(cls.id).label('count')
+            ).filter(
+                cls.created_at >= cutoff_date,
+                cls.resource_type.isnot(None),
+                cls.resource_id.isnot(None)
+            ).group_by(cls.resource_type, cls.resource_id).order_by(
+                func.count(cls.id).desc()
+            ).limit(10).all()
+
+            # Get hotspot users (users with most activity)
+            user_hotspots = db.session.query(
+                cls.user_id,
+                func.count(cls.id).label('count')
+            ).filter(
+                cls.created_at >= cutoff_date,
+                cls.user_id.isnot(None)
+            ).group_by(cls.user_id).order_by(
+                func.count(cls.id).desc()
+            ).limit(10).all()
+
+            # Get hotspot endpoints (paths with most activity)
+            endpoint_hotspots = db.session.query(
+                cls.path,
+                func.count(cls.id).label('count')
+            ).filter(
+                cls.created_at >= cutoff_date,
+                cls.path.isnot(None)
+            ).group_by(cls.path).order_by(
+                func.count(cls.id).desc()
+            ).limit(10).all()
+
+            # Format the result
+            return {
+                'resources': [
+                    {
+                        'resource_type': r_type,
+                        'resource_id': r_id,
+                        'activity_count': count
+                    } for r_type, r_id, count in resource_hotspots
+                ],
+                'users': [
+                    {
+                        'user_id': user_id,
+                        'activity_count': count
+                    } for user_id, count in user_hotspots
+                ],
+                'endpoints': [
+                    {
+                        'path': path,
+                        'activity_count': count
+                    } for path, count in endpoint_hotspots
+                ]
+            }
+
+        except SQLAlchemyError as e:
+            if current_app:
+                current_app.logger.error(f"Error identifying activity hotspots: {str(e)}")
+            return {'resources': [], 'users': [], 'endpoints': []}
+
+    @classmethod
     def cleanup_old_activities(cls, days_to_keep: int = 90) -> Tuple[bool, int]:
         """
         Clean up old activity logs to manage database size.
@@ -524,6 +802,18 @@ class UserActivity(BaseModel):
 
             if current_app:
                 current_app.logger.info(f"Cleaned up {count} activity records older than {days_to_keep} days")
+
+            # Log security event for record cleanup
+            log_security_event(
+                event_type="activity_logs_cleaned",
+                description=f"Cleaned up {count} activity records older than {days_to_keep} days",
+                severity="info",
+                details={
+                    "records_deleted": count,
+                    "retention_days": days_to_keep,
+                    "cutoff_date": cutoff_date.isoformat()
+                }
+            )
 
             return True, count
 

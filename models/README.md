@@ -21,6 +21,7 @@ models/
 ├── auth/                    # Authentication and user management
 │   ├── __init__.py          # Auth module exports
 │   ├── permission.py        # Permission model for RBAC
+│   ├── README.md            # Auth module documentation
 │   ├── role.py              # Role model for access control
 │   ├── user.py              # User account model
 │   ├── user_activity.py     # User activity logging
@@ -131,6 +132,16 @@ models/
 - **Event Listeners**: Automatic timestamp tracking and audit logging
 - **Role-Based Access Control**: Complete RBAC implementation with roles and permissions
 
+## RBAC System
+
+The Role-Based Access Control system implemented in the `auth/` module provides sophisticated access control capabilities:
+
+1. **Hierarchical Permission Inheritance**: Roles can inherit permissions from parent roles, creating organizational structures.
+2. **Resource-Action Permission Model**: Permissions follow a `resource:action` naming pattern (e.g., `cloud_resources:read`).
+3. **Context-Based Permission Evaluation**: Permissions can be evaluated with contextual data for attribute-based access control.
+4. **System vs. Custom Roles/Permissions**: Distinction between core system components and user-defined components.
+5. **Time-Limited Permission Assignments**: Support for temporary access elevation without permanent permission changes.
+
 ## Base Model Structure
 
 All models inherit from the `BaseModel` class, which provides:
@@ -219,18 +230,139 @@ user.assign_role(analyst_role)
 if user.has_permission("reports:view"):
     print("User can view reports")
 
+# Context-based permission check
+context = {
+    "owner_id": resource.owner_id,
+    "resource_type": "vm",
+    "cloud_provider": "aws",
+    "region": "us-west-2"
+}
+if user.has_permission_with_context("resources:modify", context):
+    # Allow modification
+    pass
+
+```
+
+### User Activity and Session Management
+
+```python
+# Log user activity
+UserActivity.log_activity(
+    activity_type=UserActivity.ACTIVITY_RESOURCE_ACCESS,
+    user_id=current_user.id,
+    resource_type="cloud_instance",
+    resource_id=instance_id,
+    action=UserActivity.ACTION_UPDATE,
+    data={"changes": changes_dict}
+)
+
+# Create and track user session
+session = UserSession(
+    user_id=user.id,
+    ip_address=request.remote_addr,
+    user_agent=request.user_agent.string,
+    client_type=UserSession.SESSION_CLIENT_TYPE_WEB
+)
+db.session.add(session)
+db.session.commit()
+
+# Check for suspicious sessions
+suspicious_sessions = UserSession.detect_suspicious_sessions(user_id)
+for session in suspicious_sessions:
+    session.flag_as_suspicious("Unusual access pattern detected")
+
 ```
 
 ### Security-Enhanced Models
 
+The `SecurityIncident` model provides a comprehensive incident lifecycle management system for handling security events:
+
 ```python
-# Create an audited model instance
+# Create a new security incident
 incident = SecurityIncident(
     title="Unauthorized Access Attempt",
-    severity="HIGH",
-    description="Multiple failed login attempts detected"
+    incident_type="brute_force",
+    description="Multiple failed login attempts detected",
+    severity=SecurityIncident.SEVERITY_HIGH,
+    details="10 failed login attempts from IP 192.168.1.100 within 2 minutes",
+    ip_address="192.168.1.100",
+    source=SecurityIncident.SOURCE_SECURITY_SCAN
 )
 incident.save()  # Automatically logs the creation event
+
+# Assign the incident to a security analyst
+incident.assign_to(user_id=5, assigned_by=1)  # Changes status to INVESTIGATING
+
+# Add investigation notes
+incident.add_note("Analyzing login patterns and comparing with known attack signatures")
+
+# If the incident is more severe than initially thought, escalate it
+incident.escalate(
+    new_severity=SecurityIncident.SEVERITY_CRITICAL,
+    reason="Found indicators of targeted attack against admin accounts",
+    user_id=5
+)
+
+# After implementing countermeasures, resolve the incident
+incident.resolve(
+    resolution="Blocked originating IP address, reset affected user passwords, " +
+               "and enabled additional monitoring",
+    user_id=5
+)
+
+# If new related activity is detected, reopen the incident
+incident.reopen(
+    reason="Similar attack pattern detected from new IP range",
+    user_id=5
+)
+
+# When fully addressed, permanently close the incident
+incident.close(
+    reason="All countermeasures validated and no further suspicious activity detected",
+    user_id=5
+)
+
+```
+
+### Working with Audit Logs
+
+The platform automatically captures audit logs for security-sensitive operations, but you can also review and analyze them:
+
+```python
+from models.security import AuditLog
+
+# Get recent security events for a specific user
+user_events = AuditLog.get_events_by_user(
+    user_id=5,
+    limit=50,
+    severity=AuditLog.SEVERITY_WARNING
+)
+
+# Get audit trail for a specific incident
+incident_logs = AuditLog.get_events_by_object(
+    object_type="SecurityIncident",
+    object_id=123
+)
+
+# Analyze failed login attempts in the last 24 hours
+from datetime import datetime, timedelta
+yesterday = datetime.now() - timedelta(days=1)
+failed_logins = AuditLog.query.filter(
+    AuditLog.event_type == AuditLog.EVENT_LOGIN_FAILED,
+    AuditLog.created_at >= yesterday
+).order_by(AuditLog.created_at.desc()).all()
+
+# Generate security report by event types
+from collections import Counter
+from sqlalchemy import func
+
+event_counts = db.session.query(
+    AuditLog.event_type,
+    func.count(AuditLog.id)
+).group_by(AuditLog.event_type).all()
+
+summary = {event_type: count for event_type, count in event_counts}
+print(f"Found {summary.get(AuditLog.EVENT_LOGIN_FAILED, 0)} failed login attempts")
 
 ```
 
@@ -262,6 +394,7 @@ When adding new models:
 ## Related Documentation
 
 - Database Migration Guide
-- Security Controls
+- Security Controls Documentation
 - API Documentation
 - Authentication Guide
+- RBAC Implementation Guide

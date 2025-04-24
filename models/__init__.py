@@ -17,7 +17,7 @@ code organization and reusability.
 """
 
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, List, Type, Union, cast
+from typing import Dict, Any, Optional, List, Type, Union, cast, Set
 
 from flask import current_app, g, request, has_request_context
 from sqlalchemy import event
@@ -95,7 +95,27 @@ __all__ = [
     'ICSDevice', 'ICSReading', 'ICSControlLog',
 ]
 
-def _setup_audit_listeners():
+# Define constants for security-sensitive fields
+# This centralized list makes it easier to maintain and update
+SENSITIVE_FIELDS: Set[str] = {
+    'password', 'password_hash', 'token', 'secret', 'key',
+    'private_key', 'access_key', 'secret_key', 'api_key',
+    'auth_token', 'confirmation_token', 'reset_token',
+    'unsubscribe_token', 'salt', 'credentials', 'api_secret',
+    'encryption_key', 'security_answer', 'verification_code',
+    'passphrase', 'certificate_key', 'client_secret', 'mfa_secret',
+    'cookie_value', 'csrf_token', 'session_key', 'oauth_token',
+    'jwt_secret', 'otac', 'recovery_code', 'signature'
+}
+
+# Define pattern fragments that indicate sensitive data
+SENSITIVE_PATTERNS: List[str] = [
+    'password', 'token', 'secret', 'key', 'auth', 'credential',
+    'apikey', 'api_key', 'private', 'salt', 'hash', 'cipher',
+    'encrypt', 'access', 'verify', 'session', 'cookie', 'cert'
+]
+
+def _setup_audit_listeners() -> None:
     """
     Set up SQLAlchemy event listeners for security auditing.
 
@@ -126,7 +146,7 @@ def _setup_audit_listeners():
         event.listen(model, 'after_update', _log_model_update)
         event.listen(model, 'after_delete', _log_model_delete)
 
-def _log_model_insert(_mapper, _connection, target):
+def _log_model_insert(_mapper, _connection, target) -> None:
     """
     Log when a model instance is created.
 
@@ -149,27 +169,39 @@ def _log_model_insert(_mapper, _connection, target):
             try:
                 # Remove sensitive fields from logs
                 details = _sanitize_log_data(target.to_dict())
-            except Exception:
-                # Fallback if to_dict fails
+            except Exception as e:
+                # Fallback if to_dict fails, with better error handling
+                if current_app:
+                    current_app.logger.warning(f"Failed to convert model to dict: {str(e)}")
                 details = {"id": getattr(target, 'id', None)}
 
         # Handle case where AuditLog might not be imported yet
         from .security.audit_log import AuditLog
 
+        # Check for security-critical fields
+        severity = AuditLog.SEVERITY_INFO
+        if hasattr(target, 'SECURITY_CRITICAL_FIELDS') and len(getattr(target, 'SECURITY_CRITICAL_FIELDS', [])) > 0:
+            severity = AuditLog.SEVERITY_WARNING
+            details["contains_security_critical"] = True
+
+        obj_id = getattr(target, 'id', None)
+        obj_id_str = str(obj_id) if obj_id is not None else 'unknown'
+
         AuditLog.create(
             event_type=AuditLog.EVENT_OBJECT_CREATED,
             user_id=user_id,
             object_type=target.__class__.__name__,
-            object_id=getattr(target, 'id', None),
-            description=f"Created {target.__class__.__name__} with ID {getattr(target, 'id', 'unknown')}",
+            object_id=obj_id,
+            description=f"Created {target.__class__.__name__} with ID {obj_id_str}",
             ip_address=ip_address,
-            details=details
+            details=details,
+            severity=severity
         )
     except Exception as e:
         if current_app:
             current_app.logger.error(f"Failed to log model insert: {str(e)}")
 
-def _log_model_update(_mapper, _connection, target):
+def _log_model_update(_mapper, _connection, target) -> None:
     """
     Log when a model instance is updated.
 
@@ -191,8 +223,9 @@ def _log_model_update(_mapper, _connection, target):
         if hasattr(target, 'get_changed_columns'):
             try:
                 details["changed_columns"] = target.get_changed_columns()
-            except Exception:
-                pass
+            except Exception as e:
+                if current_app:
+                    current_app.logger.warning(f"Failed to get changed columns: {str(e)}")
 
         # Check if target is an AuditableMixin and has security critical fields
         if hasattr(target, 'SECURITY_CRITICAL_FIELDS'):
@@ -211,12 +244,19 @@ def _log_model_update(_mapper, _connection, target):
         if details.get("security_critical", False):
             severity = AuditLog.SEVERITY_WARNING
 
+        # Ensure target has an ID attribute before accessing it
+        obj_id = getattr(target, 'id', None)
+        if obj_id is None:
+            if current_app:
+                current_app.logger.warning(f"Cannot log update for {target.__class__.__name__} with no ID")
+            return
+
         AuditLog.create(
             event_type=AuditLog.EVENT_OBJECT_UPDATED,
             user_id=user_id,
             object_type=target.__class__.__name__,
-            object_id=target.id,
-            description=f"Updated {target.__class__.__name__} with ID {target.id}",
+            object_id=obj_id,
+            description=f"Updated {target.__class__.__name__} with ID {obj_id}",
             ip_address=ip_address,
             details=details,
             severity=severity
@@ -225,7 +265,7 @@ def _log_model_update(_mapper, _connection, target):
         if current_app:
             current_app.logger.error(f"Failed to log model update: {str(e)}")
 
-def _log_model_delete(_mapper, _connection, target):
+def _log_model_delete(_mapper, _connection, target) -> None:
     """
     Log when a model instance is deleted.
 
@@ -245,14 +285,29 @@ def _log_model_delete(_mapper, _connection, target):
         # Handle case where AuditLog might not be imported yet
         from .security.audit_log import AuditLog
 
+        # Get object ID safely
+        obj_id = getattr(target, 'id', None)
+        obj_id_str = str(obj_id) if obj_id is not None else 'unknown'
+
+        # For deletions, we might want to capture more information about the deleted object
+        details = {}
+        if hasattr(target, 'to_dict'):
+            try:
+                # Include sanitized data about the deleted object
+                details["deleted_object"] = _sanitize_log_data(target.to_dict())
+            except Exception:
+                # If to_dict fails, at least capture the ID
+                details["deleted_object_id"] = obj_id
+
         AuditLog.create(
             event_type=AuditLog.EVENT_OBJECT_DELETED,
             user_id=user_id,
             object_type=target.__class__.__name__,
-            object_id=getattr(target, 'id', None),
-            description=f"Deleted {target.__class__.__name__} with ID {getattr(target, 'id', 'unknown')}",
+            object_id=obj_id,
+            description=f"Deleted {target.__class__.__name__} with ID {obj_id_str}",
             ip_address=ip_address,
-            severity=AuditLog.SEVERITY_WARNING  # Deletions get higher severity
+            severity=AuditLog.SEVERITY_WARNING,  # Deletions get higher severity
+            details=details
         )
     except Exception as e:
         if current_app:
@@ -261,6 +316,11 @@ def _log_model_delete(_mapper, _connection, target):
 def _sanitize_log_data(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Remove sensitive fields from data before logging.
+
+    This function implements multiple strategies to identify and redact sensitive information:
+    1. Exact match with known sensitive field names
+    2. Pattern matching for field names containing sensitive fragments
+    3. Custom field redaction specified by the model
 
     Args:
         data: Dictionary containing model data
@@ -271,29 +331,31 @@ def _sanitize_log_data(data: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(data, dict):
         return {}
 
-    # Fields that should never be logged
-    sensitive_fields = {
-        'password', 'password_hash', 'token', 'secret', 'key',
-        'private_key', 'access_key', 'secret_key', 'api_key',
-        'auth_token', 'confirmation_token', 'reset_token',
-        'unsubscribe_token', 'salt', 'credentials', 'api_secret',
-        'encryption_key', 'security_answer', 'verification_code'
-    }
-
     # Create a copy to avoid modifying the original
     result = data.copy()
 
-    # Remove sensitive fields
-    for field in sensitive_fields:
+    # Remove sensitive fields by exact match
+    for field in SENSITIVE_FIELDS:
         if field in result:
             result[field] = '[REDACTED]'
 
+    # Additional pattern-based check for sensitive data
+    for key in list(result.keys()):
+        key_lower = key.lower()
+        # Check for pattern match with sensitive field fragments
+        if any(pattern in key_lower for pattern in SENSITIVE_PATTERNS):
+            result[key] = '[REDACTED]'
+
     # Check for nested dictionaries that might contain sensitive data
-    for key, value in result.items():
+    for key, value in list(result.items()):
         if isinstance(value, dict):
             result[key] = _sanitize_log_data(value)
-        elif isinstance(value, list) and value and isinstance(value[0], dict):
-            result[key] = [_sanitize_log_data(item) if isinstance(item, dict) else item for item in value]
+        elif isinstance(value, list):
+            # Process each item in the list
+            result[key] = _sanitize_list_items(value)
+        elif isinstance(value, str) and _looks_like_token(value):
+            # Redact strings that look like authorization tokens or longer hex values
+            result[key] = '[POSSIBLE TOKEN REDACTED]'
 
     # Look for custom _redacted_fields attribute on model
     for field in data.get('_redacted_fields', []):
@@ -301,6 +363,72 @@ def _sanitize_log_data(data: Dict[str, Any]) -> Dict[str, Any]:
             result[field] = '[REDACTED]'
 
     return result
+
+def _sanitize_list_items(items: List[Any]) -> List[Any]:
+    """
+    Sanitize items in a list that might contain sensitive data.
+
+    Args:
+        items: List of items to sanitize
+
+    Returns:
+        List: Sanitized list
+    """
+    if not items:
+        return []
+
+    result = []
+    for item in items:
+        if isinstance(item, dict):
+            result.append(_sanitize_log_data(item))
+        elif isinstance(item, list):
+            result.append(_sanitize_list_items(item))
+        else:
+            result.append(item)
+
+    return result
+
+def _looks_like_token(value: str) -> bool:
+    """
+    Check if a string value looks like it might be a token.
+
+    This is a heuristic check that looks for characteristics common in tokens:
+    - Length >= 32 characters
+    - Alphanumeric with some special characters typical of base64 or hex encoding
+    - Few or no spaces
+
+    Args:
+        value: String value to check
+
+    Returns:
+        bool: True if the string looks like a token
+    """
+    if not isinstance(value, str):
+        return False
+
+    # Skip short strings
+    if len(value) < 32:
+        return False
+
+    # Skip strings with lots of spaces (likely not tokens)
+    if value.count(' ') > 3:
+        return False
+
+    # Check for common token patterns
+    import re
+    # JWT pattern (header.payload.signature)
+    if re.match(r'^ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$', value):
+        return True
+
+    # OAuth/Bearer token pattern (mostly base64 chars)
+    if re.match(r'^[A-Za-z0-9+/=_-]{32,}$', value):
+        return True
+
+    # Long hex string (like API keys, nonces, etc.)
+    if re.match(r'^[A-Fa-f0-9]{32,}$', value):
+        return True
+
+    return False
 
 # Initialize audit listeners
 _setup_audit_listeners()

@@ -21,15 +21,16 @@ from flask import current_app
 from extensions import db
 from models.base import BaseModel, AuditableMixin
 from core.security_utils import log_security_event
-from models.auth.permission import Permission
 
 
-# Association table for role-permission relationship
+# Association table for role-permission relationship with expiration
 role_permissions = db.Table(
     'role_permissions',
     db.Column('role_id', db.Integer, db.ForeignKey('roles.id', ondelete='CASCADE'), primary_key=True),
     db.Column('permission_id', db.Integer, db.ForeignKey('permissions.id', ondelete='CASCADE'), primary_key=True),
     db.Column('created_at', db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)),
+    db.Column('expires_at', db.DateTime(timezone=True), nullable=True),
+    db.Column('granted_by_id', db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
 )
 
 
@@ -66,6 +67,10 @@ class Role(BaseModel, AuditableMixin):
     ROLE_OPERATOR = 'operator'
     ROLE_AUDITOR = 'auditor'
     ROLE_GUEST = 'guest'
+    ROLE_API = 'api'
+    ROLE_SECURITY = 'security'
+    ROLE_COMPLIANCE = 'compliance'
+    ROLE_READONLY = 'readonly'
 
     # Permission requirements for role operations
     PERMISSION_CREATE_ROLE = 'roles:create'
@@ -73,6 +78,9 @@ class Role(BaseModel, AuditableMixin):
     PERMISSION_UPDATE_ROLE = 'roles:update'
     PERMISSION_DELETE_ROLE = 'roles:delete'
     PERMISSION_ASSIGN_PERMISSIONS = 'permissions:assign'
+
+    # Maximum role hierarchy depth to prevent performance issues
+    MAX_HIERARCHY_DEPTH = 5
 
     # Core fields
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -139,13 +147,18 @@ class Role(BaseModel, AuditableMixin):
         if not name or not name.strip():
             raise ValueError("Role name cannot be empty")
 
-        if len(name.strip()) > 50:
+        name = name.strip()
+        if len(name) > 50:
             raise ValueError("Role name cannot exceed 50 characters")
 
-        # Check for uniqueness
+        # Ensure name follows proper format (alphanumeric with underscores)
+        if not all(c.isalnum() or c == '_' for c in name):
+            raise ValueError("Role name can only contain alphanumeric characters and underscores")
+
+        # Check for uniqueness (case insensitive)
         existing_role = Role.query.filter(
             and_(
-                func.lower(Role.name) == func.lower(name.strip()),
+                func.lower(Role.name) == func.lower(name),
                 Role.id != getattr(self, 'id', None)
             )
         ).first()
@@ -158,7 +171,7 @@ class Role(BaseModel, AuditableMixin):
         if not self.is_system and name.lower() in reserved_names:
             raise ValueError(f"Role name '{name}' is reserved for system use")
 
-        return name.strip()
+        return name
 
     @validates('parent_id')
     def validate_parent_id(self, key: str, parent_id: Optional[int]) -> Optional[int]:
@@ -173,7 +186,7 @@ class Role(BaseModel, AuditableMixin):
             Optional[int]: Validated parent role ID
 
         Raises:
-            ValueError: If parent ID would create a circular reference
+            ValueError: If parent ID would create a circular reference or exceed maximum depth
         """
         if parent_id is None:
             return None
@@ -182,17 +195,28 @@ class Role(BaseModel, AuditableMixin):
         if hasattr(self, 'id') and self.id is not None and parent_id == self.id:
             raise ValueError("A role cannot be its own parent")
 
+        # Check if parent role exists
+        parent_role = Role.query.get(parent_id)
+        if not parent_role:
+            raise ValueError(f"Parent role with ID {parent_id} does not exist")
+
         # Check for circular references
         if hasattr(self, 'id') and self.id is not None:
-            parent_role = Role.query.get(parent_id)
-            if parent_role:
-                current_parent = parent_role
-                while current_parent is not None:
-                    if current_parent.parent_id == self.id:
-                        raise ValueError("Circular reference detected in role hierarchy")
-                    if current_parent.parent_id is None:
-                        break
-                    current_parent = current_parent.parent
+            current_parent = parent_role
+            depth = 0
+            # Check for circular references and maximum hierarchy depth
+            while current_parent is not None:
+                depth += 1
+                if depth > self.MAX_HIERARCHY_DEPTH:
+                    raise ValueError(f"Role hierarchy exceeds maximum depth of {self.MAX_HIERARCHY_DEPTH}")
+
+                if current_parent.parent_id == self.id:
+                    raise ValueError("Circular reference detected in role hierarchy")
+
+                if current_parent.parent_id is None:
+                    break
+
+                current_parent = current_parent.parent
 
         return parent_id
 
@@ -207,10 +231,16 @@ class Role(BaseModel, AuditableMixin):
             bool: True if successful, False otherwise
 
         Raises:
-            ValueError: If trying to modify a system role
+            ValueError: If trying to modify a system role or permission is not active
         """
-        if self.is_system:
+        from models.auth.permission import Permission
+
+        if self.is_system and not hasattr(permission, 'is_system'):
             raise ValueError("Cannot modify system-defined roles")
+
+        # Verify the permission is active
+        if not permission.is_active:
+            raise ValueError("Cannot add inactive permission to role")
 
         if permission not in self.permissions:
             try:
@@ -226,7 +256,7 @@ class Role(BaseModel, AuditableMixin):
                 current_app.logger.error(f"Error adding permission to role: {str(e)}")
                 return False
 
-        return False
+        return True  # Permission already exists in role
 
     def add_permissions(self, permissions: List['Permission']) -> bool:
         """
@@ -250,6 +280,10 @@ class Role(BaseModel, AuditableMixin):
         try:
             added_count = 0
             for permission in permissions:
+                # Skip inactive permissions
+                if not permission.is_active:
+                    continue
+
                 if permission not in self.permissions:
                     self.permissions.append(permission)
                     added_count += 1
@@ -260,6 +294,18 @@ class Role(BaseModel, AuditableMixin):
                 self.log_change(
                     fields_changed=['permissions'],
                     details=f"Added {added_count} permissions to role"
+                )
+
+                # Log security event for bulk permission changes
+                log_security_event(
+                    event_type="role_permissions_added",
+                    description=f"Added {added_count} permissions to role '{self.name}'",
+                    severity="warning",
+                    details={
+                        "role_id": self.id,
+                        "role_name": self.name,
+                        "permissions_added": added_count
+                    }
                 )
                 return True
             return False
@@ -298,6 +344,27 @@ class Role(BaseModel, AuditableMixin):
                 current_app.logger.error(f"Error removing permission from role: {str(e)}")
                 return False
 
+        return True  # Permission already not in role
+
+    def has_permission_by_name(self, permission_name: str) -> bool:
+        """
+        Check if this role has a permission by its name.
+
+        Args:
+            permission_name: Name of the permission to check
+
+        Returns:
+            bool: True if the role has the permission, False otherwise
+        """
+        # Direct permission check by name
+        for perm in self.permissions:
+            if perm.name == permission_name and perm.is_active:
+                return True
+
+        # Check parent roles for inherited permissions
+        if self.parent_id and self.parent:
+            return self.parent.has_permission_by_name(permission_name)
+
         return False
 
     def has_permission(self, permission: 'Permission') -> bool:
@@ -310,8 +377,18 @@ class Role(BaseModel, AuditableMixin):
         Returns:
             bool: True if the role has the permission, False otherwise
         """
-        # Direct permission check
-        if permission in self.permissions:
+        # Get the current time for expiration check
+        now = datetime.now(timezone.utc)
+
+        # Check direct permissions with expiration check
+        for assoc in db.session.query(role_permissions).filter(
+            role_permissions.c.role_id == self.id,
+            role_permissions.c.permission_id == permission.id,
+            or_(
+                role_permissions.c.expires_at.is_(None),
+                role_permissions.c.expires_at > now
+            )
+        ).all():
             return True
 
         # Check parent roles for inherited permissions (recursive)
@@ -320,54 +397,106 @@ class Role(BaseModel, AuditableMixin):
 
         return False
 
-    def has_permission_by_name(self, permission_name: str) -> bool:
+    def has_permission_with_context(self, permission_name: str, context: Dict[str, Any] = None) -> bool:
         """
-        Check if this role has a permission by its name.
+        Check if role has a permission in a specific context.
 
         Args:
             permission_name: Name of the permission to check
+            context: Contextual data for dynamic permission rules
 
         Returns:
-            bool: True if the role has the permission, False otherwise
+            bool: True if role has permission in this context
         """
-        # Import here to avoid circular imports
         from models.auth.permission import Permission
 
-        # Direct permission check by name
-        for perm in self.permissions:
-            if perm.name == permission_name:
-                return True
+        # First check if role has the base permission
+        if not self.has_permission_by_name(permission_name):
+            return False
 
-        # Check parent roles for inherited permissions
-        if self.parent_id and self.parent:
-            return self.parent.has_permission_by_name(permission_name)
+        if not context:
+            return True
 
-        return False
+        # Get the permission object
+        permission = Permission.get_by_name(permission_name)
+        if not permission:
+            return False
 
-    def get_all_permissions(self) -> Set['Permission']:
+        # Evaluate dynamic rules if they exist
+        if hasattr(permission, 'dynamic_rules'):
+            for rule in permission.dynamic_rules:
+                if not rule.evaluate(context):
+                    return False
+
+        return True
+
+    def get_all_permissions(self, include_inactive: bool = False) -> Set['Permission']:
         """
         Get all permissions for this role, including inherited ones.
+
+        Args:
+            include_inactive: Whether to include inactive permissions
 
         Returns:
             Set[Permission]: Set of all permissions
         """
-        all_permissions = set(self.permissions)
+        # Get direct permissions
+        if include_inactive:
+            all_permissions = set(self.permissions)
+        else:
+            all_permissions = {p for p in self.permissions if p.is_active}
 
         # Add parent permissions if available
         if self.parent_id and self.parent:
-            all_permissions.update(self.parent.get_all_permissions())
+            all_permissions.update(self.parent.get_all_permissions(include_inactive))
 
         return all_permissions
 
-    def get_permission_names(self) -> List[str]:
+    def get_permission_names(self, include_inactive: bool = False) -> List[str]:
         """
         Get names of all permissions for this role, including inherited ones.
+
+        Args:
+            include_inactive: Whether to include inactive permissions
 
         Returns:
             List[str]: List of permission names
         """
-        all_permissions = self.get_all_permissions()
+        all_permissions = self.get_all_permissions(include_inactive)
         return sorted([p.name for p in all_permissions])
+
+    def get_effective_permissions(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get a dictionary of effective permissions with their sources.
+
+        Returns:
+            Dict: Dictionary mapping permission names to their details and source roles
+        """
+        result = {}
+
+        # Add direct permissions
+        for perm in self.permissions:
+            if perm.is_active:
+                result[perm.name] = {
+                    'id': perm.id,
+                    'name': perm.name,
+                    'description': perm.description,
+                    'source_role': self.name,
+                    'source_role_id': self.id,
+                    'is_inherited': False
+                }
+
+        # Add inherited permissions
+        if self.parent_id and self.parent:
+            parent_permissions = self.parent.get_effective_permissions()
+
+            # Add parent permissions that aren't overridden locally
+            for perm_name, perm_details in parent_permissions.items():
+                if perm_name not in result:
+                    perm_details['is_inherited'] = True
+                    result[perm_name] = perm_details
+
+        return result
 
     def set_active(self, active: bool) -> bool:
         """
@@ -392,6 +521,13 @@ class Role(BaseModel, AuditableMixin):
             old_status = "active" if self.is_active else "inactive"
             new_status = "active" if active else "inactive"
 
+            # Check if this role is a parent of other roles before deactivating
+            if not active and self.children.count() > 0:
+                child_roles = [child.name for child in self.children]
+                current_app.logger.warning(
+                    f"Deactivating role {self.name} will affect child roles: {', '.join(child_roles)}"
+                )
+
             self.is_active = active
             db.session.commit()
 
@@ -399,19 +535,122 @@ class Role(BaseModel, AuditableMixin):
             self.log_change(['is_active'], f"Role status changed from {old_status} to {new_status}")
 
             # Log security event for role deactivation (security sensitive)
-            if not active:
-                log_security_event(
-                    event_type="role_deactivated",
-                    description=f"Role '{self.name}' was deactivated",
-                    severity="warning",
-                    details={"role_id": self.id, "role_name": self.name}
-                )
+            severity = "warning" if not active else "info"
+            event_type = "role_deactivated" if not active else "role_activated"
+
+            log_security_event(
+                event_type=event_type,
+                description=f"Role '{self.name}' was {new_status}",
+                severity=severity,
+                details={
+                    "role_id": self.id,
+                    "role_name": self.name,
+                    "previous_status": old_status,
+                    "new_status": new_status
+                }
+            )
 
             return True
         except SQLAlchemyError as e:
             db.session.rollback()
             action = 'activating' if active else 'deactivating'
             current_app.logger.error(f"Error {action} role: {str(e)}")
+            return False
+
+    def update_description(self, description: str) -> bool:
+        """
+        Update the role description.
+
+        Args:
+            description: New role description
+
+        Returns:
+            bool: True if successful, False otherwise
+
+        Raises:
+            ValueError: If trying to modify a system role
+        """
+        if self.is_system:
+            raise ValueError("Cannot modify system-defined roles")
+
+        if self.description == description:
+            return True  # No change needed
+
+        try:
+            self.description = description
+            db.session.commit()
+
+            # Log the change
+            self.log_change(['description'], "Role description updated")
+            return True
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            current_app.logger.error(f"Error updating role description: {str(e)}")
+            return False
+
+    def set_parent(self, parent_id: Optional[int]) -> bool:
+        """
+        Update the parent role.
+
+        Args:
+            parent_id: ID of the new parent role, or None to remove parent
+
+        Returns:
+            bool: True if successful, False otherwise
+
+        Raises:
+            ValueError: If trying to modify a system role or creating circular reference
+        """
+        if self.is_system:
+            raise ValueError("Cannot modify system-defined roles")
+
+        if self.parent_id == parent_id:
+            return True  # No change needed
+
+        try:
+            # Validate the new parent_id
+            self.parent_id = self.validate_parent_id('parent_id', parent_id)
+            db.session.commit()
+
+            # Log the change
+            if parent_id:
+                parent_role = Role.query.get(parent_id)
+                parent_name = parent_role.name if parent_role else "unknown"
+                self.log_change(['parent_id'], f"Role parent updated to {parent_name}")
+
+                # Log security event for role hierarchy changes
+                log_security_event(
+                    event_type="role_hierarchy_changed",
+                    description=f"Role '{self.name}' now inherits from '{parent_name}'",
+                    severity="info",
+                    details={
+                        "role_id": self.id,
+                        "role_name": self.name,
+                        "parent_id": parent_id,
+                        "parent_name": parent_name
+                    }
+                )
+            else:
+                self.log_change(['parent_id'], "Role parent removed")
+
+                # Log security event for role hierarchy removal
+                log_security_event(
+                    event_type="role_hierarchy_removed",
+                    description=f"Role '{self.name}' no longer inherits from any parent",
+                    severity="info",
+                    details={
+                        "role_id": self.id,
+                        "role_name": self.name
+                    }
+                )
+
+            return True
+        except ValueError as e:
+            # Re-raise ValueError for API to catch and display to user
+            raise
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            current_app.logger.error(f"Error updating role parent: {str(e)}")
             return False
 
     def _log_permission_change(self, action: str, permission: 'Permission') -> None:
@@ -596,6 +835,34 @@ class Role(BaseModel, AuditableMixin):
         return cls.get_roles_by_permission(permission)
 
     @classmethod
+    def search(cls, query: str, include_inactive: bool = False) -> List['Role']:
+        """
+        Search for roles by name or description.
+
+        Args:
+            query: Search term
+            include_inactive: Whether to include inactive roles
+
+        Returns:
+            List[Role]: List of matching roles
+        """
+        if not query:
+            return []
+
+        search_query = cls.query
+
+        if not include_inactive:
+            search_query = search_query.filter_by(is_active=True)
+
+        search_pattern = f"%{query.lower()}%"
+        return search_query.filter(
+            or_(
+                func.lower(cls.name).like(search_pattern),
+                func.lower(cls.description).like(search_pattern)
+            )
+        ).order_by(cls.name).all()
+
+    @classmethod
     def initialize_default_roles(cls) -> None:
         """
         Initialize default system roles if they don't exist.
@@ -603,7 +870,7 @@ class Role(BaseModel, AuditableMixin):
         default_roles = [
             {
                 'name': cls.ROLE_ADMIN,
-                'description': 'Administrative access',
+                'description': 'Administrative access with all permissions',
                 'is_system': True
             },
             {
@@ -618,12 +885,32 @@ class Role(BaseModel, AuditableMixin):
             },
             {
                 'name': cls.ROLE_AUDITOR,
-                'description': 'Audit and compliance access',
+                'description': 'Audit and compliance access (read-only)',
                 'is_system': True
             },
             {
                 'name': cls.ROLE_GUEST,
                 'description': 'Limited read-only access',
+                'is_system': True
+            },
+            {
+                'name': cls.ROLE_API,
+                'description': 'API access for service accounts',
+                'is_system': True
+            },
+            {
+                'name': cls.ROLE_SECURITY,
+                'description': 'Security management access',
+                'is_system': True
+            },
+            {
+                'name': cls.ROLE_COMPLIANCE,
+                'description': 'Compliance management access',
+                'is_system': True
+            },
+            {
+                'name': cls.ROLE_READONLY,
+                'description': 'Read-only access across all resources',
                 'is_system': True
             }
         ]
@@ -645,6 +932,14 @@ class Role(BaseModel, AuditableMixin):
             try:
                 db.session.commit()
                 current_app.logger.info(f"Created {created_count} default roles")
+
+                # Log security event for role creation
+                log_security_event(
+                    event_type="default_roles_created",
+                    description=f"Created {created_count} default system roles",
+                    severity="info",
+                    details={"count": created_count}
+                )
             except SQLAlchemyError as e:
                 db.session.rollback()
                 current_app.logger.error(f"Error saving default roles: {str(e)}")
@@ -700,6 +995,91 @@ class Role(BaseModel, AuditableMixin):
             db.session.rollback()
             current_app.logger.error(f"Error setting up admin permissions: {str(e)}")
             return False
+
+    @classmethod
+    def get_hierarchy_tree(cls) -> Dict[str, Any]:
+        """
+        Generate a hierarchical tree representation of roles and their permissions.
+
+        Returns:
+            Dict[str, Any]: Dictionary representing the role hierarchy with inherited permissions
+        """
+        all_roles = cls.query.all()
+        root_roles = [r for r in all_roles if r.parent_id is None]
+
+        def build_subtree(role):
+            return {
+                'id': role.id,
+                'name': role.name,
+                'description': role.description,
+                'is_system': role.is_system,
+                'is_active': role.is_active,
+                'direct_permissions': [p.name for p in role.permissions],
+                'all_permissions': role.get_permission_names(),
+                'children': [build_subtree(child) for child in role.children]
+            }
+
+        return [build_subtree(role) for role in root_roles]
+
+    @classmethod
+    def get_permission_audit_data(cls) -> Dict[str, Any]:
+        """
+        Generate comprehensive audit data for all permissions.
+
+        Returns:
+            Dict: Structured permission audit information
+        """
+        from models.auth import User, Permission
+
+        # Get all permissions and roles
+        all_permissions = Permission.query.all()
+        all_roles = cls.query.all()
+
+        result = {
+            'permissions_count': len(all_permissions),
+            'active_permissions': len([p for p in all_permissions if p.is_active]),
+            'system_permissions': len([p for p in all_permissions if p.is_system]),
+            'custom_permissions': len([p for p in all_permissions if not p.is_system]),
+            'permissions_by_category': {},
+            'permission_usage': {},
+            'orphaned_permissions': [],
+            'most_used_permissions': [],
+            'least_used_permissions': []
+        }
+
+        # Count by category
+        for perm in all_permissions:
+            if perm.category not in result['permissions_by_category']:
+                result['permissions_by_category'][perm.category] = 0
+            result['permissions_by_category'][perm.category] += 1
+
+        # Check permission usage
+        for perm in all_permissions:
+            roles_with_perm = perm.roles.all()
+            users_with_perm_count = User.query.join(User.roles).join(Role.permissions).filter(
+                Permission.id == perm.id
+            ).distinct().count()
+
+            result['permission_usage'][perm.name] = {
+                'roles_count': len(roles_with_perm),
+                'roles': [r.name for r in roles_with_perm],
+                'users_count': users_with_perm_count,
+                'is_active': perm.is_active,
+                'is_system': perm.is_system,
+                'category': perm.category
+            }
+
+            if not roles_with_perm:
+                result['orphaned_permissions'].append(perm.name)
+
+        # Sort by usage
+        usage_data = [(name, data['users_count']) for name, data in result['permission_usage'].items()]
+        usage_data.sort(key=lambda x: x[1], reverse=True)
+
+        result['most_used_permissions'] = usage_data[:10]
+        result['least_used_permissions'] = usage_data[-10:] if len(usage_data) >= 10 else usage_data
+
+        return result
 
     def __eq__(self, other: Any) -> bool:
         """

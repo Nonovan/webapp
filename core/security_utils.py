@@ -25,6 +25,7 @@ from sqlalchemy import func, desc, or_, and_
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.hybrid import hybrid_property
 from flask import current_app, request, g, has_request_context, session, has_app_context
+from flask_login import current_user
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -35,6 +36,7 @@ from models.base import BaseModel, AuditableMixin
 from extensions import db
 from extensions import get_redis_client
 from core.utils import detect_file_changes
+from functools import wraps
 
 # Setup module-level logger
 logger = logging.getLogger(__name__)
@@ -1421,3 +1423,59 @@ def log_error(message: str, exception: Optional[Exception] = None) -> None:
         current_app.logger.error(error_message)
     else:
         logger.error(error_message)
+
+
+def can_access_ui_element(element_id: str, required_permission: str = None):
+    """
+    Decorator factory to control access to UI elements based on permissions.
+
+    This decorator manages UI element visibility based on user permissions without
+    raising errors. It allows for progressive UI enhancement where elements are
+    conditionally shown based on the user's access rights.
+
+    Args:
+        element_id: The UI element identifier that will be used in templates
+        required_permission: The permission name required to see the element
+                            (format: 'resource:action')
+
+    Returns:
+        Callable: A decorator that controls UI element access
+
+    Example:
+        @app.route('/dashboard')
+        @can_access_ui_element('admin_panel', 'admin:access')
+        def dashboard():
+            return render_template('dashboard.html')
+    """
+    def decorator(view_func):
+        @wraps(view_func)
+        def decorated_function(*args, **kwargs):
+            # Initialize ui_permissions dict if it doesn't exist
+            kwargs['ui_permissions'] = kwargs.get('ui_permissions', {})
+
+            # Default to showing the element
+            has_access = True
+
+            # Check permission if one is required
+            if required_permission:
+                # Guard against current_user not being authenticated
+                if not hasattr(current_user, 'has_permission'):
+                    has_access = False
+                # Handle case where current_user isn't properly initialized
+                elif getattr(current_user, 'is_authenticated', False) is False:
+                    has_access = False
+                # Check the actual permission
+                elif not current_user.has_permission(required_permission):
+                    has_access = False
+
+            # Store the result in the ui_permissions dict
+            kwargs['ui_permissions'][element_id] = has_access
+
+            # Add element_id to a list of checked elements for debugging
+            if 'checked_elements' not in kwargs:
+                kwargs['checked_elements'] = []
+            kwargs['checked_elements'].append(element_id)
+
+            return view_func(*args, **kwargs)
+        return decorated_function
+    return decorator

@@ -4,16 +4,31 @@ User session model for tracking active user sessions.
 This module provides the UserSession model which tracks active user sessions across
 the application. It's used for session management, concurrent session limiting,
 and security monitoring of user activity.
+
+The session tracking system provides:
+- Session lifecycle management (creation, extension, termination)
+- Security monitoring for suspicious activity
+- Concurrent session limiting
+- Device fingerprinting
+- Geographic location tracking
+- Automatic cleanup of expired sessions
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any, Union, Tuple
+import uuid
+import hashlib
+import json
 from flask import current_app
+from sqlalchemy import and_, or_, func
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import relationship
 import logging
 
 from extensions import db
 from models.base import BaseModel
+from core.security_utils import log_security_event
+
 
 class UserSession(BaseModel):
     """
@@ -41,8 +56,15 @@ class UserSession(BaseModel):
         device_info: Additional device identification information
         client_type: Type of client (web, mobile, api)
         last_location: Geographic location based on IP (country/city)
+        login_method: Method used for authentication
+        revoked: Whether the session was explicitly revoked for security reasons
+        revocation_reason: Reason for revocation if applicable
+        is_suspicious: Flag for suspicious sessions based on anomaly detection
     """
     __tablename__ = 'user_sessions'
+
+    # Security critical fields that trigger enhanced auditing
+    SECURITY_CRITICAL_FIELDS = ['is_active', 'access_level', 'is_suspicious', 'revoked']
 
     # Core fields
     id = db.Column(db.Integer, primary_key=True)
@@ -72,6 +94,17 @@ class UserSession(BaseModel):
     client_type = db.Column(db.String(16), nullable=True, default='web')
     last_location = db.Column(db.String(128), nullable=True)
 
+    # Security-related fields
+    login_method = db.Column(db.String(20), nullable=True)
+    revoked = db.Column(db.Boolean, default=False, nullable=False)
+    revocation_reason = db.Column(db.String(255), nullable=True)
+    is_suspicious = db.Column(db.Boolean, default=False, nullable=False)
+
+    # Activity tracking
+    activity_count = db.Column(db.Integer, default=0, nullable=False)
+    last_page_visited = db.Column(db.String(255), nullable=True)
+    last_action = db.Column(db.String(64), nullable=True)
+
     # Constants
     SESSION_CLIENT_TYPE_WEB = 'web'
     SESSION_CLIENT_TYPE_MOBILE = 'mobile'
@@ -82,6 +115,19 @@ class UserSession(BaseModel):
     SESSION_ACCESS_LEVEL_ELEVATED = 'elevated'
     SESSION_ACCESS_LEVEL_ADMIN = 'admin'
     SESSION_ACCESS_LEVEL_READONLY = 'readonly'
+
+    LOGIN_METHOD_PASSWORD = 'password'
+    LOGIN_METHOD_SSO = 'sso'
+    LOGIN_METHOD_MFA = 'mfa'
+    LOGIN_METHOD_TOKEN = 'token'
+    LOGIN_METHOD_API_KEY = 'api_key'
+
+    REVOCATION_REASON_USER_REQUEST = 'user_request'
+    REVOCATION_REASON_ADMIN_ACTION = 'admin_action'
+    REVOCATION_REASON_SUSPICIOUS = 'suspicious_activity'
+    REVOCATION_REASON_PASSWORD_CHANGE = 'password_change'
+    REVOCATION_REASON_ROLE_CHANGE = 'role_change'
+    REVOCATION_REASON_SYSTEM = 'system_action'
 
     VALID_CLIENT_TYPES = [
         SESSION_CLIENT_TYPE_WEB,
@@ -97,20 +143,29 @@ class UserSession(BaseModel):
         SESSION_ACCESS_LEVEL_READONLY
     ]
 
+    VALID_LOGIN_METHODS = [
+        LOGIN_METHOD_PASSWORD,
+        LOGIN_METHOD_SSO,
+        LOGIN_METHOD_MFA,
+        LOGIN_METHOD_TOKEN,
+        LOGIN_METHOD_API_KEY
+    ]
+
     # Relationship with User model
     user = db.relationship('User', backref=db.backref('sessions', lazy='dynamic', cascade='all, delete-orphan'))
 
-    def __init__(self, user_id: int, session_id: str, ip_address: Optional[str] = None,
+    def __init__(self, user_id: int, session_id: str = None, ip_address: Optional[str] = None,
                 user_agent: Optional[str] = None, fingerprint: Optional[str] = None,
                 expires_at: Optional[datetime] = None, is_active: bool = True,
                 cloud_region: Optional[str] = None, client_type: Optional[str] = None,
-                access_level: Optional[str] = None) -> None:
+                access_level: Optional[str] = None, login_method: Optional[str] = None,
+                device_info: Optional[Dict[str, Any]] = None) -> None:
         """
         Initialize a new user session.
 
         Args:
             user_id: The ID of the user owning this session
-            session_id: Unique identifier for the session
+            session_id: Unique identifier for the session (auto-generated if None)
             ip_address: IP address where the session originated
             user_agent: Browser/client user agent string
             fingerprint: Browser fingerprint hash for added security
@@ -119,14 +174,19 @@ class UserSession(BaseModel):
             cloud_region: Cloud region where the session is accessing from
             client_type: Type of client (web, mobile, api, cli)
             access_level: Access level for this session
+            login_method: Method used for authentication
+            device_info: Additional device information as dictionary
         """
         self.user_id = user_id
-        self.session_id = session_id
+        self.session_id = session_id or self._generate_session_id()
         self.ip_address = ip_address
         self.user_agent = user_agent
         self.fingerprint = fingerprint
         self.is_active = is_active
         self.cloud_region = cloud_region
+        self.login_method = login_method if login_method in self.VALID_LOGIN_METHODS else None
+        self.device_info = device_info or {}
+        self.activity_count = 0
 
         # Validate and set client type
         if client_type and client_type in self.VALID_CLIENT_TYPES:
@@ -148,9 +208,21 @@ class UserSession(BaseModel):
                 # Default expiration from config or 30 minutes
                 session_lifetime = current_app.config.get('SESSION_LIFETIME_MINUTES', 30)
                 self.expires_at = datetime.now(timezone.utc) + timedelta(minutes=session_lifetime)
-            except RuntimeError:
+            except (RuntimeError, AttributeError):
                 # Fallback if no app context
                 self.expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
+
+    @staticmethod
+    def _generate_session_id() -> str:
+        """
+        Generate a secure unique session ID.
+
+        Returns:
+            str: Unique session identifier
+        """
+        # Use a combination of UUID and timestamp for uniqueness
+        base = f"{uuid.uuid4().hex}{datetime.now(timezone.utc).timestamp()}"
+        return hashlib.sha256(base.encode()).hexdigest()
 
     def is_valid(self, current_time: Optional[datetime] = None) -> bool:
         """
@@ -164,7 +236,7 @@ class UserSession(BaseModel):
         """
         if current_time is None:
             current_time = datetime.now(timezone.utc)
-        return self.is_active and self.expires_at > current_time
+        return self.is_active and not self.revoked and self.expires_at > current_time
 
     def extend_session(self, minutes: Optional[int] = None) -> bool:
         """
@@ -176,12 +248,19 @@ class UserSession(BaseModel):
         Returns:
             bool: True if successful, False otherwise
         """
+        if self.revoked:
+            if hasattr(current_app, 'logger'):
+                current_app.logger.warning(
+                    f"Attempted to extend revoked session {self.session_id} for user {self.user_id}"
+                )
+            return False
+
         try:
             # Get session extension from config or use default
             if minutes is None:
                 try:
                     minutes = current_app.config.get('SESSION_EXTEND_MINUTES', 30)
-                except RuntimeError:
+                except (RuntimeError, AttributeError):
                     # Fallback if no app context
                     minutes = 30
 
@@ -195,7 +274,42 @@ class UserSession(BaseModel):
         except SQLAlchemyError as e:
             db.session.rollback()
             if hasattr(current_app, 'logger'):
-                current_app.logger.error("Failed to extend session %s: %s", self.session_id, str(e))
+                current_app.logger.error(f"Failed to extend session {self.session_id}: {str(e)}")
+            return False
+
+    def record_activity(self, page: Optional[str] = None, action: Optional[str] = None) -> bool:
+        """
+        Record user activity to extend session and track analytics.
+
+        Args:
+            page: Page or endpoint being accessed
+            action: Action being performed
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.is_active or self.revoked:
+            return False
+
+        try:
+            current_time = datetime.now(timezone.utc)
+            self.last_active = current_time
+            self.activity_count += 1
+
+            if page:
+                self.last_page_visited = page
+            if action:
+                self.last_action = action
+
+            db.session.add(self)
+            db.session.commit()
+            return True
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            if hasattr(current_app, 'logger'):
+                current_app.logger.error(
+                    f"Failed to record activity for session {self.session_id}: {str(e)}"
+                )
             return False
 
     def end_session(self) -> bool:
@@ -206,16 +320,128 @@ class UserSession(BaseModel):
             bool: True if successful, False otherwise
         """
         try:
+            if not self.is_active:
+                return True  # Session already ended
+
             self.is_active = False
             self.ended_at = datetime.now(timezone.utc)
 
             db.session.add(self)
             db.session.commit()
+
+            # Log session end event
+            self._log_session_event("session_ended", "User session ended normally")
+
             return True
         except SQLAlchemyError as e:
             db.session.rollback()
             if hasattr(current_app, 'logger'):
-                current_app.logger.error("Failed to end session %s: %s", self.session_id, str(e))
+                current_app.logger.error(f"Failed to end session {self.session_id}: {str(e)}")
+            return False
+
+    def revoke_session(self, reason: str = REVOCATION_REASON_SYSTEM) -> bool:
+        """
+        Revoke session explicitly for security purposes.
+
+        Args:
+            reason: Reason for revocation
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            if self.revoked:
+                return True  # Already revoked
+
+            self.is_active = False
+            self.revoked = True
+            self.revocation_reason = reason
+            self.ended_at = datetime.now(timezone.utc)
+
+            db.session.add(self)
+            db.session.commit()
+
+            # Log security event for session revocation
+            self._log_session_event(
+                "session_revoked",
+                f"Session revoked: {reason}",
+                "warning"
+            )
+
+            return True
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            if hasattr(current_app, 'logger'):
+                current_app.logger.error(f"Failed to revoke session {self.session_id}: {str(e)}")
+            return False
+
+    def elevate_privileges(self, new_level: str) -> bool:
+        """
+        Elevate session privileges to a higher access level.
+
+        Args:
+            new_level: New access level to set
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if new_level not in self.VALID_ACCESS_LEVELS:
+            return False
+
+        try:
+            old_level = self.access_level
+            self.access_level = new_level
+            self.last_active = datetime.now(timezone.utc)
+
+            db.session.add(self)
+            db.session.commit()
+
+            # Log security event for privilege elevation
+            self._log_session_event(
+                "session_privileges_changed",
+                f"Session privileges changed from {old_level} to {new_level}",
+                "warning"
+            )
+
+            return True
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            if hasattr(current_app, 'logger'):
+                current_app.logger.error(
+                    f"Failed to elevate privileges for session {self.session_id}: {str(e)}"
+                )
+            return False
+
+    def flag_as_suspicious(self, reason: str = "Anomaly detected") -> bool:
+        """
+        Flag session as suspicious for security monitoring.
+
+        Args:
+            reason: Reason for flagging
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            self.is_suspicious = True
+
+            db.session.add(self)
+            db.session.commit()
+
+            # Log security event
+            self._log_session_event(
+                "suspicious_session_flagged",
+                f"Session flagged as suspicious: {reason}",
+                "warning"
+            )
+
+            return True
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            if hasattr(current_app, 'logger'):
+                current_app.logger.error(
+                    f"Failed to flag suspicious session {self.session_id}: {str(e)}"
+                )
             return False
 
     def update_device_info(self, device_info: Dict[str, Any]) -> bool:
@@ -229,7 +455,11 @@ class UserSession(BaseModel):
             bool: True if successful, False otherwise
         """
         try:
-            self.device_info = device_info
+            # Merge new device info with existing (don't overwrite completely)
+            current_info = self.device_info or {}
+            updated_info = {**current_info, **device_info}
+
+            self.device_info = updated_info
             self.last_active = datetime.now(timezone.utc)
 
             db.session.add(self)
@@ -238,8 +468,9 @@ class UserSession(BaseModel):
         except SQLAlchemyError as e:
             db.session.rollback()
             if hasattr(current_app, 'logger'):
-                current_app.logger.error("Failed to update device info for session %s: %s",
-                                        self.session_id, str(e))
+                current_app.logger.error(
+                    f"Failed to update device info for session {self.session_id}: {str(e)}"
+                )
             return False
 
     def update_location(self, location: str) -> bool:
@@ -253,16 +484,56 @@ class UserSession(BaseModel):
             bool: True if successful, False otherwise
         """
         try:
+            old_location = self.last_location
             self.last_location = location
             db.session.add(self)
             db.session.commit()
+
+            # If location changed significantly, log it as it could be suspicious
+            if old_location and old_location != location and self.is_active:
+                self._log_session_event(
+                    "session_location_changed",
+                    f"Session location changed from {old_location} to {location}",
+                    "info"
+                )
+
             return True
         except SQLAlchemyError as e:
             db.session.rollback()
             if hasattr(current_app, 'logger'):
-                current_app.logger.error("Failed to update location for session %s: %s",
-                                        self.session_id, str(e))
+                current_app.logger.error(
+                    f"Failed to update location for session {self.session_id}: {str(e)}"
+                )
             return False
+
+    def _log_session_event(self, event_type: str, description: str, severity: str = "info") -> None:
+        """
+        Log session event for security monitoring.
+
+        Args:
+            event_type: Type of event
+            description: Event description
+            severity: Event severity (info, warning, error)
+        """
+        try:
+            log_security_event(
+                event_type=event_type,
+                description=description,
+                severity=severity,
+                details={
+                    "session_id": self.session_id,
+                    "user_id": self.user_id,
+                    "ip_address": self.ip_address,
+                    "user_agent": self.user_agent,
+                    "access_level": self.access_level,
+                    "client_type": self.client_type,
+                    "location": self.last_location
+                }
+            )
+        except Exception as e:
+            # Fail silently but log if possible
+            if hasattr(current_app, 'logger'):
+                current_app.logger.error(f"Failed to log session event: {str(e)}")
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -279,6 +550,9 @@ class UserSession(BaseModel):
             'user_agent': self.user_agent,
             'fingerprint': self.fingerprint,
             'is_active': self.is_active,
+            'revoked': self.revoked,
+            'revocation_reason': self.revocation_reason,
+            'is_suspicious': self.is_suspicious,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'last_active': self.last_active.isoformat() if self.last_active else None,
             'expires_at': self.expires_at.isoformat() if self.expires_at else None,
@@ -287,7 +561,34 @@ class UserSession(BaseModel):
             'access_level': self.access_level,
             'client_type': self.client_type,
             'last_location': self.last_location,
-            'device_info': self.device_info
+            'login_method': self.login_method,
+            'device_info': self.device_info,
+            'activity_count': self.activity_count,
+            'last_page_visited': self.last_page_visited,
+            'last_action': self.last_action,
+            'is_valid': self.is_valid()
+        }
+
+    def to_safe_dict(self) -> Dict[str, Any]:
+        """
+        Convert session to dictionary with reduced sensitive information for user-facing contexts.
+
+        Returns:
+            Dict: Session data with limited fields
+        """
+        return {
+            'session_id': self.session_id,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'last_active': self.last_active.isoformat() if self.last_active else None,
+            'expires_at': self.expires_at.isoformat() if self.expires_at else None,
+            'is_active': self.is_active,
+            'client_type': self.client_type,
+            'device_info': {
+                'device': self.device_info.get('device') if self.device_info else None,
+                'os': self.device_info.get('os') if self.device_info else None,
+                'browser': self.device_info.get('browser') if self.device_info else None
+            },
+            'location': self.last_location
         }
 
     @classmethod
@@ -305,11 +606,12 @@ class UserSession(BaseModel):
             cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
             return cls.query.filter(
                 cls.is_active == True,  # Using == for SQLAlchemy comparison
+                cls.revoked == False,
                 cls.last_active >= cutoff
             ).count()
         except SQLAlchemyError as e:
             if hasattr(current_app, 'logger'):
-                current_app.logger.error("Error counting active sessions: %s", str(e))
+                current_app.logger.error(f"Error counting active sessions: {str(e)}")
             return 0
 
     @classmethod
@@ -326,12 +628,12 @@ class UserSession(BaseModel):
         try:
             return cls.query.filter(
                 cls.user_id == user_id,
-                cls.is_active == True  # Using == for SQLAlchemy comparison
+                cls.is_active == True,  # Using == for SQLAlchemy comparison
+                cls.revoked == False
             ).order_by(db.desc(cls.last_active)).all()
         except SQLAlchemyError as e:
             if hasattr(current_app, 'logger'):
-                current_app.logger.error("Error retrieving sessions for user %s: %s",
-                                        user_id, str(e))
+                current_app.logger.error(f"Error retrieving sessions for user {user_id}: {str(e)}")
             return []
 
     @classmethod
@@ -350,7 +652,8 @@ class UserSession(BaseModel):
         try:
             query = cls.query.filter(
                 cls.user_id == user_id,
-                cls.is_active == True  # Using == for SQLAlchemy comparison
+                cls.is_active == True,  # Using == for SQLAlchemy comparison
+                cls.revoked == False
             )
 
             if exclude_session_id:
@@ -367,7 +670,65 @@ class UserSession(BaseModel):
         except SQLAlchemyError as e:
             db.session.rollback()
             if hasattr(current_app, 'logger'):
-                current_app.logger.error("Failed to end sessions for user %s: %s", user_id, str(e))
+                current_app.logger.error(f"Failed to end sessions for user {user_id}: {str(e)}")
+            return 0
+
+    @classmethod
+    def revoke_all_sessions_for_user(cls, user_id: int, reason: str,
+                                 exclude_session_id: Optional[str] = None) -> int:
+        """
+        Revoke all active sessions for a user, optionally excluding one session.
+
+        Args:
+            user_id: User ID to revoke sessions for
+            reason: Reason for revocation
+            exclude_session_id: Session ID to exclude from revoking (e.g., current session)
+
+        Returns:
+            int: Number of sessions revoked
+        """
+        try:
+            query = cls.query.filter(
+                cls.user_id == user_id,
+                cls.is_active == True,  # Using == for SQLAlchemy comparison
+                cls.revoked == False
+            )
+
+            if exclude_session_id:
+                query = query.filter(cls.session_id != exclude_session_id)
+
+            current_time = datetime.now(timezone.utc)
+            result = query.update({
+                'is_active': False,
+                'revoked': True,
+                'revocation_reason': reason,
+                'ended_at': current_time
+            }, synchronize_session=False)
+
+            db.session.commit()
+
+            # Log security event for mass session revocation
+            if result > 0:
+                try:
+                    log_security_event(
+                        event_type="user_sessions_revoked",
+                        description=f"All sessions revoked for user {user_id}: {reason}",
+                        severity="warning",
+                        details={
+                            "user_id": user_id,
+                            "sessions_revoked": result,
+                            "reason": reason,
+                            "excluded_session": exclude_session_id
+                        }
+                    )
+                except Exception:
+                    pass  # Don't let logging failure break the operation
+
+            return result
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            if hasattr(current_app, 'logger'):
+                current_app.logger.error(f"Failed to revoke sessions for user {user_id}: {str(e)}")
             return 0
 
     @classmethod
@@ -393,7 +754,7 @@ class UserSession(BaseModel):
         except SQLAlchemyError as e:
             db.session.rollback()
             if hasattr(current_app, 'logger'):
-                current_app.logger.error("Failed to cleanup expired sessions: %s", str(e))
+                current_app.logger.error(f"Failed to cleanup expired sessions: {str(e)}")
             return 0
 
     @classmethod
@@ -411,9 +772,160 @@ class UserSession(BaseModel):
             return cls.query.filter(cls.session_id == session_id).first()
         except SQLAlchemyError as e:
             if hasattr(current_app, 'logger'):
-                current_app.logger.error("Error retrieving session %s: %s", session_id, str(e))
+                current_app.logger.error(f"Error retrieving session {session_id}: {str(e)}")
             return None
+
+    @classmethod
+    def get_user_session_stats(cls, user_id: int) -> Dict[str, Any]:
+        """
+        Get session statistics for a specific user.
+
+        Args:
+            user_id: User ID to get statistics for
+
+        Returns:
+            Dict: Dictionary with session statistics
+        """
+        try:
+            # Get total session count
+            total_sessions = cls.query.filter(cls.user_id == user_id).count()
+
+            # Get active sessions
+            active_sessions = cls.query.filter(
+                cls.user_id == user_id,
+                cls.is_active == True,
+                cls.revoked == False
+            ).count()
+
+            # Get last activity time
+            latest_session = cls.query.filter(
+                cls.user_id == user_id
+            ).order_by(db.desc(cls.last_active)).first()
+
+            # Get count by client type
+            client_counts = {}
+            for client_type in cls.VALID_CLIENT_TYPES:
+                count = cls.query.filter(
+                    cls.user_id == user_id,
+                    cls.client_type == client_type
+                ).count()
+                if count > 0:
+                    client_counts[client_type] = count
+
+            # Check for suspicious activity
+            suspicious_sessions = cls.query.filter(
+                cls.user_id == user_id,
+                cls.is_suspicious == True
+            ).count()
+
+            return {
+                'total_sessions': total_sessions,
+                'active_sessions': active_sessions,
+                'suspicious_sessions': suspicious_sessions,
+                'last_activity': latest_session.last_active.isoformat() if latest_session else None,
+                'client_types': client_counts
+            }
+        except SQLAlchemyError as e:
+            if hasattr(current_app, 'logger'):
+                current_app.logger.error(f"Error getting session stats for user {user_id}: {str(e)}")
+            return {
+                'total_sessions': 0,
+                'active_sessions': 0,
+                'suspicious_sessions': 0
+            }
+
+    @classmethod
+    def check_concurrent_sessions(cls, user_id: int, max_sessions: int = 5) -> Tuple[bool, int]:
+        """
+        Check if a user has too many concurrent active sessions.
+
+        Args:
+            user_id: User ID to check
+            max_sessions: Maximum allowed concurrent sessions
+
+        Returns:
+            Tuple[bool, int]: (has_too_many, current_count)
+        """
+        try:
+            active_count = cls.query.filter(
+                cls.user_id == user_id,
+                cls.is_active == True,
+                cls.revoked == False
+            ).count()
+
+            return (active_count >= max_sessions, active_count)
+        except SQLAlchemyError as e:
+            if hasattr(current_app, 'logger'):
+                current_app.logger.error(
+                    f"Error checking concurrent sessions for user {user_id}: {str(e)}"
+                )
+            # Be conservative and assume too many sessions on error
+            return (True, max_sessions)
+
+    @classmethod
+    def detect_suspicious_sessions(cls, user_id: int) -> List["UserSession"]:
+        """
+        Detect potentially suspicious sessions for a user.
+
+        This looks for multiple sessions from different locations,
+        unusual client types, or unusual activity patterns.
+
+        Args:
+            user_id: User ID to check
+
+        Returns:
+            List[UserSession]: List of suspicious sessions
+        """
+        try:
+            suspicious_sessions = []
+            active_sessions = cls.get_active_sessions_by_user(user_id)
+
+            if not active_sessions:
+                return []
+
+            # Get most common location
+            locations = {}
+            for session in active_sessions:
+                if session.last_location:
+                    locations[session.last_location] = locations.get(session.last_location, 0) + 1
+
+            common_location = max(locations.items(), key=lambda x: x[1])[0] if locations else None
+
+            # Check each session for suspicious attributes
+            for session in active_sessions:
+                # Different location than most common
+                if (common_location and session.last_location and
+                    session.last_location != common_location):
+                    suspicious_sessions.append(session)
+                    continue
+
+                # API or CLI access from web-only user
+                if session.client_type in (cls.SESSION_CLIENT_TYPE_API, cls.SESSION_CLIENT_TYPE_CLI):
+                    # Check if user normally uses these client types
+                    # This would need to reference user profile or history
+                    suspicious_sessions.append(session)
+                    continue
+
+                # Check for concurrent admin access
+                if (session.access_level == cls.SESSION_ACCESS_LEVEL_ADMIN and
+                    sum(1 for s in active_sessions if s.access_level == cls.SESSION_ACCESS_LEVEL_ADMIN) > 1):
+                    suspicious_sessions.append(session)
+                    continue
+
+            return suspicious_sessions
+        except SQLAlchemyError as e:
+            if hasattr(current_app, 'logger'):
+                current_app.logger.error(
+                    f"Error detecting suspicious sessions for user {user_id}: {str(e)}"
+                )
+            return []
 
     def __repr__(self) -> str:
         """String representation of the session."""
-        return f'<UserSession id={self.id} user_id={self.user_id} session_id={self.session_id}>'
+        status = "active" if self.is_active else "inactive"
+        if self.revoked:
+            status = "revoked"
+        elif self.is_suspicious:
+            status = "suspicious"
+
+        return f'<UserSession id={self.id} user_id={self.user_id} status={status}>'
