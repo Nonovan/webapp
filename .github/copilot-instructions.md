@@ -205,14 +205,15 @@ def sensitive_operation():
 
 Every directory should include a [README.md](http://readme.md/) with these sections:
 
-1. **Title & Overview** - Component name and purpose
-2. **Key Components** - Main files with descriptions of usage and features
-3. **Directory Structure** - List of files and subdirectories with descriptions
-4. **Configuration** - Format and examples when applicable
-5. **Best Practices & Security** - Implementation guidelines
-6. **Common Features** - Shared functionality
-7. **Usage Examples** - Command examples with syntax
-8. **Related Documentation** - Links to additional resources
+1. **Title & Contents** - Component name and Table of Contents (with links to sections)
+2. **Overview** - Component purpose
+3. **Key Components** - Main files with descriptions of usage and features
+4. **Directory Structure** - List of files and subdirectories with descriptions
+5. **Configuration** - Format and examples when applicable
+6. **Best Practices & Security** - Implementation guidelines
+7. **Common Features** - Shared functionality
+8. **Usage Examples** - Command examples with syntax
+9. **Related Documentation** - Links to additional resources
 
 #### Directory Structure Example
 

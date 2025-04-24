@@ -2,9 +2,20 @@
 
 This directory contains configuration files for the Cloud Infrastructure Platform. It implements a hierarchical, environment-aware configuration system that separates settings by component and environment.
 
+## Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Directory Structure](#directory-structure)
+- [Configuration Files](#configuration-files)
+- [Usage](#usage)
+- [Best Practices & Security](#best-practices--security)
+- [Contributing](#contributing)
+- [Related Documentation](#related-documentation)
+
 ## Overview
 
-The configuration system follows these principles:
+The configuration system provides a unified approach to managing application settings across multiple environments with the following key features:
 
 - **Environment Separation**: Different environments (development, staging, production) have separate configurations
 - **Layered Configuration**: Core settings are inherited and overridden by environment-specific settings
@@ -12,14 +23,26 @@ The configuration system follows these principles:
 - **Schema Validation**: Configuration files are validated against schemas for consistency
 - **Security by Design**: Sensitive information is managed separately from code
 
-## Key Components
+## Architecture
+
+The configuration system consists of two main components:
+
+### 1. Python Configuration Classes
+
+A hierarchy of Python classes that define environment-specific settings:
 
 - **`base.py`**: Base configuration class with default settings for all environments
 - **`development.py`, `staging.py`, `production.py`**: Environment-specific configurations
 - **`local.py`**: Local development overrides (not version controlled)
 - **`environments.py`**: Environment detection and handling logic
-- **`components/`**: Component-specific configuration files
-- **`schemas/`**: JSON schemas for configuration validation
+
+### 2. Component-specific Configuration Files
+
+Specialized configuration files for different system components:
+
+- **INI files**: For most system components
+- **JSON files**: For structured data like API endpoints
+- **YAML files**: For complex configuration scenarios (optional)
 
 ## Directory Structure
 
@@ -86,19 +109,21 @@ config/
 
 ### Component Configuration (INI Files)
 
-- **`app.ini`**: Core application settings (workers, timeouts, features)
-- **`api.ini`**: API configuration (rate limits, versioning, documentation)
-- **`security.ini`**: Security settings (password policies, session timeouts, MFA)
-- **`database.ini`**: Database connection settings for different environments
-- **`cache.ini`**: Caching configuration (Redis, Memcached settings)
-- **`email.ini`**: Email service configuration (SMTP, templates)
-- **`logging.ini`**: Logging levels, formats, and destinations
-- **`monitoring.ini`**: Monitoring settings (metrics, alerts, health checks)
-- **`backup.ini`**: Backup schedules, retention policies, storage locations
-- **`network.ini`**: Network settings, proxy configuration, and connectivity
-- **`storage.ini`**: File storage configuration (S3, Azure Blob, local)
-- **`compliance.ini`**: Compliance and regulatory settings
-- **`privacy.ini`**: Privacy settings (data retention, consent, GDPR)
+| File | Description |
+| --- | --- |
+| **`app.ini`** | Core application settings (workers, timeouts, features) |
+| **`api.ini`** | API configuration (rate limits, versioning, documentation) |
+| **`security.ini`** | Security settings (password policies, session timeouts, MFA) |
+| **`database.ini`** | Database connection settings for different environments |
+| **`cache.ini`** | Caching configuration (Redis, Memcached settings) |
+| **`email.ini`** | Email service configuration (SMTP, templates) |
+| **`logging.ini`** | Logging levels, formats, and destinations |
+| **`monitoring.ini`** | Monitoring settings (metrics, alerts, health checks) |
+| **`backup.ini`** | Backup schedules, retention policies, storage locations |
+| **`network.ini`** | Network settings, proxy configuration, and connectivity |
+| **`storage.ini`** | File storage configuration (S3, Azure Blob, local) |
+| **`compliance.ini`** | Compliance and regulatory settings |
+| **`privacy.ini`** | Privacy settings (data retention, consent, GDPR) |
 
 ### JSON Configuration
 
@@ -152,9 +177,11 @@ Configuration values can be overridden by environment variables:
 - Environment variables take precedence over configuration files
 - Variable names follow the pattern: `CLOUDPLATFORM_SECTION_KEY`
 - For component configs, use: `CLOUDPLATFORM_COMPONENT_SECTION_KEY`
-- Examples:
-  - `CLOUDPLATFORM_DATABASE_HOST` overrides the database host
-  - `CLOUDPLATFORM_SECURITY_AUTHENTICATION_MFA_ENABLED=false` disables MFA
+
+Examples:
+
+- `CLOUDPLATFORM_DATABASE_HOST` overrides the database host
+- `CLOUDPLATFORM_SECURITY_AUTHENTICATION_MFA_ENABLED=false` disables MFA
 
 ### Validation
 
@@ -174,15 +201,32 @@ is_valid = validate_config(production_config)
 
 ## Best Practices & Security
 
+### Security Considerations
+
 - **Sensitive Information**: Never store passwords, API keys, or tokens in configuration files
 - **Secure Storage**: Use environment variables or a secrets manager (Vault, AWS Secrets Manager)
-- **Validation**: All configuration files should be validated during CI/CD pipelines
+- **Principle of Least Privilege**: Configure minimum necessary permissions
 - **Environment Isolation**: Use the strictest security settings in production
+
+### Configuration Management
+
+- **Validation**: All configuration files should be validated during CI/CD pipelines
 - **Naming Consistency**: Maintain consistent naming conventions across environments
 - **Documentation**: Document all configuration options with comments
-- **Principle of Least Privilege**: Configure minimum necessary permissions
 - **Validation Before Deployment**: Use validation tools before applying configurations
 - **Audit Trail**: Track configuration changes in version control
+
+## Contributing
+
+When adding or modifying configuration:
+
+1. Follow the established file organization and naming conventions
+2. Create or update schema files to validate new configuration options
+3. Document all options with clear descriptions
+4. Include default values that are secure by default
+5. Add appropriate environment-specific overrides
+6. Test configuration in all target environments
+7. Update related documentation
 
 ## Related Documentation
 
@@ -191,3 +235,9 @@ is_valid = validate_config(production_config)
 - Security Configuration Guide
 - Monitoring Configuration
 - Component Configuration Guide
+
+## Version Information
+
+- **Version**: 0.0.0
+- **Last Updated**: 2023-11-15
+- **Maintainers**: Platform Engineering Team
