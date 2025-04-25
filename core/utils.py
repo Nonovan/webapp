@@ -782,7 +782,7 @@ def log_file_integrity_event(changes: List[Dict[str, Any]]) -> None:
         return
 
     from models.audit_log import AuditLog
-    from core.security_utils import log_security_event
+    from core.cs_audit import log_security_event
 
     # Group changes by severity
     critical = [c for c in changes if c.get('severity') == 'critical']
