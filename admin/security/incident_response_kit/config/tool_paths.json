@@ -1,0 +1,23 @@
+{
+  "system_tools": {
+    "tcpdump": "/usr/sbin/tcpdump",
+    "dd": "/bin/dd",
+    "netstat": "/bin/netstat",
+    "lsof": "/usr/bin/lsof"
+  },
+  "forensic_tools": {
+    "volatility": "/usr/local/bin/vol.py",
+    "bulk_extractor": "/usr/local/bin/bulk_extractor",
+    "sleuthkit": "/usr/local/bin/mmls"
+  },
+  "directories": {
+    "evidence": "/secure/evidence",
+    "temp": "/tmp/ir-toolkit",
+    "logs": "/var/log",
+    "config": "/etc/ir-toolkit"
+  },
+  "api_endpoints": {
+    "threat_intel": "https://api.threatintel.example.com/v1",
+    "ticket_system": "https://helpdesk.example.com/api/incidents"
+  }
+}

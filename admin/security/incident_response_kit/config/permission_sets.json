@@ -1,0 +1,27 @@
+{
+  "emergency_access": {
+    "security_analyst": {
+      "systems": ["web-servers", "database-servers"],
+      "permissions": ["read_logs", "capture_memory", "isolate_network"],
+      "approval_required": false,
+      "max_duration_hours": 8
+    },
+    "incident_manager": {
+      "systems": ["all"],
+      "permissions": ["all"],
+      "approval_required": true,
+      "approvers": ["security-director@example.com", "ciso@example.com"],
+      "max_duration_hours": 24
+    }
+  },
+  "break_glass": {
+    "enabled": true,
+    "accounts": {
+      "emergency_admin": {
+        "activation_command": "../coordination/create_emergency_access.py --role admin",
+        "deactivation_command": "../coordination/revoke_emergency_access.py --role admin",
+        "notification_list": ["security-alerts@example.com", "it-director@example.com"]
+      }
+    }
+  }
+}

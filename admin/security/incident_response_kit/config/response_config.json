@@ -1,0 +1,39 @@
+{
+  "logging": {
+    "level": "INFO",
+    "file": "/var/log/incident-response/ir-toolkit.log",
+    "syslog": true,
+    "audit_trail": true
+  },
+  "evidence_collection": {
+    "base_dir": "/secure/evidence",
+    "compress": true,
+    "encrypt": true,
+    "encryption_key_path": "/secure/keys/evidence.key",
+    "retention_days": 180
+  },
+  "notification": {
+    "enabled": true,
+    "methods": ["email", "sms", "slack"],
+    "critical_contacts": ["security-team@example.com", "incident-manager@example.com"],
+    "templates_dir": "../templates/notifications"
+  },
+  "forensic_analysis": {
+    "memory_capture": {
+      "timeout_seconds": 600,
+      "compression": "lz4"
+    },
+    "network_capture": {
+      "interface": "any",
+      "snaplen": 1600,
+      "duration_seconds": 300
+    }
+  },
+  "isolation": {
+    "default_policy": "restrict_outbound",
+    "network_segments": {
+      "quarantine_vlan": 999,
+      "forensic_vlan": 998
+    }
+  }
+}
