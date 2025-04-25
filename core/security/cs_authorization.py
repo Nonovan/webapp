@@ -8,15 +8,18 @@ they are authorized for.
 """
 
 from functools import wraps
-from typing import Callable, Dict, Any, Optional, Union, List
+from typing import Callable, Dict, Any, Optional, Union, List, Tuple
+import time
+import hashlib
+import re
 
 # Flask imports
 from flask import current_app, request, g, has_request_context, session, has_app_context
-from flask import redirect, url_for, flash, abort
+from flask import redirect, url_for, flash, abort, jsonify, make_response
 from flask_login import current_user
 
 # Internal imports
-from extensions import db, metrics
+from extensions import db, metrics, get_redis_client
 from .cs_audit import log_security_event
 from .cs_constants import SECURITY_CONFIG
 from .cs_session import is_mfa_verified, mark_requiring_mfa
@@ -57,12 +60,17 @@ def require_permission(permission: str, audit_access: bool = True):
                         details={
                             'permission': permission,
                             'endpoint': request.endpoint,
-                            'path': request.path
+                            'path': request.path,
+                            'method': request.method
                         }
                     )
 
-                flash('Please log in to access this page.', 'warning')
-                return redirect(url_for('auth.login', next=request.path))
+                # Handle API requests differently
+                if _is_api_request():
+                    return {"error": "Authentication required", "code": "AUTH_REQUIRED"}, 401
+                else:
+                    flash('Please log in to access this page.', 'warning')
+                    return redirect(url_for('auth.login', next=request.path))
 
             # Skip check if superuser or admin role, if such attributes exist
             if _is_superuser_or_admin():
@@ -77,6 +85,7 @@ def require_permission(permission: str, audit_access: bool = True):
                             'permission': permission,
                             'endpoint': request.endpoint,
                             'path': request.path,
+                            'method': request.method,
                             'role': getattr(current_user, 'role', 'superuser')
                         }
                     )
@@ -96,7 +105,8 @@ def require_permission(permission: str, audit_access: bool = True):
                         details={
                             'permission': permission,
                             'endpoint': request.endpoint,
-                            'path': request.path
+                            'path': request.path,
+                            'method': request.method
                         }
                     )
                 return f(*args, **kwargs)
@@ -110,102 +120,49 @@ def require_permission(permission: str, audit_access: bool = True):
                     details={
                         'permission': permission,
                         'endpoint': request.endpoint,
-                        'path': request.path
+                        'path': request.path,
+                        'method': request.method
                     }
                 )
 
                 # Track metric
                 metrics.increment('security.permission_denied')
 
-                # Return 403 Forbidden
-                return abort(403, description=f"You don't have the required permission: {permission}")
+                # Return appropriate response based on request type
+                if _is_api_request():
+                    return {
+                        "error": "Permission denied",
+                        "code": "PERMISSION_DENIED",
+                        "message": f"You don't have the required permission: {permission}"
+                    }, 403
+                else:
+                    # Return 403 Forbidden for browser requests
+                    return abort(403, description=f"You don't have the required permission: {permission}")
 
         return decorated_function
     return decorator
 
 
-def require_mfa(f=None, *, redirect_to: str = 'auth.verify_mfa', exempt_roles: List[str] = None):
+def require_mfa(redirect_to: str = 'auth.verify_mfa', exempt_roles: List[str] = None):
     """
     Decorator to ensure user has completed Multi-Factor Authentication.
 
-    This decorator checks that the current user has completed MFA verification
-    before allowing access to the decorated function. If MFA is not verified,
-    the user is redirected to the MFA verification page.
+    This decorator is kept for backwards compatibility and redirects to
+    the implementation in cs_authentication.py which is now the primary
+    decorator for MFA requirements.
 
     Args:
-        f: The function to decorate
         redirect_to: The endpoint to redirect to for MFA verification
         exempt_roles: List of roles that are exempt from MFA requirement
 
     Returns:
         Decorated function that checks MFA verification
-
-    Example:
-        @app.route('/sensitive-data')
-        @login_required
-        @require_mfa
-        def view_sensitive_data():
-            return render_template('sensitive_data.html')
-
-        # With parameters
-        @app.route('/api/sensitive')
-        @login_required
-        @require_mfa(redirect_to='auth.api_mfa', exempt_roles=['system', 'api'])
-        def sensitive_api():
-            return jsonify(sensitive_data)
     """
-    # Handle both @require_mfa and @require_mfa() syntax
-    actual_decorator = _make_mfa_decorator(redirect_to, exempt_roles or [])
-    if f:
-        return actual_decorator(f)
-    return actual_decorator
+    # Import the implementation from cs_authentication to avoid duplicating code
+    from .cs_authentication import require_mfa as auth_require_mfa
 
-
-def _make_mfa_decorator(redirect_to: str, exempt_roles: List[str]):
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            if not current_user.is_authenticated:
-                return redirect(url_for('auth.login', next=request.path))
-
-            # Check if MFA is required for this user based on config and role
-            if not _should_require_mfa(exempt_roles):
-                return f(*args, **kwargs)
-
-            # Use the session utility to check if MFA is verified
-            if not is_mfa_verified():
-                # Mark session as requiring MFA
-                mark_requiring_mfa()
-
-                # Show a flash message if this isn't an API request
-                if not _is_api_request():
-                    flash('Please complete two-factor authentication to access this page.', 'warning')
-
-                # Log the MFA requirement
-                log_security_event(
-                    event_type=AuditLog.EVENT_MFA_REQUIRED,
-                    description='MFA verification required for sensitive action',
-                    severity='info',
-                    user_id=current_user.id if hasattr(current_user, 'id') else None,
-                    details={
-                        'endpoint': request.endpoint,
-                        'path': request.path
-                    }
-                )
-
-                # Track metric
-                metrics.increment('security.mfa_required')
-
-                # Determine response based on request type (API vs web)
-                if _is_api_request():
-                    return {"error": "MFA verification required", "code": "MFA_REQUIRED"}, 403
-                else:
-                    # Redirect to MFA verification with return URL
-                    return redirect(url_for(redirect_to, next=request.path))
-
-            return f(*args, **kwargs)
-        return decorated_function
-    return decorator
+    # Map parameter names to match the new implementation
+    return auth_require_mfa(redirect_endpoint=redirect_to, exempt_roles=exempt_roles)
 
 
 def can_access_ui_element(element_id: str, required_permission: str = None,
@@ -249,6 +206,9 @@ def can_access_ui_element(element_id: str, required_permission: str = None,
                 # Check the actual permission
                 elif not hasattr(current_user, 'has_permission') or not current_user.has_permission(required_permission):
                     has_access = False
+                # Allow superusers/admins to see all UI elements
+                elif _is_superuser_or_admin():
+                    has_access = True
 
             # Check MFA if required
             if has_access and mfa_required and has_request_context():
@@ -267,7 +227,7 @@ def can_access_ui_element(element_id: str, required_permission: str = None,
     return decorator
 
 
-def api_key_required(f):
+def api_key_required(f=None, *, scopes: List[str] = None, validate_ip: bool = True):
     """
     Decorator to ensure request has a valid API key.
 
@@ -276,6 +236,8 @@ def api_key_required(f):
 
     Args:
         f: The function to decorate
+        scopes: List of required API key scopes
+        validate_ip: Whether to validate the caller's IP against the API key's allowed IPs
 
     Returns:
         Decorated function that checks for API key
@@ -285,47 +247,115 @@ def api_key_required(f):
         @api_key_required
         def get_api_data():
             return jsonify(data)
+
+        @app.route('/api/users')
+        @api_key_required(scopes=['users:read'], validate_ip=True)
+        def get_users_api():
+            return jsonify(users)
     """
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        # Skip check in development mode if configured
-        if has_app_context() and current_app.config.get('BYPASS_API_AUTH_IN_DEV', False):
-            if current_app.debug or current_app.config.get('TESTING', False):
-                return f(*args, **kwargs)
+    def decorator(func):
+        @wraps(func)
+        def decorated_function(*args, **kwargs):
+            # Skip check in development mode if configured
+            if has_app_context() and current_app.config.get('BYPASS_API_AUTH_IN_DEV', False):
+                if current_app.debug or current_app.config.get('TESTING', False):
+                    return func(*args, **kwargs)
 
-        # Get API key from header or query parameter
-        api_key = request.headers.get('X-API-Key') or request.args.get('api_key')
+            # Get API key from header or query parameter (prefer header)
+            api_key = request.headers.get('X-API-Key') or request.args.get('api_key')
 
-        if not api_key:
-            log_security_event(
-                event_type=AuditLog.EVENT_API_AUTH_FAILED,
-                description="API request missing API key",
-                severity='warning',
-                ip_address=request.remote_addr,
-                details={'endpoint': request.endpoint, 'path': request.path}
-            )
-            metrics.increment('security.api_auth_failed')
-            return {"error": "API key required"}, 401
+            if not api_key:
+                log_security_event(
+                    event_type=AuditLog.EVENT_API_AUTH_FAILED,
+                    description="API request missing API key",
+                    severity='warning',
+                    ip_address=request.remote_addr,
+                    details={
+                        'endpoint': request.endpoint,
+                        'path': request.path,
+                        'method': request.method
+                    }
+                )
+                metrics.increment('security.api_auth_failed')
+                return {"error": "API key required", "code": "API_KEY_REQUIRED"}, 401
 
-        # Validate API key
-        if not _validate_api_key(api_key):
-            log_security_event(
-                event_type=AuditLog.EVENT_API_AUTH_FAILED,
-                description="Invalid API key",
-                severity='warning',
-                ip_address=request.remote_addr,
-                details={'endpoint': request.endpoint, 'path': request.path}
-            )
-            metrics.increment('security.api_auth_failed')
-            return {"error": "Invalid API key"}, 401
+            # Validate API key and get key details
+            validation_result, key_data = _validate_api_key(api_key)
 
-        # API key is valid, proceed
-        return f(*args, **kwargs)
+            if not validation_result:
+                log_security_event(
+                    event_type=AuditLog.EVENT_API_AUTH_FAILED,
+                    description="Invalid API key",
+                    severity='warning',
+                    ip_address=request.remote_addr,
+                    details={
+                        'endpoint': request.endpoint,
+                        'path': request.path,
+                        'method': request.method,
+                        'key_prefix': api_key[:8] if api_key else None
+                    }
+                )
+                metrics.increment('security.api_auth_failed')
+                return {"error": "Invalid API key", "code": "INVALID_API_KEY"}, 401
 
-    return decorated_function
+            # Validate IP restrictions if enabled
+            if validate_ip and key_data and 'allowed_ips' in key_data:
+                client_ip = request.remote_addr
+                if not _is_ip_allowed(client_ip, key_data['allowed_ips']):
+                    log_security_event(
+                        event_type=AuditLog.EVENT_API_AUTH_FAILED,
+                        description="API key IP restriction violation",
+                        severity='warning',
+                        ip_address=client_ip,
+                        details={
+                            'endpoint': request.endpoint,
+                            'path': request.path,
+                            'key_prefix': api_key[:8] if api_key else None,
+                            'user_id': key_data.get('user_id')
+                        }
+                    )
+                    metrics.increment('security.ip_restriction_violation')
+                    return {"error": "IP address not allowed for this API key", "code": "IP_RESTRICTED"}, 403
+
+            # Validate scopes if required
+            if scopes and key_data and 'scopes' in key_data:
+                key_scopes = key_data['scopes']
+                if not all(scope in key_scopes for scope in scopes):
+                    log_security_event(
+                        event_type=AuditLog.EVENT_API_AUTH_FAILED,
+                        description="API key missing required scope",
+                        severity='warning',
+                        ip_address=request.remote_addr,
+                        details={
+                            'endpoint': request.endpoint,
+                            'path': request.path,
+                            'required_scopes': scopes,
+                            'key_scopes': key_scopes,
+                            'user_id': key_data.get('user_id')
+                        }
+                    )
+                    metrics.increment('security.api_scope_denied')
+                    return {"error": "API key is missing required scope", "code": "INSUFFICIENT_SCOPE"}, 403
+
+            # Store key data in request context for later use if needed
+            if has_request_context():
+                g.api_key_data = key_data
+                g.authenticated_via = 'api_key'
+                if 'user_id' in key_data:
+                    g.user_id = key_data['user_id']
+
+            # API key is valid, proceed
+            return func(*args, **kwargs)
+
+        return decorated_function
+
+    # Allow decorator to be used with or without arguments
+    if f:
+        return decorator(f)
+    return decorator
 
 
-def rate_limit(limit: int = None, period: int = 60, key_function=None):
+def rate_limit(limit: int = None, period: int = 60, key_function=None, error_message: str = None):
     """
     Decorator to apply rate limiting to a route.
 
@@ -336,6 +366,7 @@ def rate_limit(limit: int = None, period: int = 60, key_function=None):
         limit: Maximum requests allowed in the period (defaults to config value)
         period: Time period in seconds (defaults to 60s)
         key_function: Function to generate the rate limit key (defaults to IP address)
+        error_message: Custom error message to return when limit is exceeded
 
     Returns:
         Decorated function with rate limiting
@@ -345,6 +376,12 @@ def rate_limit(limit: int = None, period: int = 60, key_function=None):
         @rate_limit(limit=10, period=60)
         def search_api():
             # Code that might be resource intensive
+
+        # With custom key function
+        @app.route('/api/user/<user_id>')
+        @rate_limit(limit=5, key_function=lambda: f"user:{g.user_id}")
+        def user_api(user_id):
+            # User-specific rate limiting
     """
     def decorator(f):
         @wraps(f)
@@ -352,10 +389,12 @@ def rate_limit(limit: int = None, period: int = 60, key_function=None):
             if not has_request_context():
                 return f(*args, **kwargs)
 
-            # Use redis for rate limiting if available
-            redis = getattr(current_app, 'redis_client', None)
+            # Get Redis client for rate limiting
+            redis = get_redis_client()
             if not redis:
                 # No redis, so we can't rate limit
+                if has_app_context() and not current_app.testing:
+                    log_warning("Rate limiting disabled - Redis not available")
                 return f(*args, **kwargs)
 
             # Determine limit value
@@ -366,34 +405,190 @@ def rate_limit(limit: int = None, period: int = 60, key_function=None):
             if key_function:
                 rate_key = key_function()
             else:
+                # Default: rate limit by IP and endpoint
                 rate_key = f"ratelimit:{request.remote_addr}:{request.endpoint}"
 
-            # Check current request count
-            current = redis.get(rate_key)
-            if current is not None:
-                current = int(current)
-                if current >= actual_limit:
-                    # Too many requests
-                    log_security_event(
-                        event_type=AuditLog.EVENT_RATE_LIMIT_EXCEEDED,
-                        description=f"Rate limit exceeded: {rate_key}",
-                        severity='warning',
-                        ip_address=request.remote_addr,
-                        details={'endpoint': request.endpoint, 'limit': actual_limit, 'period': actual_period}
-                    )
-                    metrics.increment('security.rate_limit_exceeded')
+            # Check current request count using sliding window
+            current_time = int(time.time())
+            window_key = f"{rate_key}:{current_time // actual_period}"
 
-                    # Return 429 Too Many Requests
-                    response = {"error": "Too many requests", "retry_after": actual_period}, 429
-                    return response
+            try:
+                current = redis.get(window_key)
+                if current is not None:
+                    current = int(current)
+                    if current >= actual_limit:
+                        # Too many requests
+                        log_security_event(
+                            event_type=AuditLog.EVENT_RATE_LIMIT_EXCEEDED,
+                            description=f"Rate limit exceeded: {rate_key}",
+                            severity='warning',
+                            ip_address=request.remote_addr,
+                            details={
+                                'endpoint': request.endpoint,
+                                'path': request.path,
+                                'limit': actual_limit,
+                                'period': actual_period
+                            }
+                        )
+                        metrics.increment('security.rate_limit_exceeded')
 
-            # Increment request count
-            pipe = redis.pipeline()
-            pipe.incr(rate_key)
-            pipe.expire(rate_key, actual_period)
-            pipe.execute()
+                        # Create response with appropriate headers
+                        message = error_message or "Too many requests"
+                        response = make_response(jsonify({
+                            "error": message,
+                            "code": "RATE_LIMIT_EXCEEDED",
+                            "retry_after": actual_period
+                        }), 429)
 
-            return f(*args, **kwargs)
+                        # Add standard rate limit headers
+                        response.headers['Retry-After'] = str(actual_period)
+                        response.headers['X-RateLimit-Limit'] = str(actual_limit)
+                        response.headers['X-RateLimit-Remaining'] = '0'
+                        response.headers['X-RateLimit-Reset'] = str(current_time + actual_period)
+
+                        return response
+
+                # Increment request count with pipeline for atomicity
+                pipe = redis.pipeline()
+                pipe.incr(window_key)
+                pipe.expire(window_key, actual_period)
+                result = pipe.execute()
+
+                # Add rate limit headers to response
+                current_count = result[0] if result else 1
+                remaining = max(0, actual_limit - current_count)
+
+                # Process the request
+                response = f(*args, **kwargs)
+
+                # Add headers to the response
+                if isinstance(response, tuple) and len(response) >= 2:
+                    response_obj, status_code = response[0], response[1]
+                    if hasattr(response_obj, 'headers'):
+                        response_obj.headers['X-RateLimit-Limit'] = str(actual_limit)
+                        response_obj.headers['X-RateLimit-Remaining'] = str(remaining)
+                        response_obj.headers['X-RateLimit-Reset'] = str(current_time + actual_period)
+
+                return response
+
+            except Exception as e:
+                log_error(f"Rate limiting error: {e}")
+                # Continue if rate limiting fails
+                return f(*args, **kwargs)
+
+        return decorated_function
+    return decorator
+
+
+def role_required(role_names: Union[str, List[str]]):
+    """
+    Decorator to ensure user has at least one of the specified roles.
+
+    This decorator checks that the current user has one of the required roles
+    before allowing access to the decorated function.
+
+    Args:
+        role_names: Role name or list of role names, one of which is required
+
+    Returns:
+        Decorator function that checks role
+
+    Example:
+        @app.route('/admin/dashboard')
+        @role_required('admin')
+        def admin_dashboard():
+            return render_template('admin/dashboard.html')
+
+        @app.route('/reports')
+        @role_required(['analyst', 'manager', 'admin'])
+        def reports():
+            return render_template('reports.html')
+    """
+    if isinstance(role_names, str):
+        role_names = [role_names]
+
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if not current_user.is_authenticated:
+                # Log failed authentication attempt
+                log_security_event(
+                    event_type=AuditLog.EVENT_AUTH_REQUIRED,
+                    description=f"Authentication required for: {request.path}",
+                    severity='info',
+                    details={
+                        'roles_required': role_names,
+                        'endpoint': request.endpoint,
+                        'path': request.path
+                    }
+                )
+
+                # Handle API requests differently
+                if _is_api_request():
+                    return {"error": "Authentication required", "code": "AUTH_REQUIRED"}, 401
+                else:
+                    flash('Please log in to access this page.', 'warning')
+                    return redirect(url_for('auth.login', next=request.path))
+
+            # Check if user has any of the required roles
+            has_role = False
+
+            # Check single role attribute
+            if hasattr(current_user, 'role'):
+                has_role = current_user.role in role_names
+
+            # Check roles list attribute if exists
+            elif hasattr(current_user, 'roles'):
+                user_roles = current_user.roles
+                has_role = any(role in role_names for role in user_roles)
+
+            # Also check if superuser/admin
+            if _is_superuser_or_admin():
+                has_role = True
+
+            if has_role:
+                # Log successful access
+                log_security_event(
+                    event_type=AuditLog.EVENT_ROLE_ACCESS,
+                    description=f"Role-based access granted: {request.path}",
+                    severity='info',
+                    user_id=current_user.id if hasattr(current_user, 'id') else None,
+                    details={
+                        'roles_required': role_names,
+                        'user_role': getattr(current_user, 'role', None),
+                        'user_roles': getattr(current_user, 'roles', []),
+                        'endpoint': request.endpoint,
+                        'path': request.path
+                    }
+                )
+                return f(*args, **kwargs)
+            else:
+                # Log role access denial
+                log_security_event(
+                    event_type=AuditLog.EVENT_ROLE_DENIED,
+                    description=f"Role-based access denied: {request.path}",
+                    severity='warning',
+                    user_id=current_user.id if hasattr(current_user, 'id') else None,
+                    details={
+                        'roles_required': role_names,
+                        'user_role': getattr(current_user, 'role', None),
+                        'user_roles': getattr(current_user, 'roles', []),
+                        'endpoint': request.endpoint,
+                        'path': request.path
+                    }
+                )
+
+                metrics.increment('security.role_access_denied')
+
+                # Return appropriate response based on request type
+                if _is_api_request():
+                    return {
+                        "error": "Insufficient role privileges",
+                        "code": "ROLE_REQUIRED",
+                        "required_roles": role_names
+                    }, 403
+                else:
+                    return abort(403, description=f"Required role(s): {', '.join(role_names)}")
 
         return decorated_function
     return decorator
@@ -402,7 +597,12 @@ def rate_limit(limit: int = None, period: int = 60, key_function=None):
 # Helper functions
 
 def _is_superuser_or_admin() -> bool:
-    """Check if current user is a superuser or has admin role."""
+    """
+    Check if current user is a superuser or has admin role.
+
+    Returns:
+        bool: True if user is superuser or admin
+    """
     # Check if user has superuser attribute
     if hasattr(current_user, 'is_superuser') and current_user.is_superuser:
         return True
@@ -412,7 +612,7 @@ def _is_superuser_or_admin() -> bool:
         return True
 
     # Check if user has roles list with admin
-    if hasattr(current_user, 'roles') and 'admin' in current_user.roles:
+    if hasattr(current_user, 'roles') and isinstance(current_user.roles, (list, tuple, set)) and 'admin' in current_user.roles:
         return True
 
     return False
@@ -428,55 +628,83 @@ def _should_require_mfa(exempt_roles: List[str] = None) -> bool:
     Returns:
         bool: True if MFA should be required, False otherwise
     """
+    # Feature flag check
     if not has_app_context():
-        # Default to requiring MFA
+        # Default to requiring MFA when context is uncertain
         return True
 
-    # Check if MFA is globally disabled
-    mfa_enabled = current_app.config.get('MFA_ENABLED', SECURITY_CONFIG.get('REQUIRE_MFA_FOR_SENSITIVE', True))
+    # Check if MFA is globally disabled in app config
+    mfa_enabled = current_app.config.get('MFA_ENABLED',
+                 SECURITY_CONFIG.get('REQUIRE_MFA_FOR_SENSITIVE', True))
     if not mfa_enabled:
         return False
 
-    # Check if user is exempt from MFA
+    # If not authenticated, no MFA needed (login will handle this)
+    if not current_user or not current_user.is_authenticated:
+        return False
+
+    # Check if user is exempt from MFA by attribute
     if hasattr(current_user, 'mfa_exempt') and current_user.mfa_exempt:
         return False
 
-    # Check if user's role is in exempt list
-    if exempt_roles and hasattr(current_user, 'role'):
-        user_role = current_user.role
-        if user_role in exempt_roles:
-            return False
+    # Handle exempt roles list
+    if exempt_roles:
+        # Check if user's role is in the exempt list
+        if hasattr(current_user, 'role'):
+            user_role = current_user.role
+            if user_role in exempt_roles:
+                return False
 
-    # Check if user has multiple roles and any are exempt
-    if exempt_roles and hasattr(current_user, 'roles'):
-        user_roles = current_user.roles
-        if any(role in exempt_roles for role in user_roles):
-            return False
+        # Check if any of user's roles are in exempt list
+        if hasattr(current_user, 'roles') and isinstance(current_user.roles, (list, tuple, set)):
+            if any(role in exempt_roles for role in current_user.roles):
+                return False
 
+    # Default to requiring MFA for sensitive operations
     return True
 
 
 def _is_api_request() -> bool:
-    """Determine if the current request is an API request."""
+    """
+    Determine if the current request is an API request.
+
+    Returns:
+        bool: True if the current request appears to be an API request
+    """
     if not has_request_context():
         return False
 
-    # Check if the request is to an API endpoint
+    # Check common API indicators
+
+    # 1. Path-based detection
     if request.path.startswith('/api/'):
         return True
 
-    # Check if the request wants JSON
-    if request.headers.get('Accept') == 'application/json':
+    # 2. Accept header indicates preference for JSON
+    accept_header = request.headers.get('Accept', '')
+    if 'application/json' in accept_header and not 'text/html' in accept_header:
         return True
 
-    # Check if the config marks this as an API request
-    if has_app_context():
-        return current_app.config.get('API_REQUEST', False)
+    # 3. Content-Type header is JSON for POST/PUT/PATCH
+    if request.method in ('POST', 'PUT', 'PATCH') and request.headers.get('Content-Type', '').startswith('application/json'):
+        return True
+
+    # 4. XHR request header
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return True
+
+    # 5. Explicit API flag in request or app config
+    if request.args.get('format') == 'json' or request.args.get('output') == 'json':
+        return True
+
+    # 6. App config explicitly marks this as API request
+    if has_app_context() and current_app.config.get('API_REQUEST', False):
+        return True
 
     return False
 
 
-def _validate_api_key(api_key: str) -> bool:
+def _validate_api_key(api_key: str) -> Tuple[bool, Optional[Dict[str, Any]]]:
     """
     Validate an API key against the database or configuration.
 
@@ -484,16 +712,47 @@ def _validate_api_key(api_key: str) -> bool:
         api_key: The API key to validate
 
     Returns:
-        bool: True if valid, False otherwise
+        Tuple of (is_valid, key_data) where key_data contains information about the key
     """
-    if not has_app_context():
-        return False
+    if not api_key or not has_app_context():
+        return False, None
 
     # Check against hard-coded keys in config (development only)
     if current_app.debug:
         dev_keys = current_app.config.get('DEV_API_KEYS', [])
         if api_key in dev_keys:
-            return True
+            return True, {'scopes': ['*'], 'name': 'Development Key'}
+
+    # Check Redis cache first for performance
+    redis = get_redis_client()
+    if redis:
+        try:
+            # Create a hash of the key for cache lookup (avoid storing raw keys in cache)
+            key_hash = hashlib.sha256(api_key.encode()).hexdigest()
+            cache_key = f"api_key:{key_hash}"
+
+            # Check if key is in cache
+            cached_data = redis.get(cache_key)
+            if cached_data:
+                try:
+                    import json
+                    key_data = json.loads(cached_data)
+
+                    # Return immediately if key is invalid (negative caching)
+                    if key_data.get('valid', True) is False:
+                        metrics.increment('security.api_key_invalid_cached')
+                        return False, None
+
+                    # Return key data if it's cached and valid
+                    metrics.increment('security.api_key_valid_cached')
+                    return True, key_data
+
+                except (ValueError, TypeError):
+                    # Cache data corrupted, continue to database check
+                    pass
+        except Exception as e:
+            log_error(f"Error checking API key cache: {e}")
+            # Continue to database check on error
 
     # Check against database model if available
     try:
@@ -501,19 +760,113 @@ def _validate_api_key(api_key: str) -> bool:
         from models.auth.api_key import APIKey
         key_obj = APIKey.query.filter_by(key=api_key, is_active=True).first()
 
-        if key_obj:
-            # Check if key has expired
-            if key_obj.is_expired():
-                log_warning(f"API key has expired: {api_key[:8]}...")
-                return False
+        if not key_obj:
+            # Cache negative result to avoid repeated DB lookups for invalid keys
+            if redis:
+                try:
+                    import json
+                    redis.setex(
+                        f"api_key:{hashlib.sha256(api_key.encode()).hexdigest()}",
+                        300,  # Cache invalid keys for 5 minutes
+                        json.dumps({'valid': False})
+                    )
+                except Exception:
+                    pass
+            return False, None
 
-            # Update last used time
-            key_obj.record_usage()
-            return True
+        # Check if key has expired
+        if key_obj.is_expired():
+            log_warning(f"API key has expired: {api_key[:8]}...")
+            return False, None
+
+        # Update last used time and usage count
+        key_obj.record_usage(request.remote_addr)
+
+        # Create key data dictionary with information about the key
+        key_data = {
+            'id': key_obj.id,
+            'name': key_obj.name,
+            'scopes': key_obj.scopes,
+            'user_id': key_obj.user_id,
+            'allowed_ips': key_obj.allowed_ips,
+            'expires_at': key_obj.expires_at.isoformat() if key_obj.expires_at else None,
+            'created_at': key_obj.created_at.isoformat() if key_obj.created_at else None
+        }
+
+        # Cache the valid key for future requests
+        if redis:
+            try:
+                import json
+                # Cache for a reasonable period (10 minutes)
+                redis.setex(
+                    f"api_key:{hashlib.sha256(api_key.encode()).hexdigest()}",
+                    600,  # 10 minutes
+                    json.dumps(key_data)
+                )
+            except Exception as e:
+                log_warning(f"Failed to cache API key: {e}")
+
+        return True, key_data
+
     except ImportError:
         log_warning("APIKey model not available")
     except Exception as e:
         log_error(f"Error validating API key: {e}")
+
+    # Default to invalid key
+    return False, None
+
+
+def _is_ip_allowed(ip_address: str, allowed_ips: List[str]) -> bool:
+    """
+    Check if an IP address is in the allowed list.
+
+    Supports CIDR notation for IP ranges.
+
+    Args:
+        ip_address: The IP address to check
+        allowed_ips: List of allowed IPs or CIDR ranges
+
+    Returns:
+        bool: True if IP is allowed
+    """
+    if not ip_address or not allowed_ips:
+        return False
+
+    # If allowed_ips contains '*', all IPs are allowed
+    if '*' in allowed_ips:
+        return True
+
+    # Try to match exact IP
+    if ip_address in allowed_ips:
+        return True
+
+    try:
+        # Check for CIDR ranges
+        import ipaddress
+
+        # Convert string IP to IPv4/IPv6 object
+        try:
+            check_ip = ipaddress.ip_address(ip_address)
+        except ValueError:
+            # If IP address is invalid, deny access
+            return False
+
+        # Check each CIDR range
+        for allowed in allowed_ips:
+            if '/' in allowed:
+                try:
+                    network = ipaddress.ip_network(allowed, strict=False)
+                    if check_ip in network:
+                        return True
+                except ValueError:
+                    # Skip invalid CIDR notations
+                    continue
+    except ImportError:
+        # Fall back to simple prefix matching if ipaddress module not available
+        for allowed in allowed_ips:
+            if allowed.endswith('*') and ip_address.startswith(allowed[:-1]):
+                return True
 
     return False
 

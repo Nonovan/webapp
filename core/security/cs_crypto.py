@@ -10,15 +10,18 @@ Key functionality includes:
 - URL and filename sanitization
 - Hashing utilities for various security needs
 - Digital signature verification
+- Secure token generation and validation
 """
 
 import base64
 import hashlib
+import hmac
 import logging
 import os
 import re
 import secrets
-from typing import Optional, Union, Dict, Any, Tuple, List
+from datetime import datetime
+from typing import Optional, Union, Dict, Any, Tuple, List, Callable
 from urllib.parse import urlparse
 
 # Flask imports
@@ -33,7 +36,7 @@ from cryptography.hazmat.backends import default_backend
 
 # Internal imports
 from core.utils import log_error, log_warning, log_info, log_debug
-from extensions import metrics
+from extensions import metrics, get_redis_client
 from .cs_constants import SECURITY_CONFIG
 from .cs_audit import log_security_event
 
@@ -87,7 +90,7 @@ def _derive_key(base_key: bytes, salt: Optional[bytes] = None,
     # Generate salt if not provided
     if salt is None:
         salt = SECURITY_CONFIG.get('ENCRYPTION_SALT', None)
-        if salt is None or isinstance(salt, str):
+        if salt is None:
             salt = os.urandom(16)
         elif isinstance(salt, str):
             salt = salt.encode('utf-8')
@@ -617,13 +620,14 @@ def sanitize_filename(filename: str) -> str:
     return sanitized
 
 
-def generate_token(length: int = 32, url_safe: bool = True) -> str:
+def generate_token(length: int = 32, url_safe: bool = True, prefix: str = None) -> str:
     """
     Generate a cryptographically secure random token.
 
     Args:
         length: The desired length in bytes
         url_safe: Whether to generate a URL-safe token
+        prefix: Optional prefix to add to the token
 
     Returns:
         str: The generated token
@@ -635,9 +639,14 @@ def generate_token(length: int = 32, url_safe: bool = True) -> str:
     token_bytes = secrets.token_bytes(length)
 
     if url_safe:
-        return base64.urlsafe_b64encode(token_bytes).decode('utf-8').rstrip('=')
+        token = base64.urlsafe_b64encode(token_bytes).decode('utf-8').rstrip('=')
     else:
-        return base64.b64encode(token_bytes).decode('utf-8')
+        token = base64.b64encode(token_bytes).decode('utf-8')
+
+    if prefix:
+        token = f"{prefix}_{token}"
+
+    return token
 
 
 def constant_time_compare(val1: Union[str, bytes], val2: Union[str, bytes]) -> bool:
@@ -669,7 +678,7 @@ def constant_time_compare(val1: Union[str, bytes], val2: Union[str, bytes]) -> b
 
 
 def verify_signature(data: Union[str, bytes], signature: Union[str, bytes],
-                    key: Optional[bytes] = None) -> bool:
+                    key: Optional[bytes] = None, algorithm: str = 'sha256') -> bool:
     """
     Verify the HMAC signature of data.
 
@@ -677,6 +686,7 @@ def verify_signature(data: Union[str, bytes], signature: Union[str, bytes],
         data: The data to verify
         signature: The signature to check against
         key: The key used for signing (uses derived key if None)
+        algorithm: Hash algorithm to use (default: sha256)
 
     Returns:
         bool: True if signature is valid, False otherwise
@@ -700,16 +710,349 @@ def verify_signature(data: Union[str, bytes], signature: Union[str, bytes],
         if key is None:
             key = _get_encryption_key()
 
+        # Select algorithm
+        if algorithm == 'sha256':
+            hash_module = hashlib.sha256
+        elif algorithm == 'sha384':
+            hash_module = hashlib.sha384
+        elif algorithm == 'sha512':
+            hash_module = hashlib.sha512
+        else:
+            raise ValueError(f"Unsupported hash algorithm: {algorithm}")
+
         # Calculate HMAC
-        computed_sig = hmac.new(key, data, hashlib.sha256).digest()
+        computed_sig = hmac.new(key, data, hash_module).digest()
 
         # Compare signatures in constant time
-        return constant_time_compare(computed_sig, signature)
+        is_valid = constant_time_compare(computed_sig, signature)
+
+        # Track metric
+        if is_valid:
+            metrics.increment('security.signature_valid')
+        else:
+            metrics.increment('security.signature_invalid')
+
+        return is_valid
 
     except Exception as e:
         log_error(f"Signature verification error: {e}")
+        metrics.increment('security.signature_verification_error')
         return False
 
 
-# Import hmac here to avoid circular imports at module level
-import hmac
+def sign_data(data: Union[str, bytes], key: Optional[bytes] = None, algorithm: str = 'sha256') -> str:
+    """
+    Create an HMAC signature for data authentication.
+
+    Args:
+        data: The data to sign
+        key: Secret key for HMAC (uses derived key if None)
+        algorithm: Hash algorithm to use (default: sha256)
+
+    Returns:
+        str: Hexadecimal HMAC signature
+    """
+    if not data:
+        return ""
+
+    # Get key if not provided
+    if key is None:
+        key = _get_encryption_key()
+
+    # Convert string to bytes if needed
+    if isinstance(data, str):
+        data = data.encode('utf-8')
+
+    # Select algorithm
+    if algorithm == 'sha256':
+        hash_module = hashlib.sha256
+    elif algorithm == 'sha384':
+        hash_module = hashlib.sha384
+    elif algorithm == 'sha512':
+        hash_module = hashlib.sha512
+    else:
+        raise ValueError(f"Unsupported hash algorithm: {algorithm}")
+
+    # Generate HMAC signature
+    signature = hmac.new(key, data, hash_module).hexdigest()
+
+    # Track metric
+    metrics.increment('security.data_signing')
+
+    return signature
+
+
+def create_signed_token(data: dict, expiry_seconds: int = 3600,
+                        key: Optional[bytes] = None) -> str:
+    """
+    Create a signed token containing data with an expiration time.
+
+    Args:
+        data: Dictionary of data to include in the token
+        expiry_seconds: Seconds until token expires
+        key: Signing key (uses derived key if None)
+
+    Returns:
+        str: Base64-encoded signed token string
+    """
+    if not isinstance(data, dict):
+        raise ValueError("Data must be a dictionary")
+
+    # Add expiration timestamp if not already present
+    if 'exp' not in data:
+        import time
+        data['exp'] = int(time.time() + expiry_seconds)
+
+    # Add unique ID and creation timestamp
+    if 'jti' not in data:
+        data['jti'] = secrets.token_hex(8)
+    if 'iat' not in data:
+        data['iat'] = int(time.time())
+
+    # Convert to JSON
+    import json
+    json_data = json.dumps(data, sort_keys=True)
+
+    # Create signature
+    signature = sign_data(json_data, key=key)
+
+    # Combine data and signature
+    token_parts = [
+        base64.urlsafe_b64encode(json_data.encode('utf-8')).decode('utf-8'),
+        signature
+    ]
+
+    # Join with period separator
+    token = '.'.join(token_parts)
+
+    # Track metrics
+    metrics.increment('security.token_created')
+
+    return token
+
+
+def verify_signed_token(token: str, key: Optional[bytes] = None) -> dict:
+    """
+    Verify and decode a signed token.
+
+    Args:
+        token: The signed token string
+        key: Verification key (uses derived key if None)
+
+    Returns:
+        dict: The decoded token data
+
+    Raises:
+        ValueError: If token is invalid, expired, or tampered with
+    """
+    if not token or not isinstance(token, str):
+        raise ValueError("Invalid token format")
+
+    # Split token parts
+    parts = token.split('.')
+    if len(parts) != 2:
+        raise ValueError("Invalid token format")
+
+    encoded_data, signature = parts
+
+    try:
+        # Decode the data
+        json_data = base64.urlsafe_b64decode(encoded_data).decode('utf-8')
+
+        # Verify signature
+        if not verify_signature(json_data, signature, key=key):
+            metrics.increment('security.token_invalid_signature')
+            raise ValueError("Invalid token signature")
+
+        # Parse JSON
+        import json
+        data = json.loads(json_data)
+
+        # Check expiration
+        if 'exp' in data:
+            import time
+            if data['exp'] < time.time():
+                metrics.increment('security.token_expired')
+                raise ValueError("Token has expired")
+
+        # Track metrics
+        metrics.increment('security.token_verified')
+
+        return data
+
+    except (json.JSONDecodeError, ValueError, base64.binascii.Error) as e:
+        metrics.increment('security.token_invalid')
+        raise ValueError(f"Invalid token: {str(e)}")
+
+
+def encrypt_with_rotation(plaintext: str, purpose: str) -> str:
+    """
+    Encrypt data with key rotation support.
+
+    This function handles encryption with support for key rotation by
+    adding metadata about which key version was used for encryption.
+
+    Args:
+        plaintext: Data to encrypt
+        purpose: Purpose identifier for deriving specific keys
+
+    Returns:
+        str: Encrypted data with version information
+    """
+    if not plaintext:
+        return plaintext
+
+    redis_client = get_redis_client()
+    current_version = 1
+
+    try:
+        if redis_client:
+            # Try to get current key version from Redis
+            stored_version = redis_client.get(f"crypto:key_version:{purpose}")
+            if stored_version:
+                current_version = int(stored_version)
+    except Exception:
+        # Fall back to default version
+        pass
+
+    # Derive a purpose-specific key
+    master_key = _get_encryption_key()
+    purpose_bytes = purpose.encode('utf-8')
+    key_info = f"{purpose}:v{current_version}".encode('utf-8')
+    derived_key, salt = _derive_key(master_key, info=key_info)
+
+    # Encrypt the data
+    encrypted = encrypt_aes_gcm(plaintext, key=derived_key)
+
+    # Format with version info
+    versioned_data = f"v{current_version}:{base64.urlsafe_b64encode(salt).decode()}:{encrypted}"
+
+    # Track metrics
+    metrics.increment(f'security.encryption.{purpose}')
+
+    return versioned_data
+
+
+def decrypt_with_rotation(encrypted_data: str, purpose: str) -> str:
+    """
+    Decrypt data that was encrypted with key rotation support.
+
+    This function handles decryption for data encrypted using the
+    encrypt_with_rotation function, supporting multiple key versions.
+
+    Args:
+        encrypted_data: Encrypted data with version information
+        purpose: Purpose identifier matching the one used for encryption
+
+    Returns:
+        str: Decrypted plaintext
+
+    Raises:
+        ValueError: If the data format is invalid
+        RuntimeError: If decryption fails
+    """
+    if not encrypted_data:
+        return encrypted_data
+
+    # Parse versioned format
+    try:
+        parts = encrypted_data.split(':', 2)
+        if len(parts) != 3 or not parts[0].startswith('v'):
+            raise ValueError("Invalid encrypted data format")
+
+        version = int(parts[0][1:])
+        salt = base64.urlsafe_b64decode(parts[1])
+        data = parts[2]
+
+        # Derive the version-specific key
+        master_key = _get_encryption_key()
+        key_info = f"{purpose}:v{version}".encode('utf-8')
+        derived_key, _ = _derive_key(master_key, salt=salt, info=key_info)
+
+        # Decrypt the data
+        plaintext = decrypt_aes_gcm(data, key=derived_key)
+
+        # Track metrics
+        metrics.increment(f'security.decryption.{purpose}')
+
+        return plaintext
+
+    except ValueError as e:
+        metrics.increment('security.invalid_encrypted_format')
+        raise ValueError(f"Invalid encrypted data format: {str(e)}")
+
+    except Exception as e:
+        metrics.increment(f'security.decryption_error.{purpose}')
+        raise RuntimeError(f"Decryption failed: {str(e)}")
+
+
+def rotate_encryption_key(purpose: str) -> bool:
+    """
+    Rotate the encryption key for a specific purpose.
+
+    This function increments the key version in Redis for the given purpose.
+    After rotation, new encryptions will use the new key version.
+
+    Args:
+        purpose: Purpose identifier for which to rotate keys
+
+    Returns:
+        bool: True if rotation succeeded, False otherwise
+    """
+    redis_client = get_redis_client()
+    if not redis_client:
+        log_error("Cannot rotate encryption key: Redis unavailable")
+        return False
+
+    try:
+        # Get current version
+        current_version = redis_client.get(f"crypto:key_version:{purpose}")
+        new_version = 1 if not current_version else int(current_version) + 1
+
+        # Store new version
+        redis_client.set(f"crypto:key_version:{purpose}", new_version)
+
+        # Log key rotation event
+        try:
+            log_security_event(
+                event_type="key_rotation",
+                description=f"Encryption key rotated for {purpose}",
+                severity="info",
+                details={
+                    "purpose": purpose,
+                    "new_version": new_version,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+        except Exception:
+            # Don't let logging failure impact the key rotation
+            pass
+
+        # Track metrics
+        metrics.increment(f'security.key_rotation.{purpose}')
+
+        return True
+
+    except Exception as e:
+        log_error(f"Failed to rotate encryption key: {e}")
+        return False
+
+
+def initialize_crypto(app=None):
+    """
+    Initialize cryptographic components.
+
+    This function performs any necessary initialization for the cryptographic
+    components, such as validating key presence and configuration.
+
+    Args:
+        app: Optional Flask application
+    """
+    # Check if encryption key is available
+    try:
+        _get_encryption_key()
+        log_info("Cryptography module initialized successfully")
+    except Exception as e:
+        log_error(f"Cryptography initialization failed: {e}")
+        if app:
+            app.logger.critical(f"SECURITY RISK: Cryptography initialization failed: {e}")

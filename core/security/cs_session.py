@@ -18,14 +18,15 @@ import uuid
 import hashlib
 import logging
 import json
+import time
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, Optional, Tuple, List, Union, Set
+from typing import Dict, Any, Optional, Tuple, List, Union, Set, Callable
 
 # Flask imports
-from flask import session, request, current_app, has_request_context, has_app_context
+from flask import session, request, current_app, has_request_context, has_app_context, g
 
 # Internal imports
-from extensions import db, metrics, redis_client
+from extensions import db, metrics, get_redis_client
 from models.audit_log import AuditLog
 from models.auth.user_session import UserSession
 from .cs_constants import SECURITY_CONFIG
@@ -326,7 +327,7 @@ def extend_session(minutes: int = None) -> bool:
             if db_session:
                 # Calculate new expiration
                 if minutes is None:
-                    # Use default session lifetime
+                    # Use default session timeout
                     extension = _get_session_timeout()
                 else:
                     extension = minutes * 60
@@ -334,11 +335,51 @@ def extend_session(minutes: int = None) -> bool:
                 db_session.expires_at = datetime.now(timezone.utc) + timedelta(seconds=extension)
                 db_session.last_active = datetime.now(timezone.utc)
                 db_session.activity_count += 1
+
+                # Update location if available and changed
+                if hasattr(g, 'location_data') and g.location_data:
+                    current_location = g.location_data.get('location')
+                    if current_location and current_location != db_session.last_location:
+                        db_session.last_location = current_location
+
+                        # Log location change if significant
+                        if db_session.activity_count > 2:  # Don't log initial location setting
+                            log_security_event(
+                                event_type='session_location_change',
+                                description="Session location changed",
+                                severity='info',
+                                user_id=db_session.user_id,
+                                details={
+                                    'previous_location': db_session.location_history[-1] if db_session.location_history else None,
+                                    'new_location': current_location
+                                }
+                            )
+
+                            # Add to location history
+                            if not db_session.location_history:
+                                db_session.location_history = []
+                            db_session.location_history.append(current_location)
+
                 db.session.add(db_session)
                 db.session.commit()
         except Exception as e:
             log_error(f"Failed to extend session in database: {e}")
+            db.session.rollback()
             return False
+
+    # Cache last active time in Redis for high-traffic applications
+    if _should_use_redis_session_cache():
+        try:
+            redis_client = get_redis_client()
+            if redis_client and session_id:
+                key = f"session:last_active:{session_id}"
+                redis_client.setex(
+                    key,
+                    _get_session_timeout() * 2,  # Double timeout for safety
+                    datetime.now(timezone.utc).timestamp()
+                )
+        except Exception as e:
+            log_error(f"Failed to update session cache in Redis: {e}")
 
     return True
 
@@ -368,6 +409,25 @@ def set_secure_session_attribute(key: str, value: Any, encrypt: bool = False) ->
             value = encrypt_sensitive_data(str(value))
 
         session[key] = value
+
+        # Store sensitive attributes in database too if persistent sessions are used
+        if encrypt and _should_check_db_session():
+            session_id = session.get('session_id')
+            if session_id:
+                try:
+                    db_session = UserSession.query.filter_by(session_id=session_id).first()
+                    if db_session:
+                        if not db_session.secure_attributes:
+                            db_session.secure_attributes = {}
+
+                        # Add encrypted value to secure attributes
+                        db_session.secure_attributes[key] = value
+                        db.session.add(db_session)
+                        db.session.commit()
+                except Exception as e:
+                    log_error(f"Failed to store secure attribute in database: {e}")
+                    db.session.rollback()
+
         return True
     except Exception as e:
         log_error(f"Failed to set secure session attribute: {e}")
@@ -514,6 +574,37 @@ def check_session_attacks() -> Tuple[bool, Optional[str]]:
             metrics.increment('security.session_tampering')
             return False, "cookie_tampering"
 
+    # Check for unusual geolocation if available
+    if hasattr(g, 'location_data') and g.location_data and _should_check_db_session():
+        session_id = session.get('session_id')
+        if session_id:
+            try:
+                db_session = UserSession.query.filter_by(session_id=session_id).first()
+                if db_session and db_session.last_location:
+                    current_location = g.location_data.get('location')
+                    prev_location = db_session.last_location
+
+                    # If locations are significantly different and changed rapidly
+                    if current_location and current_location != prev_location:
+                        # Check if distance is large and time is short
+                        from .cs_monitoring import analyze_location_change
+                        if analyze_location_change(prev_location, current_location, db_session.last_active):
+                            log_security_event(
+                                event_type=AuditLog.EVENT_SESSION_ANOMALY,
+                                description="Suspicious location change detected",
+                                severity="warning",
+                                user_id=session.get('user_id'),
+                                details={
+                                    'previous_location': prev_location,
+                                    'current_location': current_location
+                                }
+                            )
+                            metrics.increment('security.suspicious_location')
+                            if _is_in_strict_mode():
+                                return False, "suspicious_location"
+            except Exception as e:
+                log_error(f"Error checking location changes: {e}")
+
     # Session appears to be secure
     return True, None
 
@@ -556,6 +647,18 @@ def end_session() -> bool:
                     db.session.commit()
             except Exception as e:
                 log_error(f"Failed to update session in database on logout: {e}")
+                db.session.rollback()
+
+        # Clean up Redis cache if used
+        if session_id and _should_use_redis_session_cache():
+            try:
+                redis_client = get_redis_client()
+                if redis_client:
+                    # Clean up any session-related keys
+                    redis_client.delete(f"session:last_active:{session_id}")
+                    redis_client.delete(f"session:data:{session_id}")
+            except Exception as e:
+                log_error(f"Failed to clean up Redis session cache: {e}")
 
         # Clear the session
         session.clear()
@@ -748,12 +851,27 @@ def track_session_anomaly(
             try:
                 db_session = UserSession.query.filter_by(session_id=session_id).first()
                 if db_session:
+                    # Mark session as suspicious
                     db_session.is_suspicious = True
                     db_session.last_anomaly = description
+
+                    # Add anomaly to history if it doesn't exist
+                    if not db_session.anomaly_history:
+                        db_session.anomaly_history = []
+
+                    # Add to anomaly history with timestamp
+                    db_session.anomaly_history.append({
+                        'type': anomaly_type,
+                        'description': description,
+                        'severity': severity,
+                        'timestamp': datetime.now(timezone.utc).isoformat()
+                    })
+
                     db.session.add(db_session)
                     db.session.commit()
             except Exception as e:
                 log_error(f"Failed to flag session as suspicious: {e}")
+                db.session.rollback()
 
 
 def mark_requiring_mfa() -> None:
@@ -787,10 +905,21 @@ def mark_mfa_verified() -> None:
                 if db_session:
                     db_session.mfa_verified = True
                     db_session.mfa_verified_at = datetime.now(timezone.utc)
+
+                    # Log event for audit purposes
+                    log_security_event(
+                        event_type='mfa_verified',
+                        description=f"Multi-factor authentication verified",
+                        severity='info',
+                        user_id=db_session.user_id,
+                        ip_address=request.remote_addr
+                    )
+
                     db.session.add(db_session)
                     db.session.commit()
             except Exception as e:
                 log_error(f"Failed to update MFA status in database: {e}")
+                db.session.rollback()
 
 
 def is_mfa_verified() -> bool:
@@ -818,6 +947,281 @@ def is_mfa_verified() -> bool:
             return False
 
     return mfa_verified
+
+
+def revoke_all_user_sessions(user_id: Union[int, str], exempt_current: bool = True) -> int:
+    """
+    Revoke all active sessions for a given user.
+
+    This function is used when a user changes their password, when suspicious
+    activity is detected, or for administrative session termination.
+
+    Args:
+        user_id: ID of the user whose sessions should be revoked
+        exempt_current: Whether to exempt the current session from revocation
+
+    Returns:
+        int: Number of sessions revoked
+    """
+    if not _should_check_db_session():
+        return 0
+
+    try:
+        # Build base query for active sessions
+        query = UserSession.query.filter_by(
+            user_id=int(user_id),  # Ensure user_id is an integer
+            is_active=True,
+            revoked=False
+        )
+
+        # Exclude current session if requested
+        if exempt_current and has_request_context():
+            current_session_id = session.get('session_id')
+            if current_session_id:
+                query = query.filter(UserSession.session_id != current_session_id)
+
+        # Get sessions to revoke
+        sessions_to_revoke = query.all()
+        revoked_count = 0
+
+        # Revoke each session
+        for sess in sessions_to_revoke:
+            sess.is_active = False
+            sess.revoked = True
+            sess.revoked_at = datetime.now(timezone.utc)
+            sess.revocation_reason = "Administrative revocation"
+            db.session.add(sess)
+            revoked_count += 1
+
+            # Clear from Redis if used
+            if _should_use_redis_session_cache():
+                try:
+                    redis_client = get_redis_client()
+                    if redis_client:
+                        redis_client.delete(f"session:last_active:{sess.session_id}")
+                        redis_client.delete(f"session:data:{sess.session_id}")
+                except Exception as e:
+                    log_error(f"Failed to clear Redis session cache: {e}")
+
+        if revoked_count > 0:
+            # Commit changes
+            db.session.commit()
+
+            # Log event
+            log_security_event(
+                event_type='sessions_revoked',
+                description=f"Revoked {revoked_count} sessions for user {user_id}",
+                severity='info',
+                user_id=user_id,
+                ip_address=request.remote_addr if has_request_context() else None,
+                details={'exempt_current': exempt_current}
+            )
+
+            # Track metric
+            metrics.increment('security.sessions_revoked', revoked_count)
+
+        return revoked_count
+    except Exception as e:
+        log_error(f"Failed to revoke user sessions: {e}")
+        db.session.rollback()
+        return 0
+
+
+def get_active_sessions(user_id: Union[int, str]) -> List[Dict[str, Any]]:
+    """
+    Get information about all active sessions for a user.
+
+    This function retrieves information about active user sessions,
+    useful for providing users with visibility into their account access.
+
+    Args:
+        user_id: ID of the user whose sessions should be retrieved
+
+    Returns:
+        List[Dict[str, Any]]: List of session information dictionaries
+    """
+    if not _should_check_db_session():
+        return []
+
+    try:
+        # Query active sessions
+        sessions = UserSession.query.filter_by(
+            user_id=int(user_id),
+            is_active=True,
+            revoked=False
+        ).order_by(UserSession.created_at.desc()).all()
+
+        # Format session info
+        session_info = []
+        current_session_id = session.get('session_id') if has_request_context() else None
+
+        for sess in sessions:
+            # Create basic info dictionary
+            info = {
+                'session_id': sess.session_id,
+                'created_at': sess.created_at.isoformat() if sess.created_at else None,
+                'last_active': sess.last_active.isoformat() if sess.last_active else None,
+                'user_agent': sess.user_agent,
+                'ip_address': sess.ip_address,
+                'location': sess.last_location,
+                'device_info': sess.device_info,
+                'is_current': sess.session_id == current_session_id,
+                'login_method': sess.login_method,
+                'mfa_verified': sess.mfa_verified,
+            }
+
+            session_info.append(info)
+
+        return session_info
+    except Exception as e:
+        log_error(f"Failed to retrieve active sessions: {e}")
+        return []
+
+
+def revoke_session(session_id: str, reason: str = "User-initiated revocation") -> bool:
+    """
+    Revoke a specific session by ID.
+
+    This function revokes a specific session, typically used when a user
+    logs out a particular session from their account settings.
+
+    Args:
+        session_id: The session ID to revoke
+        reason: The reason for revocation
+
+    Returns:
+        bool: True if the session was successfully revoked
+    """
+    if not _should_check_db_session():
+        return False
+
+    try:
+        # Find the session
+        db_session = UserSession.query.filter_by(session_id=session_id).first()
+
+        if not db_session:
+            return False
+
+        # Check if the current user can revoke this session
+        if has_request_context() and 'user_id' in session:
+            current_user_id = session.get('user_id')
+
+            # Only allow users to revoke their own sessions unless they're admin
+            is_admin = 'role' in session and session.get('role') == 'admin'
+            if str(db_session.user_id) != str(current_user_id) and not is_admin:
+                log_security_event(
+                    event_type='unauthorized_session_revocation',
+                    description=f"Unauthorized attempt to revoke session",
+                    severity='warning',
+                    user_id=current_user_id,
+                    details={'target_session': session_id, 'target_user_id': db_session.user_id}
+                )
+                return False
+
+        # Revoke the session
+        db_session.is_active = False
+        db_session.revoked = True
+        db_session.revoked_at = datetime.now(timezone.utc)
+        db_session.revocation_reason = reason
+        db.session.add(db_session)
+        db.session.commit()
+
+        # Clear from Redis if used
+        if _should_use_redis_session_cache():
+            try:
+                redis_client = get_redis_client()
+                if redis_client:
+                    redis_client.delete(f"session:last_active:{session_id}")
+                    redis_client.delete(f"session:data:{session_id}")
+            except Exception as e:
+                log_error(f"Failed to clear Redis session cache: {e}")
+
+        # Log the event
+        log_security_event(
+            event_type='session_revoked',
+            description=f"Session revoked: {reason}",
+            severity='info',
+            user_id=db_session.user_id,
+            details={'session_id': session_id}
+        )
+
+        metrics.increment('security.session_revoked')
+        return True
+    except Exception as e:
+        log_error(f"Failed to revoke session: {e}")
+        db.session.rollback()
+        return False
+
+
+def initialize_session_security(app) -> bool:
+    """
+    Initialize session security for the Flask application.
+
+    Args:
+        app: Flask application instance
+
+    Returns:
+        bool: True if session security was successfully initialized
+    """
+    if not app:
+        logger.error("Cannot initialize session security: No app provided")
+        return False
+
+    try:
+        logger.info("Initializing session security")
+
+        # Register before_request handler to validate sessions
+        @app.before_request
+        def validate_session_before_request():
+            if not has_request_context():
+                return
+
+            # Skip validation for public routes or static files
+            if _is_public_route():
+                return
+
+            # Check session timeout
+            session_valid, error_reason = enforce_session_timeout()
+            if not session_valid:
+                # Handle session expiration
+                _handle_invalid_session(error_reason)
+
+            # Validate session security
+            is_valid, error_reason = validate_session()
+            if not is_valid:
+                # Handle invalid session
+                _handle_invalid_session(error_reason)
+
+            # Check for session attacks
+            is_secure, attack_type = check_session_attacks()
+            if not is_secure:
+                # Handle potential attack
+                _handle_session_attack(attack_type)
+
+        # Register after_request handler to apply security headers
+        @app.after_request
+        def secure_session_headers(response):
+            # Add security headers
+            response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+            response.headers['X-Content-Type-Options'] = 'nosniff'
+            response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+
+            # Set secure cookie flags if in production
+            if not app.debug and not app.testing:
+                response.set_cookie('session',
+                    value=response.headers.get('Set-Cookie', ''),
+                    secure=True,
+                    httponly=True,
+                    samesite='Lax'
+                )
+
+            return response
+
+        logger.info("Session security initialized successfully")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to initialize session security: {e}")
+        return False
 
 
 # Helper functions
@@ -893,11 +1297,103 @@ def _should_validate_referrer() -> bool:
     return SECURITY_CONFIG.get('VALIDATE_REFERRER', True)
 
 
+def _should_use_redis_session_cache() -> bool:
+    """Check if Redis session cache should be used."""
+    if has_app_context():
+        return current_app.config.get('USE_REDIS_SESSION_CACHE', False)
+    return SECURITY_CONFIG.get('USE_REDIS_SESSION_CACHE', False)
+
+
 def _get_allowed_referrer_domains() -> Set[str]:
     """Get allowed referrer domains."""
     if has_app_context():
-        return set(current_app.config.get('ALLOWED_REFERRERS', []))
+        domains = current_app.config.get('ALLOWED_REFERRERS', [])
+        # Make sure SERVER_NAME is always in the list
+        server_name = current_app.config.get('SERVER_NAME')
+        if server_name and server_name not in domains:
+            domains.append(server_name)
+        return set(domains)
     return set(SECURITY_CONFIG.get('ALLOWED_REFERRERS', []))
+
+
+def _is_public_route() -> bool:
+    """Check if the current route is a public route (no auth required)."""
+    if not has_app_context() or not has_request_context():
+        return False
+
+    # Skip validation for static files
+    if request.path.startswith('/static/'):
+        return True
+
+    # Check against configured public routes
+    public_routes = current_app.config.get('PUBLIC_ROUTES', ['/login', '/register', '/forgot-password'])
+    public_prefixes = current_app.config.get('PUBLIC_ROUTE_PREFIXES', ['/public/', '/api/public/'])
+
+    # Check exact matches
+    if request.path in public_routes:
+        return True
+
+    # Check prefixes
+    if any(request.path.startswith(prefix) for prefix in public_prefixes):
+        return True
+
+    return False
+
+
+def _handle_invalid_session(reason: Optional[str]) -> None:
+    """Handle an invalid session by redirecting or returning error."""
+    if not has_request_context():
+        return
+
+    # Only clear session for GET requests (to avoid losing form data)
+    if request.method == 'GET':
+        # Keep some info for diagnostics before clearing
+        user_id = session.get('user_id')
+        session.clear()
+
+        # Set a flash message if supported
+        if has_app_context() and hasattr(current_app, 'extensions') and 'flask_login' in current_app.extensions:
+            # Import here to avoid circular imports
+            from flask import flash
+            flash(f"Your session has expired or is invalid ({reason}). Please log in again.", "warning")
+
+        # Log the event
+        log_security_event(
+            event_type='invalid_session_cleared',
+            description=f"Invalid session cleared: {reason}",
+            severity='info',
+            user_id=user_id
+        )
+
+    # For API requests, set flag for middleware to return error
+    if request.path.startswith('/api/'):
+        g.session_invalid = True
+        g.session_error = reason
+
+
+def _handle_session_attack(attack_type: Optional[str]) -> None:
+    """Handle a potential session attack."""
+    if not has_request_context():
+        return
+
+    user_id = session.get('user_id')
+
+    # Clear session and force re-login
+    session.clear()
+
+    # Log security event
+    log_security_event(
+        event_type='session_attack_mitigated',
+        description=f"Session attack mitigated: {attack_type}",
+        severity='warning',
+        user_id=user_id,
+        ip_address=request.remote_addr,
+        details={'attack_type': attack_type}
+    )
+
+    # Set flag for middleware
+    g.session_attack = True
+    g.attack_type = attack_type
 
 
 def _verify_session_signature() -> bool:
@@ -927,8 +1423,12 @@ def _verify_session_signature() -> bool:
             signature_str = f"{data_str}|{secret}"
             expected_signature = hashlib.sha256(signature_str.encode()).hexdigest()
 
-            # Compare with stored signature
-            return session['session_signature'] == expected_signature
+            # Compare with stored signature using constant-time comparison
+            stored_signature = session.get('session_signature', '')
+
+            # Use hmac.compare_digest for constant-time comparison
+            import hmac
+            return hmac.compare_digest(stored_signature, expected_signature)
     except Exception as e:
         log_error(f"Error verifying session signature: {e}")
 
@@ -954,6 +1454,23 @@ def _create_session_in_database(
             timeout_seconds = _get_session_timeout()
             expires_at = datetime.now(timezone.utc) + timedelta(seconds=timeout_seconds)
 
+        # Collect device and location information
+        device_info = {}
+        location_info = None
+
+        if hasattr(request, 'user_agent'):
+            if hasattr(request.user_agent, 'platform'):
+                device_info = {
+                    'platform': request.user_agent.platform,
+                    'browser': request.user_agent.browser,
+                    'version': request.user_agent.version,
+                    'language': request.user_agent.language
+                }
+
+        # Get location info from request context if available
+        if hasattr(g, 'location_data') and g.location_data:
+            location_info = g.location_data.get('location')
+
         # Create UserSession object
         db_session = UserSession(
             user_id=int(user_id),  # Convert to int if it's a string
@@ -963,21 +1480,28 @@ def _create_session_in_database(
             fingerprint=session.get('fingerprint'),
             expires_at=expires_at,
             is_active=True,
-            login_method=auth_method
+            login_method=auth_method,
+            device_info=device_info,
+            last_location=location_info
         )
-
-        # Add some extra info if available
-        if hasattr(request, 'user_agent'):
-            if hasattr(request.user_agent, 'platform'):
-                db_session.device_info = {
-                    'platform': request.user_agent.platform,
-                    'browser': request.user_agent.browser,
-                    'version': request.user_agent.version,
-                    'language': request.user_agent.language
-                }
 
         db.session.add(db_session)
         db.session.commit()
+
+        # Cache session data in Redis if configured
+        if _should_use_redis_session_cache():
+            try:
+                redis_client = get_redis_client()
+                if redis_client:
+                    # Cache last active time
+                    redis_client.setex(
+                        f"session:last_active:{session_id}",
+                        _get_session_timeout() * 2,  # Double timeout for safety
+                        time.time()
+                    )
+            except Exception as e:
+                log_error(f"Failed to cache session data in Redis: {e}")
+
     except Exception as e:
         log_error(f"Failed to create session in database: {e}")
         db.session.rollback()
@@ -1009,6 +1533,12 @@ def _update_session_in_database(session_id: str) -> None:
         # If fingerprint changed, update it
         if 'fingerprint' in session:
             db_session.fingerprint = session['fingerprint']
+
+        # If location data available, update it
+        if hasattr(g, 'location_data') and g.location_data:
+            location_info = g.location_data.get('location')
+            if location_info:
+                db_session.last_location = location_info
 
         db.session.add(db_session)
         db.session.commit()

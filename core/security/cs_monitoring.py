@@ -8,14 +8,14 @@ functions support real-time security detection and response.
 
 import os
 import json
+import ipaddress
 import requests
 import functools
 from datetime import datetime, timedelta, timezone
-from ipaddress import ip_address, ip_network
 from typing import List, Dict, Any, Optional, Tuple, Union, Set, TypeVar, cast
 
 # SQLAlchemy imports
-from sqlalchemy import func, desc, or_, and_
+from sqlalchemy import func, desc, or_, and_, literal
 from sqlalchemy.exc import SQLAlchemyError
 
 # Flask imports
@@ -27,6 +27,7 @@ from extensions import get_redis_client
 from .cs_audit import log_security_event
 from .cs_authentication import is_valid_ip
 from .cs_constants import SECURITY_CONFIG
+from .cs_file_integrity import get_last_integrity_status
 from core.utils import log_error, log_warning, log_info, log_debug
 from models.audit_log import AuditLog
 
@@ -100,6 +101,9 @@ def get_suspicious_ips(hours: int = 24, min_attempts: int = 5) -> List[Dict[str,
             if security_events:
                 ip_data['security_events'] = security_events
 
+            # Add threat score based on various factors
+            ip_data['threat_score'] = _calculate_threat_score(ip, count, security_events)
+
             result.append(ip_data)
 
         # Cache the results for 5 minutes
@@ -107,6 +111,10 @@ def get_suspicious_ips(hours: int = 24, min_attempts: int = 5) -> List[Dict[str,
 
         # Track metrics
         metrics.gauge('security.suspicious_ips', len(result))
+
+        # Track high threat IPs
+        high_threat_count = sum(1 for ip_data in result if ip_data.get('threat_score', 0) >= 75)
+        metrics.gauge('security.high_threat_ips', high_threat_count)
 
         return result
     except SQLAlchemyError as e:
@@ -218,8 +226,7 @@ def get_security_event_distribution(hours: int = 24) -> Dict[str, int]:
             AuditLog.event_type,
             func.count(AuditLog.id).label('count')
         ).filter(
-            AuditLog.created_at >= cutoff,
-            AuditLog.event_type.startswith('security_')
+            AuditLog.created_at >= cutoff
         ).group_by(AuditLog.event_type).all()
 
         # Convert to dictionary
@@ -227,6 +234,12 @@ def get_security_event_distribution(hours: int = 24) -> Dict[str, int]:
 
         # Cache the results for 5 minutes
         _set_in_cache(cache_key, result, 300)
+
+        # Track top event types as metrics
+        for event_type, count in result.items():
+            # Only track specific important event types to avoid metric explosion
+            if any(key in event_type for key in ['login', 'security', 'permission', 'breach', 'attack']):
+                metrics.gauge(f'security.event.{event_type}', count)
 
         return result
     except SQLAlchemyError as e:
@@ -279,6 +292,58 @@ def get_active_session_count() -> int:
         return 0
 
 
+def get_suspicious_sessions() -> List[Dict[str, Any]]:
+    """
+    Get list of suspicious user sessions with anomaly details.
+
+    This function identifies active sessions with suspicious activity patterns
+    such as abnormal locations, failed MFA attempts, or unusual navigation.
+
+    Returns:
+        List[Dict[str, Any]]: List of suspicious sessions with anomaly details
+    """
+    try:
+        # Use database query to find sessions with anomalies
+        if not _should_check_db_session():
+            return []
+
+        # Query for suspicious sessions in database
+        from models.auth.user_session import UserSession
+
+        suspicious_sessions = UserSession.query.filter(
+            UserSession.is_active == True,
+            UserSession.is_suspicious == True
+        ).order_by(UserSession.last_active.desc()).limit(50).all()
+
+        result = []
+        for session in suspicious_sessions:
+            # Create result entry
+            session_data = {
+                'session_id': session.session_id,
+                'user_id': session.user_id,
+                'ip_address': session.ip_address,
+                'user_agent': session.user_agent,
+                'created_at': session.created_at.isoformat() if session.created_at else None,
+                'last_active': session.last_active.isoformat() if session.last_active else None,
+                'anomaly': session.last_anomaly,
+                'location': session.last_location
+            }
+
+            # Add anomaly history if available
+            if hasattr(session, 'anomaly_history') and session.anomaly_history:
+                session_data['anomaly_history'] = session.anomaly_history
+
+            result.append(session_data)
+
+        # Track metric
+        metrics.gauge('security.suspicious_sessions', len(result))
+
+        return result
+    except Exception as e:
+        log_error(f"Error getting suspicious sessions: {e}")
+        return []
+
+
 def is_suspicious_ip(ip_address: Optional[str], threshold: int = 5) -> bool:
     """
     Determine if an IP address is suspicious based on login failure history and blocklists.
@@ -306,12 +371,13 @@ def is_suspicious_ip(ip_address: Optional[str], threshold: int = 5) -> bool:
 
         # Check against known malicious networks
         try:
-            ip_obj = ip_address(ip_address)
+            ip_obj = ipaddress.ip_address(ip_address)
             malicious_networks = SECURITY_CONFIG.get('KNOWN_MALICIOUS_NETWORKS', [])
 
             for network_str in malicious_networks:
                 try:
-                    if ip_obj in ip_network(network_str):
+                    network = ipaddress.ip_network(network_str, strict=False)
+                    if ip_obj in network:
                         log_warning(f"IP {ip_address} found in known malicious network {network_str}")
                         metrics.increment('security.malicious_network_access')
                         return True
@@ -328,7 +394,7 @@ def is_suspicious_ip(ip_address: Optional[str], threshold: int = 5) -> bool:
         if redis_client:
             cached_result = redis_client.get(f"suspicious_ip:{ip_address}")
             if cached_result:
-                is_suspicious = cached_result.decode() == "True"
+                is_suspicious = cached_result.decode('utf-8', errors='ignore') == "True"
                 if is_suspicious:
                     metrics.increment('security.suspicious_ip_cache_hit')
                 return is_suspicious
@@ -353,7 +419,8 @@ def is_suspicious_ip(ip_address: Optional[str], threshold: int = 5) -> bool:
             AuditLog.event_type.in_([
                 AuditLog.EVENT_SECURITY_BREACH_ATTEMPT,
                 AuditLog.EVENT_PERMISSION_DENIED,
-                AuditLog.EVENT_RATE_LIMIT_EXCEEDED
+                AuditLog.EVENT_RATE_LIMIT_EXCEEDED,
+                AuditLog.EVENT_FILE_INTEGRITY  # Added for file integrity violations
             ]),
             AuditLog.ip_address == ip_address,
             AuditLog.created_at >= cutoff
@@ -420,6 +487,11 @@ def block_ip(ip_address: str, duration: int = 3600, reason: str = "security_poli
             'expiry': (datetime.now(timezone.utc) + timedelta(seconds=duration)).isoformat()
         }
 
+        # Get geolocation data for the IP
+        geolocation = _get_ip_geolocation(ip_address)
+        if geolocation:
+            block_data['geolocation'] = geolocation
+
         # Set with expiry
         redis_client.setex(
             f"blocked_ip:{ip_address}",
@@ -440,7 +512,8 @@ def block_ip(ip_address: str, duration: int = 3600, reason: str = "security_poli
                 details={
                     'duration': f"{duration} seconds",
                     'reason': reason,
-                    'expiry': block_data['expiry']
+                    'expiry': block_data['expiry'],
+                    'geolocation': geolocation
                 }
             )
         except Exception as e:
@@ -506,8 +579,25 @@ def get_ip_block_info(ip_address: str) -> Optional[Dict[str, Any]]:
         if not block_data:
             return None
 
-        # Parse and return the block info
-        return json.loads(block_data)
+        try:
+            # Parse and return the block info
+            result = json.loads(block_data)
+
+            # Calculate remaining time
+            if 'expiry' in result:
+                try:
+                    expiry = datetime.fromisoformat(result['expiry'])
+                    now = datetime.now(timezone.utc)
+                    remaining_seconds = max(0, int((expiry - now).total_seconds()))
+                    result['remaining_seconds'] = remaining_seconds
+                except (ValueError, TypeError):
+                    pass
+
+            return result
+        except json.JSONDecodeError as e:
+            log_error(f"Error decoding block info for IP {ip_address}: {e}")
+            return None
+
     except Exception as e:
         log_error(f"Error getting block info for IP {ip_address}: {e}")
         return None
@@ -601,7 +691,7 @@ def get_blocked_ips() -> Set[str]:
                     else:
                         key_str = str(key)
 
-                    # Extract IP from key
+                    # Extract IP from key format "blocked_ip:{ip_address}"
                     ip = key_str.split(':', 1)[1]
                     blocked_ips.add(ip)
                 except (IndexError, UnicodeDecodeError) as e:
@@ -618,6 +708,60 @@ def get_blocked_ips() -> Set[str]:
     except Exception as e:
         log_error(f"Error retrieving blocked IPs: {e}")
         return blocked_ips
+
+
+def analyze_location_change(prev_location: str, current_location: str, last_active: Optional[datetime] = None) -> bool:
+    """
+    Analyze if a location change is suspiciously rapid.
+
+    This function calculates whether a user's location has changed implausibly fast
+    between two sessions or requests, which could indicate session hijacking.
+
+    Args:
+        prev_location: Previous location string
+        current_location: Current location string
+        last_active: Timestamp of last activity from previous location
+
+    Returns:
+        bool: True if the location change is suspicious
+    """
+    if not prev_location or not current_location or prev_location == current_location:
+        return False
+
+    try:
+        # Basic location parsing - expects format like "City, Country"
+        prev_parts = prev_location.split(',')
+        current_parts = current_location.split(',')
+
+        if len(prev_parts) < 1 or len(current_parts) < 1:
+            return False
+
+        # Check if country changed
+        prev_country = prev_parts[-1].strip()
+        current_country = current_parts[-1].strip()
+
+        # Only suspicious if country changed
+        if prev_country == current_country:
+            return False
+
+        # If we have timing information, check if the change happened too quickly
+        if last_active:
+            now = datetime.now(timezone.utc)
+            hours_since_last_active = (now - last_active).total_seconds() / 3600
+
+            # If location changed countries in less than 2 hours, consider suspicious
+            if hours_since_last_active < 2:
+                log_warning(f"Suspicious location change: {prev_location} → {current_location} in {hours_since_last_active:.1f} hours")
+                metrics.increment('security.suspicious_location_change')
+                return True
+
+        # Without timing information, just log the country change
+        log_info(f"Location change detected: {prev_location} → {current_location}")
+
+        return False
+    except Exception as e:
+        log_error(f"Error analyzing location change: {e}")
+        return False
 
 
 def detect_permission_issues() -> List[Dict[str, Any]]:
@@ -783,6 +927,47 @@ def get_security_anomalies(hours: int = 24) -> List[Dict[str, Any]]:
                 'description': f"User ID {user_id} has had {count} permission denied events in the past {hours} hours"
             })
 
+        # Check for file integrity violations
+        integrity_status = get_last_integrity_status()
+        if integrity_status and integrity_status.get('has_violations', False):
+            violations = integrity_status.get('violations', [])
+            critical_count = sum(1 for v in violations if v.get('severity') in ('high', 'critical'))
+
+            if critical_count > 0:
+                anomalies.append({
+                    'type': 'file_integrity_violations',
+                    'severity': 'critical',
+                    'details': {
+                        'total_violations': len(violations),
+                        'critical_violations': critical_count,
+                        'violations': violations[:5]  # Include up to 5 violations
+                    },
+                    'description': f"Found {len(violations)} file integrity violations, including {critical_count} critical violations"
+                })
+
+        # Check for unusual API access patterns (high volume in short time)
+        api_access_counts = db.session.query(
+            AuditLog.ip_address,
+            func.count(AuditLog.id).label('count')
+        ).filter(
+            AuditLog.created_at >= datetime.now(timezone.utc) - timedelta(minutes=10),  # Last 10 minutes
+            AuditLog.request_data.like('%/api/%')
+        ).group_by(AuditLog.ip_address).having(
+            func.count(AuditLog.id) > 200  # Threshold for unusual API access
+        ).all()
+
+        for ip, count in api_access_counts:
+            anomalies.append({
+                'type': 'unusual_api_activity',
+                'severity': 'medium',
+                'details': {
+                    'ip_address': ip,
+                    'count': count,
+                    'timeframe': '10 minutes'
+                },
+                'description': f"Unusually high API activity from IP {ip}: {count} requests in 10 minutes"
+            })
+
         # Other anomalies can be added here
 
         # Record metrics for detected anomalies
@@ -791,7 +976,24 @@ def get_security_anomalies(hours: int = 24) -> List[Dict[str, Any]]:
 
             # Group by severity for specific metrics
             high_severity = sum(1 for a in anomalies if a.get('severity') == 'high')
+            critical_severity = sum(1 for a in anomalies if a.get('severity') == 'critical')
             metrics.gauge('security.high_severity_anomalies', high_severity)
+            metrics.gauge('security.critical_severity_anomalies', critical_severity)
+
+            # Log security event for critical anomalies
+            if critical_severity > 0:
+                critical_anomalies = [a for a in anomalies if a.get('severity') == 'critical']
+                try:
+                    log_security_event(
+                        event_type=AuditLog.EVENT_SECURITY_ANOMALY,
+                        description=f"Detected {critical_severity} critical security anomalies",
+                        severity='critical',
+                        details={
+                            'anomalies': [a['description'] for a in critical_anomalies]
+                        }
+                    )
+                except Exception as e:
+                    log_error(f"Failed to log critical anomalies: {e}")
 
         return anomalies
     except Exception as e:
@@ -829,7 +1031,7 @@ def _get_from_cache(key: str, as_int: bool = False) -> Any:
         else:
             try:
                 return json.loads(cached_data)
-            except Exception as e:
+            except json.JSONDecodeError as e:
                 log_error(f"Failed to load cached data for {key}: {e}")
                 return None
     except Exception as e:
@@ -858,7 +1060,8 @@ def _set_in_cache(key: str, data: Any, ttl: int) -> bool:
             redis_client.setex(key, ttl, str(data))
         else:
             try:
-                redis_client.setex(key, ttl, json.dumps(data))
+                json_data = json.dumps(data)
+                redis_client.setex(key, ttl, json_data)
             except (TypeError, ValueError) as e:
                 log_error(f"Failed to serialize data for cache key {key}: {e}")
                 return False
@@ -929,8 +1132,7 @@ def _get_security_events_for_ip(ip_address: str, cutoff: datetime) -> Dict[str, 
             func.count(AuditLog.id).label('count')
         ).filter(
             AuditLog.ip_address == ip_address,
-            AuditLog.created_at >= cutoff,
-            AuditLog.event_type.like('security_%')
+            AuditLog.created_at >= cutoff
         ).group_by(AuditLog.event_type).all()
 
         return {event_type: count for event_type, count in events}
@@ -1032,38 +1234,184 @@ def _get_ip_geolocation(ip_address: str) -> Dict[str, Any]:
     if not ip_address:
         return {}
 
+    # Validate IP format before making external requests
+    if not is_valid_ip(ip_address):
+        log_warning(f"Invalid IP format for geolocation lookup: {ip_address}")
+        return {}
+
     # Check cache first
     cache_key = f"ip_geolocation:{ip_address}"
     cached_data = _get_from_cache(cache_key)
     if cached_data:
         return cached_data
 
-    try:
-        # Only perform lookup if configuration allows
-        if not has_app_context() or not current_app.config.get('GEOLOCATION_ENABLED', False):
+    # Only perform lookup if configuration allows
+    if not has_app_context() or not current_app.config.get('GEOLOCATION_ENABLED', False):
+        return {}
+
+    # Implement rate limiting protection
+    redis_client = get_redis_client()
+    if redis_client:
+        rate_limit_key = "geolocation_api_calls"
+        rate_window = 60  # 1 minute
+        rate_limit = current_app.config.get('GEOLOCATION_RATE_LIMIT', 60)  # Default: 60 calls per minute
+
+        # Check if we're over the rate limit
+        current_count = redis_client.get(rate_limit_key)
+        if current_count and int(current_count) >= rate_limit:
+            log_warning(f"Geolocation API rate limit reached ({rate_limit}/{rate_window}s)")
             return {}
 
+        # Increment counter
+        pipe = redis_client.pipeline()
+        pipe.incr(rate_limit_key)
+        pipe.expire(rate_limit_key, rate_window)
+        pipe.execute()
+
+    try:
         # Use configured geolocation service
         geolocation_api = current_app.config.get('GEOLOCATION_API', 'ipapi')
 
         if geolocation_api == 'ipapi':
-            # Use free ip-api.com service
+            # Prefer HTTPS if configured/available
+            use_https = current_app.config.get('GEOLOCATION_USE_HTTPS', False)
+            protocol = "https" if use_https else "http"
+            api_key = current_app.config.get('IPAPI_KEY', '')
+
+            # Add API key if available (for pro accounts that support HTTPS)
+            params = {'fields': 'country,countryCode,region,regionName,city,isp,org,as'}
+            if api_key:
+                params['key'] = api_key
+
             response = requests.get(
-                f"http://ip-api.com/json/{ip_address}",
-                params={'fields': 'country,countryCode,region,regionName,city,isp,org,as'},
-                timeout=2  # Short timeout to avoid blocking
+                f"{protocol}://ip-api.com/json/{ip_address}",
+                params=params,
+                timeout=3  # Increased timeout for reliability
             )
 
             if response.status_code == 200:
                 data = response.json()
+
+                # Format location string for easier use
+                if 'city' in data and 'country' in data:
+                    data['location'] = f"{data['city']}, {data['country']}"
+
+                # Cache for 24 hours
+                _set_in_cache(cache_key, data, 86400)
+                return data
+
+        elif geolocation_api == 'ipinfo':
+            # Support for ipinfo.io service
+            api_key = current_app.config.get('IPINFO_API_KEY', '')
+            token_param = f"?token={api_key}" if api_key else ""
+
+            response = requests.get(
+                f"https://ipinfo.io/{ip_address}/json{token_param}",
+                timeout=3
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+
+                # Format location string for easier use
+                if 'city' in data and 'country' in data:
+                    data['location'] = f"{data['city']}, {data['country']}"
+
                 # Cache for 24 hours
                 _set_in_cache(cache_key, data, 86400)
                 return data
 
         return {}  # Default empty response
+
+    except requests.exceptions.Timeout:
+        log_warning(f"Timeout retrieving geolocation for IP {ip_address}")
+        return {}
+    except requests.exceptions.ConnectionError:
+        log_error(f"Connection error retrieving geolocation for IP {ip_address}")
+        return {}
+    except requests.exceptions.RequestException as e:
+        log_error(f"Request error retrieving geolocation for IP {ip_address}: {e}")
+        return {}
+    except json.JSONDecodeError:
+        log_error(f"Invalid JSON response from geolocation API for IP {ip_address}")
+        return {}
     except Exception as e:
         log_error(f"Error getting geolocation for IP {ip_address}: {e}")
         return {}
+
+
+def _calculate_threat_score(ip_address: str, failed_login_count: int, security_events: Dict[str, int]) -> int:
+    """
+    Calculate a threat score for an IP address based on various factors.
+
+    Args:
+        ip_address: The IP address to analyze
+        failed_login_count: Number of failed login attempts
+        security_events: Dictionary of security events by type
+
+    Returns:
+        int: Threat score from 0-100 where higher is more suspicious
+    """
+    try:
+        score = 0
+
+        # Failed logins contribute to score (max 30 points)
+        if failed_login_count >= 20:
+            score += 30
+        elif failed_login_count >= 10:
+            score += 20
+        elif failed_login_count >= 5:
+            score += 10
+
+        # Security events contribute to score (max 40 points)
+        breach_events = sum(count for event_type, count in security_events.items()
+                           if any(x in event_type for x in ['breach', 'attack', 'violation', 'tamper']))
+
+        if breach_events >= 5:
+            score += 40
+        elif breach_events >= 2:
+            score += 30
+        elif breach_events >= 1:
+            score += 20
+
+        # Permission denied events are concerning (max 20 points)
+        permission_denied = security_events.get('permission_denied', 0)
+        if permission_denied >= 10:
+            score += 20
+        elif permission_denied >= 5:
+            score += 15
+        elif permission_denied >= 1:
+            score += 10
+
+        # Rate limit exceeded events suggest automated tools (max 10 points)
+        rate_limit_events = security_events.get('rate_limit_exceeded', 0)
+        if rate_limit_events >= 3:
+            score += 10
+        elif rate_limit_events >= 1:
+            score += 5
+
+        # Check if IP is in a blacklist (not implemented here)
+        # This would add another 20 points
+
+        # Cap score at 100
+        return min(100, score)
+    except Exception as e:
+        log_error(f"Error calculating threat score for IP {ip_address}: {e}")
+        return 0
+
+
+def _should_check_db_session() -> bool:
+    """
+    Check if we should use database for session info.
+
+    Returns:
+        bool: True if database should be checked for session details
+    """
+    if has_app_context():
+        return current_app.config.get('USE_DB_SESSIONS', True)
+    else:
+        from .cs_constants import SECURITY_CONFIG
+        return SECURITY_CONFIG.get('USE_DB_SESSIONS', True)
 
 
 def cache_ttl(ttl: int):
@@ -1096,3 +1444,77 @@ def cache_ttl(ttl: int):
             return result
         return wrapper
     return decorator
+
+
+@cache_ttl(3600)
+def get_threat_summary() -> Dict[str, Any]:
+    """
+    Get summary of current security threats.
+
+    This generates an overview of the system's current security status
+    including suspicious IPs, failed authentication attempts, and more.
+
+    Returns:
+        Dict[str, Any]: Summary of security threat information
+    """
+    try:
+        # Collect threat metrics
+        hours = 24  # Last 24 hours
+        suspicious_ips = get_suspicious_ips(hours=hours)
+
+        # Basic summary info
+        summary = {
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'suspicious_ip_count': len(suspicious_ips),
+            'failed_logins_24h': get_failed_login_count(hours=hours),
+            'account_lockouts_24h': get_account_lockout_count(hours=hours),
+            'blocked_ip_count': len(get_blocked_ips())
+        }
+
+        # Get high threat IPs (threshold 75+)
+        high_threat_ips = [ip for ip in suspicious_ips if ip.get('threat_score', 0) >= 75]
+        if high_threat_ips:
+            summary['high_threat_ips'] = high_threat_ips[:5]  # Top 5
+
+        # Get security anomalies
+        anomalies = get_security_anomalies(hours=hours)
+        if anomalies:
+            summary['anomalies'] = anomalies[:5]  # Top 5
+
+        # Add file integrity status
+        integrity_status = get_last_integrity_status()
+        if integrity_status:
+            summary['file_integrity'] = {
+                'status': 'compromised' if integrity_status.get('has_violations') else 'ok',
+                'last_check': integrity_status.get('last_check')
+            }
+
+        # Add suspicious sessions info
+        suspicious_sessions = get_suspicious_sessions()
+        if suspicious_sessions:
+            summary['suspicious_sessions'] = len(suspicious_sessions)
+
+        # Calculate overall threat level
+        threat_level = 'low'
+        if (len(high_threat_ips) > 0 or
+            summary.get('failed_logins_24h', 0) > 50 or
+            len(anomalies) > 0 or
+            integrity_status.get('has_violations')):
+            threat_level = 'medium'
+
+        if (len(high_threat_ips) > 2 or
+            any(a.get('severity') == 'critical' for a in anomalies) or
+            integrity_status.get('has_violations') and
+            any(v.get('severity') == 'critical' for v in integrity_status.get('violations', []))):
+            threat_level = 'high'
+
+        summary['threat_level'] = threat_level
+
+        return summary
+    except Exception as e:
+        log_error(f"Error generating threat summary: {e}")
+        return {
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'error': 'Failed to generate threat summary',
+            'threat_level': 'unknown'
+        }

@@ -514,66 +514,166 @@ def get_ip_geolocation(ip_address: str) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Dictionary with geolocation data or empty dict if not available
     """
+    # Validate input first
     if not ip_address:
         return {}
 
-    # Check cache first
-    redis_client = get_redis_client()
-    cache_key = f"ip_geolocation:{ip_address}"
-
-    if redis_client:
-        cached_data = redis_client.get(cache_key)
-        if cached_data:
-            try:
-                return json.loads(cached_data)
-            except Exception as e:
-                log_error(f"Failed to parse cached geolocation data: {e}")
-
     try:
-        # Only perform lookup if configuration allows
-        if not has_app_context() or not current_app.config.get('GEOLOCATION_ENABLED', False):
+        # Preferred approach: Use the existing implementation from cs_monitoring
+        # This reduces code duplication and ensures consistent behavior
+        from .cs_monitoring import _get_ip_geolocation
+        return _get_ip_geolocation(ip_address)
+    except ImportError:
+        # Only log once per application run to avoid log spam
+        if not hasattr(get_ip_geolocation, '_import_error_logged'):
+            log_error("Failed to import _get_ip_geolocation from cs_monitoring")
+            get_ip_geolocation._import_error_logged = True
+
+        # Input validation (basic check before making external API calls)
+        try:
+            from .cs_authentication import is_valid_ip
+            if not is_valid_ip(ip_address):
+                log_warning(f"Invalid IP address format: {ip_address}")
+                metrics.increment('security.geolocation.invalid_ip')
+                return {}
+        except ImportError:
+            # Fallback validation if cs_authentication is not available
+            import re
+            ip_pattern = r'^(\d{1,3}\.){3}\d{1,3}$|^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$'
+            if not re.match(ip_pattern, ip_address):
+                log_warning(f"Invalid IP address format: {ip_address}")
+                metrics.increment('security.geolocation.invalid_ip')
+                return {}
+
+        # Check cache first (with metrics tracking)
+        redis_client = get_redis_client()
+        cache_key = f"ip_geolocation:{ip_address}"
+
+        if redis_client:
+            cached_data = redis_client.get(cache_key)
+            if cached_data:
+                try:
+                    metrics.increment('security.geolocation.cache_hit')
+                    return json.loads(cached_data)
+                except json.JSONDecodeError:
+                    log_error(f"Failed to parse cached geolocation data for IP: {ip_address}")
+                    metrics.increment('security.geolocation.cache_error')
+
+        # Track request for metrics
+        metrics.increment('security.geolocation.request')
+
+        try:
+            # Only perform lookup if configuration allows
+            if not has_app_context() or not current_app.config.get('GEOLOCATION_ENABLED', False):
+                return {}
+
+            # Use configured geolocation service
+            geolocation_api = current_app.config.get('GEOLOCATION_API', 'ipapi')
+
+            # Implement rate limiting protection
+            rate_limit_key = "geolocation_api_calls"
+            rate_window = 60  # 1 minute
+            rate_limit = current_app.config.get('GEOLOCATION_RATE_LIMIT', 60)  # Default: 60 calls per minute
+
+            if redis_client:
+                # Check if we're over the rate limit
+                current_count = redis_client.get(rate_limit_key)
+                if current_count and int(current_count) >= rate_limit:
+                    log_warning(f"Geolocation API rate limit reached ({rate_limit}/{rate_window}s)")
+                    metrics.increment('security.geolocation.rate_limited')
+                    return {}
+
+                # Increment counter
+                pipe = redis_client.pipeline()
+                pipe.incr(rate_limit_key)
+                pipe.expire(rate_limit_key, rate_window)
+                pipe.execute()
+
+            if geolocation_api == 'ipapi':
+                # Use secure HTTPS endpoint if available, falling back to HTTP only if necessary
+                # Note: ip-api.com requires a paid account for HTTPS
+                use_https = current_app.config.get('GEOLOCATION_USE_HTTPS', False)
+                protocol = "https" if use_https else "http"
+                api_key = current_app.config.get('IPAPI_KEY', '')
+
+                # Add API key if available (for pro accounts that support HTTPS)
+                params = {'fields': 'country,countryCode,region,regionName,city,isp,org,as'}
+                if api_key:
+                    params['key'] = api_key
+
+                response = requests.get(
+                    f"{protocol}://ip-api.com/json/{ip_address}",
+                    params=params,
+                    timeout=3  # Increased timeout for reliability
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+
+                    # Add formatted location string for consistency with cs_monitoring
+                    if 'city' in data and 'country' in data:
+                        data['location'] = f"{data['city']}, {data['country']}"
+
+                    # Cache for 24 hours if we have valid data
+                    if redis_client and data.get('country'):
+                        redis_client.setex(cache_key, 86400, json.dumps(data))
+                        metrics.increment('security.geolocation.cache_write')
+
+                    metrics.increment('security.geolocation.success')
+                    return data
+                else:
+                    log_warning(f"Geolocation API returned status {response.status_code} for IP {ip_address}")
+                    metrics.increment('security.geolocation.api_error')
+
+            elif geolocation_api == 'ipinfo':
+                api_key = current_app.config.get('IPINFO_API_KEY', '')
+                token_param = f"?token={api_key}" if api_key else ""
+
+                response = requests.get(
+                    f"https://ipinfo.io/{ip_address}/json{token_param}",
+                    timeout=3
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+
+                    # Add formatted location string for consistency
+                    if 'city' in data and 'country' in data:
+                        data['location'] = f"{data['city']}, {data['country']}"
+
+                    # Cache for 24 hours if we have valid data
+                    if redis_client and data.get('country'):
+                        redis_client.setex(cache_key, 86400, json.dumps(data))
+                        metrics.increment('security.geolocation.cache_write')
+
+                    metrics.increment('security.geolocation.success')
+                    return data
+                else:
+                    log_warning(f"Geolocation API returned status {response.status_code} for IP {ip_address}")
+                    metrics.increment('security.geolocation.api_error')
+
+            return {}  # Default empty response
+
+        except requests.exceptions.Timeout:
+            log_warning(f"Timeout retrieving geolocation for IP {ip_address}")
+            metrics.increment('security.geolocation.timeout')
             return {}
-
-        # Use configured geolocation service
-        geolocation_api = current_app.config.get('GEOLOCATION_API', 'ipapi')
-
-        if geolocation_api == 'ipapi':
-            # Use free ip-api.com service
-            response = requests.get(
-                f"http://ip-api.com/json/{ip_address}",
-                params={'fields': 'country,countryCode,region,regionName,city,isp,org,as'},
-                timeout=2  # Short timeout to avoid blocking
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-                # Cache for 24 hours
-                if redis_client and data.get('country'):
-                    redis_client.setex(cache_key, 86400, json.dumps(data))
-                return data
-
-        elif geolocation_api == 'ipinfo':
-            # Use ipinfo.io service
-            api_key = current_app.config.get('IPINFO_API_KEY', '')
-            token_param = f"?token={api_key}" if api_key else ""
-
-            response = requests.get(
-                f"https://ipinfo.io/{ip_address}/json{token_param}",
-                timeout=2
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-                # Cache for 24 hours
-                if redis_client and data.get('country'):
-                    redis_client.setex(cache_key, 86400, json.dumps(data))
-                return data
-
-        return {}  # Default empty response
-
-    except Exception as e:
-        log_error(f"Error getting geolocation for IP {ip_address}: {e}")
-        return {}
+        except requests.exceptions.ConnectionError:
+            log_error(f"Connection error retrieving geolocation for IP {ip_address}")
+            metrics.increment('security.geolocation.connection_error')
+            return {}
+        except requests.exceptions.RequestException as e:
+            log_error(f"Request error retrieving geolocation for IP {ip_address}: {e}")
+            metrics.increment('security.geolocation.request_error')
+            return {}
+        except json.JSONDecodeError:
+            log_error(f"Invalid JSON response from geolocation API for IP {ip_address}")
+            metrics.increment('security.geolocation.json_error')
+            return {}
+        except Exception as e:
+            log_error(f"Error getting geolocation for IP {ip_address}: {e}")
+            metrics.increment('security.geolocation.error')
+            return {}
 
 
 # Helper functions

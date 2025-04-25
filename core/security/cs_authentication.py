@@ -483,54 +483,149 @@ def get_client_ip() -> Optional[str]:
     return request.remote_addr
 
 
-def require_mfa(view_func):
+def require_mfa(view_func=None, *, redirect_endpoint: str = 'auth.mfa_verify', exempt_roles: List[str] = None):
     """
     Decorator to enforce MFA verification for sensitive operations.
 
-    Usage:
+    This decorator checks if the current user has completed Multi-Factor Authentication
+    before allowing access to the protected function. If MFA is not verified or has expired,
+    the user is redirected to the MFA verification page or receives a structured API error.
+
+    Args:
+        view_func: The function to decorate
+        redirect_endpoint: The endpoint to redirect to for MFA verification
+        exempt_roles: List of roles that are exempt from MFA requirement
+
+    Returns:
+        Decorated function that checks MFA status before execution
+
+    Example:
         @require_mfa
         def sensitive_function():
             # Function code here
 
-    Returns:
-        Decorated function that checks MFA status before execution
+        # With parameters
+        @require_mfa(redirect_endpoint='auth.api_mfa_verify', exempt_roles=['system'])
+        def sensitive_api_endpoint():
+            # Function code here
     """
-    from functools import wraps
+    # Handle direct decoration (@require_mfa) vs parameterized (@require_mfa(...))
+    def decorator(view_func):
+        from functools import wraps
+        from .cs_session import is_mfa_verified, mark_requiring_mfa
+        from .cs_authorization import _should_require_mfa
 
-    @wraps(view_func)
-    def decorated_function(*args, **kwargs):
-        if not has_request_context():
-            log_warning("MFA check outside request context")
-            return {"error": "Authentication required"}, 401
+        @wraps(view_func)
+        def decorated_function(*args, **kwargs):
+            # Check request context
+            if not has_request_context():
+                log_warning("MFA check outside request context")
+                return {"error": "Authentication required", "code": "AUTH_REQUIRED"}, 401
 
-        # Check if MFA is verified
-        mfa_verified = session.get('mfa_verified', False)
-        mfa_timestamp = session.get('mfa_verified_at')
+            # Skip MFA check if user role is exempt
+            if exempt_roles and _should_require_mfa(exempt_roles) is False:
+                return view_func(*args, **kwargs)
 
-        # Check if MFA has expired
-        if mfa_verified and mfa_timestamp:
-            try:
-                # Parse the timestamp
-                verified_at = datetime.fromisoformat(mfa_timestamp)
-                # Get MFA timeout from config
-                mfa_timeout = SECURITY_CONFIG.get('MFA_TIMEOUT', 24 * 3600)  # Default: 24 hours
-                # Check if MFA has expired
-                if datetime.now(timezone.utc) - verified_at > timedelta(seconds=mfa_timeout):
-                    mfa_verified = False
-            except (ValueError, TypeError):
-                mfa_verified = False
+            # Check if MFA is globally disabled
+            if has_app_context():
+                mfa_enabled = current_app.config.get('MFA_ENABLED',
+                              SECURITY_CONFIG.get('REQUIRE_MFA_FOR_SENSITIVE', True))
+                if not mfa_enabled:
+                    return view_func(*args, **kwargs)
 
-        if not mfa_verified:
-            # Track metric
-            metrics.increment('security.mfa_required')
+            # Check if MFA is verified using the session utility
+            if not is_mfa_verified():
+                # Mark session as requiring MFA
+                mark_requiring_mfa()
 
-            # User needs to verify MFA
-            if has_app_context() and current_app.config.get('API_REQUEST', False):
-                return {"error": "MFA verification required"}, 403
-            else:
-                from flask import redirect, url_for
-                return redirect(url_for('auth.mfa_verify', next=request.path))
+                # Track metric
+                metrics.increment('security.mfa_required')
 
-        return view_func(*args, **kwargs)
+                # Log security event
+                user_id = None
+                if hasattr(g, 'user_id'):
+                    user_id = g.user_id
+                elif 'user_id' in session:
+                    user_id = session.get('user_id')
 
-    return decorated_function
+                try:
+                    log_security_event(
+                        event_type='mfa_required',
+                        description="MFA verification required for sensitive operation",
+                        severity='info',
+                        user_id=user_id,
+                        ip_address=request.remote_addr,
+                        details={
+                            'endpoint': request.endpoint,
+                            'path': request.path,
+                            'method': request.method
+                        }
+                    )
+                except Exception as e:
+                    log_warning(f"Failed to log MFA requirement: {e}")
+
+                # Handle API requests differently from browser requests
+                is_api = _is_api_request()
+                if is_api:
+                    return {
+                        "error": "MFA verification required",
+                        "code": "MFA_REQUIRED",
+                        "message": "Multi-factor authentication is required for this operation."
+                    }, 403
+                else:
+                    # For browser requests, redirect to MFA verification
+                    from flask import redirect, url_for, flash
+
+                    # Show a flash message if supported
+                    try:
+                        flash('Please complete two-factor authentication to continue.', 'warning')
+                    except RuntimeError:
+                        # Flash not available or no request context
+                        pass
+
+                    # Ensure we can return to the original page
+                    next_url = request.path
+                    query_string = request.query_string.decode('utf-8')
+                    if query_string:
+                        next_url = f"{next_url}?{query_string}"
+
+                    return redirect(url_for(redirect_endpoint, next=next_url))
+
+            return view_func(*args, **kwargs)
+
+        return decorated_function
+
+    # Handle both @require_mfa and @require_mfa(...) syntax
+    if view_func:
+        return decorator(view_func)
+    return decorator
+
+
+def _is_api_request() -> bool:
+    """
+    Determine if the current request is an API request.
+
+    Returns:
+        bool: True if the request is an API request
+    """
+    if not has_request_context():
+        return False
+
+    # Check if explicitly marked as API request
+    if has_app_context() and current_app.config.get('API_REQUEST', False):
+        return True
+
+    # Check common API indicators
+    if request.path.startswith('/api/'):
+        return True
+
+    # Check Accept header for API-like content types
+    accept = request.headers.get('Accept', '')
+    if 'application/json' in accept or 'application/xml' in accept:
+        return True
+
+    # Check if it's an XHR request
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return True
+
+    return False
