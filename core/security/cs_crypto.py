@@ -23,13 +23,8 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 # Internal imports
 from core.utils import log_error
 from extensions import metrics
-from .security_utils import SECURITY_CONFIG
-from core.utils import (
-    detect_file_changes, calculate_file_hash, format_timestamp,
-    log_critical, log_error, log_warning, log_info, log_debug
-)
-
-
+from .cs_constants import SECURITY_CONFIG
+from core.utils import log_error, log_warning
 
 
 def _get_encryption_key() -> bytes:

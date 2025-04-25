@@ -17,10 +17,9 @@ from extensions import db, metrics
 from extensions import get_redis_client
 from .cs_audit import log_security_event
 from .cs_authentication import is_valid_ip
-from .security_utils import SECURITY_CONFIG
+from .cs_constants import SECURITY_CONFIG
 from core.utils import log_error, log_warning, log_info
 from models.audit_log import AuditLog
-
 
 
 def get_suspicious_ips(hours: int = 24, min_attempts: int = 5) -> List[Dict[str, Any]]:

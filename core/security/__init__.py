@@ -34,9 +34,9 @@ from .cs_monitoring import (
     get_active_session_count, is_suspicious_ip, block_ip, check_ip_blocked,
     unblock_ip, get_blocked_ips, detect_permission_issues
 )
-from .security_utils import (
-    initialize_security_components, SECURITY_CONFIG
+from .cs_utils import (
+    initialize_security_components
 )
 
 # Constants available at package level
-from .security_utils import SECURITY_CONFIG
+from .cs_constants import SECURITY_CONFIG

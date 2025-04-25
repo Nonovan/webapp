@@ -12,6 +12,7 @@ from models.security_incident import SecurityIncident
 from extensions import db, metrics
 from extensions import get_redis_client
 from core.utils import log_error
+from .cs_constants import SECURITY_CONFIG
 from .cs_file_integrity import check_config_integrity, check_critical_file_integrity
 from .cs_monitoring import (
     get_suspicious_ips, get_failed_login_count, get_account_lockout_count,

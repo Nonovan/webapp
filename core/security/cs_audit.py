@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from flask import current_app, request, g, has_request_context, session, has_app_context
 
 # Internal imports
+from .cs_constants import SECURITY_CONFIG
 from models.audit_log import AuditLog
 from extensions import db, metrics
 

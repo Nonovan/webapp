@@ -7,7 +7,9 @@ from flask_login import current_user
 # Internal imports
 from extensions import db, metrics
 from .cs_audit import log_security_event
+from .cs_constants import SECURITY_CONFIG
 from models.audit_log import AuditLog
+
 
 def require_permission(permission: str):
     """

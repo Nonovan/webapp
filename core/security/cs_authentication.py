@@ -13,11 +13,9 @@ from flask import current_app, request, g, has_request_context, session, has_app
 # Internal imports
 from extensions import db, metrics
 from extensions import get_redis_client
-from .security_utils import SECURITY_CONFIG
-from core.utils import (
-    detect_file_changes, calculate_file_hash, format_timestamp,
-    log_critical, log_error, log_warning, log_info, log_debug
-)
+from .cs_constants import SECURITY_CONFIG
+from core.utils import log_error, log_warning, log_info
+
 
 def is_valid_ip(ip: str) -> bool:
     """
@@ -110,6 +108,7 @@ def verify_token(token: str, secret_key: Optional[str] = None) -> Optional[Dict[
         log_error(f'Error verifying token: {e}')
         return None
 
+
 def validate_password_strength(password: str) -> Tuple[bool, List[str]]:
     """
     Validate password strength against security requirements.
@@ -178,6 +177,7 @@ def validate_password_strength(password: str) -> Tuple[bool, List[str]]:
 
     return len(failed_requirements) == 0, failed_requirements
 
+
 def generate_secure_token(length: int = 64, url_safe: bool = True) -> str:
     """
     Generate a cryptographically secure random token.
@@ -202,6 +202,7 @@ def generate_secure_token(length: int = 64, url_safe: bool = True) -> str:
         token = base64.b64encode(token_bytes).decode('utf-8')
 
     return token
+
 
 def regenerate_session() -> bool:
     """
@@ -256,6 +257,7 @@ def regenerate_session() -> bool:
     except Exception as e:
         log_error(f"Failed to regenerate session: {e}")
         return False
+
 
 def invalidate_user_sessions(user_id: int) -> bool:
     """

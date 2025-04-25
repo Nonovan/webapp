@@ -1,6 +1,3 @@
-#
-# File Integrity and Security Functions
-#
 import os
 from typing import List, Dict, Any, Optional, Tuple, Union, Set, TypeVar, cast
 
@@ -17,39 +14,11 @@ from cryptography.hazmat.primitives.serialization import load_pem_public_key
 from models.audit_log import AuditLog
 from extensions import db, metrics
 from cs_audit import log_security_event
+from .cs_constants import SECURITY_CONFIG
 from core.utils import (
     detect_file_changes, calculate_file_hash, format_timestamp,
     log_error, log_warning, log_info, log_debug
 )
-
-
-
-
-
-def _initialize_file_integrity_monitoring():
-    """
-    Initialize file integrity monitoring.
-    """
-    if not has_app_context():
-        return
-
-    # Check if file integrity monitoring is enabled
-    if not current_app.config.get('ENABLE_FILE_INTEGRITY_MONITORING', True):
-        return
-
-    # Get file paths to monitor from configuration
-    critical_files = current_app.config.get('SECURITY_CRITICAL_FILES', [])
-    if not critical_files:
-        return
-
-    # Calculate and store reference hashes
-    try:
-        from core.utils import get_critical_file_hashes
-        hashes = get_critical_file_hashes(critical_files)
-        current_app.config['CRITICAL_FILE_HASHES'] = hashes
-        log_info(f"Initialized file integrity monitoring for {len(hashes)} files")
-    except Exception as e:
-        log_error(f"Failed to initialize file integrity monitoring: {e}")
 
 
 def check_file_integrity(file_path: str, expected_hash: str, algorithm: str = 'sha256') -> bool:
