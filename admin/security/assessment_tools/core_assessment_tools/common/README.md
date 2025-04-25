@@ -1,0 +1,236 @@
+# Common Assessment Components
+
+This directory contains shared utilities and common components used across the security assessment tools in the Cloud Infrastructure Platform. These components provide reusable functionality for security assessments, ensuring consistent behavior, proper security controls, and standardized outputs.
+
+## Contents
+
+- Overview
+- Key Components
+- Directory Structure
+- Configuration
+- Security Features
+- Usage Examples
+- Best Practices
+- Related Documentation
+
+## Overview
+
+The common components provide a foundation for all security assessment tools, implementing core functionality for assessment execution, result processing, evidence collection, and secure logging. These shared utilities ensure that all assessment tools follow consistent patterns, maintain proper security controls, and generate standardized outputs that can be easily aggregated and analyzed.
+
+## Key Components
+
+- **`assessment_engine.py`**: Core assessment functionality
+  - Standardized assessment execution framework
+  - Assessment state management
+  - Progress tracking and reporting
+  - Plugin architecture for assessment modules
+  - Consistent error handling and recovery
+  - Resource management and cleanup
+
+- **`result_formatter.py`**: Assessment result formatting
+  - Structured output generation (JSON, CSV, XML)
+  - Finding severity classification
+  - CVSS score calculation
+  - Compliance mapping support
+  - Report template rendering
+  - Evidence linking and attachment
+
+- **`evidence_collector.py`**: Assessment evidence collection
+  - Secure evidence gathering and storage
+  - Screenshot capture functionality
+  - File and configuration extraction
+  - Response data collection
+  - Evidence chain of custody tracking
+  - Evidence metadata management
+
+- **`assessment_logging.py`**: Secure logging functionality
+  - Assessment activity audit logging
+  - Structured log formats
+  - Sensitive data filtering
+  - Log integrity protection
+  - Log aggregation support
+  - Performance impact minimization
+
+- **`__init__.py`**: Package initialization
+  - Module exports
+  - Version information
+  - Dependency checks
+  - Configuration validation
+
+## Directory Structure
+
+```plaintext
+admin/security/assessment_tools/core_assessment_tools/common/
+├── __init__.py               # Package initialization
+├── assessment_engine.py      # Core assessment functionality
+├── assessment_logging.py     # Secure logging functionality
+├── evidence_collector.py     # Assessment evidence collection
+├── README.md                 # This documentation
+└── result_formatter.py       # Assessment result formatting
+```
+
+## Configuration
+
+The common components use configuration from the parent assessment tools directory:
+
+```python
+# Example of configuration loading in common components
+import os
+import json
+from pathlib import Path
+from typing import Dict, Any, Optional
+
+def get_config_path() -> Path:
+    """Get the path to configuration files."""
+    # Start with current directory and navigate to config files
+    current_dir = Path(__file__).parent
+    config_path = current_dir.parent.parent / "config_files"
+
+    if not config_path.exists():
+        raise FileNotFoundError(f"Configuration directory not found: {config_path}")
+
+    return config_path
+
+def load_common_config() -> Dict[str, Any]:
+    """Load common configuration used by all assessment components."""
+    config_path = get_config_path() / "common_config.json"
+
+    if not config_path.exists():
+        raise FileNotFoundError(f"Common configuration file not found: {config_path}")
+
+    with open(config_path, 'r') as f:
+        return json.load(f)
+
+def get_evidence_storage_path() -> Path:
+    """Get the path for storing assessment evidence."""
+    config = load_common_config()
+    base_path = Path(config.get('evidence_storage_path', '/tmp/assessment_evidence'))
+
+    # Create directory if it doesn't exist
+    os.makedirs(base_path, exist_ok=True)
+
+    return base_path
+```
+
+## Security Features
+
+- **Authentication**: Components verify caller authentication before executing sensitive operations
+- **Least Privilege**: Functions operate with minimal required permissions
+- **Input Validation**: All inputs are validated before processing
+- **Output Sanitization**: Sensitive data is filtered from outputs and logs
+- **Evidence Protection**: Assessment evidence is securely stored with integrity verification
+- **Audit Logging**: All component operations are logged for accountability
+- **Secure Defaults**: Conservative defaults requiring explicit opt-in for invasive operations
+- **Rate Limiting**: Built-in protection against resource exhaustion
+- **Error Handling**: Secure error handling preventing information leakage
+- **Secure Cleanup**: Guaranteed resource cleanup even during exceptions
+
+## Usage Examples
+
+### Assessment Engine
+
+```python
+from common.assessment_engine import AssessmentEngine, AssessmentTarget
+from common.assessment_logging import setup_assessment_logging
+
+# Setup assessment logging
+logger = setup_assessment_logging("vulnerability_scan")
+
+# Create assessment target
+target = AssessmentTarget(
+    target_id="web-server-01",
+    target_type="server",
+    ip_address="10.0.0.15",
+    hostname="web-server-01.example.com"
+)
+
+# Create and run assessment
+assessment = AssessmentEngine(
+    name="Vulnerability Scan",
+    target=target,
+    profile_name="production",
+    output_format="detailed",
+    non_invasive=True
+)
+
+try:
+    assessment.initialize()
+    assessment.run()
+    results = assessment.get_results()
+    assessment.cleanup()
+except Exception as e:
+    logger.error("Assessment failed: %s", str(e))
+    assessment.cleanup()
+```
+
+### Evidence Collection
+
+```python
+from common.evidence_collector import EvidenceCollector
+from datetime import datetime
+
+# Create evidence collector for an assessment
+collector = EvidenceCollector(
+    assessment_id="vuln-scan-20240712-01",
+    target_id="db-server-03",
+    assessor="security-team"
+)
+
+# Collect various types of evidence
+collector.collect_file("/etc/nginx/nginx.conf")
+collector.collect_command_output("netstat -tuln")
+collector.collect_screenshot("login_page")
+collector.add_text_evidence("Found unencrypted password in config file",
+                           severity="critical")
+
+# Finalize and get evidence report
+evidence_report = collector.finalize()
+evidence_path = collector.get_evidence_path()
+```
+
+### Result Formatting
+
+```python
+from common.result_formatter import ResultFormatter
+from common.assessment_engine import AssessmentResults
+
+# Format assessment results
+formatter = ResultFormatter()
+formatted_results = formatter.format(
+    results=assessment_results,
+    format_type="json",
+    include_evidence=True,
+    filter_severity=["critical", "high"],
+    compliance_map=["pci-dss", "nist"],
+)
+
+# Write results to file
+formatter.write_to_file(
+    formatted_results,
+    "/var/reports/assessment-2024-07-15.json"
+)
+
+# Generate executive summary
+summary = formatter.generate_summary(assessment_results)
+```
+
+## Best Practices
+
+- **Component Re-use**: Use these shared components rather than duplicating functionality
+- **Error Handling**: Always use try/except blocks when calling component methods
+- **Resource Cleanup**: Call cleanup methods even when exceptions occur
+- **Configuration Validation**: Validate configuration before beginning assessment
+- **Evidence Collection**: Collect evidence methodically with proper documentation
+- **Sensitive Data**: Never log credentials or sensitive configuration details
+- **Access Control**: Verify user permissions before running assessments
+- **Rate Limiting**: Implement appropriate delays for scanning operations
+- **Integration**: Follow the established patterns when integrating with other tools
+
+## Related Documentation
+
+- Security Assessment Methodology
+- Assessment Tools User Guide
+- Security Baseline Management
+- Vulnerability Management Process
+- Compliance Framework Documentation
+- Evidence Handling Guide

@@ -1,28 +1,23 @@
 # Forensic Analysis Toolkit
 
-Based on my analysis of your Cloud Infrastructure Platform's architecture and existing security components, here's a comprehensive inventory of files that should be included in the forensics directory following your project's established security standards and coding practices.
+This directory contains tools for collecting, preserving, and analyzing digital evidence during security incident investigations. These tools follow proper evidence handling procedures to ensure findings can be used for internal investigation, remediation, and potentially in legal proceedings.
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- Configuration
-- Security Features
-- Usage Examples
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Configuration](#configuration)
+- [Security Features](#security-features)
+- [Integration](#integration)
+- [Usage Examples](#usage-examples)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
-The Forensic Analysis Toolkit provides tools for collecting, preserving, and analyzing digital evidence during security incident investigations. These tools follow proper evidence handling procedures to ensure findings can be used for internal investigation, remediation, and in legal proceedings if necessary.
+The Forensic Analysis Toolkit provides comprehensive capabilities for digital evidence handling throughout the incident response lifecycle. Following forensic best practices and legal requirements, these tools ensure proper evidence collection, preservation, analysis, and documentation. The toolkit implements secure handling procedures and maintains detailed chain of custody records to support both internal security investigations and potential legal proceedings.
 
 ## Key Components
-
-- **`collect_evidence.py`**: Evidence collection script for security incidents
-  - Securely captures system state, memory, and logs
-  - Creates forensic images with hash verification
-  - Establishes chain of custody for collected evidence
-  - Documents all collection procedures automatically
 
 - **`analyze_memory.py`**: Memory forensics utility
   - Analyzes process memory dumps for malicious artifacts
@@ -30,11 +25,29 @@ The Forensic Analysis Toolkit provides tools for collecting, preserving, and ana
   - Detects hidden processes and rootkits
   - Extracts strings and artifacts from memory
 
+- **`chain_of_custody.py`**: Evidence handling documentation
+  - Creates and maintains chain of custody records
+  - Tracks all access to evidence
+  - Generates legally-sound documentation
+  - Ensures evidence integrity verification
+
+- **`collect_evidence.py`**: Evidence collection script for security incidents
+  - Securely captures system state, memory, and logs
+  - Creates forensic images with hash verification
+  - Establishes chain of custody for collected evidence
+  - Documents all collection procedures automatically
+
 - **`disk_forensics.py`**: Disk analysis toolkit
   - File system timeline analysis
   - Deleted file recovery
   - Hidden data detection
   - Artifact identification and extraction
+
+- **`malware_analysis.sh`**: Isolated malware analysis environment
+  - Static analysis of suspicious files
+  - Behavioral analysis in sandboxed environment
+  - Hash comparison with known malware
+  - Reporting of indicators of compromise
 
 - **`network_capture.py`**: Network traffic analysis tools
   - Packet capture with filtering options
@@ -48,51 +61,74 @@ The Forensic Analysis Toolkit provides tools for collecting, preserving, and ana
   - Correlates log entries across systems
   - Exports timelines in various formats
 
-- **`malware_analysis.sh`**: Isolated malware analysis environment
-  - Static analysis of suspicious files
-  - Behavioral analysis in sandboxed environment
-  - Hash comparison with known malware
-  - Reporting of indicators of compromise
-
-- **`chain_of_custody.py`**: Evidence handling documentation
-  - Creates and maintains chain of custody records
-  - Tracks all access to evidence
-  - Generates legally-sound documentation
-  - Ensures evidence integrity verification
-
 ## Directory Structure
 
 ```plaintext
 admin/security/forensics/
 ├── README.md                     # This documentation
-├── collect_evidence.py           # Evidence collection script
 ├── analyze_memory.py             # Memory forensics utility
-├── disk_forensics.py             # Disk analysis toolkit
-├── network_capture.py            # Network traffic analysis tools
-├── timeline_builder.py           # Investigation timeline creation
-├── malware_analysis.sh           # Isolated malware analysis environment
 ├── chain_of_custody.py           # Evidence handling documentation
-├── live_response/                # Live system investigation tools
-│   ├── memory_acquisition.sh     # Memory capture tools
-│   ├── volatile_data.sh          # Volatile data collection
-│   └── network_state.sh          # Network connection capture
-├── static_analysis/              # Static analysis tools
-│   ├── file_analyzer.py          # File structure analyzer
-│   ├── signature_checker.py      # File signature verification
-│   └── hash_compare.py           # Hash comparison tool
-├── templates/                    # Report and documentation templates
-│   ├── incident_report.md        # Incident report template
-│   ├── evidence_log.md           # Evidence log template
-│   └── timeline_template.md      # Timeline template
+├── collect_evidence.py           # Evidence collection script
 ├── config/                       # Configuration files
 │   ├── analysis_profiles.json    # Analysis configuration profiles
 │   ├── collection_config.json    # Evidence collection settings
 │   └── sensitive_paths.json      # Sensitive file location reference
+├── disk_forensics.py             # Disk analysis toolkit
+├── live_response/                # Live system investigation tools
+│   ├── README.md                 # Live response documentation
+│   ├── memory_acquisition.sh     # Memory capture tools
+│   ├── network_state.sh          # Network connection capture
+│   └── volatile_data.sh          # Volatile data collection
+├── malware_analysis.sh           # Isolated malware analysis environment
+├── network_capture.py            # Network traffic analysis tools
+├── static_analysis/              # Static analysis tools
+│   ├── README.md                 # Static analysis documentation
+│   ├── common/                   # Common components for static analysis
+│   │   ├── README.md             # Common components documentation
+│   │   ├── file_utils.py         # File handling utilities
+│   │   ├── hash_utils.py         # Hashing functionality
+│   │   ├── signature_db/         # Signature databases
+│   │   │   ├── README.md         # Signature database documentation
+│   │   │   ├── code_signing/     # Trusted code signing certificates
+│   │   │   ├── file_types/       # File type signatures
+│   │   │   └── malware/          # Malware signature database
+│   │   └── yara_rules/           # YARA rule definitions
+│   │       ├── README.md         # YARA rules documentation
+│   │       ├── malware/          # Malware-specific rules
+│   │       ├── ransomware/       # Ransomware-specific rules
+│   │       └── suspicious/       # General suspicious pattern rules
+│   ├── file_analyzer.py          # File structure analyzer
+│   ├── hash_compare.py           # Hash calculation and comparison tool
+│   ├── memory_string_analyzer.py # Memory string analysis tool
+│   └── signature_checker.py      # File signature verification
+├── templates/                    # Report and documentation templates
+│   ├── README.md                 # Templates documentation
+│   ├── analysis_documents/       # Analysis documentation templates
+│   │   ├── artifact_analysis.md  # Artifact analysis template
+│   │   ├── malware_report.md     # Malware analysis report template
+│   │   └── timeline_template.md  # Event timeline template
+│   ├── evidence_handling/        # Evidence documentation templates
+│   │   ├── chain_of_custody.md   # Chain of custody form
+│   │   ├── evidence_inventory.md # Evidence inventory template
+│   │   └── evidence_log.md       # Evidence collection log template
+│   └── incident_documentation/   # Incident reporting templates
+│       ├── executive_summary.md  # Management briefing template
+│       ├── incident_report.md    # Complete incident report template
+│       └── preliminary_report.md # Initial assessment template
+├── timeline_builder.py           # Investigation timeline creation
 └── utils/                        # Shared utilities
-    ├── sanitize.py               # Data sanitization utilities
+    ├── README.md                 # Utilities documentation
     ├── crypto.py                 # Cryptographic verification tools
+    ├── evidence_tracker.py       # Evidence management utilities
+    ├── file_utils.py             # Forensic file operations
+    ├── forensic_constants.py     # Common constants and configurations
+    ├── format_converter.py       # File format conversion utilities
     ├── logging_utils.py          # Secure logging utilities
-    └── timestamp_utils.py        # Timestamp normalization tools
+    ├── network_utils.py          # Network forensics utilities
+    ├── report_builder.py         # Report generation utilities
+    ├── sanitize.py               # Data sanitization utilities
+    ├── timestamp_utils.py        # Timestamp normalization tools
+    └── validation_utils.py       # Input validation functions
 ```
 
 ## Configuration
@@ -117,16 +153,34 @@ The forensic toolkit uses configuration files to ensure consistent operation:
 
 ## Security Features
 
-- **Evidence Integrity**: All collected evidence is hashed with SHA-256 to verify integrity
-- **Chain of Custody**: Comprehensive chain of custody tracking from collection to analysis
 - **Access Controls**: Role-based access restrictions for forensic tools and evidence
-- **Secure Storage**: Encryption of sensitive artifacts and evidence
-- **Audit Logging**: Detailed logging of all forensic activities for verification
-- **Memory Protection**: Safeguards against memory contamination during acquisition
 - **Anti-Tampering**: Detection of evidence tampering attempts
-- **Isolation**: Options for network isolation during evidence collection
+- **Audit Logging**: Detailed logging of all forensic activities for verification
+- **Chain of Custody**: Comprehensive chain of custody tracking from collection to analysis
 - **Data Sanitization**: Removal of sensitive data from reports when needed
+- **Evidence Integrity**: All collected evidence is hashed with SHA-256 to verify integrity
+- **Isolation**: Options for network isolation during evidence collection
+- **Memory Protection**: Safeguards against memory contamination during acquisition
 - **Read-Only Operations**: Default use of read-only tools to preserve evidence
+- **Secure Storage**: Encryption of sensitive artifacts and evidence
+
+## Integration
+
+These forensic analysis tools integrate with other components of the security framework:
+
+- **Incident Response**: Direct integration with the incident response workflow and kit
+- **Security Monitoring**: Correlation with security monitoring alerts and timeline
+- **Threat Intelligence**: IOC extraction for threat intelligence enrichment
+- **Compliance Reporting**: Evidence collection to support compliance requirements
+- **Security Auditing**: Integration with security audit findings and reports
+- **Documentation**: Automated documentation for legal and compliance purposes
+
+The toolkit also supports:
+
+- Evidence findings export to the security dashboard
+- IOC extraction for security monitoring systems
+- Integration with the central incident tracking system
+- Export capabilities for regulatory and legal reporting
 
 ## Usage Examples
 
@@ -176,10 +230,26 @@ The forensic toolkit uses configuration files to ensure consistent operation:
     --format json,csv
 ```
 
+### Static Analysis
+
+```bash
+# Analyze file structure and extract metadata
+./static_analysis/file_analyzer.py --file /secure/evidence/incident-42/suspicious.exe \
+    --extract-strings \
+    --extract-resources \
+    --entropy-analysis \
+    --output /secure/evidence/incident-42/analysis/file_analysis.json
+
+# Check against malware signatures
+./static_analysis/signature_checker.py --file /secure/evidence/incident-42/suspicious.js \
+    --yara-rules common/yara_rules/suspicious/ \
+    --output /secure/evidence/incident-42/analysis/yara_matches.json
+```
+
 ## Related Documentation
 
-- Incident Response Plan
-- Evidence Handling Guidelines
-- Digital Forensics Procedures
 - Chain of Custody Requirements
+- Digital Forensics Procedures
+- Evidence Handling Guidelines
+- Incident Response Plan
 - Legal and Compliance Considerations
