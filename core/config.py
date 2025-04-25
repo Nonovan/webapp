@@ -21,6 +21,7 @@ Configuration priorities:
 from datetime import datetime, timedelta, timezone
 import hashlib
 import ipaddress
+import json
 import logging
 import os
 import secrets
@@ -178,6 +179,16 @@ class Config:
         'ENABLE_FILE_INTEGRITY_MONITORING': True,
         'FILE_HASH_ALGORITHM': 'sha256',
         'FILE_INTEGRITY_CHECK_INTERVAL': 3600,  # 1 hour
+        'AUTO_UPDATE_BASELINE': False,  # Don't auto-update baseline by default
+        'CRITICAL_FILES_PATTERN': [
+            "*.py",                 # Python source files
+            "config/*.ini",         # Configuration files
+            "config/*.json",        # JSON configuration
+            "config/*.yaml",        # YAML configuration
+            "config/*.yml",         # YAML configuration (alt)
+        ],
+        'CHECK_FILE_SIGNATURES': True,  # Verify file signatures where applicable
+        'FILE_BASELINE_PATH': None,    # Set dynamically in _setup_derived_values
 
         # API security settings
         'API_RATE_LIMIT_ENABLED': True,
@@ -196,6 +207,7 @@ class Config:
         'METRICS_ENABLED': True,
         'LOG_LEVEL': 'DEBUG',
         'API_REQUIRE_HTTPS': False,  # Allow HTTP in dev for easier testing
+        'AUTO_UPDATE_BASELINE': True,  # Auto-update baseline in dev
     }
 
     # Test-specific overrides
@@ -283,8 +295,22 @@ class Config:
 
         # Initialize file integrity monitoring if enabled
         if app.config.get('ENABLE_FILE_INTEGRITY_MONITORING', True):
-            app.config = cls.initialize_file_hashes(app.config, app.root_path)
-            cls.logger.info("File integrity monitoring initialized")
+            try:
+                # Try to use the improved cs_file_integrity module
+                from core.security.cs_file_integrity import initialize_file_monitoring
+
+                # Initialize file monitoring with appropriate patterns and interval
+                basedir = app.root_path
+                patterns = app.config.get('CRITICAL_FILES_PATTERN')
+                interval = app.config.get('FILE_INTEGRITY_CHECK_INTERVAL', 3600)
+
+                initialize_file_monitoring(app, basedir, patterns, interval)
+                cls.logger.info("File integrity monitoring initialized")
+
+            except ImportError:
+                # Fall back to basic file integrity checks
+                app.config = cls.initialize_file_hashes(app.config, app.root_path)
+                cls.logger.info("Basic file integrity monitoring initialized (cs_file_integrity not available)")
 
         # Log initialization complete with security-relevant info
         cls.security_logger.info(
@@ -349,6 +375,9 @@ class Config:
         # Handle ICS restricted IPs - parse as valid IP addresses
         cls._load_ips_from_environment(app)
 
+        # Load file integrity monitoring configuration
+        cls._load_integrity_config_from_environment(app)
+
     @staticmethod
     def _convert_env_value(value: str) -> Any:
         """
@@ -401,6 +430,58 @@ class Config:
                 cls.logger.info(f"Loaded {len(ip_list)} restricted IPs for ICS access")
             except ValueError as e:
                 cls.logger.error(f"Error parsing ICS_RESTRICTED_IPS: {str(e)}")
+
+    @classmethod
+    def _load_integrity_config_from_environment(cls, app: Flask) -> None:
+        """
+        Load file integrity monitoring configuration from environment variables.
+
+        Args:
+            app: Flask application instance
+        """
+        # File integrity monitoring enabled/disabled
+        if 'ENABLE_FILE_INTEGRITY_MONITORING' in os.environ:
+            app.config['ENABLE_FILE_INTEGRITY_MONITORING'] = cls._convert_env_value(
+                os.environ['ENABLE_FILE_INTEGRITY_MONITORING']
+            )
+
+        # File integrity check interval
+        if 'FILE_INTEGRITY_CHECK_INTERVAL' in os.environ:
+            try:
+                interval = int(os.environ['FILE_INTEGRITY_CHECK_INTERVAL'])
+                # Enforce minimum interval to prevent performance issues
+                if interval < 300:  # 5 minutes minimum
+                    interval = 300
+                    cls.logger.warning("FILE_INTEGRITY_CHECK_INTERVAL too low, setting to 300 seconds minimum")
+                app.config['FILE_INTEGRITY_CHECK_INTERVAL'] = interval
+            except ValueError:
+                cls.logger.warning("Invalid FILE_INTEGRITY_CHECK_INTERVAL value, using default")
+
+        # Auto-update baseline setting
+        if 'AUTO_UPDATE_BASELINE' in os.environ:
+            app.config['AUTO_UPDATE_BASELINE'] = cls._convert_env_value(
+                os.environ['AUTO_UPDATE_BASELINE']
+            )
+
+        # Check file signatures setting
+        if 'CHECK_FILE_SIGNATURES' in os.environ:
+            app.config['CHECK_FILE_SIGNATURES'] = cls._convert_env_value(
+                os.environ['CHECK_FILE_SIGNATURES']
+            )
+
+        # Critical file patterns
+        if 'CRITICAL_FILES_PATTERN' in os.environ:
+            try:
+                patterns = json.loads(os.environ['CRITICAL_FILES_PATTERN'])
+                if isinstance(patterns, list):
+                    app.config['CRITICAL_FILES_PATTERN'] = patterns
+                else:
+                    cls.logger.warning("CRITICAL_FILES_PATTERN should be a JSON array, using default")
+            except json.JSONDecodeError:
+                # Try comma-separated list
+                patterns = [p.strip() for p in os.environ['CRITICAL_FILES_PATTERN'].split(',') if p.strip()]
+                if patterns:
+                    app.config['CRITICAL_FILES_PATTERN'] = patterns
 
     @staticmethod
     def _sanitize_database_url(url: str) -> str:
@@ -474,6 +555,18 @@ class Config:
         if app.config.get('PERMANENT_SESSION_LIFETIME', timedelta(days=31)) > timedelta(days=30):
             cls.security_logger.warning("PERMANENT_SESSION_LIFETIME exceeds recommended 30 days")
 
+        # Check if file integrity monitoring is disabled in production
+        if not app.config.get('ENABLE_FILE_INTEGRITY_MONITORING', True):
+            cls.security_logger.warning("File integrity monitoring disabled in production environment")
+
+        # Check auto-update baseline in production (should be false)
+        if app.config.get('AUTO_UPDATE_BASELINE', False):
+            cls.security_logger.warning("AUTO_UPDATE_BASELINE should be disabled in production")
+
+        # Check if audit logging is properly configured
+        if app.config.get('AUDIT_LOG_ENABLED', True) and app.config.get('AUDIT_LOG_RETENTION_DAYS', 90) < 30:
+            cls.security_logger.warning("AUDIT_LOG_RETENTION_DAYS should be at least 30 days in production")
+
     @classmethod
     def _setup_derived_values(cls, app: Flask) -> None:
         """
@@ -546,6 +639,18 @@ class Config:
         except (IOError, OSError) as e:
             cls.logger.error(f"Failed to create temp directory: {str(e)}")
 
+        # Set up file baseline path if file integrity monitoring is enabled
+        if app.config.get('ENABLE_FILE_INTEGRITY_MONITORING', True):
+            if 'FILE_BASELINE_PATH' not in app.config or not app.config['FILE_BASELINE_PATH']:
+                # Set baseline path in instance directory
+                app.config['FILE_BASELINE_PATH'] = os.path.join(app.instance_path, 'file_baseline.json')
+
+            # Ensure instance directory exists
+            try:
+                os.makedirs(os.path.dirname(app.config['FILE_BASELINE_PATH']), exist_ok=True)
+            except OSError as e:
+                cls.logger.error(f"Failed to create baseline directory: {str(e)}")
+
     @classmethod
     def _get_application_version(cls) -> str:
         """
@@ -596,6 +701,7 @@ class Config:
                 'ENABLE_AUTO_COUNTERMEASURES': False,
                 'SESSION_COOKIE_SECURE': False,
                 'SESSION_COOKIE_HTTPONLY': True,
+                'AUTO_UPDATE_BASELINE': True,
             },
             'production': {
                 'DEBUG': False,
@@ -604,6 +710,7 @@ class Config:
                 'SESSION_COOKIE_SECURE': True,
                 'SESSION_COOKIE_HTTPONLY': True,
                 'SESSION_COOKIE_SAMESITE': 'Lax',
+                'AUTO_UPDATE_BASELINE': False,
             },
             'testing': {
                 'DEBUG': False,
@@ -611,6 +718,7 @@ class Config:
                 'ENABLE_AUTO_COUNTERMEASURES': False,
                 'WTF_CSRF_ENABLED': False,
                 'SESSION_COOKIE_SECURE': False,
+                'ENABLE_FILE_INTEGRITY_MONITORING': False,
             },
             'staging': {
                 'DEBUG': False,
@@ -619,6 +727,7 @@ class Config:
                 'SESSION_COOKIE_SECURE': True,
                 'SESSION_COOKIE_HTTPONLY': True,
                 'SESSION_COOKIE_SAMESITE': 'Lax',
+                'AUTO_UPDATE_BASELINE': False,
             }
         }
 
@@ -686,6 +795,20 @@ class Config:
             os.path.join(app_root, 'models', 'user.py')
         ]
 
+        # Include security module files
+        security_dir = os.path.join(app_root, 'core', 'security')
+        if os.path.exists(security_dir):
+            security_files = [
+                os.path.join(security_dir, 'cs_constants.py'),
+                os.path.join(security_dir, 'cs_utils.py'),
+                os.path.join(security_dir, 'cs_file_integrity.py'),
+                os.path.join(security_dir, 'cs_audit.py'),
+                os.path.join(security_dir, 'cs_authentication.py'),
+                os.path.join(security_dir, 'cs_authorization.py'),
+                os.path.join(security_dir, 'cs_crypto.py'),
+            ]
+            critical_files.extend([f for f in security_files if os.path.exists(f)])
+
         # Compute hashes for config files
         config_hashes = cls._compute_file_hashes(
             config_files,
@@ -703,7 +826,8 @@ class Config:
             os.path.join(app_root, 'core'),
             os.path.join(app_root, 'models'),
             os.path.join(app_root, 'blueprints', 'auth'),
-            os.path.join(app_root, 'blueprints', 'monitoring')
+            os.path.join(app_root, 'blueprints', 'monitoring'),
+            os.path.join(app_root, 'core', 'security')
         ]
 
         # Update configuration
@@ -832,6 +956,51 @@ class Config:
 
         try:
             app = current_app
+
+            # Try to use the integrated cs_file_integrity module first
+            try:
+                from core.security.cs_file_integrity import check_critical_file_integrity
+
+                status, changes = check_critical_file_integrity(app)
+
+                # If successful, format the result in the expected format
+                integrity_status = {}
+
+                if changes:  # If there are changes (integrity violations)
+                    for change in changes:
+                        path = change.get('path')
+                        if path:
+                            integrity_status[path] = False
+
+                            # Log the issue with appropriate severity
+                            severity = change.get('severity', 'medium')
+                            status = change.get('status', 'unknown')
+
+                            if severity == 'critical':
+                                cls.security_logger.critical(
+                                    f"Critical integrity violation: {path} ({status})"
+                                )
+                            elif severity == 'high':
+                                cls.security_logger.error(
+                                    f"High severity integrity violation: {path} ({status})"
+                                )
+                            else:
+                                cls.security_logger.warning(
+                                    f"Integrity violation: {path} ({status})"
+                                )
+
+                # Mark files that were checked and not modified as valid
+                for file_path in app.config.get('CRITICAL_FILE_HASHES', {}):
+                    if file_path not in integrity_status:
+                        integrity_status[file_path] = True
+
+                return integrity_status
+
+            except ImportError:
+                # Fall back to the basic implementation
+                cls.security_logger.debug("Using basic file integrity check")
+
+            # Basic implementation (fallback)
             integrity_status = {}
 
             # Check config files

@@ -4,15 +4,15 @@ This directory contains core components and utilities that provide the foundatio
 
 ## Contents
 
-- [Overview](#overview)
-- [Key Components](#key-components)
-- [Directory Structure](#directory-structure)
-- [Configuration](#configuration)
-- [Best Practices & Security](#best-practices--security)
-- [Common Features](#common-features)
-- [Usage Examples](#usage-examples)
-- [Related Documentation](#related-documentation)
-- [Version Information](#version-information)
+- Overview
+- Key Components
+- Directory Structure
+- Configuration
+- Best Practices & Security
+- Common Features
+- Usage Examples
+- Related Documentation
+- Version Information
 
 ## Overview
 
@@ -24,46 +24,40 @@ The core package serves as the backbone of the Cloud Infrastructure Platform, pr
   - Provides hierarchical configuration with sensible defaults and environment overrides
   - Implements security configuration validation for production environments
   - Manages feature flags and environment-specific settings
-
 - **`factory.py`**: Application factory for Flask application initialization
   - Creates and configures the Flask application with appropriate settings
   - Registers extensions, blueprints, and error handlers
   - Sets up logging and monitoring infrastructure
-
 - **`health.py`**: Health check functionality for system monitoring
   - Implements comprehensive health checks for all system components
   - Provides status reporting for external monitoring systems
   - Supports dependency health verification (database, cache, external services)
-
+  - Includes file integrity monitoring status verification
 - **`loggings.py`**: Centralized logging configuration
   - Configures structured logging with appropriate formatting
   - Implements security event logging with proper sanitization
   - Provides context-aware logging with request IDs and correlation
-
+  - Contains file integrity monitoring event handlers and reporting
 - **`metrics.py`**: System and application metrics collection
   - Tracks performance metrics for API endpoints and critical functions
   - Monitors system resource utilization (CPU, memory, connections)
   - Provides security metrics for compliance and monitoring
-
+  - Records file integrity verification metrics and status
 - **`middleware.py`**: HTTP request/response middleware
   - Implements security headers (CSP, HSTS, XSS protection)
   - Sets up request timing and performance tracking
   - Provides response compression and request logging
-
-- **`security_utils.py`**: Security utilities and helpers
-  - Implements secure cryptographic operations
-  - Provides input validation and sanitization
-  - Manages security controls and audit logging
-
-- **`seeder.py`**: Data seeding functionality
-  - Populates initial data for development and testing
-  - Creates default users, roles, and permissions
-  - Sets up sample cloud resources and configurations
-
+  - Performs periodic file integrity checks during requests
 - **`utils.py`**: General utility functions
   - Provides commonly used helper functions
   - Implements reusable patterns across the application
   - Contains formatting and conversion utilities
+  - Includes file integrity verification and baseline management
+- **`seeder.py`**: Data seeding functionality
+  - Populates initial data for development and testing
+  - Creates default users, roles, and permissions
+  - Sets up sample cloud resources and configurations
+  - Generates file integrity test scenarios and baseline data
 
 ## Directory Structure
 
@@ -77,12 +71,25 @@ core/
 ├── metrics.py            # Metrics collection
 ├── middleware.py         # HTTP middleware
 ├── README.md             # This documentation
-├── security_utils.py     # Security utilities
 ├── seeder.py             # Data seeding functionality
 ├── utils.py              # General utilities
+├── security/             # Security components
+│   ├── __init__.py       # Security package initialization
+│   ├── cs_audit.py       # Security audit implementation
+│   ├── cs_authentication.py # Authentication services
+│   ├── cs_authorization.py  # Authorization services
+│   ├── cs_constants.py      # Security constants
+│   ├── cs_crypto.py         # Cryptographic operations
+│   ├── cs_file_integrity.py # File integrity monitoring
+│   ├── cs_metrics.py        # Security metrics
+│   ├── cs_monitoring.py     # Security monitoring
+│   ├── cs_session.py        # Session management
+│   ├── cs_utils.py          # Security utilities
+│   └── README.md            # Security module documentation
 └── templates/            # Core templates
     ├── errors/           # Error page templates
     └── layouts/          # Base layout templates
+
 ```
 
 ## Configuration
@@ -110,7 +117,16 @@ The core package uses the following configuration settings:
 'FEATURE_DARK_MODE': True,
 'FEATURE_ICS_CONTROL': True,
 'FEATURE_CLOUD_MANAGEMENT': True,
-'FEATURE_MFA': True
+'FEATURE_MFA': True,
+
+# File integrity monitoring settings
+'ENABLE_FILE_INTEGRITY_MONITORING': True,
+'FILE_INTEGRITY_CHECK_FREQUENCY': 100,
+'SECURITY_CRITICAL_FILES': ['app.py', 'config.py', 'core/security_utils.py', 'core/middleware.py'],
+'FILE_HASH_ALGORITHM': 'sha256',
+'AUTO_UPDATE_BASELINE': False,
+'FILE_BASELINE_PATH': 'instance/file_baseline.json'
+
 ```
 
 ## Best Practices & Security
@@ -124,6 +140,8 @@ The core package uses the following configuration settings:
 - **Circuit Breakers**: External service calls implement circuit breakers to prevent cascading failures
 - **Resource Protection**: Rate limiting and resource quotas prevent abuse
 - **Configuration Validation**: Security-critical configuration is validated before application startup
+- **File Integrity Monitoring**: Critical system files are monitored for unauthorized changes
+- **Baseline Management**: Secure handling of integrity baselines with controlled updates
 
 ## Common Features
 
@@ -134,6 +152,9 @@ The core package uses the following configuration settings:
 - Comprehensive health check system
 - Structured metrics collection
 - Standardized error handling
+- File integrity verification
+- Security event correlation
+- Performance-optimized monitoring
 
 ## Usage Examples
 
@@ -144,6 +165,7 @@ from core.factory import create_app
 
 # Create application instance with production config
 app = create_app('production')
+
 ```
 
 ### Security Headers
@@ -154,6 +176,7 @@ from core.middleware import init_middleware
 
 app = Flask(__name__)
 init_middleware(app)  # Sets up security headers, CSP, etc.
+
 ```
 
 ### Metrics Collection
@@ -165,6 +188,7 @@ from core.metrics import track_metrics
 def register_user(data):
     # Function implementation
     pass
+
 ```
 
 ### Health Checks
@@ -176,6 +200,33 @@ from core.health import healthcheck
 def health():
     result = healthcheck()
     return jsonify(result)
+
+```
+
+### File Integrity Monitoring
+
+```python
+from core.security.cs_file_integrity import check_critical_file_integrity
+
+# Verify integrity of security-critical files
+is_valid, changes = check_critical_file_integrity()
+if not is_valid:
+    log_security_event("file_integrity_violation", f"Detected {len(changes)} modified files")
+
+```
+
+### Updating Integrity Baseline
+
+```python
+from core.utils import update_file_integrity_baseline
+
+# Create or update a file integrity baseline
+success, message = update_file_integrity_baseline(
+    'instance/baseline.json',
+    {'app.py': '5d41402abc4b2a76b9719d911017c592'},
+    remove_missing=True
+)
+
 ```
 
 ### Logging
@@ -185,6 +236,22 @@ from core.loggings import get_logger
 
 logger = get_logger(__name__)
 logger.info("Operation completed", extra={"operation": "user_login", "user_id": user.id})
+
+```
+
+### Logging File Integrity Events
+
+```python
+from core.loggings import log_file_integrity_event
+
+# Log a file integrity event
+log_file_integrity_event(
+    file_path='config.py',
+    status='modified',
+    severity='critical',
+    details={'old_hash': 'abc123', 'new_hash': 'def456'}
+)
+
 ```
 
 ### Core Configuration
@@ -194,11 +261,13 @@ from core.config import Config
 
 db_url = Config.get('DATABASE_URL')
 is_debug = Config.get('DEBUG', False)
+
 ```
 
 ## Related Documentation
 
-- Security Configuration
+- Security Architecture
+- File Integrity Monitoring Guide
 - Monitoring and Metrics
 - Application Architecture
 - Error Handling
@@ -207,5 +276,5 @@ is_debug = Config.get('DEBUG', False)
 ## Version Information
 
 - **Version**: 0.0.1
-- **Last Updated**: 2023-10-15
+- **Last Updated**: 2024-05-20
 - **Maintainers**: Platform Engineering Team
