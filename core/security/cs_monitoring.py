@@ -1,6 +1,15 @@
+"""
+Security monitoring functionality for the Cloud Infrastructure Platform.
+
+This module provides security monitoring capabilities including suspicious IP detection,
+login failure tracking, session monitoring, and security event analytics. These
+functions support real-time security detection and response.
+"""
 
 import os
+import json
 import requests
+import functools
 from datetime import datetime, timedelta, timezone
 from ipaddress import ip_address, ip_network
 from typing import List, Dict, Any, Optional, Tuple, Union, Set, TypeVar, cast
@@ -18,7 +27,7 @@ from extensions import get_redis_client
 from .cs_audit import log_security_event
 from .cs_authentication import is_valid_ip
 from .cs_constants import SECURITY_CONFIG
-from core.utils import log_error, log_warning, log_info
+from core.utils import log_error, log_warning, log_info, log_debug
 from models.audit_log import AuditLog
 
 
@@ -37,24 +46,14 @@ def get_suspicious_ips(hours: int = 24, min_attempts: int = 5) -> List[Dict[str,
         List[Dict[str, Any]]: List of suspicious IPs with their failed login counts
     """
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    cache_key = f"suspicious_ips:{hours}:{min_attempts}"
+
+    # Try to get cached results first
+    cached_data = _get_from_cache(cache_key)
+    if cached_data:
+        return cached_data
 
     try:
-        pass  # Add the intended logic here
-    except Exception as e:
-        log_error(f"An error occurred: {e}")
-        # Use cached results if available
-        redis_client = get_redis_client()
-        cache_key = f"suspicious_ips:{hours}:{min_attempts}"
-
-        if redis_client:
-            cached_data = redis_client.get(cache_key)
-            if cached_data:
-                try:
-                    import json
-                    return json.loads(cached_data)
-                except Exception as e:
-                    log_error(f"Failed to load cached suspicious IPs: {e}")
-
         # Subquery to count failed login attempts by IP
         failed_login_counts = db.session.query(
             AuditLog.ip_address,
@@ -88,28 +87,26 @@ def get_suspicious_ips(hours: int = 24, min_attempts: int = 5) -> List[Dict[str,
             if latest_attempt:
                 ip_data['latest_attempt'] = latest_attempt.isoformat()
 
-            # Add targeted usernames
-            targeted_users = db.session.query(AuditLog.details).filter(
-                AuditLog.event_type == AuditLog.EVENT_LOGIN_FAILED,
-                AuditLog.ip_address == ip,
-                AuditLog.created_at >= cutoff
-            ).limit(5).all()
+            # Check if IP is currently blocked
+            ip_data['is_blocked'] = check_ip_blocked(ip)
 
-            user_details = []
-            for detail in targeted_users:
-                if detail and detail[0]:
-                    user_details.append(detail[0])
+            # Add targeted usernames (from login attempts)
+            targeted_usernames = _get_targeted_usernames(ip, cutoff)
+            if targeted_usernames:
+                ip_data['targeted_users'] = targeted_usernames
 
-            ip_data['targeted_users'] = user_details
+            # Add additional security events from this IP
+            security_events = _get_security_events_for_ip(ip, cutoff)
+            if security_events:
+                ip_data['security_events'] = security_events
+
             result.append(ip_data)
 
         # Cache the results for 5 minutes
-        if redis_client:
-            try:
-                import json
-                redis_client.setex(cache_key, 300, json.dumps(result))
-            except Exception as e:
-                log_error(f"Failed to cache suspicious IPs: {e}")
+        _set_in_cache(cache_key, result, 300)
+
+        # Track metrics
+        metrics.gauge('security.suspicious_ips', len(result))
 
         return result
     except SQLAlchemyError as e:
@@ -127,30 +124,24 @@ def get_failed_login_count(hours: int = 24) -> int:
     Returns:
         int: Count of failed login events
     """
+    cache_key = f"failed_login_count:{hours}"
+
+    # Try to get cached count first
+    cached_count = _get_from_cache(cache_key, as_int=True)
+    if cached_count is not None:
+        return cached_count
+
     try:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
 
-        # Use cached results if available
-        redis_client = get_redis_client()
-        cache_key = f"failed_login_count:{hours}"
-
-        if redis_client:
-            cached_count = redis_client.get(cache_key)
-            if cached_count:
-                try:
-                    return int(cached_count)
-                except (ValueError, TypeError):
-                    pass
-
         # Query database for count
-        count = db.session.query(AuditLog).filter(
+        count = db.session.query(func.count(AuditLog.id)).filter(
             AuditLog.event_type == AuditLog.EVENT_LOGIN_FAILED,
             AuditLog.created_at >= cutoff
-        ).count()
+        ).scalar() or 0
 
         # Cache the result for 5 minutes
-        if redis_client:
-            redis_client.setex(cache_key, 300, str(count))
+        _set_in_cache(cache_key, count, 300)
 
         # Track metric
         metrics.gauge('security.failed_logins', count)
@@ -171,30 +162,24 @@ def get_account_lockout_count(hours: int = 24) -> int:
     Returns:
         int: Count of account lockout events
     """
+    cache_key = f"account_lockout_count:{hours}"
+
+    # Try to get cached count first
+    cached_count = _get_from_cache(cache_key, as_int=True)
+    if cached_count is not None:
+        return cached_count
+
     try:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
 
-        # Use cached results if available
-        redis_client = get_redis_client()
-        cache_key = f"account_lockout_count:{hours}"
-
-        if redis_client:
-            cached_count = redis_client.get(cache_key)
-            if cached_count:
-                try:
-                    return int(cached_count)
-                except (ValueError, TypeError):
-                    pass
-
         # Query database for count
-        count = db.session.query(AuditLog).filter(
+        count = db.session.query(func.count(AuditLog.id)).filter(
             AuditLog.event_type == AuditLog.EVENT_ACCOUNT_LOCKOUT,
             AuditLog.created_at >= cutoff
-        ).count()
+        ).scalar() or 0
 
         # Cache the result for 5 minutes
-        if redis_client:
-            redis_client.setex(cache_key, 300, str(count))
+        _set_in_cache(cache_key, count, 300)
 
         # Track metric
         metrics.gauge('security.account_lockouts', count)
@@ -203,6 +188,50 @@ def get_account_lockout_count(hours: int = 24) -> int:
     except SQLAlchemyError as e:
         log_error(f"Database error in get_account_lockout_count: {e}")
         return 0
+
+
+def get_security_event_distribution(hours: int = 24) -> Dict[str, int]:
+    """
+    Get distribution of security events by type.
+
+    Analyzes and categorizes security events to provide visibility into the
+    security posture and help identify trends or anomalies.
+
+    Args:
+        hours: Number of hours to look back
+
+    Returns:
+        Dict[str, int]: Mapping of event types to their counts
+    """
+    cache_key = f"security_event_distribution:{hours}"
+
+    # Try to get cached results first
+    cached_data = _get_from_cache(cache_key)
+    if cached_data:
+        return cached_data
+
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+        # Query database for event types and counts
+        events = db.session.query(
+            AuditLog.event_type,
+            func.count(AuditLog.id).label('count')
+        ).filter(
+            AuditLog.created_at >= cutoff,
+            AuditLog.event_type.startswith('security_')
+        ).group_by(AuditLog.event_type).all()
+
+        # Convert to dictionary
+        result = {event_type: count for event_type, count in events}
+
+        # Cache the results for 5 minutes
+        _set_in_cache(cache_key, result, 300)
+
+        return result
+    except SQLAlchemyError as e:
+        log_error(f"Database error in get_security_event_distribution: {e}")
+        return {}
 
 
 def get_active_session_count() -> int:
@@ -236,7 +265,8 @@ def get_active_session_count() -> int:
             if keys:
                 session_keys.update(keys)
 
-            if cursor == b'0' or cursor == 0:
+            # Check if we've finished scanning
+            if cursor == '0' or cursor == b'0' or cursor == 0:
                 break
 
         # Track metric
@@ -277,12 +307,17 @@ def is_suspicious_ip(ip_address: Optional[str], threshold: int = 5) -> bool:
         # Check against known malicious networks
         try:
             ip_obj = ip_address(ip_address)
-            for network_str in SECURITY_CONFIG.get('KNOWN_MALICIOUS_NETWORKS', []):
-                if ip_obj in ip_network(network_str):
-                    log_warning(f"IP {ip_address} found in known malicious network {network_str}")
-                    # Track metric
-                    metrics.increment('security.malicious_network_access')
-                    return True
+            malicious_networks = SECURITY_CONFIG.get('KNOWN_MALICIOUS_NETWORKS', [])
+
+            for network_str in malicious_networks:
+                try:
+                    if ip_obj in ip_network(network_str):
+                        log_warning(f"IP {ip_address} found in known malicious network {network_str}")
+                        metrics.increment('security.malicious_network_access')
+                        return True
+                except ValueError:
+                    # Skip invalid network definitions
+                    continue
         except ValueError:
             # Invalid IP address format
             log_warning(f"Invalid IP address format: {ip_address}")
@@ -295,7 +330,6 @@ def is_suspicious_ip(ip_address: Optional[str], threshold: int = 5) -> bool:
             if cached_result:
                 is_suspicious = cached_result.decode() == "True"
                 if is_suspicious:
-                    # Track metric on cache hit for suspicious IP
                     metrics.increment('security.suspicious_ip_cache_hit')
                 return is_suspicious
 
@@ -305,14 +339,12 @@ def is_suspicious_ip(ip_address: Optional[str], threshold: int = 5) -> bool:
             AuditLog.event_type == AuditLog.EVENT_LOGIN_FAILED,
             AuditLog.ip_address == ip_address,
             AuditLog.created_at >= cutoff
-        ).scalar()
+        ).scalar() or 0
 
         if failed_count >= threshold:
             # Cache the result for 1 hour
             if redis_client:
                 redis_client.setex(f"suspicious_ip:{ip_address}", 3600, "True")
-
-            # Track metric
             metrics.increment('security.suspicious_ip_detected')
             return True
 
@@ -325,36 +357,32 @@ def is_suspicious_ip(ip_address: Optional[str], threshold: int = 5) -> bool:
             ]),
             AuditLog.ip_address == ip_address,
             AuditLog.created_at >= cutoff
-        ).scalar()
+        ).scalar() or 0
 
         if breach_attempts > 0:
             # Cache the result for 1 hour
             if redis_client:
                 redis_client.setex(f"suspicious_ip:{ip_address}", 3600, "True")
-
-            # Track metric
             metrics.increment('security.breach_attempt_detected')
             return True
 
+        # Check against external IP reputation service if configured
+        if has_app_context() and current_app.config.get('IP_REPUTATION_CHECK_ENABLED'):
+            result = _check_ip_reputation(ip_address)
+            if result and result.get('threat_score', 0) > 50:  # Threshold for reputation scoring
+                # Cache the result for 6 hours
+                if redis_client:
+                    redis_client.setex(f"suspicious_ip:{ip_address}", 21600, "True")
+                metrics.increment('security.ip_reputation_detected')
+                return True
+
+        # Cache negative result for 30 minutes
+        if redis_client:
+            redis_client.setex(f"suspicious_ip:{ip_address}", 1800, "False")
+
     except SQLAlchemyError as e:
-        log_error(f"Database error when checking suspicious IP: {ip_address}: {e}")
+        log_error(f"Database error when checking suspicious IP {ip_address}: {e}")
         return False
-
-    # Check against external IP reputation service if configured
-    if has_app_context() and current_app.config.get('IP_REPUTATION_CHECK_ENABLED'):
-        result = _check_ip_reputation(ip_address)
-        if result:
-            # Cache the result for 6 hours
-            if redis_client:
-                redis_client.setex(f"suspicious_ip:{ip_address}", 21600, "True")
-
-            # Track metric
-            metrics.increment('security.ip_reputation_detected')
-            return True
-
-    # Cache negative result for 30 minutes
-    if redis_client:
-        redis_client.setex(f"suspicious_ip:{ip_address}", 1800, "False")
 
     return False
 
@@ -371,8 +399,11 @@ def block_ip(ip_address: str, duration: int = 3600, reason: str = "security_poli
     Returns:
         bool: True if successfully blocked, False otherwise
     """
+    if not ip_address:
+        return False
+
     try:
-        if not ip_address or not is_valid_ip(ip_address):
+        if not is_valid_ip(ip_address):
             log_error(f"Invalid IP address format: {ip_address}")
             return False
 
@@ -389,28 +420,32 @@ def block_ip(ip_address: str, duration: int = 3600, reason: str = "security_poli
             'expiry': (datetime.now(timezone.utc) + timedelta(seconds=duration)).isoformat()
         }
 
-        # Convert to string for storage
-        import json
-        block_str = json.dumps(block_data)
-
         # Set with expiry
         redis_client.setex(
             f"blocked_ip:{ip_address}",
             duration,
-            block_str
+            json.dumps(block_data)
         )
 
         # Log the event with appropriate severity
         log_warning(f"Blocked IP {ip_address} for {duration} seconds. Reason: {reason}")
 
         # Record security event
-        log_security_event(
-            event_type=AuditLog.EVENT_SECURITY_COUNTERMEASURE,
-            description=f"Blocked IP address: {ip_address}",
-            severity='warning',
-            ip_address=ip_address,
-            details=f"Duration: {duration} seconds, Reason: {reason}"
-        )
+        try:
+            log_security_event(
+                event_type=AuditLog.EVENT_SECURITY_COUNTERMEASURE,
+                description=f"Blocked IP address: {ip_address}",
+                severity='warning',
+                ip_address=ip_address,
+                details={
+                    'duration': f"{duration} seconds",
+                    'reason': reason,
+                    'expiry': block_data['expiry']
+                }
+            )
+        except Exception as e:
+            # Don't let audit logging errors prevent IP blocking
+            log_error(f"Error logging IP block event: {e}")
 
         # Track metric
         metrics.increment('security.ip_blocked')
@@ -431,10 +466,10 @@ def check_ip_blocked(ip_address: str) -> bool:
     Returns:
         bool: True if IP is blocked, False otherwise
     """
-    try:
-        if not ip_address:
-            return False
+    if not ip_address:
+        return False
 
+    try:
         redis_client = get_redis_client()
         if not redis_client:
             log_warning("Redis unavailable, cannot check if IP is blocked")
@@ -447,6 +482,37 @@ def check_ip_blocked(ip_address: str) -> bool:
         return False
 
 
+def get_ip_block_info(ip_address: str) -> Optional[Dict[str, Any]]:
+    """
+    Get information about an IP block if it exists.
+
+    Args:
+        ip_address: IP address to check
+
+    Returns:
+        Optional[Dict[str, Any]]: Block information or None if not blocked
+    """
+    if not ip_address:
+        return None
+
+    try:
+        redis_client = get_redis_client()
+        if not redis_client:
+            log_warning("Redis unavailable, cannot get IP block info")
+            return None
+
+        # Get the block data
+        block_data = redis_client.get(f"blocked_ip:{ip_address}")
+        if not block_data:
+            return None
+
+        # Parse and return the block info
+        return json.loads(block_data)
+    except Exception as e:
+        log_error(f"Error getting block info for IP {ip_address}: {e}")
+        return None
+
+
 def unblock_ip(ip_address: str) -> bool:
     """
     Remove a block on an IP address.
@@ -457,23 +523,44 @@ def unblock_ip(ip_address: str) -> bool:
     Returns:
         bool: True if successfully unblocked or wasn't blocked, False on error
     """
-    try:
-        if not ip_address:
-            return False
+    if not ip_address:
+        return False
 
+    try:
         redis_client = get_redis_client()
         if not redis_client:
             log_warning(f"Redis unavailable, unable to unblock IP: {ip_address}")
             return False
 
+        # Get block info before removing (for audit)
+        block_info = get_ip_block_info(ip_address)
+
         # Remove the block
-        redis_client.delete(f"blocked_ip:{ip_address}")
+        removed = redis_client.delete(f"blocked_ip:{ip_address}")
 
-        # Log the event
-        log_info(f"Unblocked IP: {ip_address}")
+        # Clear suspicious IP cache to allow re-evaluation
+        redis_client.delete(f"suspicious_ip:{ip_address}")
 
-        # Track metric
-        metrics.increment('security.ip_unblocked')
+        # Only log if something was actually removed
+        if removed:
+            # Log the event
+            log_info(f"Unblocked IP: {ip_address}")
+
+            # Record security event
+            try:
+                log_security_event(
+                    event_type=AuditLog.EVENT_SECURITY_COUNTERMEASURE,
+                    description=f"Unblocked IP address: {ip_address}",
+                    severity='info',
+                    ip_address=ip_address,
+                    details=block_info
+                )
+            except Exception as e:
+                # Don't let audit logging errors prevent reporting success
+                log_error(f"Error logging IP unblock event: {e}")
+
+            # Track metric
+            metrics.increment('security.ip_unblocked')
 
         return True
     except Exception as e:
@@ -507,9 +594,20 @@ def get_blocked_ips() -> Set[str]:
 
             # Extract IP addresses from keys
             for key in keys:
-                ip = key.decode('utf-8').split(':', 1)[1]
-                blocked_ips.add(ip)
+                try:
+                    # Handle bytes vs string keys
+                    if isinstance(key, bytes):
+                        key_str = key.decode('utf-8')
+                    else:
+                        key_str = str(key)
 
+                    # Extract IP from key
+                    ip = key_str.split(':', 1)[1]
+                    blocked_ips.add(ip)
+                except (IndexError, UnicodeDecodeError) as e:
+                    log_warning(f"Error extracting IP from key {key}: {e}")
+
+            # Check if we've finished scanning
             if cursor == '0' or cursor == b'0' or cursor == 0:
                 break
 
@@ -519,65 +617,7 @@ def get_blocked_ips() -> Set[str]:
         return blocked_ips
     except Exception as e:
         log_error(f"Error retrieving blocked IPs: {e}")
-        if not ip_address or not is_valid_ip(ip_address):
-            log_error(f"Invalid IP address format: {ip_address}")
-            return False
-
-
-def _get_ip_geolocation(ip_address: str) -> Dict[str, Any]:
-    """
-    Get geolocation information for an IP address.
-
-    Args:
-        ip_address: IP address to look up
-
-    Returns:
-        Dict[str, Any]: Dictionary with geolocation data or empty dict if not available
-    """
-    if not ip_address:
-        return {}
-
-    # Check cache first
-    redis_client = get_redis_client()
-    cache_key = f"ip_geolocation:{ip_address}"
-
-    if redis_client:
-        cached_data = redis_client.get(cache_key)
-        if cached_data:
-            try:
-                import json
-                return json.loads(cached_data)
-            except Exception as e:
-                log_error(f"Failed to parse cached geolocation data: {e}")
-
-    try:
-        # Only perform lookup if configuration allows
-        if not has_app_context() or not current_app.config.get('GEOLOCATION_ENABLED', False):
-            return {}
-
-        # Use configured geolocation service
-        geolocation_api = current_app.config.get('GEOLOCATION_API', 'ipapi')
-
-        if geolocation_api == 'ipapi':
-            # Use free ip-api.com service
-            response = requests.get(
-                f"http://ip-api.com/json/{ip_address}",
-                params={'fields': 'country,countryCode,region,regionName,city,isp,org,as'},
-                timeout=2  # Short timeout to avoid blocking
-            )
-
-            if response.status_code == 200:
-                data = response.json()
-                # Cache for 24 hours
-                if redis_client and data.get('country'):
-                    redis_client.setex(cache_key, 86400, response.text)
-                return data
-
-        return {}  # Default empty response
-
-    except Exception as e:
-        log_error(f"Error getting geolocation for IP {ip_address}: {e}")
-        return {}
+        return blocked_ips
 
 
 def detect_permission_issues() -> List[Dict[str, Any]]:
@@ -598,12 +638,12 @@ def detect_permission_issues() -> List[Dict[str, Any]]:
 
         # Get critical paths from application configuration
         app_root = current_app.root_path
-        critical_dirs = [
+        critical_dirs = current_app.config.get('CRITICAL_DIRECTORIES', [
             os.path.join(app_root, 'config'),
             os.path.join(app_root, 'instance'),
             os.path.join(app_root, 'core'),
             os.path.join(app_root, 'logs')
-        ]
+        ])
 
         for directory in critical_dirs:
             if not os.path.exists(directory):
@@ -635,14 +675,269 @@ def detect_permission_issues() -> List[Dict[str, Any]]:
                         'severity': 'medium',
                         'description': f"Directory {directory} is owned by {owner} (expected {expected_owner})"
                     })
-            except (ImportError, KeyError):
+            except (ImportError, KeyError) as e:
                 # Skip this check if we can't get user/group info
-                pass
+                log_debug(f"Unable to verify ownership for {directory}: {e}")
+
+            # Check individual files in sensitive directories
+            if directory.endswith(('config', 'instance')) and os.path.isdir(directory):
+                for root, _, files in os.walk(directory):
+                    for file in files:
+                        if file.endswith(('.py', '.ini', '.conf', '.json', '.key', '.pem')):
+                            file_path = os.path.join(root, file)
+                            try:
+                                file_stat = os.stat(file_path)
+                                # Check if file is world-readable or world-writable
+                                if file_stat.st_mode & 0o006:  # World readable/writable
+                                    issues.append({
+                                        'path': file_path,
+                                        'issue': 'unsafe_file_permissions',
+                                        'severity': 'high',
+                                        'description': f"File {file_path} has unsafe permissions (mode {oct(file_stat.st_mode & 0o777)})"
+                                    })
+                            except (OSError, IOError) as e:
+                                log_warning(f"Error checking permissions for {file_path}: {e}")
+
+        # Log issues found
+        if issues:
+            log_warning(f"Found {len(issues)} permission issues")
+
+            # Record security event
+            try:
+                log_security_event(
+                    event_type=AuditLog.EVENT_SECURITY_ISSUE,
+                    description=f"Detected {len(issues)} permission issues",
+                    severity='warning',
+                    details={'issues': issues}
+                )
+            except Exception as e:
+                log_error(f"Failed to record permission issues: {e}")
+
+            # Track metric
+            metrics.gauge('security.permission_issues', len(issues))
 
         return issues
     except Exception as e:
         log_error(f"Error detecting permission issues: {e}")
         return []
+
+
+def get_security_anomalies(hours: int = 24) -> List[Dict[str, Any]]:
+    """
+    Detect security anomalies based on recent events.
+
+    This function analyzes security events to identify unusual patterns
+    that might indicate security threats or compromises.
+
+    Args:
+        hours: Number of hours to analyze
+
+    Returns:
+        List[Dict[str, Any]]: List of detected anomalies
+    """
+    anomalies = []
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+        # Check for account lockouts
+        lockout_counts = db.session.query(
+            AuditLog.details['username'].label('username'),
+            func.count(AuditLog.id).label('count')
+        ).filter(
+            AuditLog.event_type == AuditLog.EVENT_ACCOUNT_LOCKOUT,
+            AuditLog.created_at >= cutoff
+        ).group_by('username').having(
+            func.count(AuditLog.id) > 1
+        ).all()
+
+        for username, count in lockout_counts:
+            anomalies.append({
+                'type': 'multiple_account_lockouts',
+                'severity': 'high',
+                'details': {
+                    'username': username,
+                    'count': count
+                },
+                'description': f"Account {username} has been locked {count} times in the past {hours} hours"
+            })
+
+        # Check for permission denied events
+        permission_denied_count = db.session.query(
+            AuditLog.user_id,
+            func.count(AuditLog.id).label('count')
+        ).filter(
+            AuditLog.event_type == AuditLog.EVENT_PERMISSION_DENIED,
+            AuditLog.created_at >= cutoff
+        ).group_by(AuditLog.user_id).having(
+            func.count(AuditLog.id) > 5
+        ).all()
+
+        for user_id, count in permission_denied_count:
+            anomalies.append({
+                'type': 'excessive_permission_denied',
+                'severity': 'medium',
+                'details': {
+                    'user_id': user_id,
+                    'count': count
+                },
+                'description': f"User ID {user_id} has had {count} permission denied events in the past {hours} hours"
+            })
+
+        # Other anomalies can be added here
+
+        # Record metrics for detected anomalies
+        if anomalies:
+            metrics.gauge('security.anomalies_detected', len(anomalies))
+
+            # Group by severity for specific metrics
+            high_severity = sum(1 for a in anomalies if a.get('severity') == 'high')
+            metrics.gauge('security.high_severity_anomalies', high_severity)
+
+        return anomalies
+    except Exception as e:
+        log_error(f"Error detecting security anomalies: {e}")
+        return []
+
+
+# Helper functions
+
+def _get_from_cache(key: str, as_int: bool = False) -> Any:
+    """
+    Get data from Redis cache.
+
+    Args:
+        key: Cache key
+        as_int: Whether to convert result to int
+
+    Returns:
+        Any: Cached data or None if not found
+    """
+    try:
+        redis_client = get_redis_client()
+        if not redis_client:
+            return None
+
+        cached_data = redis_client.get(key)
+        if not cached_data:
+            return None
+
+        if as_int:
+            try:
+                return int(cached_data)
+            except (ValueError, TypeError):
+                return None
+        else:
+            try:
+                return json.loads(cached_data)
+            except Exception as e:
+                log_error(f"Failed to load cached data for {key}: {e}")
+                return None
+    except Exception as e:
+        log_error(f"Cache retrieval error for {key}: {e}")
+        return None
+
+
+def _set_in_cache(key: str, data: Any, ttl: int) -> bool:
+    """
+    Set data in Redis cache.
+
+    Args:
+        key: Cache key
+        data: Data to cache
+        ttl: Time-to-live in seconds
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        redis_client = get_redis_client()
+        if not redis_client:
+            return False
+
+        if isinstance(data, (int, float, bool)):
+            redis_client.setex(key, ttl, str(data))
+        else:
+            try:
+                redis_client.setex(key, ttl, json.dumps(data))
+            except (TypeError, ValueError) as e:
+                log_error(f"Failed to serialize data for cache key {key}: {e}")
+                return False
+        return True
+    except Exception as e:
+        log_error(f"Cache storage error for {key}: {e}")
+        return False
+
+
+def _get_targeted_usernames(ip_address: str, cutoff: datetime) -> List[str]:
+    """
+    Get usernames targeted in failed login attempts.
+
+    Args:
+        ip_address: IP address to check
+        cutoff: Cutoff datetime for events
+
+    Returns:
+        List[str]: List of usernames
+    """
+    try:
+        # Query for failed login attempts details
+        records = db.session.query(AuditLog.details).filter(
+            AuditLog.event_type == AuditLog.EVENT_LOGIN_FAILED,
+            AuditLog.ip_address == ip_address,
+            AuditLog.created_at >= cutoff
+        ).limit(10).all()
+
+        # Extract usernames from details
+        usernames = []
+        for record in records:
+            details = record[0]
+            if isinstance(details, dict) and 'username' in details:
+                username = details['username']
+                if username and username not in usernames:
+                    usernames.append(username)
+            elif isinstance(details, str) and 'username' in details.lower():
+                try:
+                    details_dict = json.loads(details)
+                    if 'username' in details_dict:
+                        username = details_dict['username']
+                        if username and username not in usernames:
+                            usernames.append(username)
+                except json.JSONDecodeError:
+                    pass
+
+        return usernames
+    except Exception as e:
+        log_error(f"Error getting targeted usernames for IP {ip_address}: {e}")
+        return []
+
+
+def _get_security_events_for_ip(ip_address: str, cutoff: datetime) -> Dict[str, int]:
+    """
+    Get security events by type for an IP address.
+
+    Args:
+        ip_address: IP address to check
+        cutoff: Cutoff datetime for events
+
+    Returns:
+        Dict[str, int]: Map of event types to counts
+    """
+    try:
+        # Query for security events by type
+        events = db.session.query(
+            AuditLog.event_type,
+            func.count(AuditLog.id).label('count')
+        ).filter(
+            AuditLog.ip_address == ip_address,
+            AuditLog.created_at >= cutoff,
+            AuditLog.event_type.like('security_%')
+        ).group_by(AuditLog.event_type).all()
+
+        return {event_type: count for event_type, count in events}
+    except Exception as e:
+        log_error(f"Error getting security events for IP {ip_address}: {e}")
+        return {}
+
 
 def _check_ip_reputation(ip_address: str) -> Optional[Dict[str, Any]]:
     """
@@ -654,25 +949,74 @@ def _check_ip_reputation(ip_address: str) -> Optional[Dict[str, Any]]:
     Returns:
         Optional[Dict[str, Any]]: Dictionary with reputation data or None if not available
     """
+    if not has_app_context():
+        return None
+
+    # Try to get from cache first
+    cache_key = f"ip_reputation:{ip_address}"
+    cached_data = _get_from_cache(cache_key)
+    if cached_data:
+        return cached_data
+
     try:
         # Use configured IP reputation service
         ip_reputation_api = current_app.config.get('IP_REPUTATION_API', 'ipinfo')
+        api_key = current_app.config.get('IP_REPUTATION_API_KEY', '')
 
-        if ip_reputation_api == 'ipinfo':
+        if ip_reputation_api == 'abuseipdb':
+            headers = {
+                'Key': api_key,
+                'Accept': 'application/json',
+            }
+            params = {
+                'ipAddress': ip_address,
+                'maxAgeInDays': 90
+            }
             response = requests.get(
-                f"https://ipinfo.io/{ip_address}/json",
-                timeout=2  # Short timeout to avoid blocking
+                'https://api.abuseipdb.com/api/v2/check',
+                headers=headers,
+                params=params,
+                timeout=3
             )
 
             if response.status_code == 200:
-                return response.json()
+                data = response.json().get('data', {})
 
-        return None  # Default empty response
+                # Add a calculated threat score
+                abuse_score = data.get('abuseConfidenceScore', 0)
+                data['threat_score'] = abuse_score
 
+                # Cache for 6 hours
+                _set_in_cache(cache_key, data, 21600)
+                return data
+
+        elif ip_reputation_api == 'ipinfo':
+            token = f"?token={api_key}" if api_key else ""
+            response = requests.get(
+                f"https://ipinfo.io/{ip_address}/json{token}",
+                timeout=3
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+
+                # Add default threat score
+                data['threat_score'] = 0
+
+                # Check abuse flags
+                if 'abuse' in data:
+                    abuse_data = data['abuse']
+                    if abuse_data.get('blocklisted', False):
+                        data['threat_score'] = 80
+
+                # Cache for 6 hours
+                _set_in_cache(cache_key, data, 21600)
+                return data
+
+        return None
     except Exception as e:
         log_error(f"Error checking IP reputation for {ip_address}: {e}")
         return None
-
 
 
 def _get_ip_geolocation(ip_address: str) -> Dict[str, Any]:
@@ -689,17 +1033,10 @@ def _get_ip_geolocation(ip_address: str) -> Dict[str, Any]:
         return {}
 
     # Check cache first
-    redis_client = get_redis_client()
     cache_key = f"ip_geolocation:{ip_address}"
-
-    if redis_client:
-        cached_data = redis_client.get(cache_key)
-        if cached_data:
-            try:
-                import json
-                return json.loads(cached_data)
-            except Exception as e:
-                log_error(f"Failed to parse cached geolocation data: {e}")
+    cached_data = _get_from_cache(cache_key)
+    if cached_data:
+        return cached_data
 
     try:
         # Only perform lookup if configuration allows
@@ -720,13 +1057,42 @@ def _get_ip_geolocation(ip_address: str) -> Dict[str, Any]:
             if response.status_code == 200:
                 data = response.json()
                 # Cache for 24 hours
-                if redis_client and data.get('country'):
-                    redis_client.setex(cache_key, 86400, response.text)
+                _set_in_cache(cache_key, data, 86400)
                 return data
 
         return {}  # Default empty response
-
     except Exception as e:
         log_error(f"Error getting geolocation for IP {ip_address}: {e}")
         return {}
 
+
+def cache_ttl(ttl: int):
+    """
+    Decorator that caches function results with a TTL.
+
+    Args:
+        ttl: Cache TTL in seconds
+
+    Returns:
+        Decorator function
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            # Generate a cache key based on function name and arguments
+            cache_key = f"{func.__name__}:{str(args)}:{str(kwargs)}".replace(' ', '')
+
+            # Try to get from cache
+            cached_result = _get_from_cache(cache_key)
+            if cached_result is not None:
+                return cached_result
+
+            # Not in cache, call the function
+            result = func(*args, **kwargs)
+
+            # Store in cache
+            _set_in_cache(cache_key, result, ttl)
+
+            return result
+        return wrapper
+    return decorator
