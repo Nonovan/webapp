@@ -26,12 +26,14 @@ All responses are returned in JSON format. Successful responses typically includ
 - A `meta` object with pagination details when applicable
 
 Error responses include:
+
 - An `error` description
 - A `status_code` indicating the HTTP error code
 
 ### Rate Limiting
 
 API endpoints are subject to rate limiting:
+
 - Authentication endpoints: 30 requests per minute
 - General API endpoints: 60 requests per minute
 - Intensive operations: 10 requests per hour
@@ -185,6 +187,7 @@ The API supports these event categories:
 ## SDK Libraries
 
 Official client libraries are available for easy integration:
+
 - Python: Cloud Platform Client (Python package)
 - JavaScript: Cloud Platform JS (npm package)
 - Go: Cloud Platform Go (Go package)

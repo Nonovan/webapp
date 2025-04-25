@@ -9,39 +9,39 @@ The security implementation follows a defense-in-depth approach, applying multip
 ## Directory Contents
 
 - **Configuration Files**
-    - `nginx-hardening.conf` - NGINX web server security hardening
-    - `modsecurity-rules.conf` - ModSecurity WAF rules configuration
-    - `ssl-params.conf` - SSL/TLS security parameters
-    - `security-headers.conf` - HTTP security headers configuration
-    - `waf-rules/` - Web application firewall rules organized by category:
-        - `sensitive-data.conf` - Rules to protect against data leakage
-        - `generic-attacks.conf` - Rules for common web attack patterns
-        - `ip-reputation.conf` - Rules for IP-based threat intelligence
-        - `ics-protection.conf` - Rules specific to Industrial Control Systems
-    - `fail2ban.local` - Fail2ban configuration
-    - `fail2ban-filters/` - Custom filters for Fail2ban
-    - `ssh-hardening.conf` - SSH server hardening configuration
-    - `aide.conf` - File integrity monitoring configuration
-    - `network-policies.yaml` - Kubernetes network security policies
+- `nginx-hardening.conf` - NGINX web server security hardening
+- `modsecurity-rules.conf` - ModSecurity WAF rules configuration
+- `ssl-params.conf` - SSL/TLS security parameters
+- `security-headers.conf` - HTTP security headers configuration
+- `waf-rules/` - Web application firewall rules organized by category:
+  - `sensitive-data.conf` - Rules to protect against data leakage
+  - `generic-attacks.conf` - Rules for common web attack patterns
+  - `ip-reputation.conf` - Rules for IP-based threat intelligence
+  - `ics-protection.conf` - Rules specific to Industrial Control Systems
+- `fail2ban.local` - Fail2ban configuration
+- `fail2ban-filters/` - Custom filters for Fail2ban
+- `ssh-hardening.conf` - SSH server hardening configuration
+- `aide.conf` - File integrity monitoring configuration
+- `network-policies.yaml` - Kubernetes network security policies
 - **Scripts**
-    - `iptables-rules.sh` - Firewall configuration script
-    - `security-audit.sh` - Security audit and reporting tool
-    - `ssl-setup.sh` - SSL certificate setup and management
-    - `update-modsecurity-rules.sh` - WAF rules updating script
-    - `security-update-cron` - Scheduled security tasks
-    - `setup-modsecurity.sh` - ModSecurity WAF setup script
-    - `security_setup.sh` - Primary security configuration script
-    - `verify_files.py` - File integrity verification tool
+- `iptables-rules.sh` - Firewall configuration script
+- `security-audit.sh` - Security audit and reporting tool
+- `ssl-setup.sh` - SSL certificate setup and management
+- `update-modsecurity-rules.sh` - WAF rules updating script
+- `security-update-cron` - Scheduled security tasks
+- `setup-modsecurity.sh` - ModSecurity WAF setup script
+- `security_setup.sh` - Primary security configuration script
+- `verify_files.py` - File integrity verification tool
 - **Documentation**
-    - `hardening-checklist.md` - Server hardening checklist
-    - `security-architecture-overview.md` - Security architecture overview
-    - `certificate-management.md` - Certificate management procedures
-    - `firewall-policies.md` - Network firewall configuration and policies
-    - `incident-response.md` - Security incident response procedures
-    - `penetration-testing.md` - Guidelines for security testing
-    - `compliance.md` - Compliance requirements documentation
-    - `crypto-standards.md` - Cryptographic standards and key management
-    - `roles.md` - Security roles and responsibilities
+- `hardening-checklist.md` - Server hardening checklist
+- `security-architecture-overview.md` - Security architecture overview
+- `certificate-management.md` - Certificate management procedures
+- `firewall-policies.md` - Network firewall configuration and policies
+- `incident-response.md` - Security incident response procedures
+- `penetration-testing.md` - Guidelines for security testing
+- `compliance.md` - Compliance requirements documentation
+- `crypto-standards.md` - Cryptographic standards and key management
+- `roles.md` - Security roles and responsibilities
 
 ## Usage
 

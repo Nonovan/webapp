@@ -17,7 +17,9 @@ Key API areas:
 - Cloud Resources: Cloud infrastructure management endpoints
 - ICS Systems: Industrial Control Systems monitoring and control
 - Security: Security incident tracking and response
+- Webhooks: Event notification integration with external systems
 - Audit: Comprehensive audit logging and compliance reporting
+- Admin: Administrative operations and system configuration
 
 Each module in this package represents a distinct resource type with
 the standard HTTP methods (GET, POST, PUT, DELETE) implemented as appropriate.
@@ -54,26 +56,34 @@ api_request_count = metrics.counter(
             'status': lambda: g.get('response_status', 200)}
 )
 
+# API error counter
+api_error_count = metrics.counter(
+    'api_errors_total',
+    'Total number of API errors',
+    labels={'type': lambda: g.get('error_type', 'unknown'), 'endpoint': lambda: request.endpoint}
+)
+
 # Define API-wide error handlers
 @api_bp.errorhandler(404)
 def resource_not_found(_e):
     """Handle resources not found with a consistent JSON response"""
+    g.error_type = '404'
+    api_error_count.inc()
     return jsonify(error="Resource not found", status_code=404), 404
 
 @api_bp.errorhandler(500)
 def internal_server_error(_e):
     """Handle internal server errors with a consistent JSON response"""
     current_app.logger.error(f"Internal server error: {str(_e)}")
-    metrics.counter(
-        'api_errors_total',
-        'Total number of API errors',
-        labels={'type': '500', 'endpoint': request.endpoint}
-    ).inc()
+    g.error_type = '500'
+    api_error_count.inc()
     return jsonify(error="Internal server error", status_code=500), 500
 
 @api_bp.errorhandler(429)
 def too_many_requests(_e):
     """Handle rate limiting with a consistent JSON response"""
+    g.error_type = '429'
+    api_error_count.inc()
     return jsonify(
         error="Too many requests",
         status_code=429,
@@ -83,28 +93,57 @@ def too_many_requests(_e):
 @api_bp.errorhandler(403)
 def forbidden(_e):
     """Handle forbidden access with a consistent JSON response"""
+    g.error_type = '403'
+    api_error_count.inc()
+
     # Log security event for potential unauthorized access attempts
     log_security_event(
         event_type=AuditLog.EVENT_ACCESS_DENIED,
         description="API access denied",
-        severity=AuditLog.SEVERITY_WARNING
+        severity=AuditLog.SEVERITY_WARNING,
+        ip_address=request.remote_addr,
+        details={
+            'path': request.path,
+            'method': request.method,
+            'user_agent': request.user_agent.string if request.user_agent else 'Unknown'
+        }
     )
     return jsonify(error="Forbidden", status_code=403), 403
 
 @api_bp.errorhandler(401)
 def unauthorized(_e):
     """Handle unauthorized access with a consistent JSON response"""
+    g.error_type = '401'
+    api_error_count.inc()
     return jsonify(
         error="Unauthorized",
         status_code=401,
         message="Authentication required"
     ), 401
 
+@api_bp.errorhandler(400)
+def bad_request(_e):
+    """Handle bad request errors with a consistent JSON response"""
+    g.error_type = '400'
+    api_error_count.inc()
+
+    # Extract error message if provided
+    message = str(_e) if _e else "Invalid request parameters"
+
+    return jsonify(
+        error="Bad Request",
+        status_code=400,
+        message=message
+    ), 400
+
 @api_bp.before_request
 def before_request():
     """Execute before each API request to set up request context"""
     g.request_start_time = time.time()
     g.user_id = getattr(g, 'user_id', None)
+
+    # Mark request as API request for middleware detection
+    g.is_api_request = True
 
 @api_bp.after_request
 def after_request(response):
@@ -114,16 +153,16 @@ def after_request(response):
         duration = time.time() - g.request_start_time
         endpoint = request.endpoint or 'unknown'
         method = request.method
-        
+
         # Record the response status code for metrics
         g.response_status = response.status_code
-        
+
         # Record request latency
         api_request_latency.labels(endpoint=endpoint, method=method).observe(duration)
-        
+
         # Increment request counter
         api_request_count.inc()
-        
+
         # Log API activity for security monitoring
         if g.user_id:
             try:
@@ -138,30 +177,61 @@ def after_request(response):
                 )
             except (ValueError, TypeError, db.DatabaseError) as e:
                 current_app.logger.error(f"Failed to log API activity: {e}")
-    
+
     # Add security headers to all API responses
     response.headers['Content-Security-Policy'] = "default-src 'none'"
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
-    
+
+    # Add cache control headers to prevent caching of API responses
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+
     return response
 
 # Import and register API modules
-from api.auth import auth_routes
+from api.auth import auth_api
 from api.cloud import cloud_routes
 from api.metrics import metrics_routes
-from api.alerts import alerts_routes
+from api.alerts import alerts_api
 from api.ics import ics_routes
 from api.security import security_routes
 from api.audit import audit_routes
 from api.newsletter import newsletter_routes
+from api.webhooks import webhooks_api
+from api.admin import admin_api
 
 # Register all route blueprints
-api_bp.register_blueprint(auth_routes)
+api_bp.register_blueprint(auth_api)
 api_bp.register_blueprint(cloud_routes)
 api_bp.register_blueprint(metrics_routes)
-api_bp.register_blueprint(alerts_routes)
+api_bp.register_blueprint(alerts_api)
 api_bp.register_blueprint(ics_routes)
 api_bp.register_blueprint(security_routes)
 api_bp.register_blueprint(audit_routes)
 api_bp.register_blueprint(newsletter_routes)
+api_bp.register_blueprint(webhooks_api)
+api_bp.register_blueprint(admin_api)
+
+# Initialize webhook metrics
+if hasattr(metrics, 'register'):
+    try:
+        from api.webhooks import register_webhook_metrics
+        register_webhook_metrics(metrics)
+    except (ImportError, AttributeError) as e:
+        current_app.logger.warning(f"Failed to register webhook metrics: {e}")
+
+# Define application initialization function
+def init_app(app: Flask) -> None:
+    """
+    Initialize the API module within the Flask application.
+
+    Args:
+        app: The Flask application instance
+    """
+    # Register the API blueprint
+    app.register_blueprint(api_bp)
+
+    # Log successful initialization
+    app.logger.info("API module initialized successfully")
