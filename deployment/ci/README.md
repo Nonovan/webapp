@@ -2,32 +2,39 @@
 
 This directory contains the configuration files, scripts, and documentation for the Cloud Infrastructure Platform's continuous integration and deployment pipeline.
 
+## Contents
+
+- Overview
+- Directory Structure
+- CI/CD Pipeline
+- Environments
+- Security Features
+- Usage
+- Integration with Deployment Scripts
+- Troubleshooting
+- References
+
 ## Overview
 
 The CI/CD system automates building, testing, security scanning, and deploying the Cloud Infrastructure Platform. It supports multiple CI/CD providers with equivalent functionality through configuration files tailored to each provider.
 
-## Directory Contents
+## Directory Structure
 
-### Core Configuration Files
-
-- [`.gitlab-ci.yml`](.gitlab-ci.yml) - GitLab CI/CD pipeline configuration
-- [`github-actions.yml`](github-actions.yml) - GitHub Actions workflow configuration
-- [`Jenkinsfile`](Jenkinsfile) - Jenkins pipeline configuration
-- [`sonarqube.properties`](sonarqube.properties) - SonarQube static analysis configuration
-
-### Supporting Files
-
-- [`Dockerfile`](Dockerfile) - Container for CI/CD operations
-- [`entrypoint.sh`](entrypoint.sh) - Container entrypoint script
-- [`config.yml`](config.yml) - Shared CI/CD configuration settings
-
-### Scripts
-
-The `scripts` directory contains Python scripts used during the CI/CD process:
-
-- [`scripts/build_package.py`](scripts/build_package.py) - Builds deployment packages
-- [`scripts/dependency_check.py`](scripts/dependency_check.py) - Analyzes dependencies for security vulnerabilities
-- [`scripts/sast_scan.py`](scripts/sast_scan.py) - Performs static application security testing
+```plaintext
+deployment/ci/
+├── .gitlab-ci.yml          # GitLab CI/CD pipeline configuration
+├── Dockerfile              # Container for CI/CD operations
+├── Jenkinsfile             # Jenkins pipeline configuration
+├── README.md               # This documentation
+├── build_package.py        # Script to build deployment packages
+├── config.yml              # Shared CI/CD configuration settings
+├── dependency_check.py     # Script to analyze dependencies for vulnerabilities
+├── entrypoint.sh           # Container entrypoint script
+├── github-actions.yml      # GitHub Actions workflow configuration
+├── pipeline.yml            # Generic pipeline configuration
+├── sast_scan.py            # Script to perform static application security testing
+└── sonarqube.properties    # SonarQube static analysis configuration
+```
 
 ## CI/CD Pipeline
 
@@ -52,11 +59,11 @@ The pipeline supports multiple deployment environments:
 
 The pipeline includes several security measures:
 
-- Dependency vulnerability scanning
-- Static Application Security Testing (SAST)
-- Container security scanning
 - Compliance checks
+- Container security scanning
+- Dependency vulnerability scanning
 - Security test automation
+- Static Application Security Testing (SAST)
 
 ## Usage
 
@@ -70,51 +77,50 @@ docker build -f deployment/ci/Dockerfile -t cloud-platform-ci .
 
 # Run a specific CI task
 docker run --rm cloud-platform-ci test:unit
-
 ```
 
 ### Available Commands
 
 The CI container supports these commands:
 
-- `test` - Run all tests
-- `test:unit` - Run unit tests
-- `test:integration` - Run integration tests
-- `test:e2e` - Run end-to-end tests
-- `security` - Run security scans
 - `build` - Build deployment package
-- `deploy:staging` - Deploy to staging environment
 - `deploy:production` - Deploy to production environment
+- `deploy:staging` - Deploy to staging environment
+- `security` - Run security scans
+- `test` - Run all tests
+- `test:e2e` - Run end-to-end tests
+- `test:integration` - Run integration tests
+- `test:unit` - Run unit tests
 
 ## Integration with Deployment Scripts
 
 The CI/CD pipeline leverages the scripts in the `deployment/scripts` directory for many operations:
 
-- Pre-deployment checks
 - Deployment execution
-- Post-deployment verification
 - Health checks
 - Performance testing
+- Post-deployment verification
+- Pre-deployment checks
 - Security auditing
 
 ## Troubleshooting
 
 ### Common Issues
 
-- **Failed Tests**: Check test logs for details. Most test failures include information about the specific test and assertion that failed.
-- **Security Scan Failures**: Review security reports in the artifacts. Each finding includes a severity level and recommended remediation.
 - **Build Failures**: Verify dependencies are available and that the build environment has sufficient resources.
 - **Deployment Failures**: Check deployment logs for error messages. Common issues include connectivity problems and permission errors.
+- **Failed Tests**: Check test logs for details. Most test failures include information about the specific test and assertion that failed.
+- **Security Scan Failures**: Review security reports in the artifacts. Each finding includes a severity level and recommended remediation.
 
 ### Logs and Artifacts
 
 CI/CD runs produce several artifacts that can help with troubleshooting:
 
-- Test results (JUnit XML format)
-- Coverage reports
-- Security scan reports
 - Build packages
+- Coverage reports
 - Deployment logs
+- Security scan reports
+- Test results (JUnit XML format)
 
 ## References
 
