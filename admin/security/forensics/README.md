@@ -4,14 +4,14 @@ This directory contains tools for collecting, preserving, and analyzing digital 
 
 ## Contents
 
-- [Overview](#overview)
-- [Key Components](#key-components)
-- [Directory Structure](#directory-structure)
-- [Configuration](#configuration)
-- [Security Features](#security-features)
-- [Integration](#integration)
-- [Usage Examples](#usage-examples)
-- [Related Documentation](#related-documentation)
+- Overview
+- Key Components
+- Directory Structure
+- Configuration
+- Security Features
+- Integration
+- Usage Examples
+- Related Documentation
 
 ## Overview
 
@@ -103,18 +103,28 @@ admin/security/forensics/
 │   └── signature_checker.py      # File signature verification
 ├── templates/                    # Report and documentation templates
 │   ├── README.md                 # Templates documentation
-│   ├── analysis_documents/       # Analysis documentation templates
+│   ├── analysis_docs/            # Analysis documentation templates
+│   │   ├── README.md             # Analysis docs documentation
 │   │   ├── artifact_analysis.md  # Artifact analysis template
 │   │   ├── malware_report.md     # Malware analysis report template
 │   │   └── timeline_template.md  # Event timeline template
 │   ├── evidence_handling/        # Evidence documentation templates
+│   │   ├── README.md             # Evidence handling documentation
 │   │   ├── chain_of_custody.md   # Chain of custody form
 │   │   ├── evidence_inventory.md # Evidence inventory template
 │   │   └── evidence_log.md       # Evidence collection log template
-│   └── incident_documentation/   # Incident reporting templates
-│       ├── executive_summary.md  # Management briefing template
-│       ├── incident_report.md    # Complete incident report template
-│       └── preliminary_report.md # Initial assessment template
+│   ├── incident_docs/            # Incident reporting templates
+│   │   ├── README.md             # Incident docs documentation
+│   │   ├── executive_summary.md  # Management briefing template
+│   │   ├── incident_report.md    # Complete incident report template
+│   │   ├── investigation_notes.md # Ongoing investigation documentation
+│   │   └── preliminary_report.md # Initial assessment template
+│   └── legal/                    # Legal and compliance templates
+│       ├── README.md             # Legal templates documentation
+│       ├── affidavit_template.md # Affidavit template
+│       ├── expert_witness.md     # Expert witness documentation template
+│       ├── preservation_notice.md # Evidence preservation notice template
+│       └── subpoena_response.md  # Subpoena response template
 ├── timeline_builder.py           # Investigation timeline creation
 └── utils/                        # Shared utilities
     ├── README.md                 # Utilities documentation
@@ -168,19 +178,19 @@ The forensic toolkit uses configuration files to ensure consistent operation:
 
 These forensic analysis tools integrate with other components of the security framework:
 
+- **Compliance Reporting**: Evidence collection to support compliance requirements
+- **Documentation**: Automated documentation for legal and compliance purposes
 - **Incident Response**: Direct integration with the incident response workflow and kit
+- **Security Auditing**: Integration with security audit findings and reports
 - **Security Monitoring**: Correlation with security monitoring alerts and timeline
 - **Threat Intelligence**: IOC extraction for threat intelligence enrichment
-- **Compliance Reporting**: Evidence collection to support compliance requirements
-- **Security Auditing**: Integration with security audit findings and reports
-- **Documentation**: Automated documentation for legal and compliance purposes
 
 The toolkit also supports:
 
 - Evidence findings export to the security dashboard
+- Export capabilities for regulatory and legal reporting
 - IOC extraction for security monitoring systems
 - Integration with the central incident tracking system
-- Export capabilities for regulatory and legal reporting
 
 ## Usage Examples
 
@@ -218,18 +228,6 @@ The toolkit also supports:
     --output /secure/evidence/incident-42/malware-analysis
 ```
 
-### Timeline Creation
-
-```bash
-# Generate incident timeline from multiple sources
-./timeline_builder.py --incident-id 42 \
-    --auth-logs /secure/evidence/incident-42/auth.log \
-    --web-logs /secure/evidence/incident-42/nginx/ \
-    --firewall-logs /secure/evidence/incident-42/firewall/ \
-    --output /secure/evidence/incident-42/timeline.json \
-    --format json,csv
-```
-
 ### Static Analysis
 
 ```bash
@@ -244,6 +242,18 @@ The toolkit also supports:
 ./static_analysis/signature_checker.py --file /secure/evidence/incident-42/suspicious.js \
     --yara-rules common/yara_rules/suspicious/ \
     --output /secure/evidence/incident-42/analysis/yara_matches.json
+```
+
+### Timeline Creation
+
+```bash
+# Generate incident timeline from multiple sources
+./timeline_builder.py --incident-id 42 \
+    --auth-logs /secure/evidence/incident-42/auth.log \
+    --web-logs /secure/evidence/incident-42/nginx/ \
+    --firewall-logs /secure/evidence/incident-42/firewall/ \
+    --output /secure/evidence/incident-42/timeline.json \
+    --format json,csv
 ```
 
 ## Related Documentation

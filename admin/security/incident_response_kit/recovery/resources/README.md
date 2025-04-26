@@ -21,133 +21,133 @@ The recovery resources directory provides essential supporting files and templat
 ### Hardening Profiles
 
 - **Application Hardening Profile**: Security configuration for applications
-  - Runtime security settings
-  - Dependency security configuration
-  - Logging and monitoring settings
-  - Input validation enforcement
   - Access control configurations
+  - Dependency security configuration
+  - Input validation enforcement
+  - Logging and monitoring settings
+  - Runtime security settings
 
 - **Cloud Infrastructure Hardening Profile**: Security configuration for cloud resources
   - Identity and access management settings
-  - Network security group configurations
-  - Storage encryption requirements
   - Monitoring and logging settings
+  - Network security group configurations
   - Resource tagging standards
+  - Storage encryption requirements
 
 - **Container Hardening Profile**: Security configuration for container environments
   - Image security requirements
-  - Runtime protection settings
   - Network policy configurations
   - Resource limitation parameters
+  - Runtime protection settings
   - Secrets management guidelines
 
 - **Database Hardening Profile**: Security configuration for database systems
-  - Network access restrictions
   - Authentication hardening
-  - Privilege limitation templates
   - Audit configuration
   - Encryption settings
+  - Network access restrictions
+  - Privilege limitation templates
 
 - **Network Hardening Profile**: Security configuration for network infrastructure
-  - Segmentation requirements
   - Firewall rule templates
-  - Traffic filtering patterns
-  - Secure routing configurations
   - Intrusion detection settings
+  - Secure routing configurations
+  - Segmentation requirements
+  - Traffic filtering patterns
 
 - **Web Server Hardening Profile**: Security configuration for web servers
-  - TLS configuration
-  - HTTP security headers
   - File permission templates
+  - HTTP security headers
   - Service configuration hardening
+  - TLS configuration
   - Web server module restrictions
 
 ### Restoration Templates
 
 - **API Service Restoration Template**: Configuration parameters for API recovery
   - API gateway settings
-  - Service routing configuration
-  - Rate limiting parameters
   - Authentication integration
   - Endpoint authorization mapping
+  - Rate limiting parameters
+  - Service routing configuration
 
 - **Authentication System Restoration Template**: Configuration for identity services recovery
   - Authentication provider settings
   - MFA configuration parameters
-  - Session management settings
   - Password policy enforcement
   - Service account management
+  - Session management settings
 
 - **Database Restoration Template**: Configuration parameters for database system recovery
-  - Database service configuration
-  - Data integrity verification steps
-  - Replication setup parameters
   - Connection pooling settings
+  - Data integrity verification steps
+  - Database service configuration
+  - Replication setup parameters
   - User privilege restoration
 
 - **Messaging Restoration Template**: Configuration for messaging systems recovery
-  - Queue and topic definitions
-  - Consumer group settings
-  - Message retention parameters
   - Access control configuration
+  - Consumer group settings
   - Integration endpoint settings
+  - Message retention parameters
+  - Queue and topic definitions
 
 - **Monitoring Restoration Template**: Configuration for monitoring systems recovery
+  - Agent deployment configuration
   - Alert configuration
   - Dashboard restoration parameters
   - Data source connection settings
   - Notification channel setup
-  - Agent deployment configuration
 
 - **Web Application Restoration Template**: Configuration parameters for web application recovery
-  - Load balancer settings
-  - Web server configuration parameters
   - Application deployment settings
+  - Load balancer settings
   - SSL/TLS configuration
   - User access restoration guidelines
+  - Web server configuration parameters
 
 ### Verification Scripts
 
-- **Application Functionality**: Scripts to verify application functionality
-  - Critical path testing
+- **App Functionality**: Scripts to verify application functionality
   - API endpoint testing
+  - Critical path testing
   - Integration point verification
-  - Service dependency validation
   - Performance baseline checks
+  - Service dependency validation
 
 - **Data Integrity**: Scripts to verify data integrity post-recovery
   - Checksum validation
+  - Configuration file validation
   - Database consistency checks
   - File system integrity validation
-  - Configuration file validation
   - Schema version verification
 
 - **Generate Checklist**: Tool for creating verification procedure documents
-  - System-specific checklist generation
-  - Control validation requirements
   - Compliance mapping
+  - Control validation requirements
   - Evidence collection guidelines
   - Signoff requirements
+  - System-specific checklist generation
 
-- **Logging Verification**: Scripts to validate logging configuration
+- **Logging Verify**: Scripts to validate logging configuration
   - Log file presence and permissions
   - Log format validation
-  - Logging level confirmation
-  - Log rotation verification
   - Log forwarding validation
+  - Log rotation verification
+  - Logging level confirmation
 
-- **Network Verification**: Scripts to validate network security and configuration
+- **Network Verify**: Scripts to validate network security and configuration
+  - External connectivity tests
   - Firewall rule verification
   - Network segmentation validation
   - Security group configuration checks
   - Traffic flow validation
-  - External connectivity tests
 
 - **Security Controls**: Scripts for validating security control implementation
   - Access control verification
   - Authentication mechanism validation
-  - Encryption configuration check
   - Audit logging verification
+  - Encryption configuration check
   - Security header validation
 
 ## Directory Structure
@@ -156,6 +156,7 @@ The recovery resources directory provides essential supporting files and templat
 admin/security/incident_response_kit/recovery/resources/
 ├── README.md                           # This documentation
 ├── hardening_profiles/                 # Security hardening profiles
+│   ├── README.md                       # Hardening profiles documentation
 │   ├── application.json                # Application hardening
 │   ├── cloud_infrastructure.json       # Cloud infrastructure hardening
 │   ├── container.json                  # Container hardening
@@ -163,6 +164,7 @@ admin/security/incident_response_kit/recovery/resources/
 │   ├── network.json                    # Network hardening
 │   └── web_server.json                 # Web server hardening
 ├── restoration_templates/              # System restoration templates
+│   ├── README.md                       # Restoration templates documentation
 │   ├── api_service.json                # API service restoration
 │   ├── auth_system.json                # Authentication system restoration
 │   ├── database.json                   # Database restoration template
@@ -170,17 +172,40 @@ admin/security/incident_response_kit/recovery/resources/
 │   ├── monitoring.json                 # Monitoring system restoration
 │   └── web_application.json            # Web application restoration
 └── verification_scripts/               # System verification scripts
+    ├── README.md                       # Verification scripts documentation
     ├── app_functionality.py            # Application functionality tests
     ├── data_integrity.py               # Data integrity checks
     ├── generate_checklist.py           # Checklist generation utility
     ├── logging_verify.py               # Logging system verification
     ├── network_verify.sh               # Network verification
+    ├── run_verification.sh             # Verification execution coordinator
     └── security_controls.py            # Security control validation
 ```
 
 ## Usage
 
 These resources are used by the recovery tools in the incident response process:
+
+### Hardening Profiles Examples
+
+```bash
+# Apply web server hardening profile
+../security_hardening.sh --target web-01 \
+    --profile hardening_profiles/web_server.json \
+    --log /secure/evidence/IR-2023-042/web_hardening.log
+
+# Apply database hardening with exceptions
+../security_hardening.sh --target db-cluster \
+    --profile hardening_profiles/database.json \
+    --skip-rules "encryption,audit_logging" \
+    --reason "Temporary exception approved by CISO"
+
+# Apply targeted hardening to specific components
+../security_hardening.sh --target api-gateway \
+    --profile hardening_profiles/application.json \
+    --components "authentication,authorization" \
+    --backup-configs
+```
 
 ### Restoration Templates Examples
 
@@ -196,11 +221,21 @@ These resources are used by the recovery tools in the incident response process:
     --service database \
     --template restoration_templates/database.json \
     --param "max_connections=200" --param "shared_buffers=4GB"
+
+# Perform dependency validation only
+../service_restoration.py --incident-id IR-2023-042 \
+    --service api-service \
+    --template restoration_templates/api_service.json \
+    --validate-dependencies-only
 ```
 
 ### Verification Scripts Examples
 
 ```bash
+# Generate a verification checklist for a specific system type
+./verification_scripts/generate_checklist.py --system-type web-server \
+    --output /secure/evidence/IR-2023-042/web_verification_checklist.md
+
 # Run network verification
 ./verification_scripts/network_verify.sh --target web-app-01 \
     --baseline baselines/network_baseline.json \
@@ -211,30 +246,16 @@ python3 ./verification_scripts/data_integrity.py --database orders_db \
     --checks schema,constraints,rows \
     --report /secure/evidence/IR-2023-042/data_integrity_report.json
 
-# Generate a verification checklist for a specific system type
-python3 ./verification_scripts/generate_checklist.py --system-type api-server \
-    --output /secure/evidence/IR-2023-042/api_verification_checklist.md
-```
-
-### Hardening Profiles Examples
-
-```bash
-# Apply web server hardening profile
-../security_hardening.sh --target web-01 \
-    --profile hardening_profiles/web_server.json \
-    --log /secure/evidence/IR-2023-042/web_hardening.log
-
-# Apply database hardening with exceptions
-../security_hardening.sh --target db-cluster \
-    --profile hardening_profiles/database.json \
-    --skip-rules "encryption,audit_logging" \
-    --reason "Temporary exception approved by CISO"
+# Run comprehensive verification suite
+./verification_scripts/run_verification.sh --system web-app-01 \
+    --checklist /secure/evidence/IR-2023-042/web_verification_checklist.md \
+    --report /secure/evidence/IR-2023-042/verification_results.json
 ```
 
 ## Best Practices & Security
 
-- **Automation Testing**: Test automation scripts regularly to ensure they function correctly
 - **Audit Trail**: Log all use of templates and profiles during incident recovery
+- **Automation Testing**: Test automation scripts regularly to ensure they function correctly
 - **Defense in Depth**: Implement multiple security controls across different system layers
 - **Documentation**: Document all deviations from standard templates with proper justification
 - **Environment Separation**: Maintain separate templates for different environments (dev/staging/prod)
@@ -268,3 +289,5 @@ These resources share several common features:
 - Security Hardening Guidelines
 - Security Incident Response Procedures
 - System Restoration Procedures
+- System Verification Procedures
+- Verification Framework Guide

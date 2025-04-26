@@ -19,34 +19,66 @@ The Authentication API implements RESTful endpoints following security best prac
 
 ## Key Components
 
-- **`routes.py`**: Implements RESTful API endpoints with comprehensive input validation
-  - User authentication with brute force protection
-  - Account registration with validation
-  - Session management with security protections
-  - Token verification and refresh operations
-  - Logout functionality for both web and API contexts
+- **`__init__.py`**: Module initialization with metrics and event handlers
+  - Blueprint registration with proper routes
+  - Event handler registration
+  - Security metrics integration
+  - Session manager configuration
+
+- **`decorators.py`**: Authentication-specific decorator functions
+  - Authorization enforcement
+  - MFA requirement validation
+  - Permission checking
+  - Role verification
+  - Token validation
 
 - **`extend_session.py`**: Session management implementation with security features
-  - Session regeneration to prevent session fixation attacks
   - Device fingerprinting for client verification
   - IP binding for high-security environments
+  - Session regeneration to prevent session fixation attacks
   - Suspicious activity detection and reporting
   - Configurable security settings
 
-- **`__init__.py`**: Module initialization with metrics and event handlers
-  - Blueprint registration with proper routes
-  - Security metrics integration
-  - Event handler registration
-  - Session manager configuration
+- **`mfa.py`**: Multi-factor authentication implementation
+  - Backup code management
+  - FIDO2/WebAuthn support
+  - MFA enrollment workflow
+  - One-time password validation
+  - TOTP configuration
+
+- **`password_reset.py`**: Password reset functionality
+  - Email verification
+  - Password history enforcement
+  - Reset token generation
+  - Secure link handling
+  - Token expiration management
+
+- **`routes.py`**: Implements RESTful API endpoints with comprehensive input validation
+  - Account registration with validation
+  - Logout functionality for both web and API contexts
+  - Session management with security protections
+  - Token verification and refresh operations
+  - User authentication with brute force protection
+
+- **`session_status.py`**: Session information and status
+  - Permission validation
+  - Session expiration tracking
+  - Session security status
+  - Session validation
+  - User context management
 
 ## Directory Structure
 
 ```plaintext
 api/auth/
 ├── __init__.py         # Module initialization and exports
-├── README.md           # This documentation
+├── decorators.py       # Authentication-specific decorators
 ├── extend_session.py   # Session management functionality
-└── routes.py           # API endpoint implementations
+├── mfa.py              # Multi-factor authentication implementation
+├── password_reset.py   # Password reset functionality
+├── README.md           # This documentation
+├── routes.py           # API endpoint implementations
+└── session_status.py   # Session information and status
 ```
 
 ## API Endpoints
@@ -54,11 +86,15 @@ api/auth/
 | Endpoint | Method | Description | Rate Limit |
 |----------|--------|-------------|------------|
 | `/api/auth/login` | POST | Authenticate user and issue JWT token | 10/minute |
+| `/api/auth/logout` | POST/GET | Invalidate current token | None |
+| `/api/auth/mfa/setup` | POST | Configure multi-factor authentication | 3/hour |
+| `/api/auth/mfa/verify` | POST | Verify MFA challenge | 10/minute |
+| `/api/auth/password/reset` | POST | Initiate password reset workflow | 3/hour |
+| `/api/auth/refresh` | POST | Refresh an existing JWT token | 20/minute |
 | `/api/auth/register` | POST | Create new user account | 5/hour |
 | `/api/auth/extend_session` | POST | Extend session lifetime | 30/minute |
+| `/api/auth/session/status` | GET | Check current session status and permissions | 60/minute |
 | `/api/auth/verify` | POST | Verify token validity | 60/minute |
-| `/api/auth/refresh` | POST | Refresh an existing JWT token | 20/minute |
-| `/api/auth/logout` | POST/GET | Invalidate current token | None |
 
 ## Configuration
 
@@ -78,19 +114,30 @@ The authentication system uses several configuration settings that can be adjust
 'RATELIMIT_DEFAULT': "200 per day, 50 per hour",
 'RATELIMIT_LOGIN': "10 per minute",
 'RATELIMIT_REGISTER': "5 per hour",
+
+# MFA settings
+'MFA_REQUIRED_ROLES': ["admin", "security"],  # Roles requiring MFA
+'MFA_TOTP_ISSUER': "Cloud Platform",          # TOTP issuer name
+'MFA_VERIFY_TOLERANCE': 1,                    # TOTP window tolerance
+'MFA_BACKUP_CODE_COUNT': 10,                  # Number of backup codes
+
+# Password reset settings
+'PASSWORD_RESET_EXPIRATION_MINUTES': 15,      # Reset link expiration
+'PASSWORD_RESET_EMAIL_THROTTLE': 5,           # Minutes between reset emails
 ```
 
 ## Security Features
 
-- **Rate Limiting**: Prevents brute force attacks with endpoint-specific limits
-- **Session Protection**: Regenerates session IDs periodically to prevent session fixation
-- **Device Fingerprinting**: Validates session requests against browser fingerprints
-- **Suspicious IP Detection**: Flags and logs suspicious IP addresses
-- **Progressive Lockouts**: Implements account lockout after multiple failed attempts
+- **Brute Force Protection**: Implements progressive lockouts for failed attempts
 - **Comprehensive Audit Logging**: Records all authentication events for security monitoring
-- **Secure Token Handling**: Implements JWT token validation and secure storage
+- **Device Fingerprinting**: Validates session requests against browser fingerprints
 - **Input Validation**: Validates all inputs before processing
+- **Multi-Factor Authentication**: Supports TOTP and hardware security keys
+- **Rate Limiting**: Prevents brute force attacks with endpoint-specific limits
 - **Secure Error Handling**: Prevents information leakage in error responses
+- **Secure Token Handling**: Implements JWT token validation and secure storage
+- **Session Protection**: Regenerates session IDs periodically to prevent session fixation
+- **Suspicious IP Detection**: Flags and logs suspicious IP addresses
 
 ## Usage Examples
 
@@ -116,6 +163,48 @@ Response:
     "username": "admin_user",
     "role": "admin"
   }
+}
+```
+
+### MFA Setup
+
+```http
+POST /api/auth/mfa/setup
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+{
+  "type": "totp"
+}
+```
+
+Response:
+
+```json
+{
+  "secret": "JBSWY3DPEHPK3PXP",
+  "qr_code": "data:image/png;base64,iVBORw0KGgo...",
+  "setup_token": "a1b2c3d4e5f6"
+}
+```
+
+### Password Reset
+
+```http
+POST /api/auth/password/reset
+Content-Type: application/json
+
+{
+  "email": "user@example.com"
+}
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Password reset instructions sent if email exists"
 }
 ```
 
@@ -159,6 +248,26 @@ Response:
 }
 ```
 
+### Session Status
+
+```http
+GET /api/auth/session/status
+```
+
+Response:
+
+```json
+{
+  "authenticated": true,
+  "user_id": 42,
+  "username": "admin_user",
+  "role": "admin",
+  "permissions": ["user:read", "user:write"],
+  "expires_at": "2023-01-01T12:30:00Z",
+  "mfa_verified": true
+}
+```
+
 ### Token Verification
 
 ```http
@@ -185,8 +294,9 @@ Response:
 
 ## Related Documentation
 
-- Authentication Service
-- User and Permission Models
-- Security Module
 - API Reference
+- Authentication Service
+- Password Policy Documentation
 - Security Best Practices
+- Security Module
+- User and Permission Models
