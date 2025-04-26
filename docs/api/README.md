@@ -4,14 +4,14 @@ This directory contains comprehensive API documentation for the Cloud Infrastruc
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- Documentation Standards
-- Usage Guidelines
 - Authentication & Security
 - Common Patterns
+- Directory Structure
+- Documentation Standards
+- Key Components
+- Overview
 - Related Resources
+- Usage Guidelines
 - Version History
 
 ## Overview
@@ -71,31 +71,44 @@ docs/api/
 ├── api-overview.md                # General API reference documentation
 ├── authentication.md              # Authentication mechanisms
 ├── changelog.md                   # API version history and changes
-├── error-handling.md              # Error response documentation
+├── common/                        # Common API documentation components
+│   ├── README.md                  # Common components documentation
+│   ├── error-handling.md          # Error handling documentation
+│   ├── pagination.md              # Pagination implementation documentation
+│   └── rate-limiting.md           # Rate limiting documentation
 ├── guides/                        # Integration guides
+│   ├── README.md                  # Guides documentation
 │   ├── getting-started.md         # Introductory guide
-│   ├── pagination.md              # Pagination implementation guide
-│   ├── rate-limiting.md           # Rate limit handling
+│   ├── security-best-practices.md # Security implementation guide
 │   └── webhooks.md                # Webhook integration guide
 ├── openapi/                       # OpenAPI/Swagger specifications
+│   ├── README.md                  # OpenAPI documentation
 │   ├── cloud-platform-api.yaml    # Complete API specification
 │   ├── components/                # Reusable OpenAPI components
+│   │   ├── README.md              # Components documentation
 │   │   ├── parameters.yaml        # Common API parameters
+│   │   ├── requestBodies.yaml     # Common request body schemas
 │   │   ├── responses.yaml         # Standard API responses
-│   │   └── schemas.yaml           # Data models and schemas
+│   │   ├── schemas.yaml           # Data models and schemas
+│   │   └── securitySchemes.yaml   # Authentication scheme definitions
 │   └── paths/                     # API path definitions
+│       ├── README.md              # Path definitions documentation
+│       ├── admin.yaml             # Administrative endpoints
 │       ├── alerts.yaml            # Alert endpoints
+│       ├── audit.yaml             # Audit endpoints
 │       ├── auth.yaml              # Authentication endpoints
 │       ├── cloud.yaml             # Cloud resource endpoints
 │       ├── ics.yaml               # ICS system endpoints
 │       ├── metrics.yaml           # Metrics endpoints
+│       ├── newsletter.yaml        # Newsletter endpoints
 │       ├── security.yaml          # Security endpoints
 │       ├── users.yaml             # User management endpoints
 │       └── webhooks.yaml          # Webhook endpoints
-├── pagination.md                  # Pagination documentation
-├── rate-limiting.md               # Rate limiting documentation
 ├── reference/                     # Endpoint reference documentation
+│   ├── README.md                  # Reference documentation overview
+│   ├── admin.md                   # Administrative API reference
 │   ├── alerts.md                  # Alert API reference
+│   ├── audit.md                   # Audit API reference
 │   ├── authentication.md          # Authentication API reference
 │   ├── cloud.md                   # Cloud resources API reference
 │   ├── ics.md                     # ICS systems API reference
@@ -105,6 +118,7 @@ docs/api/
 │   ├── users.md                   # User management API reference
 │   └── webhooks.md                # Webhooks API reference
 └── sdks/                          # SDK documentation
+    ├── README.md                  # SDK documentation overview
     ├── go.md                      # Go SDK documentation
     ├── javascript.md              # JavaScript SDK documentation
     └── python.md                  # Python SDK documentation
@@ -126,7 +140,7 @@ All API documentation follows these standards:
 ### Reading the Documentation
 
 - Start with the api-overview.md for general conventions and principles
-- Check authentication requirements in `authentication.md`
+- Check authentication requirements in authentication.md
 - Browse the endpoint-specific documentation in the `reference/` directory
 - Use the OpenAPI specifications for importing into API tools
 
@@ -166,10 +180,10 @@ Security best practices:
 
 The API follows these common patterns:
 
+- **Actions**: `/api/resource/{id}/action` for performing actions on resources
 - **Collection Resources**: `/api/resource` for listing and creating resources
 - **Instance Resources**: `/api/resource/{id}` for retrieving, updating, and deleting specific resources
 - **Sub-Resources**: `/api/resource/{id}/subresource` for resources that exist within the context of another resource
-- **Actions**: `/api/resource/{id}/action` for performing actions on resources
 
 ## Related Resources
 
