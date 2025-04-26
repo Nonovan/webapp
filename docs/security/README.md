@@ -12,7 +12,7 @@ This directory contains comprehensive security documentation for the Cloud Infra
 - Key Components
 - Operations
 - Overview
-- References
+- Related Documentation
 - Standards & Best Practices
 
 ## Overview
@@ -23,8 +23,8 @@ The security documentation provides detailed information about the platform's se
 
 - **Architecture & Design**: Security architecture documentation
   - Defense in depth implementation
-  - Security layering approach
   - Security boundaries and controls
+  - Security layering approach
   - Threat modeling methodology
 
 - **Compliance**: Regulatory and standards compliance
@@ -48,6 +48,7 @@ The security documentation provides detailed information about the platform's se
 - **Operations**: Operational security procedures
   - Certificate management
   - Incident response
+  - Patch management
   - Security monitoring
   - Vulnerability management
 
@@ -75,11 +76,11 @@ docs/security/
 
 The security architecture follows a layered approach:
 
-1. **Network Security**: Perimeter protection and traffic controls
-2. **Identity & Access Management**: Authentication and authorization
+1. **Application Security**: Secure development and application protection
+2. **Cloud Infrastructure Security**: Platform security controls
 3. **Data Security**: Protection of data at rest and in transit
-4. **Application Security**: Secure development and application protection
-5. **Cloud Infrastructure Security**: Platform security controls
+4. **Identity & Access Management**: Authentication and authorization
+5. **Network Security**: Perimeter protection and traffic controls
 6. **Security Operations**: Monitoring, incident response, and governance
 
 For comprehensive details, see security-architecture-overview.md.
@@ -88,6 +89,7 @@ For comprehensive details, see security-architecture-overview.md.
 
 The security implementation supports compliance with multiple frameworks:
 
+- **CIS**: Center for Internet Security benchmarks
 - **FedRAMP**: Federal security controls for cloud systems
 - **GDPR**: Privacy and data protection requirements
 - **HIPAA**: Healthcare data security requirements
@@ -148,7 +150,7 @@ The security implementation follows these standards and best practices:
 - **NIST Cybersecurity Framework**: Core security functions
 - **OWASP ASVS**: Application security verification standard
 
-## References
+## Related Documentation
 
 - **Industry Standards**:
   - [CIS Benchmarks](https://www.cisecurity.org/cis-benchmarks/)
@@ -161,6 +163,6 @@ The security implementation follows these standards and best practices:
   - Security Incident Response
 
 - **Tools & Resources**:
-  - Security Scripts: scripts/security
   - Security Configuration: deployment/security/config
   - Security Reference Architecture: docs/architecture
+  - Security Scripts: scripts/security
