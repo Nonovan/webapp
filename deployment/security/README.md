@@ -27,6 +27,7 @@ The Cloud Infrastructure Platform security implementation follows a defense-in-d
 deployment/security/
 ├── README.md                          # This documentation
 ├── config/                            # Security configuration files
+│   ├── README.md                      # Configuration files documentation
 │   ├── aide.conf                      # File integrity monitoring configuration
 │   ├── apparmor-profile-nginx         # AppArmor security profile for NGINX
 │   ├── fail2ban.local                 # Fail2ban configuration for brute force protection
@@ -37,16 +38,28 @@ deployment/security/
 │   ├── security-headers.conf          # HTTP security headers configuration
 │   ├── security-update-cron           # Scheduled security tasks for automated updates
 │   └── ssh-hardening.conf             # SSH server security hardening configuration
+├── docs/                              # Symbolic links to security documentation
+│   ├── README.md                      # Documentation symlinks documentation
+│   ├── hardening-checklist.md         # → /docs/security/hardening-checklist.md
+│   ├── incident-response.md           # → /docs/security/incident-response.md
+│   ├── overview.md                    # → /docs/security/overview.md
+│   ├── penetration-testing.md         # → /docs/security/penetration-testing.md
+│   └── security-update-policy.md      # → /docs/security/security-update-policy.md
 ├── filters/                           # Custom filter configurations
 │   ├── README.md                      # Filters documentation
-│   ├── fail2ban/                      # Fail2ban filter configurations
+│   ├── fail2ban-filters/              # Fail2ban filter configurations
 │   │   ├── README.md                  # Fail2ban filters documentation
 │   │   ├── cloud-platform-admin-auth.conf # Admin interface auth filter
-│   │   └── cloud-platform-api-auth.conf   # API authentication filter
+│   │   ├── cloud-platform-api-auth.conf # API authentication filter
+│   │   ├── cloud-platform-ics.conf    # ICS protection filter
+│   │   └── cloud-platform-login.conf  # Application login filter
 │   └── waf/                           # Web Application Firewall rules by category
+│       ├── README.md                  # WAF rules documentation
 │       ├── api-protection.conf        # API-specific protection rules
 │       ├── authentication.conf        # Authentication-related protection
 │       ├── command-injection.conf     # Command injection prevention
+│       ├── file-upload.conf           # File upload protection rules
+│       ├── generic-attacks.conf       # Common web attack patterns
 │       ├── ics-protection.conf        # Industrial Control System protection
 │       ├── ip-reputation.conf         # IP reputation-based filtering
 │       ├── path-traversal.conf        # Path traversal attack prevention
@@ -55,29 +68,33 @@ deployment/security/
 │       ├── sql-injection.conf         # SQL injection prevention
 │       └── xss-protection.conf        # Cross-site scripting prevention
 ├── scripts/                           # Security scripts
-│   ├── certificate-renew.sh           # SSL/TLS certificate renewal automation
+│   ├── README.md                      # Security scripts documentation
+│   ├── certificate_renew.sh           # SSL/TLS certificate renewal automation
 │   ├── check_security_updates.sh      # Security updates verification script
-│   ├── iptables-rules.sh              # Firewall configuration script
-│   ├── security-audit.sh              # Security audit and reporting tool
+│   ├── iptables_rules.sh              # Firewall configuration script
+│   ├── security_audit.sh              # Security audit and reporting tool
 │   ├── security_setup.sh              # Main security setup and hardening script
-│   ├── setup-modsecurity.sh           # ModSecurity WAF installation and configuration
-│   ├── update-blocklist.sh            # IP blocklist updates for perimeter defense
-│   ├── update-modsecurity-rules.sh    # WAF rules update script
+│   ├── setup_modsecurity.sh           # ModSecurity WAF installation and configuration
+│   ├── update_blocklist.sh            # IP blocklist updates for perimeter defense
+│   ├── update_modsecurity_rules.sh    # WAF rules update script
 │   └── verify_permissions.sh          # Critical file permissions verification
 └── ssl/                               # SSL/TLS related configurations
+    ├── README.md                      # SSL/TLS configuration documentation
     └── ssl-params.conf                # SSL/TLS security parameters
 ```
 
 ## Configuration Files
 
 - **`aide.conf`**: File integrity monitoring configuration
-- **`apparmor-profile-nginx`**: AppArmor security profile for NGINX
+- **apparmor-profile-nginx**: AppArmor security profile for NGINX
+- **`fail2ban.local`**: Fail2ban configuration for brute force protection
 - **`iptables-rules.sh`**: Firewall configuration script
+- **`malicious-user-agents.txt`**: List of known malicious user agents to block
 - **`modsecurity-rules.conf`**: Main ModSecurity configuration file
 - **`network-policies.yaml`**: Kubernetes network security policies
 - **`nginx-hardening.conf`**: NGINX web server security hardening configuration
 - **`security-headers.conf`**: HTTP security headers configuration
-- **`security-update-cron`**: Scheduled security tasks for automated updates
+- **security-update-cron**: Scheduled security tasks for automated updates
 - **`ssh-hardening.conf`**: SSH server security hardening configuration
 - **`ssl-params.conf`**: SSL/TLS security parameters
 
@@ -87,6 +104,8 @@ deployment/security/
 - **`fail2ban-filters/`**: Directory containing custom Fail2ban filters:
   - **`cloud-platform-admin-auth.conf`**: Filter for admin interface authentication failures
   - **`cloud-platform-api-auth.conf`**: Filter for API authentication failures
+  - **`cloud-platform-ics.conf`**: Filter for Industrial Control System protection
+  - **`cloud-platform-login.conf`**: Filter for standard user login protection
   - **`README.md`**: Documentation for Fail2ban filters
 
 ## Key Security Features
@@ -122,14 +141,14 @@ Security monitoring is implemented through:
 ## Maintenance and Updates
 
 1. **Regular Updates**:
-    - Update WAF rules monthly: update-modsecurity-rules.sh
-    - Update system security packages: Handled by security-update-cron
+    - Update WAF rules monthly: `update_modsecurity_rules.sh`
+    - Update system security packages: Handled by `security-update-cron`
 2. **Security Auditing**:
-    - Run quarterly security audits: `security-audit.sh --full`
+    - Run quarterly security audits: `security_audit.sh --full`
     - Review and address findings in audit reports
 3. **Certificate Management**:
-    - Monitor certificate expiration: `certificate-renew.sh --check-only`
-    - Renew certificates before expiration: `certificate-renew.sh`
+    - Monitor certificate expiration: `certificate_renew.sh --check-only`
+    - Renew certificates before expiration: `certificate_renew.sh`
 
 ## Compliance
 
@@ -148,20 +167,21 @@ The security implementation helps maintain compliance with:
 Additional security documentation can be found in the following locations:
 
 - General security overview: `docs/security/overview.md`
-- Penetration testing: penetration-testing.md
-- Security hardening checklist: hardening-checklist.md
-- Security incident response: incident-response.md
+- Hardening checklist: `docs/hardening-checklist.md`
+- Incident response: `docs/incident-response.md`
+- Penetration testing: `docs/penetration-testing.md`
+- Security update policy: `docs/security-update-policy.md`
 
 ## Emergency Response
 
 In case of a security incident:
 
-1. Follow the incident response plan in incident-response.md
+1. Follow the incident response plan in `docs/incident-response.md`
 2. Contact the security team at [security@example.com](mailto:security@example.com)
 3. For critical incidents, call the security hotline: +1-555-123-4567
 
 ## Version Information
 
-- Last security update: 2023-11-15
+- Last security update: 2024-06-25
 - OWASP CRS version: 3.3.4
 - Security components version: 0.0.1

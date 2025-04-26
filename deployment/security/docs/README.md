@@ -58,7 +58,7 @@ The documentation symlinks directory centralizes references to security-related 
 ## Directory Structure
 
 ```plaintext
-deployment/security/docs-symlinks/
+deployment/security/docs/
 ├── README.md                 # This documentation
 ├── hardening-checklist.md    # → /docs/security/hardening-checklist.md
 ├── incident-response.md      # → /docs/security/incident-response.md
@@ -73,13 +73,13 @@ Symlinks are managed using the following commands:
 
 ```bash
 # Create a new symlink
-ln -s /path/to/original/document.md deployment/security/docs-symlinks/document.md
+ln -s /path/to/original/document.md deployment/security/docs/document.md
 
 # Update the target of a symlink
-ln -sf /path/to/new/location/document.md deployment/security/docs-symlinks/document.md
+ln -sf /path/to/new/location/document.md deployment/security/docs/document.md
 
 # Verify symlink targets
-ls -la deployment/security/docs-symlinks/
+ls -la deployment/security/docs/
 ```
 
 ### Maintaining Symlinks
