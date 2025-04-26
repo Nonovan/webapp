@@ -2,16 +2,85 @@
 
 The deployment CLI provides commands for deploying, updating, and managing the Cloud Infrastructure Platform across different cloud providers and environments.
 
+## Contents
+
+- Overview
+- Key Components
+- Directory Structure
+- Prerequisites
+- Security Features
+- Common Features
+- Usage Examples
+- Related Documentation
+
 ## Overview
 
-The CLI is organized into the following command groups:
+The deployment CLI implements a comprehensive set of commands for managing infrastructure deployments across multiple cloud providers and environments. Using Flask's CLI integration with Click, it provides standardized interfaces for AWS, Azure, GCP, Kubernetes, and Docker deployments. The CLI follows consistent patterns for environment configuration, validation, deployment, status checking, and resource cleanup to ensure reliable operations across all deployment targets.
 
-- `aws`: AWS deployment commands
-- `azure`: Azure deployment commands
-- `gcp`: Google Cloud Platform deployment commands
-- `k8s`: Kubernetes deployment commands
-- `docker`: Docker container commands
-- `general`: Provider-agnostic deployment commands
+## Key Components
+
+- **`__init__.py`**: Command-line interface module initialization
+  - CLI group registration
+  - Command import and organization
+  - Exports and public interface
+  - Sub-command group registration
+  - Module documentation
+
+- **`aws.py`**: AWS deployment commands
+  - CloudFormation-based deployment
+  - Resource deployment and management
+  - Stack creation and updates
+  - Status checking and monitoring
+  - Teardown and cleanup operations
+
+- **`azure.py`**: Azure deployment commands
+  - ARM template-based deployment
+  - Resource group management
+  - Deployment status monitoring
+  - Resource cleanup and deletion
+  - Azure service management
+
+- **`docker.py`**: Docker container operations
+  - Container image building
+  - Docker Compose orchestration
+  - Image registry operations
+  - Resource cleanup and pruning
+  - Container environment management
+
+- **`gcp.py`**: Google Cloud Platform commands
+  - Deployment Manager-based provisioning
+  - GCP project management
+  - Deployment monitoring
+  - Resource teardown and deletion
+  - Cloud service configuration
+
+- **`general.py`**: Provider-agnostic commands
+  - Configuration validation
+  - Environment listing and selection
+  - Deployment preparation
+  - Cross-provider operations
+  - Monitoring and reporting
+
+- **`kubernetes.py`**: Kubernetes deployment commands
+  - Manifest-based deployment
+  - Namespace management
+  - Deployment status monitoring
+  - Cluster resource management
+  - Deployment teardown
+
+## Directory Structure
+
+```plaintext
+cli/deploy/
+├── README.md      # This documentation
+├── __init__.py    # CLI group initialization
+├── aws.py         # AWS deployment commands
+├── azure.py       # Azure deployment commands
+├── docker.py      # Docker container operations
+├── gcp.py         # GCP deployment commands
+├── general.py     # Provider-agnostic commands
+└── kubernetes.py  # Kubernetes deployment commands
+```
 
 ## Prerequisites
 
@@ -23,7 +92,33 @@ The CLI is organized into the following command groups:
 - Docker and Docker Compose (for container operations)
 - kubectl (for Kubernetes deployments)
 
-## Usage
+## Security Features
+
+- **Access Validation**: Checks for appropriate credentials before operations
+- **Configuration Validation**: Validates deployment configurations before application
+- **Credential Handling**: Secure credential handling across providers
+- **Dry Run Support**: Simulation mode for validating changes without applying them
+- **Environment Separation**: Clear separation between development, staging, and production
+- **Error Handling**: Comprehensive error capturing with proper logging
+- **Input Validation**: Validation of all command parameters
+- **Logging**: Detailed logging of all deployment operations
+- **Permission Verification**: Validation of required permissions before deployment
+- **Resource Isolation**: Proper namespace and resource group isolation
+
+## Common Features
+
+- **Confirmation Prompts**: Confirmations for destructive operations
+- **Cross-Provider Support**: Consistent interfaces across cloud providers
+- **Environment-Awareness**: Environment-specific configuration and deployment
+- **Error Recovery**: Clean handling of failed deployments
+- **Idempotent Operations**: Safe to run commands multiple times
+- **Progress Reporting**: Visual progress indicators for long-running operations
+- **Resource Tagging**: Consistent tagging across cloud resources
+- **Status Checking**: Deployment status verification
+- **Teardown Capabilities**: Complete resource cleanup when needed
+- **Validation**: Pre-deployment validation of configurations and dependencies
+
+## Usage Examples
 
 ### General Commands
 
@@ -50,6 +145,7 @@ flask deploy aws status --env production
 # Tear down AWS deployment
 flask deploy aws teardown --env production
 ```
+
 ### Azure Deployments
 
 ```bash
@@ -61,6 +157,19 @@ flask deploy azure status --env production
 
 # Tear down Azure deployment
 flask deploy azure teardown --env production
+```
+
+### Docker Operations
+
+```bash
+# Build Docker image
+flask deploy docker build --env production --push --registry my-registry
+
+# Run Docker Compose operations
+flask deploy docker compose --env production --action up
+
+# Clean up Docker resources
+flask deploy docker prune
 ```
 
 ### GCP Deployments
@@ -89,15 +198,13 @@ flask deploy k8s status --env production
 flask deploy k8s teardown --env production
 ```
 
-### Docker Operations
+## Related Documentation
 
-```bash
-# Build Docker image
-flask deploy docker build --env production --push --registry my-registry
-
-# Run Docker Compose operations
-flask deploy docker compose --env production --action up
-
-# Clean up Docker resources
-flask deploy docker prune
-```
+- Cloud Provider Documentation
+- Deployment Architecture
+- Deployment Environment Configuration
+- Environment Management Guide
+- Infrastructure as Code Best Practices
+- Kubernetes Deployment Guide
+- Release Management Process
+- Security Hardening Guidelines
