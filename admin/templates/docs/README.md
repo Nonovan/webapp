@@ -59,32 +59,36 @@ admin/templates/docs/
 ├── README.md                   # This documentation
 ├── architecture/               # Architecture documentation templates
 │   ├── component_diagram.md    # Component diagram template
-│   ├── data_flow.md           # Data flow documentation template
-│   ├── infrastructure.md      # Infrastructure diagram template
-│   ├── network_topology.md    # Network topology template
-│   ├── security_boundaries.md # Security boundary documentation
-│   └── system_integration.md  # System integration template
-├── developer/                 # Developer documentation templates
-│   ├── api.md                 # API documentation template
-│   ├── code_contribution.md   # Code contribution guidelines
-│   ├── component_spec.md      # Component specification template
-│   ├── design_doc.md          # Design document template
-│   ├── integration.md         # Integration documentation template
-│   └── module.md              # Module documentation template
-├── operations/                # Operations documentation templates
-│   ├── backup_recovery.md     # Backup and recovery template
-│   ├── deployment.md          # Deployment documentation template
-│   ├── maintenance.md         # Maintenance guide template
-│   ├── monitoring.md          # Monitoring setup template
-│   ├── runbook.md             # Runbook template
-│   └── sla.md                 # Service level agreement template
-└── security/                  # Security documentation templates
-    ├── access_control.md      # Access control documentation
-    ├── compliance.md          # Compliance documentation template
-    ├── incident_response.md   # Incident response template
-    ├── risk_assessment.md     # Risk assessment template
-    ├── security_controls.md   # Security controls implementation
-    └── threat_model.md        # Threat modeling template
+│   ├── data_flow.md            # Data flow documentation template
+│   ├── infrastructure.md       # Infrastructure diagram template
+│   ├── network_topology.md     # Network topology template
+│   ├── README.md               # Architecture templates documentation
+│   ├── security_boundaries.md  # Security boundary documentation
+│   └── system_integration.md   # System integration template
+├── developer/                  # Developer documentation templates
+│   ├── api.md                  # API documentation template
+│   ├── code_contribution.md    # Code contribution guidelines
+│   ├── component_spec.md       # Component specification template
+│   ├── design_doc.md           # Design document template
+│   ├── integration.md          # Integration documentation template
+│   ├── module.md               # Module documentation template
+│   └── README.md               # Developer templates documentation
+├── operations/                 # Operations documentation templates
+│   ├── backup_recovery.md      # Backup and recovery template
+│   ├── deployment.md           # Deployment documentation template
+│   ├── maintenance.md          # Maintenance guide template
+│   ├── monitoring.md           # Monitoring setup template
+│   ├── README.md               # Operations templates documentation
+│   ├── runbook.md              # Runbook template
+│   └── sla.md                  # Service level agreement template
+└── security/                   # Security documentation templates
+    ├── access_control.md       # Access control documentation
+    ├── compliance.md           # Compliance documentation template
+    ├── incident_response.md    # Incident response template
+    ├── README.md               # Security templates documentation
+    ├── risk_assessment.md      # Risk assessment template
+    ├── security_controls.md    # Security controls implementation
+    └── threat_model.md         # Threat modeling template
 ```
 
 ## Usage
