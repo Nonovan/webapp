@@ -2,215 +2,227 @@
 
 This document outlines the procedures for managing SSL/TLS certificates within the Cloud Infrastructure Platform.
 
+## Contents
+
+- Audit and Logging
+- Certificate Inventory Management
+- Certificate Lifecycle Management
+- Certificate Types and Usage
+- Compliance Requirements
+- Emergency Procedures
+- Key Protection
+- Roles and Responsibilities
+- Version History
+
 ## Certificate Types and Usage
 
 The platform uses several types of certificates for different purposes:
 
-### Public-Facing SSL/TLS Certificates
+### Certificate Authority (CA)
 
-* **Web Application Endpoints**
-  * Customer-facing web interfaces
-  * API endpoints
-  * Admin interfaces
+- **Internal CA**
+  - Issues certificates for internal services
+  - Not used for customer-facing services
 
-* **Requirements**
-  * Issued by trusted public CA
-  * Extended Validation (EV) for production
-  * Organization Validation (OV) for staging
-  * 2048-bit RSA or ECC P-256 keys
-  * SHA-256 signature algorithm
-  * Maximum 1-year validity
+- **Requirements**
+  - 4096-bit RSA or ECC P-384 keys
+  - SHA-256 signature algorithm
+  - Offline root CA
+  - Online intermediate CA
+  - Maximum 10-year validity for root CA
+  - Maximum 5-year validity for intermediate CA
 
 ### Internal Service Certificates
 
-* **Service-to-Service Communication**
-  * Internal API calls
-  * Microservice communication
-  * Database connections
+- **Service-to-Service Communication**
+  - Database connections
+  - Internal API calls
+  - Microservice communication
 
-* **Requirements**
-  * Internal CA-issued
-  * 2048-bit RSA or ECC P-256 keys
-  * SHA-256 signature algorithm
-  * Maximum 2-year validity
+- **Requirements**
+  - Internal CA-issued
+  - 2048-bit RSA or ECC P-256 keys
+  - SHA-256 signature algorithm
+  - Maximum 2-year validity
 
-### Certificate Authority (CA)
+### Public-Facing SSL/TLS Certificates
 
-* **Internal CA**
-  * Issues certificates for internal services
-  * Not used for customer-facing services
+- **Web Application Endpoints**
+  - Admin interfaces
+  - API endpoints
+  - Customer-facing web interfaces
 
-* **Requirements**
-  * 4096-bit RSA or ECC P-384 keys
-  * SHA-256 signature algorithm
-  * Offline root CA
-  * Online intermediate CA
-  * Maximum 10-year validity for root CA
-  * Maximum 5-year validity for intermediate CA
+- **Requirements**
+  - Extended Validation (EV) for production
+  - Issued by trusted public CA
+  - Maximum 1-year validity
+  - Organization Validation (OV) for staging
+  - SHA-256 signature algorithm
+  - 2048-bit RSA or ECC P-256 keys
 
 ## Certificate Lifecycle Management
 
 ### Acquisition
 
-#### Public Certificates
-
-1. **Request Generation**
-   * Generate CSR with appropriate subject information
-   * Include Subject Alternative Names (SANs) for all domains
-   * Use secure key generation practices
-
-2. **CA Validation**
-   * Complete domain validation (DV) through DNS or file-based challenges
-   * For OV/EV certs, complete organizational validation process
-   * Submit all required documentation
-
-3. **Certificate Issuance**
-   * Download certificate and full chain
-   * Verify certificate attributes match request
-   * Store securely in certificate management system
-
 #### Internal Certificates
 
 1. **Request Submission**
-   * Submit certificate request to security team
-   * Include service details and justification
-   * Specify required subject names and validity period
+   - Include service details and justification
+   - Specify required subject names and validity period
+   - Submit certificate request to security team
 
 2. **Certificate Issuance**
-   * Security team issues certificate from internal CA
-   * Deliver through secure channel
-   * Include installation instructions
+   - Deliver through secure channel
+   - Include installation instructions
+   - Security team issues certificate from internal CA
+
+#### Public Certificates
+
+1. **Request Generation**
+   - Generate CSR with appropriate subject information
+   - Include Subject Alternative Names (SANs) for all domains
+   - Use secure key generation practices
+
+2. **CA Validation**
+   - Complete domain validation (DV) through DNS or file-based challenges
+   - For OV/EV certs, complete organizational validation process
+   - Submit all required documentation
+
+3. **Certificate Issuance**
+   - Download certificate and full chain
+   - Store securely in certificate management system
+   - Verify certificate attributes match request
 
 ### Deployment
 
 1. **Pre-deployment Testing**
-   * Verify certificate chain in non-production environment
-   * Test with TLS analyzers for configuration errors
-   * Validate OCSP/CRL functioning properly
+   - Test with TLS analyzers for configuration errors
+   - Validate OCSP/CRL functioning properly
+   - Verify certificate chain in non-production environment
 
 2. **Certificate Installation**
-   * Deploy using automation (Ansible/Terraform)
-   * Configure appropriate permissions
-   * Enable Perfect Forward Secrecy and HSTS
-   * Follow security best practices for private key protection
+   - Configure appropriate permissions
+   - Deploy using automation (Ansible/Terraform)
+   - Enable Perfect Forward Secrecy and HSTS
+   - Follow security best practices for private key protection
 
 3. **Post-deployment Validation**
-   * Verify through external scanners (SSL Labs, ImmuniWeb)
-   * Test with various client configurations
-   * Confirm certificate transparency logs
+   - Confirm certificate transparency logs
+   - Test with various client configurations
+   - Verify through external scanners (SSL Labs, ImmuniWeb)
 
 ### Monitoring and Renewal
 
 1. **Monitoring**
-   * Automated daily checks for expiration
-   * Alert at 60, 30, 15, 7, and 3 days before expiration
-   * Monitor CT logs for unauthorized certificates
+   - Alert at 60, 30, 15, 7, and 3 days before expiration
+   - Automated daily checks for expiration
+   - Monitor CT logs for unauthorized certificates
 
 2. **Renewal Process**
-   * Initiate renewal 30 days before expiration
-   * Generate new CSR with updated requirements if needed
-   * Use automation for Let's Encrypt certificates
-   * Validate renewed certificate before deployment
+   - Generate new CSR with updated requirements if needed
+   - Initiate renewal 30 days before expiration
+   - Use automation for Let's Encrypt certificates
+   - Validate renewed certificate before deployment
 
 3. **Emergency Replacement**
-   * Documented procedure for after-hours replacement
-   * Pre-approved emergency contacts with CA
-   * Alternate validation methods ready
-   * Incident response plan for key compromise
+   - Alternate validation methods ready
+   - Documented procedure for after-hours replacement
+   - Incident response plan for key compromise
+   - Pre-approved emergency contacts with CA
 
 ### Revocation
 
 1. **Triggers for Revocation**
-   * Private key compromise
-   * Incorrect certificate information
-   * System decommissioning
-   * Unauthorized issuance
+   - Incorrect certificate information
+   - Private key compromise
+   - System decommissioning
+   - Unauthorized issuance
 
 2. **Revocation Process**
-   * Submit revocation request to issuing CA
-   * Verify revocation through OCSP/CRL
-   * Document reason for revocation
-   * Communicate to stakeholders if public-facing
+   - Communicate to stakeholders if public-facing
+   - Document reason for revocation
+   - Submit revocation request to issuing CA
+   - Verify revocation through OCSP/CRL
 
 ## Certificate Inventory Management
 
 ### Documentation Requirements
 
-* Certificate owner and contacts
-* System/service usage
-* Issuing CA
-* Key parameters (size, algorithm)
-* Validity period
-* Renewal procedures
-* Location of private keys
-* Location in load balancers/servers
+- Certificate owner and contacts
+- Issuing CA
+- Key parameters (size, algorithm)
+- Location in load balancers/servers
+- Location of private keys
+- Renewal procedures
+- System/service usage
+- Validity period
 
 ### Inventory Tools
 
-* Centralized certificate inventory system
-* Automated discovery and tracking
-* API integration with cloud providers
-* Regular reconciliation with active systems
+- API integration with cloud providers
+- Automated discovery and tracking
+- Centralized certificate inventory system
+- Regular reconciliation with active systems
 
 ## Key Protection
 
 ### Private Key Security
 
-* Hardware Security Modules (HSM) for high-value keys
-* Key encryption at rest
-* Access controls based on role
-* Key backup procedures with dual control
-* No export of private keys in plaintext format
+- Access controls based on role
+- Hardware Security Modules (HSM) for high-value keys
+- Key backup procedures with dual control
+- Key encryption at rest
+- No export of private keys in plaintext format
 
 ### Storage Locations
 
-* Production: Hardware security modules or secure key stores
-* Staging: Encrypted file systems with access controls
-* Development: Development-only CAs with clear key usage policies
+- Development: Development-only CAs with clear key usage policies
+- Production: Hardware security modules or secure key stores
+- Staging: Encrypted file systems with access controls
 
 ## Roles and Responsibilities
 
 | Role | Responsibilities |
 |------|------------------|
-| Security Team | Manage CA infrastructure, Define certificate policies, Approve certificate requests |
-| DevOps Team | Deploy certificates, Configure TLS settings, Implement automated renewal |
-| Application Teams | Request certificates, Implement proper key usage, Report security incidents |
-| Monitoring Team | Monitor certificate expiration, Alert on anomalies, Verify configuration |
-| Incident Response | Handle key compromise events, Coordinate emergency renewals |
+| Application Teams | Implement proper key usage, Request certificates, Report security incidents |
+| DevOps Team | Configure TLS settings, Deploy certificates, Implement automated renewal |
+| Incident Response | Coordinate emergency renewals, Handle key compromise events |
+| Monitoring Team | Alert on anomalies, Monitor certificate expiration, Verify configuration |
+| Security Team | Approve certificate requests, Define certificate policies, Manage CA infrastructure |
 
 ## Compliance Requirements
 
-* PCI-DSS requirements for cardholder data environments
-* HIPAA requirements for PHI protection
-* SOC2 certificate management controls
-* ISO 27001 cryptography requirements
+- HIPAA requirements for PHI protection
+- ISO 27001 cryptography requirements
+- PCI-DSS requirements for cardholder data environments
+- SOC2 certificate management controls
 
 ## Audit and Logging
 
-* Log all certificate issuance and revocation events
-* Record access to private keys
-* Document approval workflow
-* Regular reviews of certificate inventory
-* Annual audit of CA operations
+- Annual audit of CA operations
+- Document approval workflow
+- Log all certificate issuance and revocation events
+- Record access to private keys
+- Regular reviews of certificate inventory
 
 ## Emergency Procedures
 
 ### Key Compromise Response
 
 1. **Immediate Actions**
-   * Revoke compromised certificate
-   * Isolate affected systems
-   * Rotate all secrets associated with the system
+   - Isolate affected systems
+   - Revoke compromised certificate
+   - Rotate all secrets associated with the system
 
 2. **Investigation**
-   * Determine cause and scope of compromise
-   * Identify potential data exposure
-   * Document timeline of events
+   - Determine cause and scope of compromise
+   - Document timeline of events
+   - Identify potential data exposure
 
 3. **Recovery**
-   * Issue replacement certificates with new keys
-   * Deploy to all affected systems
-   * Verify proper implementation
+   - Deploy to all affected systems
+   - Issue replacement certificates with new keys
+   - Verify proper implementation
 
 ## Version History
 
@@ -219,3 +231,4 @@ The platform uses several types of certificates for different purposes:
 | 1.0 | 2023-08-15 | Initial document | Security Team |
 | 1.1 | 2023-11-10 | Updated monitoring procedures | DevOps Team |
 | 1.2 | 2024-03-22 | Added emergency procedures | Incident Response Team |
+| 1.3 | 2024-07-15 | Reorganized document structure to follow alphabetical ordering | Documentation Team |

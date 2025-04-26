@@ -103,6 +103,7 @@ Sources of incident detection include:
 #### Escalation Decision
 
 Based on the severity assessment, determine:
+
 * Required resources and expertise
 * Need for external assistance
 * Communications strategy
@@ -224,12 +225,14 @@ Based on the severity assessment, determine:
 ### 1. Malware Incident
 
 #### Key Indicators
+
 * Antivirus/EDR alerts
 * Unusual system behavior
 * Suspicious network connections
 * Unexpected file modifications
 
 #### Response Actions
+
 1. Isolate affected systems
 2. Block malware command and control domains/IPs
 3. Collect malware samples for analysis
@@ -240,12 +243,14 @@ Based on the severity assessment, determine:
 ### 2. Account Compromise
 
 #### Key Indicators
+
 * Unusual login patterns or locations
 * Failed authentication attempts
 * Unauthorized account modifications
 * Suspicious session activities
 
 #### Response Actions
+
 1. Lock affected accounts
 2. Identify authentication events in logs
 3. Reset credentials and implement MFA
@@ -256,12 +261,14 @@ Based on the severity assessment, determine:
 ### 3. Data Breach
 
 #### Key Indicators
+
 * Unusual data access patterns
 * Large data transfers
 * Database query anomalies
 * Customer reports of data exposure
 
 #### Response Actions
+
 1. Identify scope of compromised data
 2. Stop ongoing data exfiltration
 3. Identify breach vector and timeline
@@ -272,12 +279,14 @@ Based on the severity assessment, determine:
 ### 4. Denial of Service
 
 #### Key Indicators
+
 * Significant increase in traffic
 * Service availability issues
 * Network congestion
 * Resource exhaustion alerts
 
 #### Response Actions
+
 1. Implement traffic filtering
 2. Scale resources if possible
 3. Contact ISP/cloud provider for assistance
@@ -288,12 +297,14 @@ Based on the severity assessment, determine:
 ### 5. Web Application Attack
 
 #### Key Indicators
+
 * Unusual HTTP request patterns
 * Web application firewall alerts
 * Unexpected database queries
 * Application error spikes
 
 #### Response Actions
+
 1. Block attacking IP addresses
 2. Enable additional WAF rules
 3. Review application logs for compromise indicators

@@ -2,211 +2,220 @@
 
 This document provides a comprehensive overview of the security architecture implemented in the Cloud Infrastructure Platform.
 
+## Contents
+
+- Architecture Layers
+- Relevant Standards and Frameworks
+- Security Control Implementation
+- Security Design Principles
+- Security Documentation and Standards
+- Security Reference Architecture
+- Version History
+
 ## Security Design Principles
 
 The Cloud Infrastructure Platform security architecture is built on the following core principles:
 
 1. **Defense in Depth**
-   * Multiple security layers throughout the system
-   * No single point of failure in security controls
-   * Overlapping protection mechanisms
+   - Multiple security layers throughout the system
+   - No single point of failure in security controls
+   - Overlapping protection mechanisms
 
-2. **Least Privilege**
-   * All components operate with minimum necessary permissions
-   * Just-in-time and just-enough access
-   * Granular role-based access control (RBAC)
+2. **Economy of Mechanism**
+   - Avoid security through obscurity
+   - Leverage well-tested industry-standard components
+   - Simple, well-understood security controls
 
-3. **Secure by Default**
-   * Security controls enabled by default
-   * Conservative security posture out of the box
-   * Explicit opt-in for reduced security settings
+3. **Fail Secure**
+   - Explicit deny-by-default policies
+   - Graceful security failure handling
+   - Systems default to secure state on failure
 
-4. **Fail Secure**
-   * Systems default to secure state on failure
-   * Explicit deny-by-default policies
-   * Graceful security failure handling
+4. **Least Privilege**
+   - All components operate with minimum necessary permissions
+   - Granular role-based access control (RBAC)
+   - Just-in-time and just-enough access
 
-5. **Economy of Mechanism**
-   * Simple, well-understood security controls
-   * Avoid security through obscurity
-   * Leverage well-tested industry-standard components
+5. **Secure by Default**
+   - Conservative security posture out of the box
+   - Explicit opt-in for reduced security settings
+   - Security controls enabled by default
 
 ## Architecture Layers
 
-### 1. Network Security
+### 1. Application Security
 
-The network security layer provides perimeter protection and network traffic controls:
+The application security layer ensures secure software development:
 
-* **External Firewalls**
-  * Stateful packet inspection
-  * IP-based access control lists
-  * Protocol and port restrictions
-  * DDoS mitigation capabilities
+- **API Security**
+  - API gateway with security controls
+  - Input validation and sanitization
+  - OAuth 2.0 authorization
+  - Rate limiting and throttling
 
-* **Internal Network Segmentation**
-  * Separate network zones (DMZ, application, database)
-  * Controlled traffic between zones
-  * Micro-segmentation where appropriate
-  * Zero-trust network architecture
+- **Container Security**
+  - Container isolation and resource limits
+  - Image scanning for vulnerabilities
+  - Minimal base images
+  - Runtime protection
 
-* **Encryption in Transit**
-  * TLS 1.2+ for all external connections
-  * Mutual TLS for service-to-service communication
-  * Perfect Forward Secrecy for key exchanges
-  * Strong cipher suites with regular rotation
+- **Security Development Lifecycle**
+  - Dynamic application security testing (DAST)
+  - Manual penetration testing
+  - Secure coding standards
+  - Static application security testing (SAST)
 
-* **Network Monitoring**
-  * Intrusion Detection Systems (IDS)
-  * Network traffic analysis
-  * Behavioral anomaly detection
-  * Centralized log collection and analysis
+- **Web Application Security**
+  - Content Security Policy (CSP)
+  - Protection against OWASP Top 10 vulnerabilities
+  - Secure cookie configuration
+  - Web Application Firewall (WAF)
 
-### 2. Identity and Access Management
+### 2. Cloud Infrastructure Security
 
-The IAM layer controls authentication, authorization, and access:
+The infrastructure security layer secures the underlying platform:
 
-* **Authentication**
-  * Multi-factor authentication (MFA) for all admin access
-  * Certificate-based authentication for services
-  * Password policies with complexity requirements
-  * OAuth 2.0 and OpenID Connect for federated identity
+- **Disaster Recovery**
+  - Infrastructure integrity verification
+  - Multi-region/zone deployment
+  - Regular backup and recovery testing
+  - Secure offsite backups
 
-* **Authorization**
-  * Role-based access control (RBAC)
-  * Attribute-based access control (ABAC) for fine-grained access
-  * Just-in-time access provisioning
-  * Privilege access management (PAM)
+- **Resource Protection**
+  - Cloud service provider security features
+  - Resource tagging and inventory management
+  - Secure bastion access for administrative functions
+  - Service endpoint protection
 
-* **Service Identity**
-  * Managed service accounts
-  * Short-lived credentials
-  * Automated rotation of service credentials
-  * Service mesh identity management
+- **Secure Configuration**
+  - Compliance-as-code for automated validation
+  - Configuration management for drift detection
+  - Hardened base images and templates
+  - Infrastructure as Code (IaC) with security scanning
 
-* **Secrets Management**
-  * Centralized secrets storage with encryption
-  * Automated secret rotation
-  * Access auditing for secrets
-  * Integration with HSMs for critical secrets
+- **Vulnerability Management**
+  - Automated security scans
+  - Continuous vulnerability assessment
+  - Patch management processes
+  - Security health dashboards
 
 ### 3. Data Security
 
 The data security layer protects sensitive information:
 
-* **Encryption at Rest**
-  * Full-disk encryption for all storage
-  * Field-level encryption for sensitive data
-  * Transparent database encryption
-  * Encryption key management with proper key rotation
+- **Data Integrity**
+  - Checksums for data validation
+  - Digital signatures for critical data
+  - Secure audit trails for data changes
+  - Version control for configuration data
 
-* **Data Loss Prevention**
-  * Content inspection for sensitive data
-  * Egress filtering at network boundaries
-  * Watermarking of sensitive documents
-  * Data classification and tagging
+- **Data Loss Prevention**
+  - Content inspection for sensitive data
+  - Data classification and tagging
+  - Egress filtering at network boundaries
+  - Watermarking of sensitive documents
 
-* **Data Integrity**
-  * Digital signatures for critical data
-  * Checksums for data validation
-  * Secure audit trails for data changes
-  * Version control for configuration data
+- **Encryption at Rest**
+  - Encryption key management with proper key rotation
+  - Field-level encryption for sensitive data
+  - Full-disk encryption for all storage
+  - Transparent database encryption
 
-* **Privacy Controls**
-  * Data minimization techniques
-  * Anonymization and pseudonymization
-  * Consent management
-  * Personal data inventory and mapping
+- **Privacy Controls**
+  - Anonymization and pseudonymization
+  - Consent management
+  - Data minimization techniques
+  - Personal data inventory and mapping
 
-### 4. Application Security
+### 4. Identity and Access Management
 
-The application security layer ensures secure software development:
+The IAM layer controls authentication, authorization, and access:
 
-* **Security Development Lifecycle**
-  * Secure coding standards
-  * Static application security testing (SAST)
-  * Dynamic application security testing (DAST)
-  * Manual penetration testing
+- **Authentication**
+  - Certificate-based authentication for services
+  - Multi-factor authentication (MFA) for all admin access
+  - OAuth 2.0 and OpenID Connect for federated identity
+  - Password policies with complexity requirements
 
-* **API Security**
-  * OAuth 2.0 authorization
-  * Rate limiting and throttling
-  * Input validation and sanitization
-  * API gateway with security controls
+- **Authorization**
+  - Attribute-based access control (ABAC) for fine-grained access
+  - Just-in-time access provisioning
+  - Privilege access management (PAM)
+  - Role-based access control (RBAC)
 
-* **Web Application Security**
-  * Web Application Firewall (WAF)
-  * Content Security Policy (CSP)
-  * Protection against OWASP Top 10 vulnerabilities
-  * Secure cookie configuration
+- **Secrets Management**
+  - Access auditing for secrets
+  - Automated secret rotation
+  - Centralized secrets storage with encryption
+  - Integration with HSMs for critical secrets
 
-* **Container Security**
-  * Minimal base images
-  * Image scanning for vulnerabilities
-  * Runtime protection
-  * Container isolation and resource limits
+- **Service Identity**
+  - Automated rotation of service credentials
+  - Managed service accounts
+  - Service mesh identity management
+  - Short-lived credentials
 
-### 5. Cloud Infrastructure Security
+### 5. Network Security
 
-The infrastructure security layer secures the underlying platform:
+The network security layer provides perimeter protection and network traffic controls:
 
-* **Secure Configuration**
-  * Infrastructure as Code (IaC) with security scanning
-  * Configuration management for drift detection
-  * Hardened base images and templates
-  * Compliance-as-code for automated validation
+- **Encryption in Transit**
+  - Mutual TLS for service-to-service communication
+  - Perfect Forward Secrecy for key exchanges
+  - Strong cipher suites with regular rotation
+  - TLS 1.2+ for all external connections
 
-* **Resource Protection**
-  * Cloud service provider security features
-  * Service endpoint protection
-  * Resource tagging and inventory management
-  * Secure bastion access for administrative functions
+- **External Firewalls**
+  - DDoS mitigation capabilities
+  - IP-based access control lists
+  - Protocol and port restrictions
+  - Stateful packet inspection
 
-* **Vulnerability Management**
-  * Automated security scans
-  * Patch management processes
-  * Security health dashboards
-  * Continuous vulnerability assessment
+- **Internal Network Segmentation**
+  - Controlled traffic between zones
+  - Micro-segmentation where appropriate
+  - Separate network zones (DMZ, application, database)
+  - Zero-trust network architecture
 
-* **Disaster Recovery**
-  * Multi-region/zone deployment
-  * Regular backup and recovery testing
-  * Secure offsite backups
-  * Infrastructure integrity verification
+- **Network Monitoring**
+  - Behavioral anomaly detection
+  - Centralized log collection and analysis
+  - Intrusion Detection Systems (IDS)
+  - Network traffic analysis
 
 ### 6. Security Operations
 
 The security operations layer manages ongoing security activities:
 
-* **Monitoring and Detection**
-  * Security information and event management (SIEM)
-  * User and entity behavior analytics (UEBA)
-  * Threat intelligence integration
-  * 24/7 security monitoring
+- **Compliance Management**
+  - Automated compliance reporting
+  - Continuous compliance monitoring
+  - Evidence collection for audits
+  - Regulatory change tracking
 
-* **Incident Response**
-  * Defined incident response procedures
-  * Automated response workflows
-  * Forensic investigation capabilities
-  * Regular tabletop exercises
+- **Incident Response**
+  - Automated response workflows
+  - Defined incident response procedures
+  - Forensic investigation capabilities
+  - Regular tabletop exercises
 
-* **Compliance Management**
-  * Automated compliance reporting
-  * Evidence collection for audits
-  * Continuous compliance monitoring
-  * Regulatory change tracking
+- **Monitoring and Detection**
+  - 24/7 security monitoring
+  - Security information and event management (SIEM)
+  - Threat intelligence integration
+  - User and entity behavior analytics (UEBA)
 
-* **Security Awareness**
-  * Regular security training
-  * Phishing simulations
-  * Security champions program
-  * Executive-level security reporting
+- **Security Awareness**
+  - Executive-level security reporting
+  - Phishing simulations
+  - Regular security training
+  - Security champions program
 
 ## Security Reference Architecture
 
 The following diagram illustrates how these security layers work together:
 
-```
-
+```plaintext
 ┌──────────────────────────────────────────────────────────────────┐
 │                  Security Operations & Governance                │
 └──────────────────────────────────────────────────────────────────┘
@@ -225,50 +234,49 @@ The following diagram illustrates how these security layers work together:
 ┌──────────────────────────────────────────────────────────────────┐
 │                Cloud Infrastructure Security                     │
 └──────────────────────────────────────────────────────────────────┘
-
 ```
 
 ## Security Control Implementation
 
 Security controls are implemented across all layers with particular focus on:
 
-1. **Preventative Controls**
-   * Access restrictions
-   * Encryption
-   * Configuration hardening
-   * Secure defaults
+1. **Corrective Controls**
+   - Automated incident response
+   - Backup and recovery
+   - Patch management
+   - Self-healing infrastructure
 
 2. **Detective Controls**
-   * Logging and monitoring
-   * Intrusion detection
-   * Integrity verification
-   * Compliance auditing
+   - Compliance auditing
+   - Integrity verification
+   - Intrusion detection
+   - Logging and monitoring
 
-3. **Corrective Controls**
-   * Automated incident response
-   * Self-healing infrastructure
-   * Backup and recovery
-   * Patch management
+3. **Preventative Controls**
+   - Access restrictions
+   - Configuration hardening
+   - Encryption
+   - Secure defaults
 
 ## Security Documentation and Standards
 
 All security implementations are documented in detail in the following locations:
 
-* **Network Security**: See [Firewall Policies](firewall-policies.md) and [Network Segmentation](network-segmentation.md)
-* **Identity Management**: See [IAM Policies](iam-policies.md) and [Authentication Standards](authentication-standards.md)
-* **Cryptography**: See [Cryptographic Standards](crypto-standards.md) and [Certificate Management](certificate-management.md)
-* **Incident Response**: See [Incident Response Plan](../admin/security_incident_response.md)
-* **Compliance**: See [Compliance Requirements](compliance.md)
+- **Compliance**: See Compliance Requirements
+- **Cryptography**: See Certificate Management and Cryptographic Standards
+- **Identity Management**: See Authentication Standards and IAM Policies
+- **Incident Response**: See Incident Response
+- **Network Security**: See Firewall Policies and Network Segmentation
 
 ## Relevant Standards and Frameworks
 
 The security architecture aligns with the following standards and frameworks:
 
-* ISO/IEC 27001:2013
-* NIST Cybersecurity Framework
-* CIS Critical Security Controls
-* OWASP Application Security Verification Standard (ASVS)
-* CSA Cloud Controls Matrix
+- CIS Critical Security Controls
+- CSA Cloud Controls Matrix
+- ISO/IEC 27001:2013
+- NIST Cybersecurity Framework
+- OWASP Application Security Verification Standard (ASVS)
 
 ## Version History
 
@@ -278,3 +286,4 @@ The security architecture aligns with the following standards and frameworks:
 | 1.1 | 2023-08-22 | Updated network security controls | Network Security Team |
 | 1.2 | 2024-01-10 | Added cloud security components | Cloud Security Engineer |
 | 1.3 | 2024-04-15 | Enhanced data protection section | Security Architect |
+| 1.4 | 2024-07-15 | Reorganized document to follow alphabetical ordering | Documentation Team |

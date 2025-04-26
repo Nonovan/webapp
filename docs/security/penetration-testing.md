@@ -11,6 +11,7 @@ Penetration testing is a critical component of our security assurance program, p
 ### 1. External Network Penetration Testing
 
 **Scope**: Internet-facing infrastructure, including:
+
 - Web applications
 - API endpoints
 - VPN endpoints
@@ -21,6 +22,7 @@ Penetration testing is a critical component of our security assurance program, p
 **Frequency**: Quarterly
 
 **Objectives**:
+
 - Identify vulnerabilities in perimeter defenses
 - Test effectiveness of network security controls
 - Discover misconfigurations in public-facing services
@@ -29,6 +31,7 @@ Penetration testing is a critical component of our security assurance program, p
 ### 2. Internal Network Penetration Testing
 
 **Scope**: Internal systems and networks, including:
+
 - Internal servers and workstations
 - Network devices
 - Internal services and applications
@@ -38,6 +41,7 @@ Penetration testing is a critical component of our security assurance program, p
 **Frequency**: Semi-annually
 
 **Objectives**:
+
 - Evaluate lateral movement potential
 - Test network segmentation effectiveness
 - Identify misconfigurations and vulnerabilities
@@ -46,6 +50,7 @@ Penetration testing is a critical component of our security assurance program, p
 ### 3. Web Application Penetration Testing
 
 **Scope**: Web applications and APIs, including:
+
 - Customer-facing applications
 - Administrative interfaces
 - REST/SOAP APIs
@@ -56,6 +61,7 @@ Penetration testing is a critical component of our security assurance program, p
 **Frequency**: Quarterly and after significant changes
 
 **Objectives**:
+
 - Identify application security vulnerabilities (OWASP Top 10)
 - Test business logic flaws
 - Evaluate authentication and authorization controls
@@ -64,6 +70,7 @@ Penetration testing is a critical component of our security assurance program, p
 ### 4. Cloud Infrastructure Penetration Testing
 
 **Scope**: Cloud-based resources and services:
+
 - Infrastructure as a Service (IaaS) configurations
 - Platform as a Service (PaaS) implementations
 - Container orchestration platforms
@@ -73,6 +80,7 @@ Penetration testing is a critical component of our security assurance program, p
 **Frequency**: Quarterly
 
 **Objectives**:
+
 - Assess cloud configuration security
 - Evaluate IAM policy implementation
 - Test container escape scenarios
@@ -82,6 +90,7 @@ Penetration testing is a critical component of our security assurance program, p
 ### 5. Mobile Application Penetration Testing
 
 **Scope**: iOS and Android applications:
+
 - Client-side security controls
 - API interactions
 - Data storage practices
@@ -91,6 +100,7 @@ Penetration testing is a critical component of our security assurance program, p
 **Frequency**: Semi-annually and after major releases
 
 **Objectives**:
+
 - Identify client-side vulnerabilities
 - Assess secure storage of sensitive data
 - Test API communication security
@@ -230,11 +240,13 @@ Penetration testing is a critical component of our security assurance program, p
 ## Remediation Process
 
 ### Verification Testing
+
 - Conduct retesting of vulnerabilities after remediation
 - Provide verification reports
 - Update vulnerability status
 
 ### Tracking
+
 - All findings tracked in vulnerability management system
 - Regular status updates on remediation progress
 - Risk acceptance documentation for any exceptions
@@ -242,6 +254,7 @@ Penetration testing is a critical component of our security assurance program, p
 ## Special Considerations
 
 ### Production Testing Safeguards
+
 - Maintain documented rollback procedures
 - Schedule testing during low-traffic periods when possible
 - Notify monitoring teams before testing begins
@@ -249,12 +262,14 @@ Penetration testing is a critical component of our security assurance program, p
 - Restrict destructive testing to test environments
 
 ### Cloud Provider Requirements
+
 - Review cloud provider penetration testing policies
 - Submit required notifications to cloud providers
 - Adhere to cloud provider restrictions
 - Maintain documentation of cloud provider approvals
 
 ### Compliance Requirements
+
 - Ensure testing meets relevant compliance requirements:
   - PCI DSS requires annual and post-change testing
   - HIPAA requires regular security evaluation
@@ -264,6 +279,7 @@ Penetration testing is a critical component of our security assurance program, p
 ## Documentation and Templates
 
 ### Required Documentation
+
 - Penetration Testing Request Form
 - Rules of Engagement Document
 - Penetration Testing Report Template
@@ -271,6 +287,7 @@ Penetration testing is a critical component of our security assurance program, p
 - Vulnerability Classification Guide
 
 ### Template Locations
+
 - Templates are stored in the document management system at `/docs/security/templates/`
 - Required approval forms are available in the security portal
 

@@ -57,6 +57,7 @@ The security documentation provides detailed information about the platform's se
 ```plaintext
 docs/security/
 ├── README.md                           # This documentation
+├── authentication-standards.md         # Authentication and access control standards
 ├── certificate-management.md           # Certificate lifecycle procedures
 ├── compliance.md                       # Compliance requirements documentation
 ├── crypto-standards.md                 # Cryptography standards and key management
@@ -118,6 +119,7 @@ For implementation details, refer to hardening-checklist.md and firewall-policie
 
 Implementation guides provide step-by-step procedures for:
 
+- **Authentication**: See authentication-standards.md
 - **Certificate Management**: See certificate-management.md
 - **Cryptographic Controls**: See crypto-standards.md
 - **Firewalls & Network Segmentation**: See firewall-policies.md and network-segmentation.md

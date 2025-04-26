@@ -2,93 +2,145 @@
 
 This document outlines the compliance requirements and implementation details for the Cloud Infrastructure Platform security controls.
 
+## Contents
+
+- Audit Preparation
+- Compliance Framework Overview
+- Compliance Resources
+- FedRAMP (Moderate)
+- GDPR
+- HIPAA (Where Applicable)
+- ISO 27001
+- PCI DSS
+- SOC 2 Type II
+- Version History
+
 ## Compliance Framework Overview
 
 The Cloud Infrastructure Platform is designed to meet multiple compliance frameworks. This document provides guidance on how our security controls map to various regulatory and industry requirements.
 
+## Audit Preparation
+
+### Regular Activities
+
+1. **Control Testing**: Regular validation of control effectiveness
+2. **Documentation Review**: Ensuring all policies and procedures are current
+3. **Evidence Collection**: Ongoing collection and organization of control evidence
+4. **Mock Audits**: Internal exercises to prepare for external assessments
+
+### Audit Response Process
+
+1. **Audit Notification**: Receipt and acknowledgment of audit notice
+2. **Audit Facilitation**: Supporting auditors during the assessment
+3. **Certification Maintenance**: Ensuring continued compliance
+4. **Evidence Gathering**: Compilation of required evidence using gather-evidence.sh
+5. **Finding Remediation**: Addressing any identified issues
+6. **SME Preparation**: Briefing of subject matter experts
+
+## Compliance Resources
+
+- Automated compliance reports available through the admin portal
+- Compliance documentation is stored in `docs/security/compliance/`
+- Control implementation evidence is organized by framework
+- Questions about compliance should be directed to [compliance@example.com](mailto:compliance@example.com)
+
+## FedRAMP (Moderate)
+
+For government clients, our FedRAMP Moderate controls include:
+
+- Annual third-party assessment
+- Continuous monitoring that meets federal requirements
+- Enhanced documentation for security controls
+- More restrictive access management
+
+## GDPR
+
+### Key Implementation Areas
+
+- **Data Breach Notification Process**: Integrated with incident response procedures
+- **Data Protection Impact Assessments**: Templates in `docs/legal/dpia-template.md`
+- **Data Subject Rights**: Implementation in `core/privacy/` modules
+- **Lawful Basis for Processing**: Documented in `docs/legal/data-processing-register.md`
+- **Privacy by Design**: Architecture review process ensures privacy considerations
+- **Records of Processing Activities**: Maintained in centralized data register
+
+## HIPAA (Where Applicable)
+
+For healthcare-related applications:
+
+- Additional security measures for healthcare data
+- Business Associate Agreements with all relevant parties
+- PHI encryption and access logging
+
 ## ISO 27001
 
-### Overview
+### ISO 27001 Overview
 
 ISO 27001 is an international standard for information security management systems (ISMS). It provides a systematic approach to managing sensitive company information.
+
+### Annual Certification Process
+
+1. **External Audit**: Engage certified ISO 27001 auditors for formal assessment
+   - Deliverable: Audit results and certification renewal
+   - Owner: CISO/Security Director
+   - Schedule: Q3 each year
+
+2. **Gap Analysis**: Identify any gaps between current implementation and ISO requirements
+   - Deliverable: Gap analysis report with prioritized actions
+   - Owner: Compliance Manager
+   - Schedule: Q2 each year
+
+3. **Internal Audit**: Conduct internal assessment of all ISO 27001 controls
+   - Deliverable: Internal audit report with findings and remediation plan
+   - Owner: Security Team
+   - Schedule: Q1 each year
+
+4. **Management Review**: Executive review of ISMS effectiveness
+   - Deliverable: Management review minutes and improvement directives
+   - Owner: Executive Leadership
+   - Schedule: Q4 each year
+
+5. **Remediation**: Address any identified gaps or non-conformities
+   - Deliverable: Documented evidence of remediation
+   - Owner: Respective department heads
+   - Schedule: Q2-Q3 each year
 
 ### Key Requirements and Implementations
 
 | Control Category | Requirements | Implementation |
 |------------------|--------------|----------------|
-| **Information Security Policies** | Documented policies approved by management | Security policies in `/deployment/security/policies/` directory, reviewed annually |
-| **Organization of Information Security** | Defined security roles and responsibilities | Security responsibilities documented in `docs/security/roles.md` with clear ownership |
-| **Human Resource Security** | Security awareness training, screening | Mandatory security training program, background checks for all employees |
-| **Asset Management** | Inventory and classification of information assets | Asset management system with data classification guidelines |
 | **Access Control** | User access management, responsibilities | Role-based access control implemented in all systems with quarterly reviews |
-| **Cryptography** | Controls for cryptographic keys | Key management procedures in `docs/security/crypto-standards.md` |
-| **Physical Security** | Secure areas, equipment security | Physical security controls for all data centers and offices |
-| **Operations Security** | Documented procedures, malware protection | Operational procedures, automated malware protection, logging |
+| **Asset Management** | Inventory and classification of information assets | Asset management system with data classification guidelines |
+| **Business Continuity** | Information security in business continuity | Disaster recovery and business continuity plans in disaster-recovery.md |
 | **Communications Security** | Network security, information transfer | Network security controls defined in `deployment/security/firewall-policies.md` |
-| **System Acquisition** | Security requirements for information systems | Security requirements included in all vendor assessments |
-| **Supplier Relationships** | Security in supplier agreements | Vendor security assessment process, contract requirements |
-| **Incident Management** | Management of security incidents | Incident response procedures defined in `docs/admin/security_incident_response.md` |
-| **Business Continuity** | Information security in business continuity | Disaster recovery and business continuity plans in `docs/deployment/disaster-recovery.md` |
 | **Compliance** | Legal, regulatory compliance | Regular compliance assessments and audits |
+| **Cryptography** | Controls for cryptographic keys | Key management procedures in crypto-standards.md |
+| **Human Resource Security** | Security awareness training, screening | Mandatory security training program, background checks for all employees |
+| **Incident Management** | Management of security incidents | Incident response procedures defined in security_incident_response.md |
+| **Information Security Policies** | Documented policies approved by management | Security policies in `deployment/security/policies/` directory, reviewed annually |
+| **Operations Security** | Documented procedures, malware protection | Operational procedures, automated malware protection, logging |
+| **Organization of Information Security** | Defined security roles and responsibilities | Security responsibilities documented in roles.md with clear ownership |
+| **Physical Security** | Secure areas, equipment security | Physical security controls for all data centers and offices |
+| **Supplier Relationships** | Security in supplier agreements | Vendor security assessment process, contract requirements |
+| **System Acquisition** | Security requirements for information systems | Security requirements included in all vendor assessments |
 
-### Annual Certification Process
+## PCI DSS
 
-1. **Internal Audit**: Conduct internal assessment of all ISO 27001 controls
-   - Schedule: Q1 each year
-   - Owner: Security Team
-   - Deliverable: Internal audit report with findings and remediation plan
+For systems processing payment card data, we implement controls according to PCI DSS requirements including:
 
-2. **Gap Analysis**: Identify any gaps between current implementation and ISO requirements
-   - Schedule: Q2 each year
-   - Owner: Compliance Manager
-   - Deliverable: Gap analysis report with prioritized actions
-
-3. **Remediation**: Address any identified gaps or non-conformities
-   - Schedule: Q2-Q3 each year
-   - Owner: Respective department heads
-   - Deliverable: Documented evidence of remediation
-
-4. **External Audit**: Engage certified ISO 27001 auditors for formal assessment
-   - Schedule: Q3 each year
-   - Owner: CISO/Security Director
-   - Deliverable: Audit results and certification renewal
-
-5. **Management Review**: Executive review of ISMS effectiveness
-   - Schedule: Q4 each year
-   - Owner: Executive Leadership
-   - Deliverable: Management review minutes and improvement directives
+- Network segmentation with dedicated cardholder data environment
+- Regular security testing and monitoring
+- Strong access control measures
+- Vulnerability management program
+- Implemented through payment tokenization to reduce PCI scope
 
 ## SOC 2 Type II
 
-### Overview
+### SOC 2 Type II Overview
 
 SOC 2 is a framework for managing data based on five "trust service criteria" — security, availability, processing integrity, confidentiality, and privacy.
 
-### Trust Service Categories Implementation
-
-| Category | Implementation | Evidence Location |
-|----------|----------------|-------------------|
-| **Security** | Network security controls, vulnerability management, incident response | `deployment/security/` directory |
-| **Availability** | High availability architecture, DR procedures, backup processes | `deployment/infrastructure/ha-config/` |
-| **Processing Integrity** | Data validation, error handling, quality assurance | `core/validation/` modules |
-| **Confidentiality** | Encryption, access controls, data classification | `deployment/security/data-protection/` |
-| **Privacy** | Privacy policies, consent management, data subject rights | `docs/legal/privacy-procedures.md` |
-
 ### Compliance Maintenance
-
-#### Continuous Monitoring
-
-- Automated compliance monitoring through the security dashboard
-- Weekly compliance status reports generated by `scripts/compliance/generate-report.sh`
-- Integration with CI/CD pipeline for continuous control validation
-
-#### Responsibility Matrix
-
-Each compliance requirement has a designated owner responsible for:
-- Maintaining control effectiveness
-- Documenting evidence
-- Responding to audit requests
-- Implementing improvements
 
 #### Annual Compliance Calendar
 
@@ -107,68 +159,30 @@ Each compliance requirement has a designated owner responsible for:
 | November | Compliance roadmap planning |
 | December | Annual compliance report |
 
-## GDPR
+#### Continuous Monitoring
 
-### Key Implementation Areas
+- Automated compliance monitoring through the security dashboard
+- Integration with CI/CD pipeline for continuous control validation
+- Weekly compliance status reports generated by generate-report.sh
 
-- **Lawful Basis for Processing**: Documented in `docs/legal/data-processing-register.md`
-- **Data Subject Rights**: Implementation in `core/privacy/` modules
-- **Data Protection Impact Assessments**: Templates in `docs/legal/dpia-template.md`
-- **Privacy by Design**: Architecture review process ensures privacy considerations
-- **Records of Processing Activities**: Maintained in centralized data register
-- **Data Breach Notification Process**: Integrated with incident response procedures
+#### Responsibility Matrix
 
-## PCI DSS
+Each compliance requirement has a designated owner responsible for:
 
-For systems processing payment card data, we implement controls according to PCI DSS requirements including:
+- Documenting evidence
+- Implementing improvements
+- Maintaining control effectiveness
+- Responding to audit requests
 
-- Network segmentation with dedicated cardholder data environment
-- Strong access control measures
-- Vulnerability management program
-- Regular security testing and monitoring
-- Implemented through payment tokenization to reduce PCI scope
+### Trust Service Categories Implementation
 
-## FedRAMP (Moderate)
-
-For government clients, our FedRAMP Moderate controls include:
-
-- Enhanced documentation for security controls
-- More restrictive access management
-- Continuous monitoring that meets federal requirements
-- Annual third-party assessment
-
-## HIPAA (Where Applicable)
-
-For healthcare-related applications:
-
-- Business Associate Agreements with all relevant parties
-- PHI encryption and access logging
-- Additional security measures for healthcare data
-
-## Audit Preparation
-
-### Regular Activities
-
-1. **Evidence Collection**: Ongoing collection and organization of control evidence
-2. **Control Testing**: Regular validation of control effectiveness
-3. **Documentation Review**: Ensuring all policies and procedures are current
-4. **Mock Audits**: Internal exercises to prepare for external assessments
-
-### Audit Response Process
-
-1. **Audit Notification**: Receipt and acknowledgment of audit notice
-2. **Evidence Gathering**: Compilation of required evidence using `scripts/compliance/gather-evidence.sh`
-3. **SME Preparation**: Briefing of subject matter experts
-4. **Audit Facilitation**: Supporting auditors during the assessment
-5. **Finding Remediation**: Addressing any identified issues
-6. **Certification Maintenance**: Ensuring continued compliance
-
-## Compliance Resources
-
-- Compliance documentation is stored in `docs/security/compliance/`
-- Control implementation evidence is organized by framework
-- Automated compliance reports available through the admin portal
-- Questions about compliance should be directed to compliance@example.com
+| Category | Implementation | Evidence Location |
+|----------|----------------|-------------------|
+| **Availability** | High availability architecture, DR procedures, backup processes | `deployment/infrastructure/ha-config/` |
+| **Confidentiality** | Encryption, access controls, data classification | `deployment/security/data-protection/` |
+| **Privacy** | Privacy policies, consent management, data subject rights | `docs/legal/privacy-procedures.md` |
+| **Processing Integrity** | Data validation, error handling, quality assurance | `core/validation/` modules |
+| **Security** | Network security controls, vulnerability management, incident response | security directory |
 
 ## Version History
 
@@ -178,3 +192,4 @@ For healthcare-related applications:
 | 1.1 | 2023-06-10 | Updated ISO controls | Security Officer |
 | 1.2 | 2023-09-22 | Added GDPR section | Privacy Officer |
 | 2.0 | 2024-02-01 | Major revision with updated frameworks | Compliance Director |
+| 2.1 | 2024-07-20 | Reorganized document to follow alphabetical ordering | Documentation Team |

@@ -2,6 +2,17 @@
 
 This directory contains security-related configurations, hardening scripts, and documentation to secure the Cloud Infrastructure Platform across various environments.
 
+## Contents
+
+- Best Practices
+- Compliance
+- Directory Contents
+- Overview
+- Security Layers
+- Security Testing
+- Usage
+- Version History
+
 ## Overview
 
 The security implementation follows a defense-in-depth approach, applying multiple layers of security controls to protect the platform infrastructure, applications, data, and network communications. Our implementation follows industry best practices including NIST Cybersecurity Framework, CIS benchmarks, and OWASP recommendations.
@@ -9,39 +20,43 @@ The security implementation follows a defense-in-depth approach, applying multip
 ## Directory Contents
 
 - **Configuration Files**
-- `nginx-hardening.conf` - NGINX web server security hardening
+- `aide.conf` - File integrity monitoring configuration
+- `fail2ban-filters/` - Custom filters for Fail2ban
+- `fail2ban.local` - Fail2ban configuration
+- `ics-protection.conf` - Rules specific to Industrial Control Systems
 - `modsecurity-rules.conf` - ModSecurity WAF rules configuration
-- `ssl-params.conf` - SSL/TLS security parameters
+- `network-policies.yaml` - Kubernetes network security policies
+- `nginx-hardening.conf` - NGINX web server security hardening
 - `security-headers.conf` - HTTP security headers configuration
+- `ssh-hardening.conf` - SSH server hardening configuration
+- `ssl-params.conf` - SSL/TLS security parameters
 - `waf-rules/` - Web application firewall rules organized by category:
-  - `sensitive-data.conf` - Rules to protect against data leakage
   - `generic-attacks.conf` - Rules for common web attack patterns
   - `ip-reputation.conf` - Rules for IP-based threat intelligence
-  - `ics-protection.conf` - Rules specific to Industrial Control Systems
-- `fail2ban.local` - Fail2ban configuration
-- `fail2ban-filters/` - Custom filters for Fail2ban
-- `ssh-hardening.conf` - SSH server hardening configuration
-- `aide.conf` - File integrity monitoring configuration
-- `network-policies.yaml` - Kubernetes network security policies
+  - `sensitive-data.conf` - Rules to protect against data leakage
+- **Documentation**
+- `authentication-standards.md` - Authentication and access control standards
+- certificate-management.md - Certificate management procedures
+- compliance.md - Compliance requirements documentation
+- crypto-standards.md - Cryptographic standards and key management
+- firewall-policies.md - Network firewall configuration and policies
+- hardening-checklist.md - Server hardening checklist
+- iam-policies.md - Identity and access management policies
+- `incident-response.md` - Security incident response procedures
+- network-segmentation.md - Network segmentation architecture
+- `penetration-testing.md` - Guidelines for security testing
+- `roles.md` - Security roles and responsibilities
+- security-architecture-overview.md - Security architecture overview
+- security-update-policy.md - Security update management procedures
 - **Scripts**
 - `iptables-rules.sh` - Firewall configuration script
 - `security-audit.sh` - Security audit and reporting tool
+- `security-update-cron` - Scheduled security tasks
+- `security_setup.sh` - Primary security configuration script
+- `setup-modsecurity.sh` - ModSecurity WAF setup script
 - `ssl-setup.sh` - SSL certificate setup and management
 - `update-modsecurity-rules.sh` - WAF rules updating script
-- `security-update-cron` - Scheduled security tasks
-- `setup-modsecurity.sh` - ModSecurity WAF setup script
-- `security_setup.sh` - Primary security configuration script
 - `verify_files.py` - File integrity verification tool
-- **Documentation**
-- `hardening-checklist.md` - Server hardening checklist
-- `security-architecture-overview.md` - Security architecture overview
-- `certificate-management.md` - Certificate management procedures
-- `firewall-policies.md` - Network firewall configuration and policies
-- `incident-response.md` - Security incident response procedures
-- `penetration-testing.md` - Guidelines for security testing
-- `compliance.md` - Compliance requirements documentation
-- `crypto-standards.md` - Cryptographic standards and key management
-- `roles.md` - Security roles and responsibilities
 
 ## Usage
 
@@ -55,40 +70,15 @@ To apply basic security hardening to a newly provisioned system:
 
 # Verify the security configuration
 ./security-audit.sh --report-only
-
 ```
 
-### Web Server Security
+### Certificate Management
 
-To configure the web server with security best practices:
-
-```bash
-# Copy security configuration files to NGINX directory
-cp nginx-hardening.conf /etc/nginx/conf.d/
-cp ssl-params.conf /etc/nginx/conf.d/
-cp security-headers.conf /etc/nginx/conf.d/
-
-# Setup ModSecurity WAF
-./setup-modsecurity.sh
-
-# Update ModSecurity rules
-./update-modsecurity-rules.sh
-
-```
-
-### Network Security
-
-To implement network security controls:
+For SSL/TLS certificate management:
 
 ```bash
-# Configure firewall rules
-./iptables-rules.sh
-
-# Setup intrusion prevention
-cp fail2ban.local /etc/fail2ban/
-cp -r fail2ban-filters/* /etc/fail2ban/filter.d/
-systemctl restart fail2ban
-
+# Setup SSL certificates
+./ssl-setup.sh --domain cloud-platform.example.com --email admin@example.com
 ```
 
 ### Monitoring and Compliance
@@ -106,98 +96,119 @@ cp security-update-cron /etc/cron.d/cloud-platform-security
 
 # Run security audit
 ./security-audit.sh --email security@example.com
-
 ```
 
-### Certificate Management
+### Network Security
 
-For SSL/TLS certificate management:
+To implement network security controls:
 
 ```bash
-# Setup SSL certificates
-./ssl-setup.sh --domain cloud-platform.example.com --email admin@example.com
+# Configure firewall rules
+./iptables-rules.sh
 
+# Setup intrusion prevention
+cp fail2ban.local /etc/fail2ban/
+cp -r fail2ban-filters/* /etc/fail2ban/filter.d/
+systemctl restart fail2ban
+```
+
+### Web Server Security
+
+To configure the web server with security best practices:
+
+```bash
+# Copy security configuration files to NGINX directory
+cp nginx-hardening.conf /etc/nginx/conf.d/
+cp ssl-params.conf /etc/nginx/conf.d/
+cp security-headers.conf /etc/nginx/conf.d/
+
+# Setup ModSecurity WAF
+./setup-modsecurity.sh
+
+# Update ModSecurity rules
+./update-modsecurity-rules.sh
 ```
 
 ## Security Layers
 
-### 1. Infrastructure Security
+### 1. Application Security
 
-- Server hardening based on CIS benchmarks
-- Host-based firewall configuration
-- File integrity monitoring (AIDE)
-- Secure boot configuration
-- Regular security patching
-
-### 2. Network Security
-
-- Network segmentation and isolation
-- Inbound traffic filtering
-- Outbound traffic control
-- DDoS protection
-- Intrusion detection and prevention
-
-### 3. Application Security
-
-- ModSecurity WAF implementation
+- API security measures
+- Authentication and authorization controls
 - HTTP security headers
 - Input validation and sanitization
-- Authentication and authorization controls
-- API security measures
+- ModSecurity WAF implementation
 
-### 4. Data Security
+### 2. Data Security
 
-- TLS encryption for data in transit
-- Disk encryption for data at rest
-- Database security controls
-- Secure backup procedures
 - Data access monitoring
+- Database security controls
+- Disk encryption for data at rest
+- Secure backup procedures
+- TLS encryption for data in transit
 
-### 5. Monitoring and Response
+### 3. Infrastructure Security
 
-- Security event logging
+- File integrity monitoring (AIDE)
+- Host-based firewall configuration
+- Regular security patching
+- Secure boot configuration
+- Server hardening based on CIS benchmarks
+
+### 4. Monitoring and Response
+
 - Centralized log collection
-- Real-time alerting
 - Incident response procedures
+- Real-time alerting
 - Security audit trails
+- Security event logging
+
+### 5. Network Security
+
+- DDoS protection
+- Inbound traffic filtering
+- Intrusion detection and prevention
+- Network segmentation and isolation
+- Outbound traffic control
 
 ## Security Testing
 
 Regular security testing is performed using:
 
+- Dependency vulnerability scanning with OWASP Dependency Check
+- Infrastructure as Code scanning with tfsec
+- Penetration testing by qualified security professionals
 - Vulnerability scanning with OpenVAS/Nessus
 - Web application scanning with OWASP ZAP
-- Penetration testing by qualified security professionals
-- Infrastructure as Code scanning with tfsec
-- Dependency vulnerability scanning with OWASP Dependency Check
 
 ## Compliance
 
 The security implementation helps maintain compliance with:
 
-- ISO 27001
-- SOC 2 Type II
 - GDPR
-- PCI DSS (where payment processing is involved)
 - HIPAA (where health data is involved)
+- ISO 27001
+- PCI DSS (where payment processing is involved)
+- SOC 2 Type II
 
-For detailed compliance information, refer to `compliance.md`.
+For detailed compliance information, refer to compliance.md.
 
 ## Best Practices
 
+- Employee security awareness training
 - Follow the principle of least privilege
 - Implement defense in depth
+- Regular security assessments and testing
 - Regular security patching and updates
 - Security monitoring and incident response
-- Regular security assessments and testing
-- Employee security awareness training
 
 ## Version History
 
 | Version | Date | Description | Author |
-| --- | --- | --- | --- |
+|---------|------|-------------|--------|
 | 1.0 | 2023-07-15 | Initial security documentation | Security Team |
 | 1.1 | 2023-09-28 | Added WAF implementation details | DevOps Team |
 | 1.2 | 2023-11-15 | Updated compliance requirements | Compliance Manager |
 | 1.3 | 2024-02-10 | Added containerization security | Cloud Security Engineer |
 | 2.0 | 2024-04-20 | Major update with expanded documentation | Security Architect |
+| 2.1 | 2024-07-15 | Reorganized document to follow alphabetical ordering | Documentation Team |
