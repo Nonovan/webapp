@@ -55,8 +55,8 @@ deployment/security/
 │   │   └── cloud-platform-login.conf  # Application login filter
 │   └── waf/                           # Web Application Firewall rules by category
 │       ├── README.md                  # WAF rules documentation
-│       ├── api-protection.conf        # API-specific protection rules
-│       ├── authentication.conf        # Authentication-related protection
+│       ├── api-protection.conf        # API endpoint protection rules
+│       ├── authentication.conf        # Authentication attack prevention
 │       ├── command-injection.conf     # Command injection prevention
 │       ├── file-upload.conf           # File upload protection rules
 │       ├── generic-attacks.conf       # Common web attack patterns
@@ -80,7 +80,12 @@ deployment/security/
 │   └── verify_permissions.sh          # Critical file permissions verification
 └── ssl/                               # SSL/TLS related configurations
     ├── README.md                      # SSL/TLS configuration documentation
-    └── ssl-params.conf                # SSL/TLS security parameters
+    ├── cert-template.conf             # Template for certificate configuration
+    ├── ciphers.conf                   # Modular cipher suite configuration
+    ├── dhparam.pem                    # Pre-generated Diffie-Hellman parameters
+    ├── hsts.conf                      # HTTP Strict Transport Security settings
+    ├── ocsp-stapling.conf             # OCSP stapling configuration
+    └── ssl-params.conf                # SSL/TLS security parameters configuration
 ```
 
 ## Configuration Files
@@ -96,7 +101,7 @@ deployment/security/
 - **`security-headers.conf`**: HTTP security headers configuration
 - **security-update-cron**: Scheduled security tasks for automated updates
 - **`ssh-hardening.conf`**: SSH server security hardening configuration
-- **`ssl-params.conf`**: SSL/TLS security parameters
+- **`ssl-params.conf`**: SSL/TLS security parameters configuration
 
 ## Fail2ban Configuration
 
@@ -141,8 +146,8 @@ Security monitoring is implemented through:
 ## Maintenance and Updates
 
 1. **Regular Updates**:
-    - Update WAF rules monthly: `update_modsecurity_rules.sh`
-    - Update system security packages: Handled by `security-update-cron`
+    - Update WAF rules monthly: update_modsecurity_rules.sh
+    - Update system security packages: Handled by security-update-cron
 2. **Security Auditing**:
     - Run quarterly security audits: `security_audit.sh --full`
     - Review and address findings in audit reports

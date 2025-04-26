@@ -19,11 +19,14 @@ The SSL/TLS security configuration provides standardized settings for establishi
 
 ## Key Components
 
+- **`cert-template.conf`**: Template for certificate configuration used by automation scripts
+- **`ciphers.conf`**: Modular configuration for cipher suite definitions
+- **`dhparam.pem`**: Pre-generated Diffie-Hellman parameters file for improved security
+- **`hsts.conf`**: HTTP Strict Transport Security (HSTS) settings
+- **`ocsp-stapling.conf`**: OCSP stapling configuration for certificate validation
 - **`ssl-params.conf`**: Core SSL/TLS security parameters configuration
   - Cipher suite selection
   - DH parameters configuration
-  - HSTS implementation
-  - OCSP stapling settings
   - Protocol version restrictions
   - Session security settings
   - TLS 1.3 optimization
@@ -33,6 +36,11 @@ The SSL/TLS security configuration provides standardized settings for establishi
 ```plaintext
 deployment/security/ssl/
 ├── README.md                # This documentation
+├── cert-template.conf       # Template for certificate configuration
+├── ciphers.conf             # Modular cipher suite configuration
+├── dhparam.pem              # Pre-generated Diffie-Hellman parameters
+├── hsts.conf                # HTTP Strict Transport Security settings
+├── ocsp-stapling.conf       # OCSP stapling configuration
 └── ssl-params.conf          # SSL/TLS security parameters configuration
 ```
 
@@ -83,7 +91,7 @@ server {
 
 ### Setup Script Integration
 
-The SSL/TLS configuration is automatically integrated when using the `certificate_renew.sh` or setup-ssl.sh scripts:
+The SSL/TLS configuration is automatically integrated when using the `certificate_renew.sh` or `setup-ssl.sh` scripts:
 
 ```bash
 # Set up SSL with Let's Encrypt
@@ -106,25 +114,25 @@ sudo systemctl reload nginx
   - Verify certificate chain validity
 
 - **Cipher Selection**
-  - Choose strong, modern cipher suites (AES-GCM, ChaCha20)
-  - Prioritize authenticated encryption
-  - Disable weak ciphers and algorithms
-  - Use Forward Secrecy capable key exchange algorithms
   - Balance security with compatibility requirements
+  - Choose strong, modern cipher suites (AES-GCM, ChaCha20)
+  - Disable weak ciphers and algorithms
+  - Prioritize authenticated encryption
+  - Use Forward Secrecy capable key exchange algorithms
 
 - **Protocol Configuration**
-  - Enforce TLS 1.2/1.3 only; disable older versions
   - Configure with server preference for cipher selection
-  - Use strong Diffie-Hellman parameters (2048+ bits)
   - Enable OCSP stapling with reliable resolver
+  - Enforce TLS 1.2/1.3 only; disable older versions
   - Implement security headers including HSTS
+  - Use strong Diffie-Hellman parameters (2048+ bits)
 
 - **Testing & Validation**
+  - Check proper certificate naming (CN/SAN)
   - Run regular SSL/TLS security scans
   - Test with [SSL Labs Server Test](https://www.ssllabs.com/ssltest/)
-  - Verify full certificate chain trust
-  - Check proper certificate naming (CN/SAN)
   - Validate configuration with `nginx -t`
+  - Verify full certificate chain trust
 
 ## Certificate Management
 
@@ -140,8 +148,8 @@ SSL/TLS certificates are managed using the automated certificate renewal script:
 
 The platform supports multiple certificate types:
 
-- **Let's Encrypt**: Automated free certificates with 90-day validity
 - **Commercial CA**: Extended validation or organization validation certificates
+- **Let's Encrypt**: Automated free certificates with 90-day validity
 - **Self-signed**: For development and internal use only
 
 ## Related Documentation
