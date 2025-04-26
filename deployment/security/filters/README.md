@@ -20,11 +20,11 @@ The security filters provide specialized detection patterns and rules for securi
 ## Key Components
 
 - **`fail2ban-filters/`**: Fail2ban filter configurations
-  - Detection patterns for authentication failures
   - Brute force attempt identification
-  - Log pattern recognition rules
-  - Filter syntax for system and application logs
   - Chain filtering for complex detection
+  - Detection patterns for authentication failures
+  - Filter syntax for system and application logs
+  - Log pattern recognition rules
 
 - **`waf/`**: Web Application Firewall rules by category
   - API-specific protection rules
@@ -46,11 +46,16 @@ deployment/security/filters/
 ├── fail2ban-filters/                     # Fail2ban filter configurations
 │   ├── README.md                         # Fail2ban filters documentation
 │   ├── cloud-platform-admin-auth.conf    # Admin interface auth filter
-│   └── cloud-platform-api-auth.conf      # API authentication filter
+│   ├── cloud-platform-api-auth.conf      # API authentication filter
+│   ├── cloud-platform-ics.conf           # ICS protection filter
+│   └── cloud-platform-login.conf         # Application login filter
 └── waf/                                  # Web Application Firewall rules by category
+    ├── README.md                         # WAF rules documentation
     ├── api-protection.conf               # API-specific protection rules
     ├── authentication.conf               # Authentication-related protection
     ├── command-injection.conf            # Command injection prevention
+    ├── file-upload.conf                  # File upload protection rules
+    ├── generic-attacks.conf              # Common web attack patterns
     ├── ics-protection.conf               # Industrial Control System protection
     ├── ip-reputation.conf                # IP reputation-based filtering
     ├── path-traversal.conf               # Path traversal attack prevention
@@ -66,11 +71,11 @@ deployment/security/filters/
 
 Fail2ban filters detect patterns in log files that indicate malicious activities, such as:
 
-- **Authentication Failures**: Repeated login failures for admin interfaces and API endpoints
 - **Access Attempts to Restricted Areas**: Unauthorized access attempts to sensitive resources
+- **Authentication Failures**: Repeated login failures for admin interfaces and API endpoints
+- **Abnormal Usage Patterns**: Unusual request patterns that may indicate abuse
 - **Rate Limit Violations**: Excessive requests that trigger rate limiting
 - **Web Attack Patterns**: Signatures of common web attacks in access logs
-- **Abnormal Usage Patterns**: Unusual request patterns that may indicate abuse
 
 ### WAF Rules
 
@@ -79,6 +84,8 @@ ModSecurity WAF rules implement detection and prevention for various attacks:
 - **API Protection**: Specific rules for API security, including parameter validation and method restrictions
 - **Authentication Protection**: Rules to prevent authentication bypass and credential stuffing
 - **Command Injection**: Detection patterns for OS command injection attempts
+- **File Upload**: Secure validation and handling of uploaded files
+- **Generic Attacks**: Common web attack patterns and protections
 - **ICS Protection**: Specialized rules for Industrial Control System interfaces
 - **IP Reputation**: Rules utilizing IP reputation data to block known malicious sources
 - **Path Traversal**: Detection of directory traversal and path manipulation attacks
@@ -138,39 +145,40 @@ When customizing these filters:
 
 1. **Environmental Context**
    - Adjust rule sensitivity based on the environment (development/staging/production)
-   - Increase log verbosity in lower environments for debugging
    - Implement stricter rules in production for critical systems
+   - Increase log verbosity in lower environments for debugging
 
 2. **False Positive Mitigation**
-   - Start with detection-only mode before enabling blocking
-   - Test thoroughly with real traffic patterns
    - Add exceptions for legitimate business cases
    - Monitor and tune detection thresholds
+   - Start with detection-only mode before enabling blocking
+   - Test thoroughly with real traffic patterns
 
 3. **Security Balance**
    - Balance security with usability requirements
    - Consider implementing progressive security measures
-   - Use appropriate whitelisting for trusted sources
    - Implement tiered approach based on URI sensitivity
+   - Use appropriate whitelisting for trusted sources
 
 ## Best Practices
 
-- **Regular Updates**: Review and update filters monthly as attack patterns evolve
-- **Performance Considerations**: Test filter performance under load before deployment
-- **Monitoring**: Implement monitoring to detect excessive blocking
+- **Audit Logging**: Ensure proper logging of filter actions for investigation
 - **Documentation**: Document filter purpose and customizations
+- **Monitoring**: Implement monitoring to detect excessive blocking
+- **Performance Considerations**: Test filter performance under load before deployment
+- **Regular Updates**: Review and update filters monthly as attack patterns evolve
+- **Security Testing**: Include filters in regular security testing
 - **Testing**: Validate filters with known-good and known-bad traffic
 - **Version Control**: Maintain filter versioning for rollback capability
-- **Security Testing**: Include filters in regular security testing
-- **Audit Logging**: Ensure proper logging of filter actions for investigation
 
 ## Related Documentation
 
-- Fail2ban Documentation
-- ModSecurity Configuration Guide
-- WAF Rule Development Guide
-- Security Monitoring Documentation
-- Log Analysis Guidelines
-- Security Incident Response
-- Filter Testing Procedures
 - Deployment Security Configuration
+- Fail2ban Documentation
+- Filter Testing Procedures
+- Log Analysis Guidelines
+- ModSecurity Configuration Guide
+- Security Event Monitoring Guide
+- Security Incident Response Procedures
+- Security Monitoring Documentation
+- WAF Rule Development Guide
