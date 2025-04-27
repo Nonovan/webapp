@@ -23,9 +23,8 @@ To use the API, you'll need to generate an API token:
 Use the token in the Authorization header for all API requests:
 
 ```bash
-curl -X GET "<https://api.cloud-platform.example.com/v1/api/cloud/resources>" \\
+curl -X GET "https://api.cloud-platform.example.com/v1/api/cloud/resources" \
   -H "Authorization: Bearer YOUR_API_TOKEN"
-
 ```
 
 ### Common API Endpoints
@@ -43,13 +42,13 @@ For a complete API reference, see the API Documentation.
 
 ### Code Examples
 
-### Python Example
+#### Python Example
 
 ```python
 import requests
 import json
 
-API_BASE_URL = "<https://api.cloud-platform.example.com/v1>"
+API_BASE_URL = "https://api.cloud-platform.example.com/v1"
 API_TOKEN = "YOUR_API_TOKEN"
 
 headers = {
@@ -87,7 +86,7 @@ def create_vm(name, provider, region):
     response = requests.post(
         f"{API_BASE_URL}/api/cloud/resources",
         headers=headers,
-        data=json.dumps(payload)
+        json=payload
     )
 
     if response.status_code == 201:
@@ -104,15 +103,14 @@ print(f"Found {len(resources)} resources")
 new_vm = create_vm("api-created-server", "aws", "us-east-1")
 if new_vm:
     print(f"Created new VM with ID: {new_vm['id']}")
-
 ```
 
-### JavaScript Example
+#### JavaScript Example
 
-```jsx
+```javascript
 const axios = require('axios');
 
-const API_BASE_URL = '<https://api.cloud-platform.example.com/v1>';
+const API_BASE_URL = 'https://api.cloud-platform.example.com/v1';
 const API_TOKEN = 'YOUR_API_TOKEN';
 
 const headers = {
@@ -164,7 +162,6 @@ async function startResource(resourceId) {
         }
     }
 })();
-
 ```
 
 ## Webhook Integration
@@ -210,7 +207,6 @@ Webhooks allow you to receive real-time notifications when specific events occur
   },
   "webhook_id": "c53e4567-e89b-12d3-a456-426614174000"
 }
-
 ```
 
 ### Securing Webhooks
@@ -229,7 +225,6 @@ def verify_webhook_signature(payload, signature, secret):
     ).hexdigest()
 
     return hmac.compare_digest(computed_signature, signature)
-
 ```
 
 ## Scheduled Tasks
@@ -258,9 +253,8 @@ The platform allows you to schedule tasks to run automatically at specific times
 
 You can also create scheduled tasks via the API:
 
-```
+```plaintext
 POST /api/automation/schedules
-
 ```
 
 Payload:
@@ -276,7 +270,6 @@ Payload:
   },
   "enabled": true
 }
-
 ```
 
 ## Infrastructure as Code
@@ -301,7 +294,6 @@ provider "cloudplatform" {
   api_token = var.cloudplatform_api_token
   api_url   = var.cloudplatform_api_url
 }
-
 ```
 
 ### Example Configuration
@@ -335,21 +327,19 @@ resource "cloudplatform_monitor" "cpu_monitor" {
   duration              = 300  # 5 minutes
   notification_channels = ["email", "webhook"]
 }
-
 ```
 
 ### Using the CLI
 
 The Cloud Infrastructure Platform CLI can be used in scripts and automation pipelines:
 
-### Installation
+#### CLI Installation
 
 ```bash
 pip install cloudplatform-cli
-
 ```
 
-### Authentication
+#### Authentication Setup
 
 ```bash
 # Set up authentication
@@ -358,10 +348,9 @@ cloudplatform configure set-token YOUR_API_TOKEN
 # Or use environment variables
 export CLOUDPLATFORM_API_TOKEN=YOUR_API_TOKEN
 export CLOUDPLATFORM_API_URL=https://api.cloud-platform.example.com/v1
-
 ```
 
-### Example Commands
+#### Example Commands
 
 ```bash
 # List resources
@@ -375,7 +364,6 @@ cloudplatform resources start --id 550e8400-e29b-41d4-a716-446655440000
 
 # Generate a report
 cloudplatform reports generate --type cost --output json > cost-report.json
-
 ```
 
 ## Best Practices
@@ -424,9 +412,8 @@ cloudplatform reports generate --type cost --output json > cost-report.json
 
 Enable debug logging for more detailed information:
 
-```
+```plaintext
 POST /api/settings/logging
-
 ```
 
 Payload:
@@ -437,7 +424,6 @@ Payload:
   "level": "debug",
   "duration": 3600
 }
-
 ```
 
 View logs in the platform under **Monitoring > Logs** or fetch them via API.

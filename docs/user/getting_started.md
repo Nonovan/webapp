@@ -72,6 +72,7 @@ The main navigation menu includes:
 #### Managing Existing Resources
 
 Select any resource to:
+
 - Start/stop/restart (for applicable resource types)
 - Modify configuration
 - View detailed metrics
@@ -124,14 +125,14 @@ Use the Security section to:
 If you encounter any issues:
 
 - Click the **Help** icon in the navigation menu
-- Contact support at support@example.com
+- Contact support at [support@example.com](mailto:support@example.com)
 - Join our community forum at [community.cloud-platform.example.com](https://community.cloud-platform.example.com)
 
 ## Next Steps
 
 After getting familiar with the basics:
 
-1. Set up [monitoring capabilities](/docs/architecture/architecture-overview.md) for critical systems
-2. Configure [automatic alerts](/docs/user/alerts) for important events
-3. Review our [security best practices](/docs/security/security-overview.md)
-4. Explore [automation options](/docs/user/automation) with our API
+1. Set up monitoring capabilities for critical systems
+2. Configure automatic alerts for important events
+3. Review our security best practices
+4. Explore automation options with our API

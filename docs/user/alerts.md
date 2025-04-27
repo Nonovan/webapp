@@ -232,14 +232,14 @@ Alerts can be integrated with external systems through:
 
 ## Related Resources
 
-- [Monitoring Guide](/docs/architecture/architecture-overview.md)
-- [Automation Guide](/docs/user/automation)
-- [Security Best Practices](/docs/security/security-overview.md)
+- Monitoring Guide
+- Automation Guide
+- Security Best Practices
 
 ## Support
 
 If you need help with alerts:
 
 - Check the documentation for specific alert types
-- Contact support at support@example.com
+- Contact support at [support@example.com](mailto:support@example.com)
 - For urgent issues, use the in-app support chat
