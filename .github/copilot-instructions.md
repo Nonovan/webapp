@@ -7,25 +7,102 @@ This repository contains a Python Flask web application for cloud infrastructure
 ## Code Structure
 
 - `/api/` - RESTful API endpoints
+  - `/cloud/` - Cloud provider specific API endpoints
+  - `/ics/` - Industrial Control Systems endpoints
+  - `/monitoring/` - System monitoring endpoints
+  - `/security/` - Security-related endpoints
+
 - `/blueprints/` - Flask blueprints for application modules
+  - `/auth/` - Authentication and authorization views
+  - `/main/` - Core application views
+  - `/admin/` - Administrative interface
+  - `/monitoring/` - Monitoring dashboard views
+
 - `/cli/` - Command-line interface tools
+  - `/app/` - Application CLI commands
+  - `/common/` - Shared CLI utilities
+
 - `/config/` - Configuration management
+  - `/components/` - Component-specific configurations
+  - `/environments/` - Environment-specific settings
+
 - `/core/` - Core utilities and security functions
+  - `/security/` - Security implementation
+    - `/cs_audit.py` - Security audit logging
+    - `/cs_authentication.py` - Authentication services
+    - `/cs_authorization.py` - Authorization services
+    - `/cs_crypto.py` - Cryptographic operations
+    - `/cs_file_integrity.py` - File integrity monitoring
+    - `/cs_monitoring.py` - Security monitoring
+    - `/cs_session.py` - Session security management
+    - `/cs_utils.py` - Security utilities
+  - `/templates/` - Core templates for layouts and errors
+  - `/factory.py` - Application factory
+  - `/middleware.py` - HTTP middleware
+
 - `/deployment/` - Deployment scripts and infrastructure
+  - `/security/` - Security configurations and scripts
+  - `/config/` - Deployment configurations
+  - `/scripts/` - Deployment automation scripts
+
 - `/docs/` - Documentation files
+  - `/api/` - API documentation
+  - `/development/` - Developer guides
+  - `/operations/` - Operations guides
+  - `/security/` - Security documentation
+  - `/specifications/` - System specifications
+
 - `/extensions/` - Flask extensions
+  - Initialization of Flask extensions (db, cache, etc.)
+
 - `/models/` - Database models
-- `/scripts/` - Utility scripts (maintenance, security, compliance)
+  - `/auth/` - Authentication models
+    - `/user.py` - User account model
+    - `/role.py` - Role model for access control
+    - `/permission.py` - Permission model for RBAC
+    - `/user_activity.py` - User activity logging
+    - `/user_session.py` - Session tracking
+  - `/cloud/` - Cloud infrastructure models
+  - `/content/` - Content management models
+  - `/ics/` - Industrial Control Systems models
+  - `/security/` - Security models
+    - `/audit_log.py` - Security audit records
+    - `/security_incident.py` - Security incident tracking
+    - `/system_config.py` - Security configurations
+  - `/storage/` - Storage models
+
+- `/scripts/` - Utility scripts
   - `/compliance/` - Compliance checking tools
   - `/core/` - Core reusable functions
+    - `/security/` - Security-related functions
+    - `/system/` - System operations
   - `/deployment/` - Deployment automation
   - `/dr/` - Disaster recovery
   - `/monitoring/` - System monitoring
+    - `/common/` - Shared monitoring utilities
+    - `/tests/` - Monitoring tests
   - `/security/` - Security tools
   - `/utils/` - General utilities
+    - `/common/` - Common utilities
+    - `/dev_tools/` - Developer tools
+    - `/modules/` - Modular script components
+
 - `/services/` - Business logic services
+  - `/auth/` - Authentication and authorization services
+  - `/cloud/` - Cloud provider services
+  - `/notification/` - Notification services
+  - `/monitoring/` - Monitoring services
+
 - `/static/` - Static assets (CSS, JS, images)
+  - `/css/` - Stylesheets
+  - `/js/` - JavaScript files
+  - `/img/` - Image assets
+
 - `/tests/` - Automated tests
+  - `/unit/` - Unit tests
+  - `/integration/` - Integration tests
+  - `/security/` - Security tests
+
 - `/views/` - View helpers and template utilities
 
 ## Coding and Organization Standards
@@ -215,6 +292,16 @@ Every directory should include a [README.md](http://readme.md/) with these secti
 8. **Usage Examples** - Command examples with syntax
 9. **Related Documentation** - Links to additional resources
 
+### Organization Principles
+
+- **Prioritize Logical Order**: Always organize content in a logical sequence that supports understanding, rather than alphabetically
+- **Process Flow**: Arrange operations documentation according to the sequence of execution
+- **Complexity Progression**: Structure content from basic to advanced concepts
+- **Dependency Order**: List components based on their dependencies (prerequisites first)
+- **Functional Grouping**: Group related items based on functionality, not alphabetically
+- **Common Operations First**: List frequently used operations before specialized ones
+- **Critical Before Optional**: Present critical configuration before optional settings
+
 #### Directory Structure Example
 
 ```plaintext
@@ -235,7 +322,7 @@ Every directory should include a [README.md](http://readme.md/) with these secti
 
 - Use **bold** for file/script names
 - Use `backticks` for inline code and function names
-- Include language specifiers in code blocks (```python)
+- Include language specifiers in code blocks (```plaintext)
 - Follow proper heading hierarchy (#, ##, ###)
 - Use bullet lists for features and numbered lists for sequential steps
 - Set configuration examples in code blocks with comments for documentation:
@@ -256,7 +343,7 @@ When modifying code:
 1. Update relevant documentation to reflect changes
 2. Ensure command examples match current implementation
 3. Verify parameter names and defaults are accurate
-4. Organize file/directory listings alphabetically
+4. Organize file/directory listings by logical function rather than alphabetically
 5. Include security implications of changes
 
 ### Template Variables
