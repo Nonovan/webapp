@@ -1,0 +1,173 @@
+{#
+ # Multi-Factor Authentication Instructions Component
+ #
+ # This reusable component provides step-by-step instructions for setting up
+ # and using multi-factor authentication with the Cloud Infrastructure Platform.
+ #
+ # Usage:
+ # {% include "auth/components/mfa_instructions.html" with context %}
+ #
+ # Required context:
+ #  - qr_code_url: URL for QR code image (if in setup mode)
+ #  - secret: MFA secret key for manual entry (if in setup mode)
+ #  - setup_mode: Boolean indicating if this is for initial setup (default: true)
+ #
+ # Optional context:
+ #  - custom_class: Additional CSS classes for the container
+ #  - show_backup_info: Boolean to show/hide backup code information (default: true)
+ #}
+
+{# Set default values if not provided #}
+{% set setup_mode = setup_mode|default(true) %}
+{% set show_backup_info = show_backup_info|default(true) %}
+{% set custom_class = custom_class|default('') %}
+
+<div class="mfa-instructions {{ custom_class }}" aria-labelledby="mfa-instructions-heading">
+    <h4 id="mfa-instructions-heading" class="mb-3">
+        {% if setup_mode %}
+        <i class="bi bi-shield-lock me-2"></i>Multi-Factor Authentication Setup
+        {% else %}
+        <i class="bi bi-shield-check me-2"></i>Using Multi-Factor Authentication
+        {% endif %}
+    </h4>
+
+    {% if setup_mode %}
+    <div class="alert alert-info d-flex align-items-center" role="alert">
+        <i class="bi bi-info-circle-fill flex-shrink-0 me-2"></i>
+        <div>
+            Multi-factor authentication adds an extra layer of security to your account by requiring a verification code in addition to your password.
+        </div>
+    </div>
+
+    <h5 class="mt-4">Step 1: Install an authenticator app</h5>
+    <p>Download and install one of these authenticator apps on your mobile device:</p>
+    <ul class="list-unstyled mb-4">
+        <li><i class="bi bi-phone me-2"></i><strong>Google Authenticator</strong>
+            - <a href="https://play.google.com/store/apps/details?id=com.google.android.apps.authenticator2" target="_blank" rel="noopener noreferrer">Android</a> |
+            <a href="https://apps.apple.com/app/google-authenticator/id388497605" target="_blank" rel="noopener noreferrer">iOS</a>
+        </li>
+        <li><i class="bi bi-phone me-2"></i><strong>Microsoft Authenticator</strong>
+            - <a href="https://play.google.com/store/apps/details?id=com.azure.authenticator" target="_blank" rel="noopener noreferrer">Android</a> |
+            <a href="https://apps.apple.com/app/microsoft-authenticator/id983156458" target="_blank" rel="noopener noreferrer">iOS</a>
+        </li>
+        <li><i class="bi bi-phone me-2"></i><strong>Authy</strong>
+            - <a href="https://play.google.com/store/apps/details?id=com.authy.authy" target="_blank" rel="noopener noreferrer">Android</a> |
+            <a href="https://apps.apple.com/app/authy/id494168017" target="_blank" rel="noopener noreferrer">iOS</a>
+        </li>
+    </ul>
+
+    <h5>Step 2: Configure the authenticator app</h5>
+
+    <div class="row g-4 mb-4">
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">Option 1: Scan QR Code</div>
+                <div class="card-body text-center">
+                    {% if qr_code_url %}
+                    <div class="mb-3">
+                        <img src="{{ qr_code_url }}" alt="QR Code for MFA Setup" class="img-fluid border p-2" style="max-width: 200px;">
+                    </div>
+                    <p class="text-muted">Open your authenticator app and scan this QR code</p>
+                    {% else %}
+                    <div class="alert alert-warning">QR code not available</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-header">Option 2: Manual Entry</div>
+                <div class="card-body">
+                    <p>If you can't scan the QR code, enter this key manually in your app:</p>
+                    {% if secret %}
+                    <div class="input-group mb-3">
+                        <input type="text" class="form-control font-monospace" value="{{ secret }}" id="secretKey" readonly aria-label="Secret key">
+                        <button class="btn btn-outline-secondary" type="button" id="copySecretBtn"
+                                onclick="copyToClipboard('secretKey')" aria-label="Copy secret key">
+                            <i class="bi bi-clipboard"></i>
+                        </button>
+                    </div>
+                    <div class="text-muted small">
+                        <ul class="mb-0 ps-3">
+                            <li>Account name: {{ platform_name|default('Cloud Platform') }}</li>
+                            <li>Key type: Time-based (TOTP)</li>
+                        </ul>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-warning">Secret key not available</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <h5>Step 3: Verification</h5>
+    <p>Enter the 6-digit verification code from your authenticator app to complete setup:</p>
+
+    {% else %}
+    <!-- Usage instructions for existing MFA users -->
+    <div class="mb-4">
+        <h5>Verification Process</h5>
+        <p>To complete the authentication process:</p>
+        <ol>
+            <li>Open your authenticator app on your mobile device</li>
+            <li>Find the entry for <strong>{{ platform_name|default('Cloud Platform') }}</strong></li>
+            <li>Enter the 6-digit code shown in your app</li>
+            <li>The code refreshes every 30 seconds, so use the current one</li>
+        </ol>
+    </div>
+    {% endif %}
+
+    {% if show_backup_info %}
+    <div class="mt-4">
+        <h5><i class="bi bi-question-circle me-2"></i>Lost access to your authenticator app?</h5>
+        {% if setup_mode %}
+        <p>After completing setup, you will receive backup codes that you should save in a secure location. These codes can be used if you lose access to your authenticator app.</p>
+        {% else %}
+        <div class="d-flex align-items-center">
+            <div class="me-3">
+                <a href="{{ url_for('auth.backup_codes') }}" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-key me-1"></i>View Backup Codes
+                </a>
+            </div>
+            <div class="small text-muted">
+                Use your backup codes for one-time access if you can't access your authenticator app
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+{% if setup_mode and csp_nonce %}
+<script nonce="{{ csp_nonce }}">
+    function copyToClipboard(elementId) {
+        const copyText = document.getElementById(elementId);
+        copyText.select();
+        copyText.setSelectionRange(0, 99999); // For mobile devices
+
+        try {
+            navigator.clipboard.writeText(copyText.value)
+                .then(() => {
+                    // Show feedback
+                    const copyBtn = document.getElementById('copySecretBtn');
+                    const originalHtml = copyBtn.innerHTML;
+                    copyBtn.innerHTML = '<i class="bi bi-check-lg"></i>';
+                    setTimeout(() => {
+                        copyBtn.innerHTML = originalHtml;
+                    }, 2000);
+                })
+                .catch(err => {
+                    console.error('Clipboard write failed:', err);
+                    // Fallback to older method
+                    document.execCommand('copy');
+                });
+        } catch (err) {
+            console.error('Clipboard API not supported:', err);
+            // Fallback to older method
+            document.execCommand('copy');
+        }
+    }
+</script>
+{% endif %}

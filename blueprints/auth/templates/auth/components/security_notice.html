@@ -1,0 +1,79 @@
+{#
+ # Security notice component for the Cloud Infrastructure Platform
+ #
+ # This reusable component displays security notices, warnings, or tips to users
+ # during authentication workflows. It provides contextual security guidance
+ # and can be customized for different security scenarios.
+ #
+ # Usage:
+ # {% include "auth/components/security_notice.html" with context %}
+ #
+ # Required context:
+ #  - notice_type: Type of notice ('info', 'warning', 'danger', or 'success')
+ #  - notice_title: Title of the security notice
+ #  - notice_message: Main content of the security notice
+ #
+ # Optional context:
+ #  - notice_icon: Bootstrap icon class (defaults based on notice_type if not provided)
+ #  - notice_id: Custom ID for the notice element (default: "security-notice")
+ #  - show_dismiss: Boolean to show/hide dismiss button (default: false)
+ #  - additional_classes: Extra CSS classes for styling
+ #}
+
+{# Set default values if not provided #}
+{% set notice_type = notice_type|default('info') %}
+{% set notice_id = notice_id|default('security-notice') %}
+{% set show_dismiss = show_dismiss|default(false) %}
+{% set additional_classes = additional_classes|default('') %}
+
+{# Set icon based on notice type if not provided #}
+{% if notice_icon is not defined %}
+    {% set notice_icon = {
+        'info': 'bi-info-circle',
+        'warning': 'bi-exclamation-triangle',
+        'danger': 'bi-shield-exclamation',
+        'success': 'bi-shield-check'
+    }[notice_type] %}
+{% endif %}
+
+<div id="{{ notice_id }}" class="alert alert-{{ notice_type }} d-flex align-items-center {{ additional_classes }}" role="alert">
+    <div class="flex-shrink-0 me-2">
+        <i class="bi {{ notice_icon }}" aria-hidden="true"></i>
+    </div>
+    <div class="flex-grow-1">
+        {% if notice_title %}
+        <h5 class="alert-heading">{{ notice_title }}</h5>
+        {% endif %}
+        <p class="mb-0">{{ notice_message }}</p>
+        {% if notice_details %}
+        <div class="small mt-2">
+            {{ notice_details }}
+        </div>
+        {% endif %}
+    </div>
+    {% if show_dismiss %}
+    <div class="flex-shrink-0 ms-2">
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+    {% endif %}
+</div>
+
+{# Optional script for notice with auto-dismiss feature #}
+{% if auto_dismiss_after is defined and csp_nonce %}
+<script nonce="{{ csp_nonce }}">
+    document.addEventListener('DOMContentLoaded', function() {
+        const securityNotice = document.getElementById('{{ notice_id }}');
+        if (securityNotice) {
+            setTimeout(function() {
+                const bsAlert = new bootstrap.Alert(securityNotice);
+                bsAlert.close();
+            }, {{ auto_dismiss_after * 1000 }});
+        }
+    });
+</script>
+{% endif %}
+
+{# Accessibility enhancements #}
+<div class="visually-hidden" id="{{ notice_id }}-description">
+    Security notice: {{ notice_type|capitalize }} - {{ notice_message|striptags }}
+</div>

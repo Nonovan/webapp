@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Security headers -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="X-Frame-Options" content="DENY">
+    <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
+    <meta http-equiv="Permissions-Policy" content="geolocation=(), camera=(), microphone=(), payment=()">
+
+    <title>Unauthorized - Authentication Required</title>
+
+    <!-- Bootstrap and custom styles with SRI -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}"
+          integrity="{{ sri_hash('css/bootstrap.min.css') }}" crossorigin="anonymous">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}"
+          integrity="{{ sri_hash('css/bootstrap-icons.css') }}" crossorigin="anonymous">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"
+          integrity="{{ sri_hash('css/style.css') }}" crossorigin="anonymous">
+
+    <!-- Critical CSS for immediate rendering -->
+    <style>
+        .auth-error-page {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            background-color: #f8f9fa;
+        }
+        .error-code {
+            font-size: 6rem;
+            font-weight: 700;
+            color: #dc3545;
+            line-height: 1;
+        }
+        .error-icon {
+            font-size: 3.5rem;
+            color: #dc3545;
+        }
+        [data-bs-theme="dark"] {
+            background-color: #212529;
+            color: #f8f9fa;
+        }
+        [data-bs-theme="dark"] .auth-error-page {
+            background-color: #212529;
+            color: #f8f9fa;
+        }
+        .card {
+            border: none;
+            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+        }
+    </style>
+</head>
+
+<body data-bs-theme="{{ theme|default('light') }}">
+    <!-- Skip link for accessibility -->
+    <a href="#main-content" class="skip-link visually-hidden-focusable">Skip to main content</a>
+
+    <div class="auth-error-page">
+        <div class="container py-5">
+            <div class="row justify-content-center">
+                <div class="col-lg-8">
+                    <div class="card">
+                        <div class="card-body p-md-5">
+                            <div class="text-center mb-4">
+                                <i class="bi bi-shield-lock error-icon"></i>
+                                <h1 class="error-code mb-0">401</h1>
+                                <h2 class="h3 mt-3">Authentication Required</h2>
+                            </div>
+
+                            <div class="alert alert-danger d-flex align-items-center" role="alert">
+                                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                                <div>
+                                    You need to be authenticated to access this resource.
+                                </div>
+                            </div>
+
+                            <p class="text-center mb-4">
+                                This page requires valid credentials to access. You may need to log in or provide valid authentication tokens.
+                            </p>
+
+                            <div class="d-grid gap-3 d-md-flex justify-content-center">
+                                <a href="{{ url_for('auth.login') }}?next={{ request.path }}" class="btn btn-primary">
+                                    <i class="bi bi-box-arrow-in-right me-2"></i>Log In
+                                </a>
+                                <a href="{{ url_for('main.home') }}" class="btn btn-outline-secondary">
+                                    <i class="bi bi-house-door me-2"></i>Go to Home
+                                </a>
+                            </div>
+
+                            <hr class="my-4">
+
+                            <div class="small text-muted">
+                                <p class="mb-1"><strong>Possible reasons for this error:</strong></p>
+                                <ul>
+                                    <li>Your session may have expired</li>
+                                    <li>You are not logged in</li>
+                                    <li>Your authentication token is invalid or expired</li>
+                                    <li>You are trying to access a protected endpoint</li>
+                                </ul>
+
+                                <p class="mb-1 mt-3">
+                                    If you believe this is an error, please contact
+                                    <a href="mailto:{{ support_email|default('support@cloudplatform.com') }}">support</a>.
+                                </p>
+
+                                <!-- Error reference ID for support -->
+                                {% if error_reference %}
+                                <p>Reference ID: {{ error_reference }}</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS with SRI for any interactive components -->
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"
+            integrity="{{ sri_hash('js/bootstrap.bundle.min.js') }}" crossorigin="anonymous"></script>
+
+    <!-- Optional inline JS with nonce -->
+    {% if csp_nonce %}
+    <script nonce="{{ csp_nonce }}">
+        // Monitor dark mode preference
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.body.setAttribute('data-bs-theme', 'dark');
+        }
+
+        // Track error page view for security monitoring
+        if (window.fetch) {
+            try {
+                fetch('{{ url_for("api.log_security_event") }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': '{{ csrf_token() }}'
+                    },
+                    body: JSON.stringify({
+                        event_type: 'error_page_view',
+                        error_code: 401,
+                        path: '{{ request.path }}'
+                    }),
+                    credentials: 'same-origin',
+                    mode: 'same-origin'
+                }).catch(() => {
+                    // Silently fail - logging shouldn't affect user experience
+                });
+            } catch (e) {
+                // Ignore errors in error page
+            }
+        }
+    </script>
+    {% endif %}
+</body>
+</html>
