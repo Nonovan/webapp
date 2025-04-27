@@ -124,6 +124,14 @@ This repository contains a Python Flask web application for cloud infrastructure
 - Follow PEP 8, use type hints, docstrings, proper exception handling
 - Use context managers, write unit tests, prioritize security
 
+### Python Import Best Practices
+
+- Import from packages rather than directly from modules when packages provide exports through `__init__.py`
+- Always check `__init__.py` files first to identify correctly exported symbols
+- Use package-level imports (e.g., `from models.auth import User`) rather than module-level imports (e.g., `from models.auth.user import User`) when the package explicitly exports the symbol
+- Respect the public API defined by `__all__` in packages to avoid using internal implementation details
+- For modules that aren't explicitly exported, use direct imports with the full path
+
 ### JavaScript
 
 - Use ES6+, use async/await, prefer const over let, and avoid var
