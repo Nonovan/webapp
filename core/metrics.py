@@ -26,6 +26,7 @@ import psutil
 from flask import request, current_app, has_app_context
 from sqlalchemy import text
 from extensions import metrics, db, cache
+from models.security import LoginAttempt
 
 # Type alias for callable functions
 F = TypeVar('F', bound=Callable[..., Any])
@@ -704,7 +705,6 @@ class SecurityMetrics:
 
         try:
             # Get login attempt metrics
-            from models.security.login_attempt import LoginAttempt
             cutoff = datetime.utcnow() - timedelta(hours=24)
 
             metrics_data.update({

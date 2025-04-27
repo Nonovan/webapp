@@ -240,3 +240,5 @@ python-magic==0.4.27 # File type detection
 croniter==1.4.1      # Cron expression parser for scheduled scans
 schema==0.7.5        # Data validation for security configurations
 validators==0.22.0   # Input validation utilities
+
+tabulate
