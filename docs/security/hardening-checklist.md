@@ -145,18 +145,6 @@ This document provides a comprehensive checklist for hardening servers running t
 - [x] Configure proper system shutdown procedures
 - [x] Document physical security requirements
 
-## Regular Maintenance Tasks
-
-- [x] Review system logs regularly
-- [x] Scan for vulnerabilities weekly
-- [x] Update security patches promptly
-- [x] Review user accounts quarterly
-- [x] Test backups and recovery regularly
-- [x] Perform file integrity verification
-- [x] Review firewall rules quarterly
-- [x] Test intrusion detection system effectiveness
-- [x] Conduct security awareness training
-
 ## Container and Virtualization Security
 
 - [x] Implement container isolation
@@ -167,17 +155,6 @@ This document provides a comprehensive checklist for hardening servers running t
 - [x] Implement resource limits for containers
 - [x] Use secure container orchestration configurations
 - [x] Regularly update hypervisor software
-
-## Verification
-
-- [x] Run automated configuration compliance checks
-- [x] Perform penetration testing
-- [x] Validate security controls effectiveness
-- [x] Document and remediate findings
-- [x] Update security documentation
-- [x] Conduct security control validation
-- [x] Use industry standard benchmarks (CIS, NIST)
-- [x] Implement continuous security validation
 
 ## Cloud-Specific Controls
 
@@ -190,9 +167,41 @@ This document provides a comprehensive checklist for hardening servers running t
 - [x] Restrict management access by IP
 - [x] Configure S3/object storage security controls
 
+## Regular Maintenance Tasks
+
+- [x] Review system logs regularly
+- [x] Scan for vulnerabilities weekly
+- [x] Update security patches promptly
+- [x] Review user accounts quarterly
+- [x] Test backups and recovery regularly
+- [x] Perform file integrity verification
+- [x] Review firewall rules quarterly
+- [x] Test intrusion detection system effectiveness
+- [x] Conduct security awareness training
+
+## Verification
+
+- [x] Run automated configuration compliance checks
+- [x] Perform penetration testing
+- [x] Validate security controls effectiveness
+- [x] Document and remediate findings
+- [x] Update security documentation
+- [x] Conduct security control validation
+- [x] Use industry standard benchmarks (CIS, NIST)
+- [x] Implement continuous security validation
+
 ## References
 
 - [CIS Benchmarks](https://www.cisecurity.org/cis-benchmarks/)
 - [NIST SP 800-123](https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-123.pdf)
 - [DISA STIGs](https://public.cyber.mil/stigs/)
-- [Cloud Infrastructure Platform Internal Security Standards](/docs/security/standards/)
+- Cloud Infrastructure Platform Internal Security Standards
+
+## Version History
+
+| Version | Date | Description | Author |
+|---------|------|-------------|--------|
+| 1.0 | 2023-05-15 | Initial checklist | Security Team |
+| 1.1 | 2023-09-22 | Added container security | DevOps Team |
+| 1.2 | 2024-01-10 | Updated cloud controls | Cloud Security Engineer |
+| 1.3 | 2024-07-15 | Reorganized document structure | Documentation Team |

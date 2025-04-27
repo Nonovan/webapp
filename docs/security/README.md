@@ -4,16 +4,16 @@ This directory contains comprehensive security documentation for the Cloud Infra
 
 ## Contents
 
+- Overview
+- Key Components
+- Directory Structure
 - Architecture & Design
 - Compliance
 - Configuration
-- Directory Structure
 - Implementation Guides
-- Key Components
 - Operations
-- Overview
-- Related Documentation
 - Standards & Best Practices
+- Related Documentation
 
 ## Overview
 
@@ -113,19 +113,19 @@ Standard security configurations include:
 - **Monitoring**: Security event monitoring configuration
 - **WAF Rules**: Web application firewall configuration
 
-For implementation details, refer to hardening-checklist.md and firewall-policies.md.
+For implementation details, refer to `hardening-checklist.md` and `firewall-policies.md`.
 
 ## Implementation Guides
 
 Implementation guides provide step-by-step procedures for:
 
-- **Authentication**: See authentication-standards.md
-- **Certificate Management**: See certificate-management.md
-- **Cryptographic Controls**: See crypto-standards.md
-- **Firewalls & Network Segmentation**: See firewall-policies.md and network-segmentation.md
-- **IAM Controls**: See iam-policies.md
-- **Security Hardening**: See hardening-checklist.md
-- **Security Testing**: See penetration-testing.md
+- **Authentication**: See `authentication-standards.md`
+- **Certificate Management**: See `certificate-management.md`
+- **Cryptographic Controls**: See `crypto-standards.md`
+- **Firewalls & Network Segmentation**: See `firewall-policies.md` and `network-segmentation.md`
+- **IAM Controls**: See `iam-policies.md`
+- **Security Hardening**: See `hardening-checklist.md`
+- **Security Testing**: See `penetration-testing.md`
 
 ## Operations
 
@@ -138,7 +138,7 @@ Operational security procedures cover:
 - **Security Monitoring**: Threat detection and alerting
 - **Vulnerability Management**: Identification, assessment, and remediation
 
-For detailed procedures, see incident-response.md and security-update-policy.md.
+For detailed procedures, see `incident-response.md` and `security-update-policy.md`.
 
 ## Standards & Best Practices
 

@@ -224,14 +224,14 @@ Based on the severity assessment, determine:
 
 ### 1. Malware Incident
 
-#### Key Indicators
+**Indicators:**
 
 * Antivirus/EDR alerts
 * Unusual system behavior
 * Suspicious network connections
 * Unexpected file modifications
 
-#### Response Actions
+**Response:**
 
 1. Isolate affected systems
 2. Block malware command and control domains/IPs
@@ -242,14 +242,14 @@ Based on the severity assessment, determine:
 
 ### 2. Account Compromise
 
-#### Key Indicators
+**Indicators:**
 
 * Unusual login patterns or locations
 * Failed authentication attempts
 * Unauthorized account modifications
 * Suspicious session activities
 
-#### Response Actions
+**Response:**
 
 1. Lock affected accounts
 2. Identify authentication events in logs
@@ -260,14 +260,14 @@ Based on the severity assessment, determine:
 
 ### 3. Data Breach
 
-#### Key Indicators
+**Indicators:**
 
 * Unusual data access patterns
 * Large data transfers
 * Database query anomalies
 * Customer reports of data exposure
 
-#### Response Actions
+**Response:**
 
 1. Identify scope of compromised data
 2. Stop ongoing data exfiltration
@@ -278,14 +278,14 @@ Based on the severity assessment, determine:
 
 ### 4. Denial of Service
 
-#### Key Indicators
+**Indicators:**
 
 * Significant increase in traffic
 * Service availability issues
 * Network congestion
 * Resource exhaustion alerts
 
-#### Response Actions
+**Response:**
 
 1. Implement traffic filtering
 2. Scale resources if possible
@@ -296,14 +296,14 @@ Based on the severity assessment, determine:
 
 ### 5. Web Application Attack
 
-#### Key Indicators
+**Indicators:**
 
 * Unusual HTTP request patterns
 * Web application firewall alerts
 * Unexpected database queries
 * Application error spikes
 
-#### Response Actions
+**Response:**
 
 1. Block attacking IP addresses
 2. Enable additional WAF rules
@@ -355,8 +355,7 @@ Based on the severity assessment, determine:
 
 ### Documentation Template
 
-```
-
+```plaintext
 INCIDENT REPORT
 
 Incident ID: IR-YYYYMMDD-XX
@@ -412,6 +411,6 @@ LESSONS LEARNED
 
 ## References
 
-* [NIST SP 800-61r2: Computer Security Incident Handling Guide](<https://csrc.nist.gov/publications/detail/sp/800-61/rev-2/final>)
-* [SANS Incident Handler's Handbook](<https://www.sans.org/reading-room/whitepapers/incident/incident-handlers-handbook-33901>)
-* [ISO/IEC 27035: Information Security Incident Management](<https://www.iso.org/standard/60803.html>)
+* [NIST SP 800-61r2: Computer Security Incident Handling Guide](https://csrc.nist.gov/publications/detail/sp/800-61/rev-2/final)
+* [SANS Incident Handler's Handbook](https://www.sans.org/reading-room/whitepapers/incident/incident-handlers-handbook-33901)
+* [ISO/IEC 27035: Information Security Incident Management](https://www.iso.org/standard/60803.html)
