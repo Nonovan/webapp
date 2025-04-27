@@ -12,10 +12,42 @@ This structure facilitates both discovery of available commands and extension wi
 new commands as the application evolves.
 
 Available command groups:
-- db_cli: Database management commands (migration, backup, restore)
-- monitor_cli: System monitoring and metrics collection commands
+- db_cli: Database management commands
+  - init: Initialize the database with schema and optional seed data
+  - backup: Create database backups (full or schema-only)
+  - restore: Restore database from a backup file
+  - verify: Verify database integrity and constraints
+  - optimize: Run database optimization operations (ANALYZE, VACUUM, REINDEX)
+  - list-backups: List available database backup files
+  - stats: Show database statistics
+  - connections: View and manage database connections
+
+- monitor_cli: System monitoring and metrics commands
+  - status: Show system monitoring status
+  - logs: View application logs with filtering options
+  - metrics: Export system and application metrics
+
 - system_cli: System administration and configuration commands
-- user_cli: User management and administration commands
+  - status: Show system resource utilization and status
+  - health: Run health checks on system components
+  - config: Verify and display configuration settings
+  - check-integrity: Verify file integrity against baseline
+  - services: Check status of dependent services
+  - diagnostics: Generate system diagnostic information
+
+- user_cli: User administration commands
+  - create: Create a new user account
+  - list: List users with optional filtering
+  - info: View detailed information about a specific user
+  - reset-password: Reset a user's password
+  - change-role: Change a user's role
+  - deactivate: Deactivate a user account
+  - activate: Activate a user account
+  - delete: Delete a user account
+  - mfa: Manage multi-factor authentication requirements
+  - bulk-import: Import users in bulk from CSV or JSON
+  - export: Export user data to a file
+  - lock/unlock: Manage account locking
 """
 
 from .db import db_cli
@@ -25,3 +57,6 @@ from .user import user_cli
 
 # Export all command groups to make them available when importing this package
 __all__ = ['db_cli', 'monitor_cli', 'system_cli', 'user_cli']
+
+# Version information
+__version__ = '0.0.1'
