@@ -4,13 +4,13 @@ This directory contains command-line interface tools for administrative tasks in
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- Usage
-- Best Practices & Security
-- Common Features
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Usage](#usage)
+- [Best Practices & Security](#best-practices--security)
+- [Common Features](#common-features)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
@@ -27,10 +27,11 @@ The Admin CLI tools provide command-line interfaces for performing administrativ
 
 - **`grant_permissions.py`**: Permission management utility
   - Role-based access control management
-  - Permission assignment to users and groups
-  - Temporary permission grants with expiration
+  - Permission assignment to users and roles
+  - Permission delegation with expiration
   - Permission verification and validation
   - Audit logging of permission changes
+  - Export/import of permission configurations
 
 - **`security_admin.py`**: Security administration commands
   - Security policy configuration
@@ -41,17 +42,19 @@ The Admin CLI tools provide command-line interfaces for performing administrativ
 
 - **`system_configuration.py`**: System configuration management
   - Environment configuration settings
-  - Service startup and shutdown
-  - System parameter tuning
-  - Performance optimization settings
-  - Resource allocation management
+  - Configuration value validation against schemas
+  - Configuration export and import functionality
+  - Default configuration initialization
+  - Secure handling of sensitive configuration values
+  - Comprehensive audit logging of configuration changes
 
 - **`user_admin.py`**: User account management
-  - User creation, modification, and deactivation
-  - Bulk user operations
+  - User creation, modification, and deletion
+  - Bulk user operations and import/export
   - Password management and reset
-  - User group assignment
-  - Account lockout management
+  - MFA requirement management
+  - User locking and unlocking
+  - User permission and role assignment
 
 ## Directory Structure
 
@@ -80,36 +83,48 @@ python admin_commands.py --command system-status --verbose
 python admin_commands.py --command list-users --output json > users.json
 ```
 
-### User Management
+### User Administration
 
 ```bash
 # Create a new user
 python user_admin.py create --username jsmith --email john.smith@example.com --roles user,developer
 
-# Deactivate a user account
-python user_admin.py deactivate --username jsmith --reason "Extended leave"
+# List all users with a specific role
+python user_admin.py list --role admin --output-format table
 
 # Reset user password
 python user_admin.py reset-password --username jsmith --send-email
 
-# List all users with a specific role
-python user_admin.py list --role admin --output-format table
+# Lock a user account
+python user_admin.py lock --username jsmith --reason "Security policy violation" --duration 24h
+
+# Export user data to CSV
+python user_admin.py export --role operator --output users.csv
 ```
 
 ### Permission Management
 
 ```bash
 # Grant a permission to a user
-python grant_permissions.py --user jsmith --permission "api:read" --reason "Project access requirement"
+python grant_permissions.py grant --user jsmith --permission "api:read" --reason "Project access requirement"
+
+# Grant a permission to a role
+python grant_permissions.py grant --role developer --permission "api:write"
 
 # Grant temporary permissions with expiration
-python grant_permissions.py --user jsmith --permission "system:write" --expires "2023-07-15T18:00:00" --reason "Deployment window"
+python grant_permissions.py grant --user jsmith --permission "system:write" --expires "2d" --reason "Deployment window"
 
 # List permissions for a specific user
-python grant_permissions.py --list --user jsmith
+python grant_permissions.py list --user jsmith
 
 # Revoke a permission
-python grant_permissions.py --user jsmith --permission "api:write" --revoke --reason "No longer required"
+python grant_permissions.py revoke --user jsmith --permission "api:write" --reason "No longer required"
+
+# Check if user has a specific permission
+python grant_permissions.py check --user jsmith --permission "system:read"
+
+# Delegate a permission between users
+python grant_permissions.py delegate --from admin.user --to jsmith --permission "system:backup" --expires "4h" --reason "Weekend maintenance"
 ```
 
 ### System Configuration
@@ -118,14 +133,23 @@ python grant_permissions.py --user jsmith --permission "api:write" --revoke --re
 # Get current system configuration
 python system_configuration.py --show
 
-# Update a configuration setting
-python system_configuration.py --set max_connections=500
+# Get a specific configuration value
+python system_configuration.py --get "security.session.timeout"
 
-# Export configuration to file
+# Update configuration settings
+python system_configuration.py --set security.session.timeout=30 --set security.login.max_attempts=5
+
+# Export configuration to a file
 python system_configuration.py --export --output config_backup.json
 
-# Import configuration from file
-python system_configuration.py --import --input config_backup.json --environment staging
+# Import configuration from a file
+python system_configuration.py --import config_backup.json --environment staging
+
+# Validate configuration against schemas
+python system_configuration.py --validate --schema-dir /etc/cloud-platform/schemas
+
+# Initialize default configurations
+python system_configuration.py --init-defaults
 ```
 
 ### Security Administration
@@ -156,6 +180,8 @@ python security_admin.py audit --event login_failed --days 7
 - **Permission Review**: Regularly review temporary permission grants
 - **Secure Connections**: Use secure connections for remote administration
 - **Timeout Controls**: Implement session timeouts for administrative sessions
+- **Reason Documentation**: Always provide meaningful reasons for security-relevant operations
+- **Emergency Access**: Follow proper procedures for emergency access scenarios
 
 ## Common Features
 
@@ -163,7 +189,7 @@ All CLI tools share these common features:
 
 - **Consistent Command Structure**: Standard command format across all tools
 - **Error Handling**: Comprehensive error handling with clear messages
-- **Flexible Output Formats**: Support for multiple output formats (text, JSON, CSV)
+- **Flexible Output Formats**: Support for multiple output formats (text, JSON, CSV, table)
 - **Help System**: Built-in documentation and examples
 - **Input Validation**: Thorough validation of all command parameters
 - **Logging**: Comprehensive logging of all operations with appropriate detail
@@ -171,6 +197,8 @@ All CLI tools share these common features:
 - **Permission Checks**: Pre-execution permission verification
 - **Rate Limiting**: Protection against command abuse
 - **Return Codes**: Standardized return codes for scripting integration
+- **MFA Integration**: Support for multi-factor authentication on sensitive operations
+- **Audit Integration**: Detailed audit logging for accountability
 
 ## Related Documentation
 
@@ -181,3 +209,6 @@ All CLI tools share these common features:
 - Permission Model Reference
 - CLI Development Guide
 - Administrative Workflows
+- Security Controls Framework
+- Audit Requirements
+- Emergency Access Procedures
