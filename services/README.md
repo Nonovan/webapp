@@ -2,6 +2,17 @@
 
 This directory contains service classes that implement business logic and coordinate interactions between different parts of the Cloud Infrastructure Platform application.
 
+## Contents
+
+- [Overview](#overview)
+- [Key Services](#key-services)
+- [Directory Structure](#directory-structure)
+- [Best Practices & Security](#best-practices--security)
+- [Common Features](#common-features)
+- [Usage](#usage)
+- [Related Documentation](#related-documentation)
+- [Version History](#version-history)
+
 ## Overview
 
 Services encapsulate complex operations and provide clean APIs for controllers/routes to use. They follow a functional core/imperative shell architecture where business logic is separated from side effects (like database operations). This approach enhances testability and maintainability by reducing complexity in individual components.

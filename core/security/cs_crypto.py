@@ -620,6 +620,76 @@ def sanitize_filename(filename: str) -> str:
     return sanitized
 
 
+def sanitize_username(username: str) -> str:
+    """
+    Sanitize a username to prevent injection and security issues.
+
+    This function ensures usernames are properly sanitized by removing
+    potentially dangerous characters and enforcing consistent formatting.
+    It helps mitigate risks related to XSS, CSRF, and SQL injection.
+
+    Args:
+        username: The username to sanitize
+
+    Returns:
+        str: The sanitized username or None if completely invalid
+    """
+    if not username:
+        return None
+
+    # Convert to lowercase for consistency
+    username = username.lower()
+
+    # Remove leading/trailing whitespace
+    username = username.strip()
+
+    # Replace problematic characters
+    # Allow only letters, numbers, underscore, hyphen, and period
+    sanitized = re.sub(r'[^\w\-\.]', '_', username)
+
+    # Additional security checks
+    if sanitized.startswith('.') or sanitized.endswith('.'):
+        # Don't allow usernames starting or ending with period
+        sanitized = sanitized.strip('.')
+
+    # Check for reserved or potentially dangerous usernames
+    reserved_names = ['admin', 'administrator', 'system', 'root', 'superuser',
+                      'anonymous', 'user', 'support', 'security']
+
+    if sanitized.lower() in reserved_names and not SECURITY_CONFIG.get('ALLOW_RESERVED_USERNAMES', False):
+        metrics.increment('security.reserved_username_attempt')
+
+        # Log security event
+        try:
+            log_security_event(
+                event_type="reserved_username_attempt",
+                description="Attempted use of reserved username",
+                severity="warning",
+                ip_address=request.remote_addr if has_request_context() else None,
+                details={"original_username": username}
+            )
+        except Exception:
+            pass
+
+        return None
+
+    # Apply minimum and maximum length constraints
+    min_length = SECURITY_CONFIG.get('MIN_USERNAME_LENGTH', 3)
+    max_length = SECURITY_CONFIG.get('MAX_USERNAME_LENGTH', 64)
+
+    if len(sanitized) < min_length:
+        return None
+
+    if len(sanitized) > max_length:
+        sanitized = sanitized[:max_length]
+
+    # Ensure username doesn't consist entirely of non-alphanumeric characters
+    if not any(c.isalnum() for c in sanitized):
+        return None
+
+    return sanitized
+
+
 def generate_token(length: int = 32, url_safe: bool = True, prefix: str = None) -> str:
     """
     Generate a cryptographically secure random token.

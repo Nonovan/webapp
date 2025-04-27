@@ -44,6 +44,7 @@ from .cs_crypto import (
     decrypt_aes_gcm,
     sanitize_url,
     sanitize_filename,
+    sanitize_username,
     generate_secure_hash
 )
 
@@ -111,4 +112,4 @@ from .cs_utils import (
 from .cs_constants import SECURITY_CONFIG
 
 # Version information
-__version__ = '0.0.1'
+__version__ = '0.0.0'

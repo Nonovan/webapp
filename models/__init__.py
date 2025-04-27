@@ -1,5 +1,5 @@
 """
-Data models package for the myproject application.
+Data models package for the Cloud Infrastructure Platform.
 
 This package defines the application's data model layer using SQLAlchemy ORM, providing
 a clean, Pythonic interface to the underlying database. It includes:
@@ -52,6 +52,7 @@ from .communication.subscriber import SubscriberCategory
 from .security.security_incident import SecurityIncident
 from .security.audit_log import AuditLog
 from .security.system_config import SystemConfig
+from .security.login_attempt import LoginAttempt
 
 # Cloud models
 from .cloud.cloud_provider import CloudProvider
@@ -83,7 +84,7 @@ __all__ = [
     'WebhookSubscription', 'WebhookDelivery', 'SubscriberCategory',
 
     # Security models
-    'SecurityIncident', 'AuditLog', 'SystemConfig',
+    'SecurityIncident', 'AuditLog', 'SystemConfig', 'LoginAttempt',
 
     # Cloud infrastructure models
     'CloudProvider', 'CloudResource', 'CloudMetric', 'CloudAlert',
@@ -137,7 +138,8 @@ def _setup_audit_listeners() -> None:
         ICSDevice,
         WebhookSubscription,
         FileUpload,
-        MailingList
+        MailingList,
+        LoginAttempt
     ]
 
     for model in models_to_audit:
@@ -432,3 +434,6 @@ def _looks_like_token(value: str) -> bool:
 
 # Initialize audit listeners
 _setup_audit_listeners()
+
+# Version information
+__version__ = '0.0.1'
