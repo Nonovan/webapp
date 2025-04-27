@@ -1,20 +1,26 @@
 # Administrative Utilities
 
-This directory contains utility modules and helper functions used by the administrative tools in the Cloud Infrastructure Platform. These utilities provide core functionality for authentication, audit logging, configuration validation, and secure credential handling.
+This directory contains utility modules and helper functions used by the administrative tools in the Cloud Infrastructure Platform. These utilities provide core functionality for authentication, audit logging, configuration validation, secure credential handling, and more.
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- Usage
-- Best Practices & Security
-- Common Features
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Usage](#usage)
+  - [Authentication and Authorization](#authentication-and-authorization)
+  - [Audit Logging](#audit-logging)
+  - [Configuration Validation](#configuration-validation)
+  - [Secure Credential Handling](#secure-credential-handling)
+  - [Error Handling](#error-handling)
+  - [Metrics Collection](#metrics-collection)
+- [Best Practices & Security](#best-practices--security)
+- [Common Features](#common-features)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
-The administrative utilities implement shared functionality used by the CLI tools, scripts, and other administrative components of the platform. These utilities ensure consistent behavior, proper security controls, and adherence to platform standards across all administrative tools. They provide reusable implementations of common operations such as authentication, authorization, audit logging, configuration validation, and credential handling.
+The administrative utilities implement shared functionality used by the CLI tools, scripts, and other administrative components of the platform. These utilities ensure consistent behavior, proper security controls, and adherence to platform standards across all administrative tools. They provide reusable implementations of common operations such as authentication, authorization, audit logging, configuration validation, credential handling, and error handling.
 
 ## Key Components
 
@@ -50,6 +56,22 @@ The administrative utilities implement shared functionality used by the CLI tool
   - Memory protection for sensitive data
   - Secure credential disposal
 
+- **`encryption_utils.py`**: Encryption and decryption utilities
+  - AES-256 encryption for secure data storage
+  - RSA-based key management
+  - Secure random token generation
+  - Envelope encryption for sensitive data
+
+- **`error_handling.py`**: Centralized error handling utilities
+  - Standardized error messages
+  - Exception logging and categorization
+  - Graceful recovery mechanisms
+
+- **`metrics_utils.py`**: Performance and usage metrics collection
+  - Resource usage monitoring (CPU, memory)
+  - Execution time tracking for operations
+  - Integration with monitoring systems (e.g., Prometheus)
+
 ## Directory Structure
 
 ```plaintext
@@ -59,7 +81,10 @@ admin/utils/
 ├── admin_auth.py         # Authentication and authorization utilities
 ├── audit_utils.py        # Audit logging utilities
 ├── config_validation.py  # Configuration validation tools
-└── secure_credentials.py # Secure credential management
+├── encryption_utils.py   # Encryption and decryption utilities
+├── error_handling.py     # Centralized error handling
+├── metrics_utils.py      # Performance and usage metrics collection
+├── secure_credentials.py # Secure credential management
 ```
 
 ## Usage
@@ -79,12 +104,6 @@ if check_permission(session_token, "system:configuration:write"):
 else:
     # Handle insufficient permissions
     raise PermissionDenied("Insufficient permissions to modify system configuration")
-
-# Perform an operation with required permissions
-@requires_permission("user:management:create")
-def create_user(user_data):
-    # Implementation that will only run if the current user has the required permission
-    # ...
 ```
 
 ### Audit Logging
@@ -151,6 +170,28 @@ store_credential(
 with secure_credential("encryption_key") as key:
     encrypted_data = encrypt_data(sensitive_data, key)
     # Key will be securely wiped from memory after the block
+```
+
+### Error Handling
+
+```python
+from admin.utils.error_handling import handle_error
+
+try:
+    # Perform some operation
+    perform_operation()
+except Exception as e:
+    handle_error(e, context="Operation failed")
+```
+
+### Metrics Collection
+
+```python
+from admin.utils.metrics_utils import collect_metrics
+
+# Collect resource usage metrics
+metrics = collect_metrics()
+print(metrics)
 ```
 
 ## Best Practices & Security

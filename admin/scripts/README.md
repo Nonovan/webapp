@@ -1,20 +1,25 @@
 # Administrative Scripts
 
-This directory contains command-line scripts for administrative tasks in the Cloud Infrastructure Platform. These scripts provide system administrators with utilities for auditing, emergency access management, privilege management, and system security operations.
+This directory contains command-line scripts for administrative tasks in the Cloud Infrastructure Platform. These scripts provide system administrators with utilities for auditing, emergency access management, privilege management, system security operations, and more.
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- Usage
-- Best Practices & Security
-- Common Features
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Usage](#usage)
+  - [Administrative Auditing](#administrative-auditing)
+  - [Emergency Access Management](#emergency-access-management)
+  - [Privilege Management](#privilege-management)
+  - [System Security](#system-security)
+  - [Health and Compliance](#health-and-compliance)
+- [Best Practices & Security](#best-practices--security)
+- [Common Features](#common-features)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
-The administrative scripts provide command-line tools for performing critical administrative functions, security operations, and system management tasks. These scripts are designed for system administrators who need to perform security audits, manage emergency access, control privileges, and implement system lockdown procedures. All scripts implement appropriate security controls including authentication, authorization, and comprehensive logging of all actions.
+The administrative scripts provide command-line tools for performing critical administrative functions, security operations, and system management tasks. These scripts are designed for system administrators who need to perform security audits, manage emergency access, control privileges, validate system health, and implement system lockdown procedures. All scripts implement appropriate security controls, including authentication, authorization, and comprehensive logging of all actions.
 
 ## Key Components
 
@@ -50,15 +55,47 @@ The administrative scripts provide command-line tools for performing critical ad
   - Security patch verification
   - System isolation capabilities
 
+- **`backup_verification.sh`**: Backup integrity verification
+  - Validates the integrity of system and database backups
+  - Ensures recoverability of critical data
+  - Generates detailed verification reports
+
+- **`compliance_report_generator.py`**: Compliance reporting tool
+  - Generates compliance reports for standards like PCI DSS, HIPAA, and ISO 27001
+  - Maps system configurations to compliance requirements
+  - Supports multiple output formats (PDF, JSON, HTML)
+
+- **`incident_response.sh`**: Incident response automation
+  - Automates key steps in incident response workflows
+  - Collects forensic evidence
+  - Isolates compromised systems
+  - Notifies relevant stakeholders
+
+- **`security_baseline_validator.py`**: Security baseline validation tool
+  - Validates system configurations against predefined security baselines
+  - Identifies deviations and provides remediation recommendations
+  - Supports environment-specific baselines
+
+- **`system_health_check.sh`**: System health monitoring script
+  - Performs comprehensive health checks on system components
+  - Monitors resource usage, service status, and security configurations
+  - Generates health reports for administrators
+
 ## Directory Structure
 
 ```plaintext
 admin/scripts/
 ├── README.md                # This documentation
 ├── admin_audit.py           # Administrative audit utility
+├── audit_log_exporter.py    # Export audit logs to external systems
+├── backup_verification.sh   # Backup integrity verification
+├── compliance_report_generator.py # Compliance reporting tool
 ├── emergency_access.py      # Emergency access management
+├── incident_response.sh     # Incident response automation
 ├── privilege_management.sh  # Privilege control management
-└── system_lockdown.sh       # System security hardening
+├── security_baseline_validator.py # Security baseline validation
+├── system_health_check.sh   # System health monitoring
+├── system_lockdown.sh       # System security hardening
 ```
 
 ## Usage
@@ -115,33 +152,46 @@ python emergency_access.py --deactivate --request-id ER-2023-042 --reason "Issue
 ./system_lockdown.sh --verify --policy-file security-baseline.json
 ```
 
+### Health and Compliance
+
+```bash
+# Validate system health
+./system_health_check.sh --output health-report.json
+
+# Verify backup integrity
+./backup_verification.sh --env production --backup-file backup_20231101.tar.gz
+
+# Generate compliance report
+python compliance_report_generator.py --standard pci-dss --output compliance-report.pdf
+```
+
 ## Best Practices & Security
 
-- **Access Control**: Run all scripts with appropriate administrative credentials
-- **Audit Trail**: All script actions are comprehensively logged for accountability
-- **Authorization**: Critical operations require appropriate approval workflows
-- **Change Management**: Follow change control procedures for production environments
-- **Documentation**: Document all non-routine operations with justification
-- **Expiration**: Set appropriate timeframes for temporary access grants
-- **Least Privilege**: Grant minimal necessary permissions for required tasks
-- **Review**: Regularly review audit logs and privilege assignments
-- **Testing**: Test scripts in development/staging before using in production
-- **Two-Person Rule**: Implement dual control for critical security operations
+- **Access Control**: Run all scripts with appropriate administrative credentials.
+- **Audit Trail**: All script actions are comprehensively logged for accountability.
+- **Authorization**: Critical operations require appropriate approval workflows.
+- **Change Management**: Follow change control procedures for production environments.
+- **Documentation**: Document all non-routine operations with justification.
+- **Expiration**: Set appropriate timeframes for temporary access grants.
+- **Least Privilege**: Grant minimal necessary permissions for required tasks.
+- **Review**: Regularly review audit logs and privilege assignments.
+- **Testing**: Test scripts in development/staging before using in production.
+- **Two-Person Rule**: Implement dual control for critical security operations.
 
 ## Common Features
 
 All administrative scripts share these common features:
 
-- **Authentication**: Integration with platform authentication system
-- **Authorization**: Fine-grained permission checks for all operations
-- **Command Validation**: Thorough validation of all parameters
-- **Comprehensive Logging**: Detailed audit logs of all actions
-- **Confirmation Prompts**: Verification for destructive operations
-- **Documentation**: Built-in help system with examples
-- **Error Handling**: Graceful handling of failures with clear messages
-- **Multi-Environment Support**: Environment-specific configurations
-- **Secure Defaults**: Conservative security defaults requiring explicit opt-out
-- **Version Information**: Clear version tracking for all scripts
+- **Authentication**: Integration with platform authentication system.
+- **Authorization**: Fine-grained permission checks for all operations.
+- **Command Validation**: Thorough validation of all parameters.
+- **Comprehensive Logging**: Detailed audit logs of all actions.
+- **Confirmation Prompts**: Verification for destructive operations.
+- **Documentation**: Built-in help system with examples.
+- **Error Handling**: Graceful handling of failures with clear messages.
+- **Multi-Environment Support**: Environment-specific configurations.
+- **Secure Defaults**: Conservative security defaults requiring explicit opt-out.
+- **Version Information**: Clear version tracking for all scripts.
 
 ## Related Documentation
 
