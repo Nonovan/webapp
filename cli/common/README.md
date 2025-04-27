@@ -4,13 +4,13 @@ This directory contains shared utility functions and common components used by t
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- Usage Examples
-- Security Features
-- Common Patterns
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Usage Examples](#usage-examples)
+- [Security Features](#security-features)
+- [Common Patterns](#common-patterns)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
@@ -50,25 +50,30 @@ cli/common/
 ### Authentication
 
 ```python
-from cli.common.utils import authenticate_user
+from cli.common import require_auth, is_authenticated
 
+@require_auth
 def command_requiring_auth():
     """Command that requires authentication."""
-    # Authenticate user before proceeding
-    user = authenticate_user()
-    if not user:
+    click.echo("Authenticated operation")
+    return 0
+
+# Or use the direct check
+def another_command():
+    # Check if authenticated
+    if not is_authenticated():
         click.echo("Authentication required")
         return 1
 
     # Proceed with authenticated operation
-    click.echo(f"Authenticated as {user.username}")
+    click.echo("Authenticated operation")
     return 0
 ```
 
 ### Configuration Management
 
 ```python
-from cli.common.utils import load_config, save_config
+from cli.common import load_config, save_config, get_config_value
 
 def configure_command(key, value):
     """Update configuration setting."""
@@ -81,12 +86,16 @@ def configure_command(key, value):
     # Save updated configuration
     save_config(config)
     click.echo(f"Configuration updated: {key}={value}")
+
+# Get environment-specific configuration
+api_url = get_config_value('api_url', default='http://localhost:5000/api',
+                          environment='development')
 ```
 
 ### Error Handling
 
 ```python
-from cli.common.utils import handle_error
+from cli.common import handle_error, EXIT_ERROR
 
 @click.command()
 def operation_with_error_handling():
@@ -99,7 +108,7 @@ def operation_with_error_handling():
     except Exception as e:
         # Standardized error handling
         handle_error(e, "Failed to complete operation")
-        return 1
+        return EXIT_ERROR
 
     return 0
 ```
@@ -107,7 +116,7 @@ def operation_with_error_handling():
 ### Progress Reporting
 
 ```python
-from cli.common.utils import create_progress_bar
+from cli.common import create_progress_bar
 
 def long_running_operation():
     """Operation with progress reporting."""
@@ -124,6 +133,53 @@ def long_running_operation():
         # Additional steps...
 
     click.echo("Operation completed")
+```
+
+### Input Validation
+
+```python
+from cli.common import validate_input, prompt_with_validation
+
+def command_with_validation(parameter):
+    # Validate input
+    is_valid, error = validate_input(parameter, {
+        'required': True,
+        'min_length': 3,
+        'pattern': r'^[a-zA-Z0-9_-]+$',
+        'pattern_message': 'Must contain only alphanumeric characters, underscores, and hyphens'
+    })
+
+    if not is_valid:
+        click.echo(f"Invalid parameter: {error}")
+        return 1
+
+    # Or use validation with prompt
+    name = prompt_with_validation(
+        "Enter resource name",
+        {
+            'required': True,
+            'min_length': 3,
+            'max_length': 50,
+            'pattern': r'^[a-zA-Z0-9_-]+$'
+        }
+    )
+```
+
+### Output Formatting
+
+```python
+from cli.common import format_output
+
+def get_data_command(format_type='text'):
+    # Get data
+    data = [
+        {'id': 1, 'name': 'Resource 1', 'status': 'active'},
+        {'id': 2, 'name': 'Resource 2', 'status': 'inactive'},
+    ]
+
+    # Format output based on user preference
+    formatted_output = format_output(data, format_type)
+    click.echo(formatted_output)
 ```
 
 ## Security Features
@@ -152,7 +208,7 @@ def require_auth(func):
         if not is_authenticated():
             click.echo("Authentication required")
             click.echo("Please login using: flask auth login")
-            return 1
+            return EXIT_AUTH_ERROR
         return func(*args, **kwargs)
     return wrapper
 ```
@@ -164,12 +220,24 @@ def get_config_value(key, default=None, environment=None):
     """Get configuration value with fallbacks and environment support."""
     # Try environment-specific configuration first
     if environment:
-        env_config = load_environment_config(environment)
+        env_config = load_config(environment)
         if key in env_config:
             return env_config[key]
 
     # Try global configuration
-    config = load_global_config()
+    config = load_config()
+
+    # Try dot notation (e.g., environments.development.api_url)
+    if '.' in key:
+        parts = key.split('.')
+        value = config
+        for part in parts:
+            if isinstance(value, dict) and part in value:
+                value = value[part]
+            else:
+                return default
+        return value
+
     return config.get(key, default)
 ```
 
@@ -204,6 +272,23 @@ def command_with_exit_codes():
     except Exception as e:
         click.echo(f"Operation failed: {str(e)}")
         return EXIT_ERROR
+```
+
+### Confirmation Prompt
+
+```python
+def dangerous_operation():
+    """Command that performs a dangerous operation."""
+    if not confirm_action("This will permanently delete resources. Continue?",
+                         default=False):
+        click.echo("Operation cancelled")
+        return EXIT_SUCCESS
+
+    # Proceed with dangerous operation
+    click.echo("Performing operation...")
+    # Implementation...
+
+    return EXIT_SUCCESS
 ```
 
 ## Related Documentation
