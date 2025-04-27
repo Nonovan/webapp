@@ -30,7 +30,6 @@ OUTPUT_FORMAT=json ./health-check.sh production
 
 # Send health check report by email
 ./health-check.sh production --email admin@example.com
-
 ```
 
 The health check verifies:
@@ -49,13 +48,13 @@ The health check verifies:
 
 We monitor the following key metrics:
 
-### System Metrics
+#### System Metrics
 
 - CPU, Memory, Disk usage
 - Network traffic
 - Load average
 
-### Application Metrics
+#### Application Metrics
 
 - Request rate and response time
 - Error rate
@@ -63,14 +62,14 @@ We monitor the following key metrics:
 - Cache hit/miss ratio
 - Background job queue size
 
-### Database Metrics
+#### Database Metrics
 
 - Query performance
 - Connection pool usage
 - Transaction rate
 - Table/index size growth
 
-### Security Metrics
+#### Security Metrics
 
 - Failed login attempts
 - WAF rule triggers
@@ -170,7 +169,6 @@ For new environments:
 
 # Set up custom dashboards
 ./import_dashboards.sh staging
-
 ```
 
 ## Monitoring Best Practices
