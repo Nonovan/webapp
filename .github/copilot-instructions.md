@@ -126,11 +126,11 @@ This repository contains a Python Flask web application for cloud infrastructure
 
 ### Python Import Best Practices
 
-- Import from packages rather than directly from modules when packages provide exports through `__init__.py`
-- Always check `__init__.py` files first to identify correctly exported symbols
-- Use package-level imports (e.g., `from models.auth import User`) rather than module-level imports (e.g., `from models.auth.user import User`) when the package explicitly exports the symbol
-- Respect the public API defined by `__all__` in packages to avoid using internal implementation details
-- For modules that aren't explicitly exported, use direct imports with the full path
+- Use package-level imports for symbols exported in `__init__.py` (e.g., `from models.auth import User`)
+- Check `__init__.py` first to identify exported symbols, especially in `__all__` lists
+- Use direct module imports only for components not explicitly exported (e.g., `from models.module.internal import InternalClass`)
+- Respect the public API boundary defined by packages to maintain code maintainability
+- When multiple symbols are needed from the same package, group them in one import statement
 
 ### JavaScript
 
