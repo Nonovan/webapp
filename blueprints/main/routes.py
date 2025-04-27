@@ -19,12 +19,15 @@ for browser clients and API endpoints for AJAX and mobile integration.
 
 from datetime import datetime
 from typing import Union, Dict, Any, List
-from flask import render_template, current_app, request, abort, jsonify, g
+
+from flask import render_template, current_app, request, abort, jsonify, g, redirect, url_for
 from jinja2 import TemplateNotFound
-from auth.utils import login_required, require_role
-from monitoring.metrics import SystemMetrics, DatabaseMetrics, EnvironmentalData
+from sqlalchemy.exc import SQLAlchemyError
+
 from extensions import limiter, cache, metrics, db
-from core.security_utils import get_security_metrics, calculate_risk_score
+from auth.decorators import login_required, require_role
+from core.security import get_security_metrics, log_security_event
+from monitoring.metrics import SystemMetrics, DatabaseMetrics, EnvironmentalData
 
 from . import main_bp
 
@@ -62,7 +65,7 @@ def home() -> Union[str, tuple]:
     """
     try:
         metrics.info('page_views_total', 1, labels={'page': 'home'})
-        return render_template('main/home.html')  # Ensure a valid return value
+        return render_template('main/home.html')
     except (TemplateNotFound, RuntimeError) as e:
         current_app.logger.error(f"Home page error: {e}")
         metrics.info('error_count_total', 1, labels={'page': 'home'})
@@ -89,11 +92,37 @@ def about() -> Union[str, tuple]:
     try:
         metrics.info('page_views_total', 1, labels={'page': 'about'})
         return render_template('main/about.html')
-    except (TemplateNotFound, RuntimeError) as e:  # Replace with specific exceptions
+    except (TemplateNotFound, RuntimeError) as e:
         current_app.logger.error(f"About page error: {e}")
         metrics.info('error_count_total', 1, labels={'page': 'about'})
         abort(500)
-        return jsonify({'error': 'Internal server error'}), 500  # Fallback return value
+        return jsonify({'error': 'Internal server error'}), 500
+
+@main_bp.route('/contact')
+@limiter.limit("10/minute")
+@cache.cached(timeout=1800)  # 30 minutes cache
+def contact() -> Union[str, tuple]:
+    """
+    Render the contact page.
+
+    This route displays the contact information and contact form.
+    It's cached for a medium duration and includes rate limiting
+    to prevent form abuse.
+
+    Returns:
+        Union[str, tuple]: Rendered template on success, or error response on failure
+
+    Example URL:
+        GET /contact
+    """
+    try:
+        metrics.info('page_views_total', 1, labels={'page': 'contact'})
+        return render_template('main/contact.html')
+    except (TemplateNotFound, RuntimeError) as e:
+        current_app.logger.error(f"Contact page error: {e}")
+        metrics.info('error_count_total', 1, labels={'page': 'contact'})
+        abort(500)
+        return jsonify({'error': 'Internal server error'}), 500
 
 @main_bp.route('/cloud')
 @login_required
@@ -131,6 +160,9 @@ def cloud() -> Union[str, tuple]:
             }
         )
 
+        # Record admin access in audit log
+        record_admin_access(request.remote_addr, g.user.id)
+
         # Track view
         metrics.info('cloud_dashboard_views_total', 1, labels={'user': str(g.user.id)})
 
@@ -159,10 +191,58 @@ def cloud() -> Union[str, tuple]:
         metrics.info('error_count_total', 1, labels={'page': 'cloud'})
         return jsonify({'error': 'Internal server error'}), 500
 
+@main_bp.route('/dashboard')
+@login_required
+@limiter.limit("60/minute")
+@cache.cached(timeout=60)
+def dashboard() -> Union[str, tuple]:
+    """
+    Render the user dashboard.
+
+    This route displays the main user dashboard with personalized
+    information and quick access to key functions. It requires authentication
+    and is cached briefly due to personalized content.
+
+    Returns:
+        Union[str, tuple]: Rendered dashboard template on success, or error response on failure
+
+    Example URL:
+        GET /dashboard
+    """
+    try:
+        # Get user-specific data
+        user_data = {
+            'id': g.user.id,
+            'username': g.user.username,
+            'role': g.user.role,
+            'last_login': g.user.last_login.isoformat() if g.user.last_login else None
+        }
+
+        # Get recent activity
+        from models.user_activity import UserActivity
+        recent_activity = UserActivity.query.filter_by(user_id=g.user.id) \
+            .order_by(UserActivity.timestamp.desc()) \
+            .limit(5) \
+            .all()
+
+        # Track view
+        metrics.info('dashboard_views_total', 1, labels={'user': str(g.user.id)})
+
+        return render_template(
+            'main/dashboard.html',
+            user=user_data,
+            activity=recent_activity,
+            security_events=get_recent_security_events(3)
+        )
+    except (TemplateNotFound, RuntimeError, SQLAlchemyError) as e:
+        current_app.logger.error(f"Dashboard error: {str(e)}")
+        metrics.info('error_count_total', 1, labels={'page': 'dashboard'})
+        return jsonify({'error': 'Internal server error'}), 500
+
 @main_bp.route('/profile')
 @login_required
 @limiter.limit("30/minute")
-def profile() -> Union[str, tuple[dict, int]]:
+def profile() -> Union[str, tuple]:
     """
     Render the user profile page.
 
@@ -176,8 +256,29 @@ def profile() -> Union[str, tuple[dict, int]]:
         GET /profile
     """
     try:
-        return render_template('main/profile.html')
-    except (TemplateNotFound, RuntimeError) as e:
+        # Get user activity
+        from models.user_activity import UserActivity
+        user_activity = UserActivity.query.filter_by(user_id=g.user.id) \
+            .order_by(UserActivity.timestamp.desc()) \
+            .limit(10) \
+            .all()
+
+        # Get security alerts for user
+        from models.security_alert import SecurityAlert
+        security_alerts = SecurityAlert.query.filter_by(user_id=g.user.id) \
+            .order_by(SecurityAlert.created_at.desc()) \
+            .limit(5) \
+            .all()
+
+        metrics.info('page_views_total', 1, labels={'page': 'profile'})
+
+        return render_template(
+            'main/profile.html',
+            user=g.user,
+            activity=user_activity,
+            alerts=security_alerts
+        )
+    except (TemplateNotFound, RuntimeError, SQLAlchemyError) as e:
         current_app.logger.error(f"Profile error: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
@@ -186,7 +287,7 @@ def profile() -> Union[str, tuple[dict, int]]:
 @require_role('admin')
 @limiter.limit("30/minute")
 @cache.cached(timeout=60)
-def admin() -> Union[str, tuple[dict, int]]:
+def admin() -> Union[str, tuple]:
     """
     Render the admin panel.
 
@@ -201,12 +302,20 @@ def admin() -> Union[str, tuple[dict, int]]:
         GET /admin
     """
     try:
-        return render_template('main/admin.html',
+        # Record admin access in audit log
+        record_admin_access(request.remote_addr, g.user.id)
+
+        # Track view
+        metrics.info('admin_panel_views_total', 1, labels={'user': str(g.user.id)})
+
+        return render_template(
+            'main/admin.html',
             system_metrics=SystemMetrics.get_system_metrics(),
             db_metrics=DatabaseMetrics.get_db_metrics(),
+            security_metrics=get_security_metrics(),
             timestamp=datetime.utcnow().isoformat()
         )
-    except (TemplateNotFound, RuntimeError) as e:
+    except (TemplateNotFound, RuntimeError, SQLAlchemyError) as e:
         current_app.logger.error(f"Admin panel error: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
@@ -215,7 +324,7 @@ def admin() -> Union[str, tuple[dict, int]]:
 @require_role('operator')
 @limiter.limit("30/minute")
 @cache.cached(timeout=60)
-def ics():
+def ics() -> Union[str, tuple]:
     """
     Render the ICS (Industrial Control System) application interface.
 
@@ -224,24 +333,38 @@ def ics():
     role and is cached briefly due to its semi-dynamic nature.
 
     Returns:
-        str: Rendered ICS template on success
-
-    Raises:
-        werkzeug.exceptions.HTTPException: If an error occurs and abort() is called
+        Union[str, tuple]: Rendered ICS template on success, or error response on failure
 
     Example URL:
         GET /ics
     """
     try:
         system_metrics = SystemMetrics.get_system_metrics()
-        return render_template('main/ics.html',
+        security_status = get_security_metrics()
+
+        metrics.info('ics_views_total', 1, labels={'user': str(g.user.id)})
+
+        # Log ICS access
+        log_security_event(
+            event_type='ics_access',
+            description=f"ICS application accessed by {g.user.username}",
+            user_id=g.user.id,
+            ip_address=request.remote_addr,
+            severity='info'
+        )
+
+        return render_template(
+            'main/ics.html',
             cpu_usage=system_metrics['cpu_usage'],
             memory_usage=system_metrics['memory_usage'],
-            uptime=datetime.utcnow() - current_app.uptime
+            uptime=datetime.utcnow() - current_app.uptime,
+            security_status=security_status.get('status', 'unknown')
         )
-    except (KeyError, RuntimeError) as e:
+    except (KeyError, RuntimeError, TypeError) as e:
         current_app.logger.error(f"ICS application error: {e}")
+        metrics.info('error_count_total', 1, labels={'page': 'ics'})
         abort(500)
+        return jsonify({'error': 'Internal server error'}), 500
 
 @main_bp.route('/ics/environmental')
 @login_required
@@ -298,7 +421,7 @@ def environmental_data() -> Union[str, tuple]:
             error="No environmental data available"
         ), 404
 
-    except (KeyError, RuntimeError) as e:
+    except (KeyError, RuntimeError, SQLAlchemyError) as e:
         # Log error and track metric
         current_app.logger.error(
             f"Environmental data error: {str(e)}",
@@ -311,10 +434,108 @@ def environmental_data() -> Union[str, tuple]:
             error="Error retrieving environmental data"
         ), 500
 
+@main_bp.route('/privacy')
+@limiter.limit("30/minute")
+@cache.cached(timeout=86400)  # 24 hour cache
+def privacy() -> str:
+    """
+    Render the privacy policy page.
+
+    This route displays the application's privacy policy.
+    It's cached for a long duration since it changes infrequently.
+
+    Returns:
+        str: Rendered privacy policy template
+
+    Example URL:
+        GET /privacy
+    """
+    metrics.info('page_views_total', 1, labels={'page': 'privacy'})
+    return render_template('main/privacy.html')
+
+@main_bp.route('/terms')
+@limiter.limit("30/minute")
+@cache.cached(timeout=86400)  # 24 hour cache
+def terms() -> str:
+    """
+    Render the terms of service page.
+
+    This route displays the application's terms of service.
+    It's cached for a long duration since it changes infrequently.
+
+    Returns:
+        str: Rendered terms of service template
+
+    Example URL:
+        GET /terms
+    """
+    metrics.info('page_views_total', 1, labels={'page': 'terms'})
+    return render_template('main/terms.html')
+
+@main_bp.route('/security')
+@limiter.limit("30/minute")
+@cache.cached(timeout=43200)  # 12 hour cache
+def security() -> str:
+    """
+    Render the security information page.
+
+    This route displays information about the application's security practices,
+    compliance certifications, and security features.
+
+    Returns:
+        str: Rendered security information template
+
+    Example URL:
+        GET /security
+    """
+    metrics.info('page_views_total', 1, labels={'page': 'security'})
+    return render_template('main/security.html')
+
+@main_bp.route('/newsletter/subscribe', methods=['POST'])
+@limiter.limit("5/minute")
+def newsletter_subscribe() -> Union[str, tuple]:
+    """
+    Handle newsletter subscription requests.
+
+    This endpoint processes newsletter subscription form submissions.
+    It validates the email address and forwards the request to the newsletter service.
+
+    Returns:
+        Union[str, tuple]: Response with result message
+
+    Example URL:
+        POST /newsletter/subscribe
+    """
+    try:
+        email = request.form.get('email')
+
+        if not email:
+            return jsonify({'error': 'Email address is required'}), 400
+
+        # Validate email address format - basic check
+        if '@' not in email or '.' not in email:
+            return jsonify({'error': 'Invalid email address format'}), 400
+
+        # Forward to newsletter API
+        from services.newsletter_service import NewsletterService
+        success = NewsletterService.subscribe(email, source='website_form')
+
+        if success:
+            metrics.info('newsletter_subscriptions_total', 1)
+            return jsonify({'success': True, 'message': 'Subscription successful'})
+        else:
+            return jsonify({'error': 'Subscription failed'}), 500
+
+    except Exception as e:
+        current_app.logger.error(f"Newsletter subscription error: {str(e)}")
+        return jsonify({'error': 'An unexpected error occurred'}), 500
+
+# ----- Helper Functions -----
+
 def check_security_status() -> Dict[str, Any]:
     """
     Perform comprehensive security status check.
-    
+
     Returns:
         Dict[str, Any]: Security status information
     """
@@ -328,34 +549,24 @@ def check_critical_file_integrity() -> bool:
     """
     warnings.warn(
         "This function is deprecated. Use core.security_utils.check_critical_file_integrity instead",
-        DeprecationWarning, 
+        DeprecationWarning,
         stacklevel=2
     )
-    return check_critical_file_integrity()
-
-def calculate_risk_score(security_data: Dict[str, Any]) -> int:
-    """
-    DEPRECATED: Use core.security_utils.calculate_risk_score instead
-    """
-    warnings.warn(
-        "This function is deprecated. Use core.security_utils.calculate_risk_score instead",
-        DeprecationWarning, 
-        stacklevel=2
-    )
-    return calculate_risk_score(security_data)
+    from core.security_utils import check_critical_file_integrity as core_check_integrity
+    return core_check_integrity()
 
 def get_recent_security_events(limit: int = 5) -> List[Dict[str, Any]]:
     """
     Get the most recent security events from the audit log.
-    
+
     Args:
         limit: Maximum number of events to return
-        
+
     Returns:
         List[Dict[str, Any]]: List of recent security events
     """
     from models.audit_log import AuditLog
-    
+
     events = AuditLog.query.filter(
         AuditLog.event_type.in_([
             'login_failed', 'login_success', 'password_reset',
@@ -364,19 +575,19 @@ def get_recent_security_events(limit: int = 5) -> List[Dict[str, Any]]:
     ).order_by(
         AuditLog.created_at.desc()
     ).limit(limit).all()
-    
+
     return [event.to_dict() for event in events]
 
 def record_admin_access(ip_address: str, user_id: int) -> None:
     """
     Record access to administrative metrics in the audit log.
-    
+
     Args:
         ip_address: IP address of the requesting user
         user_id: ID of the user accessing admin metrics
     """
     from models.audit_log import AuditLog
-    
+
     log = AuditLog(
         event_type='admin_metrics_access',
         user_id=user_id,

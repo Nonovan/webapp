@@ -81,9 +81,13 @@ blueprints/main/
 | admin | `admin()` | Administrative panel | Authentication required, Admin role required |
 | `/cloud` | `cloud()` | Cloud services dashboard | Authentication required, Admin role required |
 | `/contact` | `contact()` | Contact form | Rate limited: 10/minute |
+| `/dashboard` | `dashboard()` | User dashboard | Authentication required |
 | `/ics` | `ics()` | ICS application interface | Authentication required, Operator role required |
 | `/ics/environmental` | `environmental_data()` | Environmental monitoring | Authentication required, Operator role required |
+| `/privacy` | `privacy()` | Privacy policy | Rate limited: 30/minute, Cached: 24 hours |
 | `/profile` | `profile()` | User profile management | Authentication required |
+| `/security` | `security()` | Security information | Rate limited: 30/minute, Cached: 12 hours |
+| `/terms` | `terms()` | Terms of service | Rate limited: 30/minute, Cached: 24 hours |
 
 ## Templates
 
@@ -99,16 +103,21 @@ The templates implement responsive design using Bootstrap 5, proper accessibilit
   - Session management with timeout alerts
 
 - **Content Pages**:
-  - about.html: Company information with contact form
-  - home.html: Landing page with feature highlights and security status
+  - `about.html`: Company information with contact form
+  - `home.html`: Landing page with feature highlights and security status
+  - `privacy.html`: Privacy policy details
+  - `terms.html`: Terms of service information
+  - `security.html`: Security practices information
 
 - **Application Interfaces**:
-  - cloud.html: Real-time cloud infrastructure dashboard
-  - ics.html: Industrial control systems interface
+  - `cloud.html`: Real-time cloud infrastructure dashboard
+  - `dashboard.html`: User-specific dashboard
+  - `ics.html`: Industrial control systems interface
+  - `profile.html`: User profile management
 
 - **Authentication Screens**:
-  - login.html: User authentication interface
-  - register.html: Account registration form
+  - `login.html`: User authentication interface
+  - `register.html`: Account registration form
 
 ## Security Features
 
@@ -168,6 +177,10 @@ async function performAction() {
     try {
         const response = await secureFetch('/api/endpoint', {
             method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content
+            },
             body: JSON.stringify({ key: 'value' })
         });
 

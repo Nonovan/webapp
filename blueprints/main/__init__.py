@@ -119,13 +119,53 @@ def teardown_request(exc) -> None:
         None: This function performs cleanup as a side effect
     """
     if exc is not None:
-        db.session.rollback()
+        try:
+            db.session.rollback()
+        except Exception as rollback_error:
+            current_app.logger.error(f"Error during session rollback: {rollback_error}")
+
+        # Record error metrics
         metrics.info('main_errors_total', 1, labels={
             'type': exc.__class__.__name__,
-            'endpoint': request.endpoint
+            'endpoint': request.endpoint or 'unknown'
         })
-        current_app.logger.error(f"Request error: {exc}")
-    db.session.remove()
+
+        # Log error with appropriate context
+        current_app.logger.error(
+            f"Request error: {exc}",
+            extra={
+                'request_id': getattr(g, 'request_id', 'unknown'),
+                'path': request.path,
+                'method': request.method,
+                'error_type': exc.__class__.__name__
+            }
+        )
+
+    # Always ensure session cleanup
+    try:
+        db.session.remove()
+    except Exception as remove_error:
+        current_app.logger.error(f"Error during session cleanup: {remove_error}")
 
 # Initialize error handlers
 init_error_handlers(main_bp)
+
+# For improved debugging in development
+if current_app and current_app.debug:
+    @main_bp.route('/debug-info')
+    def debug_info():
+        """Return debug information (only available in debug mode)"""
+        from flask import jsonify
+
+        # Don't leak sensitive information
+        safe_config = {k: v for k, v in current_app.config.items()
+                      if not k.startswith(('SECRET', 'API_KEY', 'PASSWORD'))}
+
+        return jsonify({
+            'blueprint': main_bp.name,
+            'endpoints': list(main_bp.url_map.iter_rules()),
+            'version': current_app.config.get('VERSION', 'unknown'),
+            'environment': current_app.config.get('ENVIRONMENT', 'development'),
+            'debug': current_app.debug,
+            'config': safe_config
+        })

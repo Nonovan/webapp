@@ -157,7 +157,7 @@ Forms follow a consistent pattern:
 ```html
 <form method="post" class="needs-validation" novalidate>
     <!-- CSRF Token -->
-    {{ form.csrf_token }}
+    {{ csrf_token() }}
 
     <div class="mb-3">
         <label for="field-id" class="form-label">Field Label</label>
@@ -192,6 +192,10 @@ async function performAction() {
     try {
         const response = await secureFetch('/api/endpoint', {
             method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content
+            },
             body: JSON.stringify({ key: 'value' })
         });
 
@@ -212,7 +216,7 @@ async function performAction() {
 ## Related Documentation
 
 - Authentication Templates
-- Bootstrap Framework
+- [Bootstrap Framework](https://getbootstrap.com/docs/5.3/)
 - Content Security Policy
 - CSRF Protection
 - Form Validation
