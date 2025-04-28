@@ -4,15 +4,15 @@ This directory contains security baseline configurations used by the security as
 
 ## Contents
 
-- [Overview](#overview)
-- [Key Components](#key-components)
-- [Directory Structure](#directory-structure)
-- [Usage](#usage)
-- [Baseline Structure](#baseline-structure)
-- [Customization Guidelines](#customization-guidelines)
-- [Best Practices & Security](#best-practices--security)
-- [Common Features](#common-features)
-- [Related Documentation](#related-documentation)
+- Overview
+- Key Components
+- Directory Structure
+- Usage
+- Baseline Structure
+- Customization Guidelines
+- Best Practices & Security
+- Common Features
+- Related Documentation
 
 ## Overview
 
@@ -49,6 +49,16 @@ The security baselines provide standardized configuration requirements that syst
   - Network isolation requirements
   - Patch management guidelines
   - Privilege management controls
+
+- **`identity_management_baseline.json`**: Security baseline for IAM systems
+  - Authentication requirements
+  - Authorization controls
+  - Credential management
+  - Multi-factor authentication
+  - Role-based access control
+  - Privileged access management
+  - Session security
+  - User lifecycle management
 
 - **`linux_server_baseline.json`**: Security baseline for Linux servers
   - Account management requirements
@@ -88,6 +98,7 @@ admin/security/assessment_tools/config_files/security_baselines/
 ├── cloud_service_baseline.json     # Cloud service security baseline
 ├── container_baseline.json         # Container environment security baseline
 ├── database_baseline.json          # Database security baseline
+├── identity_management_baseline.json # Identity and access management baseline
 ├── linux_server_baseline.json      # Linux server security baseline
 ├── network_appliance_baseline.json # Network device security baseline
 ├── web_server_baseline.json        # Web server security baseline
@@ -110,6 +121,10 @@ The security baselines are used with the security assessment tools to evaluate s
 ./configuration_analyzer.py --baseline security_baselines/linux_server_baseline.json \
   --additional-baseline security_baselines/database_baseline.json --target db-server-01
 
+# Evaluate identity management systems
+./configuration_analyzer.py --baseline security_baselines/identity_management_baseline.json \
+  --target iam-system
+
 # Check cloud service configuration against security baseline
 ./configuration_analyzer.py --baseline security_baselines/cloud_service_baseline.json \
   --target aws-production --service-type aws
@@ -130,8 +145,9 @@ def load_security_baseline(system_type):
 
     Args:
         system_type (str): The type of system baseline to load
-                          ('linux_server', 'web_server', 'database', 'cloud_service',
-                           'container', 'network_appliance')
+                          ('linux_server', 'web_server', 'database',
+                           'cloud_service', 'container', 'network_appliance',
+                           'identity_management')
 
     Returns:
         dict: The security baseline configuration

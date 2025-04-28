@@ -1,0 +1,366 @@
+{
+    "metadata": {
+        "title": "Identity and Access Management (IAM) Security Baseline",
+        "version": "1.0.0",
+        "last_updated": "2024-07-16",
+        "source_standards": [
+            "NIST SP 800-53 (AC, IA)",
+            "NIST SP 800-63",
+            "ISO 27001 (A.9)",
+            "CIS Controls v8 (5, 6)"
+        ],
+        "applicable_systems": [
+            "Platform IAM",
+            "User Accounts",
+            "Service Accounts",
+            "Cloud IAM Integration"
+        ],
+        "owner": "Identity and Access Management Team",
+        "review_cycle": 90,
+        "compliance_frameworks": [
+            "SOC 2",
+            "ISO 27001",
+            "NIST CSF",
+            "PCI DSS"
+        ]
+    },
+    "controls": {
+        "authentication": {
+            "category_description": "Controls related to verifying user and system identity.",
+            "strong_password_policy": {
+                "description": "Enforce strong password complexity, length, history, and age requirements for user accounts.",
+                "validation": "Review platform configuration ([`config.py`](config.py)) and authentication service settings ([`core/security/cs_authentication.py`](core/security/cs_authentication.py)). Compare against documented standards ([`docs/security/authentication-standards.md`](docs/security/authentication-standards.md#password-standards)). Check password policy enforcement in UI ([`blueprints/auth/templates/auth/README.md`](blueprints/auth/templates/auth/README.md#password-management)).",
+                "validation_type": "manual",
+                "remediation": "Configure password policy settings (min length 12, complexity, history 24, max age 90 days) according to standards. Use strong hashing algorithms (Argon2id preferred) via libraries like `passlib`.",
+                "severity": "high",
+                "rationale": "Reduces the risk of brute-force attacks, credential stuffing, and password guessing.",
+                "references": [
+                    {
+                        "title": "NIST SP 800-63B Section 5.1.1",
+                        "url": "https://pages.nist.gov/800-63-3/sp800-63b.html"
+                    },
+                    {
+                        "title": "Authentication Standards",
+                        "url": "docs/security/authentication-standards.md#password-standards"
+                    }
+                ],
+                "tags": [
+                    "authentication",
+                    "password",
+                    "iam"
+                ]
+            },
+            "mfa_enforcement": {
+                "description": "Ensure Multi-Factor Authentication (MFA) is enforced for privileged accounts and access to sensitive environments.",
+                "validation": "Verify MFA configuration in the authentication system ([`core/security/cs_authentication.py`](core/security/cs_authentication.py), [`models/auth/user.py`](models/auth/user.py)). Check enforcement rules for roles ([`docs/security/iam-policies.md`](docs/security/iam-policies.md#multi-factor-authentication)) and admin UI settings ([`docs/admin/user_management.md`](docs/admin/user_management.md#multi-factor-authentication)). Check cloud provider root/admin accounts ([`admin/security/assessment_tools/config_files/security_baselines/cloud_service_baseline.json`](admin/security/assessment_tools/config_files/security_baselines/cloud_service_baseline.json#mfa_for_root_admin)).",
+                "validation_type": "manual",
+                "remediation": "Enable and enforce MFA (TOTP or Hardware Keys preferred) for all administrative roles, production access, and sensitive data access, as defined in [`docs/security/authentication-standards.md`](docs/security/authentication-standards.md#mfa-requirements).",
+                "severity": "critical",
+                "rationale": "Provides a critical additional layer of security beyond passwords, significantly reducing account compromise risk.",
+                "references": [
+                    {
+                        "title": "NIST SP 800-63B Section 4",
+                        "url": "https://pages.nist.gov/800-63-3/sp800-63b.html"
+                    },
+                    {
+                        "title": "Authentication Standards",
+                        "url": "docs/security/authentication-standards.md#multi-factor-authentication-mfa"
+                    }
+                ],
+                "tags": [
+                    "authentication",
+                    "mfa",
+                    "iam",
+                    "privileged_access"
+                ]
+            },
+            "secure_credential_storage": {
+                "description": "Ensure user credentials (passwords, API keys) are stored using strong, non-reversible hashing with unique salts.",
+                "validation": "Code review of [`core/security/cs_authentication.py`](core/security/cs_authentication.py) and relevant models ([`models/auth/user.py`](models/auth/user.py)) to confirm use of approved adaptive hashing algorithms (Argon2id, bcrypt) with unique salts per credential. Check database baseline for DB-level credential storage ([`admin/security/assessment_tools/config_files/security_baselines/database_baseline.json`](admin/security/assessment_tools/config_files/security_baselines/database_baseline.json#secure_password_storage)).",
+                "validation_type": "manual",
+                "remediation": "Implement an approved adaptive hashing algorithm (e.g., Argon2id via `passlib`) with a unique, cryptographically secure salt per user credential. Ensure appropriate work factors are configured.",
+                "severity": "critical",
+                "rationale": "Protects user credentials from exposure even if the credential database is compromised.",
+                "references": [
+                    {
+                        "title": "OWASP Password Storage Cheat Sheet",
+                        "url": "https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html"
+                    },
+                    {
+                        "title": "Authentication Standards",
+                        "url": "docs/security/authentication-standards.md#password-storage"
+                    }
+                ],
+                "tags": [
+                    "authentication",
+                    "cryptography",
+                    "password",
+                    "iam"
+                ]
+            },
+            "session_management": {
+                "description": "Implement secure session management practices, including timeouts, secure cookies, and session regeneration.",
+                "validation": "Check application configuration ([`config.py`](config.py), [`core/security/cs_session.py`](core/security/cs_session.py)) for session timeout settings (inactivity, absolute), cookie attributes (Secure, HttpOnly, SameSite=Strict), and session ID regeneration upon login/privilege change. Review session policies ([`docs/security/authentication-standards.md`](docs/security/authentication-standards.md#session-management)).",
+                "validation_type": "manual",
+                "remediation": "Configure appropriate session inactivity (e.g., 15 min admin, 4 hours user) and absolute timeouts. Ensure session cookies use Secure, HttpOnly, and SameSite=Strict attributes. Regenerate session IDs upon authentication and privilege escalation.",
+                "severity": "high",
+                "rationale": "Protects against session hijacking, fixation, and reduces the window for unauthorized access via stale sessions.",
+                "references": [
+                    {
+                        "title": "OWASP Session Management Cheat Sheet",
+                        "url": "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html"
+                    },
+                    {
+                        "title": "Authentication Standards",
+                        "url": "docs/security/authentication-standards.md#session-management"
+                    }
+                ],
+                "tags": [
+                    "authentication",
+                    "session",
+                    "iam",
+                    "web"
+                ]
+            }
+        },
+        "authorization": {
+            "category_description": "Controls related to granting and enforcing access permissions.",
+            "least_privilege": {
+                "description": "Ensure users and service accounts are granted only the minimum permissions necessary to perform their intended functions.",
+                "validation": "Review RBAC roles ([`models/auth/role.py`](models/auth/role.py), [`docs/security/iam-policies.md`](docs/security/iam-policies.md#role-based-access-control-rbac)) and permissions ([`models/auth/permission.py`](models/auth/permission.py)). Check ABAC policies and context rules. Review cloud IAM roles ([`admin/security/assessment_tools/config_files/security_baselines/cloud_service_baseline.json`](admin/security/assessment_tools/config_files/security_baselines/cloud_service_baseline.json#least_privilege_roles)). Perform access reviews.",
+                "validation_type": "manual",
+                "remediation": "Define granular roles and permissions. Regularly review and remove unnecessary privileges. Implement ABAC for fine-grained control where needed. Avoid overly broad permissions.",
+                "severity": "high",
+                "rationale": "Minimizes the potential impact of compromised accounts or insider threats by limiting the scope of access.",
+                "references": [
+                    {
+                        "title": "NIST SP 800-53 AC-6",
+                        "url": "https://csrc.nist.gov/Projects/risk-management/sp800-53-controls/release-search#!/control?version=5.1&number=AC-6"
+                    },
+                    {
+                        "title": "IAM Policies",
+                        "url": "docs/security/iam-policies.md#access-control-models"
+                    }
+                ],
+                "tags": [
+                    "authorization",
+                    "least_privilege",
+                    "iam",
+                    "rbac",
+                    "abac"
+                ]
+            },
+            "role_based_access_control": {
+                "description": "Utilize a well-defined Role-Based Access Control (RBAC) model for managing user permissions.",
+                "validation": "Verify the definition and assignment of roles ([`models/auth/role.py`](models/auth/role.py), [`docs/security/iam-policies.md`](docs/security/iam-policies.md#role-based-access-control-rbac)). Check that permissions are primarily managed via roles rather than direct user assignments. Ensure roles align with job functions.",
+                "validation_type": "manual",
+                "remediation": "Define standard roles based on job functions (e.g., Administrator, Auditor, Developer). Assign permissions to roles, and assign roles to users. Avoid direct permission assignments to users.",
+                "severity": "medium",
+                "rationale": "Simplifies permission management, improves consistency, and facilitates access reviews.",
+                "tags": [
+                    "authorization",
+                    "rbac",
+                    "iam"
+                ]
+            },
+            "authorization_enforcement": {
+                "description": "Ensure authorization checks are consistently performed server-side for all actions and data access requests.",
+                "validation": "Code review of API endpoints ([`api/`](api/)) and application logic ([`blueprints/`](blueprints/)) for authorization checks (e.g., decorators like `@require_permission` from [`core/security/cs_authorization.py`](core/security/cs_authorization.py)). Verify checks occur before actions are performed.",
+                "validation_type": "manual",
+                "remediation": "Implement server-side authorization checks using the defined RBAC/ABAC model for all sensitive operations and resource access. Do not rely on client-side checks.",
+                "severity": "critical",
+                "rationale": "Prevents unauthorized access and actions, as client-side checks can be bypassed.",
+                "tags": [
+                    "authorization",
+                    "access_control",
+                    "iam"
+                ]
+            }
+        },
+        "identity_lifecycle_management": {
+            "category_description": "Controls related to the provisioning, management, and deprovisioning of identities.",
+            "user_provisioning": {
+                "description": "Ensure a formal process exists for provisioning user accounts with appropriate approvals and role assignments.",
+                "validation": "Review user creation procedures ([`docs/admin/user_management.md`](docs/admin/user_management.md)). Check for approval workflows, especially for privileged roles. Verify default role assignments follow least privilege.",
+                "validation_type": "manual",
+                "remediation": "Implement a documented user provisioning process with required approvals based on requested access level. Ensure new users are assigned appropriate roles based on job function.",
+                "severity": "medium",
+                "rationale": "Ensures only authorized users gain access and receive appropriate initial permissions.",
+                "references": [
+                    {
+                        "title": "IAM Policies",
+                        "url": "docs/security/iam-policies.md#provisioning"
+                    }
+                ],
+                "tags": [
+                    "identity_lifecycle",
+                    "provisioning",
+                    "iam"
+                ]
+            },
+            "user_deprovisioning": {
+                "description": "Ensure a timely process exists for deactivating or removing user accounts and access upon termination or role change.",
+                "validation": "Review user deprovisioning procedures ([`docs/security/iam-policies.md`](docs/security/iam-policies.md#deprovisioning)). Check logs or system records for timeliness of account deactivation (e.g., within 1 hour for suspension, 24 hours for removal).",
+                "validation_type": "manual",
+                "remediation": "Implement a documented deprovisioning process integrated with HR systems or triggered by termination notifications. Ensure access is suspended promptly and fully removed within defined SLAs.",
+                "severity": "high",
+                "rationale": "Prevents terminated employees or users with changed roles from retaining inappropriate access.",
+                "tags": [
+                    "identity_lifecycle",
+                    "deprovisioning",
+                    "iam"
+                ]
+            },
+            "access_reviews": {
+                "description": "Conduct periodic reviews of user access rights and permissions.",
+                "validation": "Verify that access reviews are conducted regularly (e.g., quarterly for privileged, semi-annually for standard). Check documentation or system logs for review completion and remediation actions ([`docs/security/iam-policies.md`](docs/security/iam-policies.md#access-review-process)).",
+                "validation_type": "manual",
+                "remediation": "Establish and follow a formal access review schedule. Document review findings and ensure inappropriate access is revoked promptly.",
+                "severity": "medium",
+                "rationale": "Helps identify and correct excessive or inappropriate permissions accumulated over time (privilege creep).",
+                "references": [
+                    {
+                        "title": "NIST SP 800-53 AC-2",
+                        "url": "https://csrc.nist.gov/Projects/risk-management/sp800-53-controls/release-search#!/control?version=5.1&number=AC-2"
+                    }
+                ],
+                "tags": [
+                    "identity_lifecycle",
+                    "access_review",
+                    "iam",
+                    "compliance"
+                ]
+            }
+        },
+        "privileged_access_management": {
+            "category_description": "Controls specific to managing accounts with elevated privileges.",
+            "pam_controls": {
+                "description": "Implement enhanced controls for privileged access, including Just-in-Time (JIT) access, session monitoring, and approval workflows.",
+                "validation": "Review PAM implementation details ([`docs/security/iam-policies.md`](docs/security/iam-policies.md#privileged-access-management)). Check for JIT request/approval mechanisms, session recording/monitoring capabilities, and use of dedicated privileged accounts.",
+                "validation_type": "manual",
+                "remediation": "Implement a PAM solution or processes for JIT access requests/approvals. Enable session monitoring/recording for privileged sessions. Enforce use of separate privileged accounts.",
+                "severity": "high",
+                "rationale": "Reduces the risk associated with standing privileged access and provides accountability for administrative actions.",
+                "tags": [
+                    "privileged_access",
+                    "pam",
+                    "jit",
+                    "iam"
+                ]
+            },
+            "service_account_management": {
+                "description": "Manage service accounts securely, including credential rotation and least privilege.",
+                "validation": "Review service account inventory and associated permissions. Check credential management practices (e.g., use of Vault, rotation frequency). Verify permissions follow least privilege.",
+                "validation_type": "manual",
+                "remediation": "Maintain an inventory of service accounts. Implement automated credential rotation using a secrets management solution ([`scripts/monitoring/common/credentials_manager.sh`](scripts/monitoring/common/credentials_manager.sh)). Grant minimal necessary permissions.",
+                "severity": "high",
+                "rationale": "Reduces the risk of compromise through automated system accounts.",
+                "tags": [
+                    "privileged_access",
+                    "service_account",
+                    "secrets_management",
+                    "iam"
+                ]
+            },
+            "break_glass_procedures": {
+                "description": "Establish secure emergency access procedures for critical systems.",
+                "validation": "Verify documented emergency access procedures and protected credential storage. Check audit mechanisms for emergency access usage.",
+                "validation_type": "manual",
+                "remediation": "Document and implement secure emergency access procedures with appropriate approval, audit, and time-limitation controls.",
+                "severity": "high",
+                "rationale": "Ensures availability of critical systems during emergencies while maintaining appropriate security and audit controls.",
+                "tags": [
+                    "privileged_access",
+                    "emergency_access",
+                    "disaster_recovery",
+                    "iam"
+                ]
+            },
+            "separation_of_duties": {
+                "description": "Implement separation of duties for privileged activities to prevent abuse of authority.",
+                "validation": "Review role definitions and privilege assignments to ensure that critical functions require multiple individuals to complete. Check that individuals cannot both initiate and approve the same sensitive transaction.",
+                "validation_type": "manual",
+                "remediation": "Design and implement role structures that enforce separation of duties for critical operations. Ensure that approval workflows require different individuals for submission and approval.",
+                "severity": "high",
+                "rationale": "Reduces the risk of fraud, errors, and insider threats by preventing any single individual from controlling an entire high-risk process.",
+                "references": [
+                    {
+                        "title": "NIST SP 800-53 AC-5",
+                        "url": "https://csrc.nist.gov/Projects/risk-management/sp800-53-controls/release-search#!/control?version=5.1&number=AC-5"
+                    },
+                    {
+                        "title": "IAM Policies",
+                        "url": "docs/security/iam-policies.md#separation-of-duties"
+                    }
+                ],
+                "tags": [
+                    "privileged_access",
+                    "separation_of_duties",
+                    "governance",
+                    "iam"
+                ]
+            },
+            "privileged_session_time_limitations": {
+                "description": "Limit the duration of privileged access sessions to minimize the window of exposure.",
+                "validation": "Check configuration for time-bound privileged sessions ([`core/security/cs_session.py`](core/security/cs_session.py)). Verify that elevated privileges have shorter timeout settings than standard user sessions.",
+                "validation_type": "manual",
+                "remediation": "Configure shorter session timeouts for privileged accounts (e.g., 15-30 minutes). Implement automatic session termination after a period of inactivity. For JIT access, enforce strict time limitations on elevated privileges.",
+                "severity": "medium",
+                "rationale": "Reduces the risk window if privileged credentials are compromised or sessions are hijacked.",
+                "references": [
+                    {
+                        "title": "NIST SP 800-53 AC-12",
+                        "url": "https://csrc.nist.gov/Projects/risk-management/sp800-53-controls/release-search#!/control?version=5.1&number=AC-12"
+                    },
+                    {
+                        "title": "Authentication Standards",
+                        "url": "docs/security/authentication-standards.md#privileged-session-management"
+                    }
+                ],
+                "tags": [
+                    "privileged_access",
+                    "session",
+                    "timeout",
+                    "iam"
+                ]
+            }
+        },
+        "auditing_monitoring": {
+            "category_description": "Controls related to logging and monitoring IAM events.",
+            "iam_event_logging": {
+                "description": "Ensure comprehensive logging of all significant IAM events.",
+                "validation": "Verify that events such as login success/failure, MFA events, password changes, role assignments, permission changes, and access denials are logged by the audit system ([`core/security/cs_audit.py`](core/security/cs_audit.py), [`models/security/audit_log.py`](models/security/audit_log.py)). Check log content for necessary details (timestamp, user, IP, action, outcome). Review cloud audit logging ([`admin/security/assessment_tools/config_files/security_baselines/cloud_service_baseline.json`](admin/security/assessment_tools/config_files/security_baselines/cloud_service_baseline.json#enable_cloud_audit_logging)).",
+                "validation_type": "manual",
+                "remediation": "Configure audit logging to capture all critical IAM events with sufficient detail. Ensure logs are protected from tampering and retained according to policy.",
+                "severity": "high",
+                "rationale": "Provides visibility into identity and access activities for security investigations, incident response, and compliance.",
+                "references": [
+                    {
+                        "title": "IAM Policies",
+                        "url": "docs/security/iam-policies.md#monitoring-and-audit"
+                    }
+                ],
+                "tags": [
+                    "auditing",
+                    "logging",
+                    "monitoring",
+                    "iam"
+                ]
+            },
+            "iam_alerting": {
+                "description": "Configure alerts for suspicious IAM activities.",
+                "validation": "Review alerting rules in the monitoring system ([`admin/security/monitoring/config/baseline/README.md`](admin/security/monitoring/config/baseline/README.md)) for IAM-related events like multiple failed logins, privilege escalations, MFA bypass attempts, access from unusual locations, and emergency access usage.",
+                "validation_type": "manual",
+                "remediation": "Implement alerting rules based on IAM logs and security policies ([`docs/security/iam-policies.md`](docs/security/iam-policies.md#alerting-rules)). Ensure alerts are routed to the security team for timely investigation.",
+                "severity": "medium",
+                "rationale": "Enables timely detection and response to potential account compromises or misuse.",
+                "tags": [
+                    "monitoring",
+                    "alerting",
+                    "iam",
+                    "incident_response"
+                ]
+            }
+        }
+    }
+}

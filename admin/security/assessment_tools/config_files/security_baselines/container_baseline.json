@@ -1,0 +1,265 @@
+{
+    "metadata": {
+        "title": "Container Security Baseline",
+        "version": "1.0.0",
+        "last_updated": "2024-07-16",
+        "source_standards": [
+            "CIS Docker Benchmark",
+            "CIS Kubernetes Benchmark",
+            "NIST SP 800-190"
+        ],
+        "applicable_systems": [
+            "Docker Containers",
+            "Kubernetes Clusters",
+            "Containerized Applications"
+        ],
+        "owner": "Platform Security Team",
+        "review_cycle": 90,
+        "compliance_frameworks": [
+            "SOC 2",
+            "ISO 27001"
+        ]
+    },
+    "controls": {
+        "image_security": {
+            "category_description": "Controls related to building and managing secure container images.",
+            "use_trusted_base_images": {
+                "description": "Ensure container images are built using trusted, minimal base images from official repositories.",
+                "validation": "Review Dockerfiles and image sources. Check base images against approved list (e.g., distroless, alpine official).",
+                "validation_type": "manual",
+                "remediation": "Update Dockerfiles to use approved, minimal base images. Regularly update base images to patch vulnerabilities.",
+                "severity": "medium",
+                "rationale": "Reduces the attack surface by minimizing unnecessary packages and potential vulnerabilities inherited from the base image.",
+                "references": [
+                    {
+                        "title": "CIS Docker Benchmark 4.1"
+                    }
+                ],
+                "tags": [
+                    "image_security",
+                    "docker",
+                    "base_image"
+                ]
+            },
+            "scan_images_for_vulnerabilities": {
+                "description": "Integrate vulnerability scanning into the CI/CD pipeline for all container images.",
+                "validation": "Verify CI/CD pipeline configuration includes an image scanning step (e.g., Trivy, Clair, Snyk). Check scan results for critical/high vulnerabilities.",
+                "validation_type": "manual",
+                "remediation": "Implement automated image scanning in CI/CD. Establish policies to block deployment of images with unaddressed critical/high vulnerabilities.",
+                "severity": "high",
+                "rationale": "Identifies known vulnerabilities in image layers and dependencies before deployment.",
+                "tags": [
+                    "image_security",
+                    "vulnerability_management",
+                    "ci_cd",
+                    "docker",
+                    "kubernetes"
+                ]
+            },
+            "run_as_non_root": {
+                "description": "Configure containers to run application processes as a non-root user.",
+                "validation": "Inspect Dockerfiles for `USER` instruction. Check Kubernetes Pod `securityContext` for `runAsUser` and `runAsNonRoot` settings.",
+                "validation_type": "manual",
+                "remediation": "Modify Dockerfiles to create a non-root user and switch to it using the `USER` instruction. Set `runAsNonRoot: true` and `runAsUser: <non-root-uid>` in Kubernetes Pod Security Context.",
+                "severity": "high",
+                "rationale": "Limits the potential impact of a container compromise by preventing processes from running with root privileges.",
+                "references": [
+                    {
+                        "title": "CIS Docker Benchmark 4.1"
+                    },
+                    {
+                        "title": "CIS Kubernetes Benchmark 5.2.2"
+                    }
+                ],
+                "tags": [
+                    "image_security",
+                    "runtime_security",
+                    "least_privilege",
+                    "docker",
+                    "kubernetes"
+                ]
+            },
+            "no_secrets_in_image": {
+                "description": "Ensure sensitive data like API keys or passwords are not embedded directly into container images.",
+                "validation": "Scan Dockerfiles and image layers for hardcoded secrets. Use tools like `truffleHog` or `git-secrets` during build.",
+                "validation_type": "manual",
+                "remediation": "Remove secrets from Dockerfiles and application code. Use secrets management solutions (e.g., Kubernetes Secrets, Vault) to inject secrets at runtime.",
+                "severity": "critical",
+                "rationale": "Prevents exposure of sensitive credentials if the container image is compromised or publicly accessible.",
+                "tags": [
+                    "image_security",
+                    "secrets_management",
+                    "docker"
+                ]
+            }
+        },
+        "runtime_security": {
+            "category_description": "Controls related to securing containers during runtime.",
+            "restrict_container_privileges": {
+                "description": "Limit container capabilities and disable privileged mode.",
+                "validation": "Check Kubernetes Pod `securityContext` for `privileged: false` and `capabilities` settings (drop ALL, add specific needed). Verify Docker run commands do not use `--privileged`.",
+                "validation_type": "manual",
+                "remediation": "Set `securityContext.privileged` to `false`. Drop unnecessary Linux capabilities (`securityContext.capabilities.drop: ['ALL']`) and add only required ones (`add: [...]`). Avoid using `--privileged` flag with Docker.",
+                "severity": "high",
+                "rationale": "Reduces the container's ability to interact with the host system and other containers, limiting the blast radius of a compromise.",
+                "references": [
+                    {
+                        "title": "CIS Docker Benchmark 5.4"
+                    },
+                    {
+                        "title": "CIS Kubernetes Benchmark 5.2.1"
+                    }
+                ],
+                "tags": [
+                    "runtime_security",
+                    "least_privilege",
+                    "docker",
+                    "kubernetes",
+                    "security_context"
+                ]
+            },
+            "use_readonly_root_filesystem": {
+                "description": "Configure containers to run with a read-only root filesystem where possible.",
+                "validation": "Check Kubernetes Pod `securityContext` for `readOnlyRootFilesystem: true`. Verify Docker run commands use `--read-only` flag.",
+                "validation_type": "manual",
+                "remediation": "Set `securityContext.readOnlyRootFilesystem: true` in Pod definitions. Mount specific writable volumes only where necessary (e.g., for logs or temporary data).",
+                "severity": "medium",
+                "rationale": "Prevents attackers from modifying the container's filesystem, installing malware, or altering application binaries.",
+                "references": [
+                    {
+                        "title": "CIS Docker Benchmark 5.12"
+                    },
+                    {
+                        "title": "CIS Kubernetes Benchmark 5.2.4"
+                    }
+                ],
+                "tags": [
+                    "runtime_security",
+                    "immutability",
+                    "docker",
+                    "kubernetes",
+                    "security_context"
+                ]
+            },
+            "limit_resources": {
+                "description": "Define resource requests and limits (CPU, memory) for containers.",
+                "validation": "Check Kubernetes Pod definitions for `resources.requests` and `resources.limits` settings for CPU and memory.",
+                "validation_type": "manual",
+                "remediation": "Set appropriate resource requests and limits for all containers based on application needs and cluster capacity. This helps ensure Quality of Service (QoS) and prevents resource exhaustion attacks.",
+                "severity": "medium",
+                "rationale": "Prevents containers from consuming excessive host resources, ensuring stability and mitigating denial-of-service risks.",
+                "references": [
+                    {
+                        "title": "CIS Kubernetes Benchmark 5.1.1, 5.1.2"
+                    }
+                ],
+                "tags": [
+                    "runtime_security",
+                    "resource_management",
+                    "kubernetes",
+                    "qos"
+                ]
+            }
+        },
+        "orchestration_security_kubernetes": {
+            "category_description": "Controls specific to securing the Kubernetes orchestrator.",
+            "use_kubernetes_rbac": {
+                "description": "Implement Role-Based Access Control (RBAC) for Kubernetes API authorization.",
+                "validation": "Verify RBAC is enabled (`--authorization-mode=RBAC`). Review Roles, ClusterRoles, RoleBindings, and ClusterRoleBindings for least privilege.",
+                "validation_type": "manual",
+                "remediation": "Enable RBAC authorization. Define granular Roles/ClusterRoles and bind them to users/service accounts using RoleBindings/ClusterRoleBindings following the principle of least privilege.",
+                "severity": "critical",
+                "rationale": "Provides fine-grained control over who can perform actions on Kubernetes resources.",
+                "references": [
+                    {
+                        "title": "CIS Kubernetes Benchmark 1.2.1, 5.6.1-5.6.5"
+                    }
+                ],
+                "tags": [
+                    "kubernetes",
+                    "rbac",
+                    "authorization",
+                    "iam"
+                ]
+            },
+            "use_network_policies": {
+                "description": "Apply Network Policies to restrict network traffic between pods and namespaces.",
+                "validation": "Verify a Network Policy provider (e.g., Calico, Cilium) is installed. Review NetworkPolicy resources to ensure default-deny posture and specific allow rules.",
+                "validation_type": "manual",
+                "remediation": "Install a CNI plugin that supports Network Policies. Implement default-deny policies at the namespace level and create specific NetworkPolicy resources to allow required traffic flows.",
+                "severity": "high",
+                "rationale": "Provides network segmentation within the cluster, limiting lateral movement for attackers.",
+                "references": [
+                    {
+                        "title": "CIS Kubernetes Benchmark 5.3.1, 5.3.2"
+                    }
+                ],
+                "tags": [
+                    "kubernetes",
+                    "network_security",
+                    "network_policy",
+                    "segmentation"
+                ]
+            },
+            "enable_kubernetes_audit_logging": {
+                "description": "Ensure Kubernetes API server audit logging is enabled and configured.",
+                "validation": "Check API server flags (`--audit-log-path`, `--audit-log-maxage`, `--audit-log-maxbackup`, `--audit-log-maxsize`, `--audit-policy-file`). Verify audit policy covers relevant events.",
+                "validation_type": "manual",
+                "remediation": "Configure API server audit logging flags appropriately. Define a comprehensive audit policy file to capture security-relevant events (e.g., resource modifications, authentication attempts, authorization failures). Ensure logs are securely stored and monitored.",
+                "severity": "high",
+                "rationale": "Provides a record of actions taken within the cluster for security investigations and compliance.",
+                "references": [
+                    {
+                        "title": "CIS Kubernetes Benchmark 3.2.1, 3.2.2"
+                    }
+                ],
+                "tags": [
+                    "kubernetes",
+                    "logging",
+                    "monitoring",
+                    "audit"
+                ]
+            },
+            "use_pod_security_admission": {
+                "description": "Utilize Pod Security Admission (or deprecated PodSecurityPolicy) to enforce security standards for pods.",
+                "validation": "Check Kubernetes API server configuration for Pod Security Admission controller enablement. Verify namespace labels enforce appropriate policies (e.g., `baseline`, `restricted`).",
+                "validation_type": "manual",
+                "remediation": "Enable Pod Security Admission. Label namespaces to enforce `baseline` or `restricted` Pod Security Standards. Define custom policies if needed.",
+                "severity": "high",
+                "rationale": "Prevents the creation of pods that violate security best practices (e.g., running as root, using host network).",
+                "references": [
+                    {
+                        "title": "Kubernetes Documentation: Pod Security Admission"
+                    }
+                ],
+                "tags": [
+                    "kubernetes",
+                    "security_context",
+                    "pod_security",
+                    "admission_control"
+                ]
+            }
+        },
+        "secrets_management": {
+            "category_description": "Controls for managing sensitive information in container environments.",
+            "use_dedicated_secrets_management": {
+                "description": "Use Kubernetes Secrets or an external secrets management tool (e.g., HashiCorp Vault) instead of ConfigMaps or environment variables for sensitive data.",
+                "validation": "Review Kubernetes manifests (Deployments, Pods) to ensure secrets are mounted via Kubernetes Secrets or injected via a secrets management integration. Check ConfigMaps and environment variables for sensitive data.",
+                "validation_type": "manual",
+                "remediation": "Store sensitive data in Kubernetes Secrets or integrate with an external secrets manager. Mount secrets as volumes or inject them as environment variables from the secret source.",
+                "severity": "critical",
+                "rationale": "Provides a more secure way to handle sensitive data compared to less secure methods like ConfigMaps or plain environment variables.",
+                "references": [
+                    {
+                        "title": "CIS Kubernetes Benchmark 5.4.1"
+                    }
+                ],
+                "tags": [
+                    "kubernetes",
+                    "secrets_management",
+                    "vault"
+                ]
+            }
+        }
+    }
+}

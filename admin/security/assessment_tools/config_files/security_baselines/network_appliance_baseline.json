@@ -1,0 +1,336 @@
+{
+    "metadata": {
+        "title": "Network Appliance Security Baseline",
+        "version": "1.0.0",
+        "last_updated": "2024-07-16",
+        "source_standards": [
+            "CIS Benchmarks (Firewall, Router, Switch)",
+            "NIST SP 800-53",
+            "Vendor Hardening Guides"
+        ],
+        "applicable_systems": [
+            "Firewalls",
+            "Routers",
+            "Switches",
+            "Load Balancers"
+        ],
+        "owner": "Network Security Team",
+        "review_cycle": 180,
+        "compliance_frameworks": [
+            "SOC 2",
+            "ISO 27001",
+            "PCI DSS",
+            "NIST CSF"
+        ]
+    },
+    "controls": {
+        "management_plane_security": {
+            "category_description": "Controls for securing administrative access to network devices.",
+            "secure_management_access": {
+                "description": "Ensure management access uses secure protocols (SSHv2, HTTPS) and is restricted to authorized networks/IPs.",
+                "validation": "Check device configuration for enabled management protocols (SSH, HTTPS). Verify access control lists (ACLs) restricting management access to specific trusted subnets or jump hosts. Confirm Telnet, HTTP, SNMPv1/v2c are disabled for management.",
+                "validation_type": "manual",
+                "remediation": "Configure the device to only allow SSHv2 and HTTPS for management. Apply ACLs to management interfaces restricting access to authorized sources. Disable insecure protocols like Telnet and HTTP.",
+                "severity": "critical",
+                "rationale": "Protects administrative interfaces from unauthorized access and eavesdropping.",
+                "tags": [
+                    "management_plane",
+                    "access_control",
+                    "ssh",
+                    "https",
+                    "hardening"
+                ],
+                "compensating_controls": [
+                    "Network-level encryption if device doesn't support secure protocols",
+                    "Jump server with strong authentication if MFA not supported natively"
+                ]
+            },
+            "strong_admin_credentials": {
+                "description": "Enforce strong, unique passwords or certificate-based authentication for administrative accounts. Use MFA where possible.",
+                "validation": "Review device configuration for password complexity requirements, password history, and aging. Check if MFA (e.g., RADIUS, TACACS+) is configured for administrative logins.",
+                "validation_type": "manual",
+                "remediation": "Configure strong password policies. Implement MFA for administrative access using RADIUS or TACACS+. Use certificate-based authentication if supported.",
+                "severity": "high",
+                "rationale": "Reduces the risk of unauthorized administrative access through credential compromise.",
+                "tags": [
+                    "management_plane",
+                    "authentication",
+                    "password",
+                    "mfa",
+                    "hardening"
+                ]
+            },
+            "role_based_access_control": {
+                "description": "Implement Role-Based Access Control (RBAC) for administrative users.",
+                "validation": "Review configured user accounts and groups/roles. Verify that users are assigned roles with the minimum necessary privileges for their job function. Avoid using shared accounts.",
+                "validation_type": "manual",
+                "remediation": "Define administrative roles based on job responsibilities (e.g., viewer, operator, administrator). Assign specific command authorizations or privilege levels to each role. Assign users to appropriate roles.",
+                "severity": "medium",
+                "rationale": "Enforces the principle of least privilege for device administration, limiting potential damage from compromised accounts or insider threats.",
+                "tags": [
+                    "management_plane",
+                    "authorization",
+                    "rbac",
+                    "least_privilege"
+                ]
+            },
+            "management_interface_separation": {
+                "description": "Use dedicated management interfaces or VLANs for administrative access.",
+                "validation": "Verify network topology and device configuration to ensure management traffic is isolated from regular data plane traffic, ideally using out-of-band management networks.",
+                "validation_type": "manual",
+                "remediation": "Configure dedicated management interfaces or VLANs. Apply stricter access controls to the management network segment.",
+                "severity": "medium",
+                "rationale": "Reduces the exposure of management interfaces to threats on the data network.",
+                "tags": [
+                    "management_plane",
+                    "network_security",
+                    "segmentation",
+                    "hardening"
+                ]
+            }
+        },
+        "access_control": {
+            "category_description": "Controls related to traffic filtering rules (Firewall Policies, ACLs).",
+            "default_deny_policy": {
+                "description": "Implement a default deny policy for traffic passing through the device.",
+                "validation": "Review firewall rulebases or ACLs to ensure the default policy is to deny traffic, with explicit rules created only for allowed traffic.",
+                "validation_type": "manual",
+                "remediation": "Configure the device's firewall or ACL policy to deny all traffic by default. Ensure the last rule in a policy chain is an explicit deny.",
+                "severity": "high",
+                "rationale": "Ensures only explicitly permitted traffic is allowed, minimizing the attack surface.",
+                "tags": [
+                    "access_control",
+                    "firewall",
+                    "acl",
+                    "least_privilege"
+                ]
+            },
+            "explicit_allow_rules": {
+                "description": "Ensure allow rules are specific and grant only necessary access (least privilege).",
+                "validation": "Review allow rules in firewall policies or ACLs. Verify that rules specify source/destination IPs/networks, ports, and protocols precisely. Avoid overly broad rules (e.g., 'any' source/destination/port).",
+                "validation_type": "manual",
+                "remediation": "Refine existing rules to be as specific as possible. Replace 'any' with specific IPs, networks, or defined groups. Limit allowed ports and protocols to only those required.",
+                "severity": "medium",
+                "rationale": "Minimizes unintended access by strictly defining permitted traffic flows.",
+                "tags": [
+                    "access_control",
+                    "firewall",
+                    "acl",
+                    "least_privilege"
+                ]
+            },
+            "regular_rule_review": {
+                "description": "Periodically review firewall rules and ACLs for necessity and correctness.",
+                "validation": "Check documentation or change management records for evidence of regular (e.g., quarterly, semi-annual) rule reviews. Verify processes exist to remove unused or outdated rules.",
+                "validation_type": "manual",
+                "remediation": "Establish and follow a documented process for periodic review of all firewall rules and ACLs. Remove or disable rules that are no longer needed.",
+                "severity": "medium",
+                "rationale": "Prevents accumulation of unnecessary rules that could introduce security risks or hinder troubleshooting.",
+                "tags": [
+                    "access_control",
+                    "firewall",
+                    "acl",
+                    "governance",
+                    "review"
+                ]
+            },
+            "anti_spoofing_filters": {
+                "description": "Implement anti-spoofing filters on network interfaces.",
+                "validation": "Check interface configurations for anti-spoofing mechanisms (e.g., Unicast Reverse Path Forwarding - uRPF, ingress/egress ACLs blocking private/bogon IPs on internet-facing interfaces).",
+                "validation_type": "manual",
+                "remediation": "Enable uRPF (strict mode where possible) on interfaces. Apply ACLs to block traffic with spoofed source IP addresses, particularly on edge interfaces.",
+                "severity": "medium",
+                "rationale": "Helps prevent attackers from using forged source IP addresses.",
+                "tags": [
+                    "access_control",
+                    "network_security",
+                    "spoofing",
+                    "urpf",
+                    "acl"
+                ]
+            }
+        },
+        "configuration_hardening": {
+            "category_description": "Controls related to secure device configuration settings.",
+            "disable_unnecessary_services": {
+                "description": "Disable unused or insecure services and features on the device.",
+                "validation": "Review the device's running configuration and enabled features/services. Identify and verify the necessity of services like CDP, LLDP, TFTP server, HTTP server (if HTTPS used), etc.",
+                "validation_type": "manual",
+                "remediation": "Disable any services, protocols, or features not explicitly required for the device's function.",
+                "severity": "medium",
+                "rationale": "Reduces the device's attack surface by minimizing running processes and open ports.",
+                "tags": [
+                    "configuration",
+                    "hardening",
+                    "attack_surface"
+                ]
+            },
+            "secure_snmp": {
+                "description": "Configure SNMP securely using SNMPv3 with strong authentication and encryption.",
+                "validation": "Check SNMP configuration. Verify that SNMPv1 and SNMPv2c are disabled. Confirm SNMPv3 is used with strong authentication (SHA) and privacy (AES) protocols. Check configured community strings (if v1/v2c unavoidable) are complex and restricted by ACLs.",
+                "validation_type": "manual",
+                "remediation": "Configure SNMPv3 with `authPriv` security level, using strong authentication (SHA-256+) and privacy (AES-128+) passphrases. Apply ACLs to restrict SNMP access to authorized monitoring stations. Disable SNMPv1/v2c.",
+                "severity": "medium",
+                "rationale": "Protects sensitive network information exposed via SNMP from eavesdropping and unauthorized modification.",
+                "tags": [
+                    "configuration",
+                    "hardening",
+                    "snmp",
+                    "monitoring"
+                ]
+            },
+            "time_synchronization": {
+                "description": "Ensure the device synchronizes time with authoritative NTP sources.",
+                "validation": "Check device configuration for NTP settings. Verify synchronization status with configured NTP servers.",
+                "validation_type": "manual",
+                "remediation": "Configure the device to use reliable internal or external NTP sources. Ensure NTP traffic is permitted through firewalls.",
+                "severity": "low",
+                "rationale": "Accurate time is essential for log correlation, troubleshooting, and certificate validation.",
+                "tags": [
+                    "configuration",
+                    "time",
+                    "ntp",
+                    "logging"
+                ]
+            },
+            "banner_configuration": {
+                "description": "Configure appropriate login banners warning against unauthorized access.",
+                "validation": "Check the device configuration for login banners (e.g., MOTD, login banner). Ensure banners display appropriate legal warnings and do not reveal sensitive system information.",
+                "validation_type": "manual",
+                "remediation": "Configure login banners with approved legal text warning against unauthorized use. Avoid displaying specific OS versions, hardware models, or internal hostnames.",
+                "severity": "low",
+                "rationale": "Provides legal notice to users attempting to access the device.",
+                "tags": [
+                    "configuration",
+                    "hardening",
+                    "banner",
+                    "legal"
+                ]
+            }
+        },
+        "logging_monitoring": {
+            "category_description": "Controls related to device logging and monitoring.",
+            "enable_logging": {
+                "description": "Ensure comprehensive logging is enabled for key events.",
+                "validation": "Review device logging configuration. Verify logging is enabled for events such as administrative logins (success/failure), configuration changes, firewall rule hits/denies, interface status changes, and system errors.",
+                "validation_type": "manual",
+                "remediation": "Configure the device to log relevant events at an appropriate severity level (e.g., informational or higher). Ensure sufficient log buffer size or forwarding.",
+                "severity": "medium",
+                "rationale": "Provides audit trails and visibility for security monitoring, incident response, and troubleshooting.",
+                "tags": [
+                    "logging",
+                    "monitoring",
+                    "auditing"
+                ]
+            },
+            "forward_logs": {
+                "description": "Configure the device to forward logs to a central SIEM or syslog server.",
+                "validation": "Check device configuration for syslog server settings. Verify logs are being received by the central logging system.",
+                "validation_type": "manual",
+                "remediation": "Configure the device to send logs to the organization's central SIEM or syslog infrastructure using a secure protocol (e.g., TLS) if possible.",
+                "severity": "medium",
+                "rationale": "Centralized logging facilitates log correlation, analysis, and long-term retention.",
+                "tags": [
+                    "logging",
+                    "monitoring",
+                    "auditing",
+                    "siem",
+                    "syslog"
+                ]
+            },
+            "log_level_configuration": {
+                "description": "Configure appropriate logging levels to capture necessary detail without excessive noise.",
+                "validation": "Review configured logging levels for different facilities (e.g., system, security, firewall). Ensure levels are sufficient (e.g., informational, notice, warning) for security monitoring.",
+                "validation_type": "manual",
+                "remediation": "Adjust logging levels based on organizational policy and monitoring requirements. Avoid overly verbose levels (e.g., debug) in production unless troubleshooting.",
+                "severity": "low",
+                "rationale": "Balances the need for detailed logs with performance and storage considerations.",
+                "tags": [
+                    "logging",
+                    "monitoring",
+                    "configuration"
+                ]
+            }
+        },
+        "protocol_security": {
+            "category_description": "Controls for securing network protocols running on or transiting the device.",
+            "secure_routing_protocols": {
+                "description": "Use authentication for routing protocol updates (e.g., BGP, OSPF, EIGRP).",
+                "validation": "Review routing protocol configurations (BGP, OSPF, EIGRP, etc.). Verify that neighbor authentication (e.g., MD5, SHA-based) is configured.",
+                "validation_type": "manual",
+                "remediation": "Configure neighbor authentication for all routing protocol adjacencies using strong hashing algorithms.",
+                "severity": "medium",
+                "rationale": "Protects against route injection and manipulation attacks.",
+                "tags": [
+                    "network_security",
+                    "routing",
+                    "bgp",
+                    "ospf",
+                    "eigrp",
+                    "hardening"
+                ]
+            },
+            "control_plane_policing": {
+                "description": "Implement Control Plane Policing (CoPP) or similar mechanisms to protect the device's control plane.",
+                "validation": "Check device configuration for CoPP policies using 'show control-plane' (Cisco) or equivalent commands.",
+                "validation_type": "manual",
+                "remediation": "Configure CoPP or control plane protection policies to rate-limit traffic destined for the control plane, prioritizing essential protocols.",
+                "severity": "medium",
+                "rationale": "Protects the device's management and control functions from Denial-of-Service (DoS) attacks.",
+                "tags": [
+                    "network_security",
+                    "hardening",
+                    "dos",
+                    "control_plane",
+                    "copp"
+                ]
+            }
+        },
+        "firmware_patching": {
+            "category_description": "Controls related to device firmware and software updates.",
+            "regular_firmware_updates": {
+                "description": "Ensure device firmware/software is kept up-to-date with security patches.",
+                "validation": "Check the currently installed firmware/software version against the vendor's latest recommended stable and security releases. Review patch management records.",
+                "validation_type": "manual",
+                "remediation": "Establish a process for monitoring vendor security advisories and applying necessary firmware/software updates in a timely manner, following change management procedures.",
+                "severity": "high",
+                "rationale": "Mitigates vulnerabilities by applying vendor-supplied security fixes.",
+                "tags": [
+                    "patch_management",
+                    "firmware",
+                    "vulnerability_management"
+                ]
+            },
+            "firmware_validation": {
+                "description": "Verify the integrity and authenticity of firmware images before installation.",
+                "validation": "Check procedures for downloading and validating firmware. Ensure checksums (MD5, SHA) provided by the vendor are verified before uploading and installing firmware.",
+                "validation_type": "manual",
+                "remediation": "Implement a standard operating procedure to always download firmware directly from the vendor and verify its checksum/signature before installation.",
+                "severity": "medium",
+                "rationale": "Protects against installing compromised or corrupted firmware.",
+                "tags": [
+                    "patch_management",
+                    "firmware",
+                    "integrity"
+                ]
+            }
+        }
+    },
+    "testing": {
+        "method": "manual",
+        "frequency": "quarterly",
+        "test_cases": [
+            "Attempt administrative access with insecure protocols",
+            "Verify ACL blocks unauthorized source IPs"
+        ]
+    },
+    "references": [
+        {
+            "title": "CIS Network Benchmarks",
+            "url": "https://www.cisecurity.org/benchmark/networking"
+        },
+        {
+            "title": "NIST SP 800-41: Guidelines on Firewalls and Firewall Policy"
+        }
+    ]
+}

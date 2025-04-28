@@ -1,0 +1,306 @@
+{
+    "metadata": {
+        "title": "Database Security Baseline",
+        "version": "1.0.0",
+        "last_updated": "2024-07-16",
+        "source_standards": [
+            "CIS PostgreSQL Benchmark",
+            "NIST SP 800-53",
+            "OWASP Database Security"
+        ],
+        "applicable_systems": [
+            "PostgreSQL",
+            "Managed Database Services (RDS, Azure SQL, Cloud SQL)"
+        ],
+        "owner": "Database Security Team",
+        "review_cycle": 90,
+        "compliance_frameworks": [
+            "SOC 2",
+            "ISO 27001",
+            "PCI DSS"
+        ]
+    },
+    "controls": {
+        "authentication": {
+            "category_description": "Controls related to database user authentication.",
+            "strong_password_policy": {
+                "description": "Ensure database users have strong passwords and authentication methods.",
+                "validation": "Review database user creation scripts and password policies. Check if password complexity is enforced or if stronger authentication methods (e.g., SCRAM-SHA-256, certificate-based) are used.",
+                "validation_type": "manual",
+                "remediation": "Enforce strong password policies for database users. Prefer SCRAM-SHA-256 or certificate-based authentication over MD5 or clear-text passwords. Use roles for application access instead of direct user logins where possible.",
+                "severity": "high",
+                "rationale": "Protects against brute-force attacks and unauthorized access.",
+                "tags": [
+                    "authentication",
+                    "password",
+                    "postgresql"
+                ]
+            },
+            "restrict_superuser_usage": {
+                "description": "Limit the use of database superuser accounts.",
+                "validation": "Review database roles and privileges. Identify applications or users connecting with superuser privileges. Check `pg_roles` for superuser accounts.",
+                "validation_type": "manual",
+                "remediation": "Application accounts should not have superuser privileges. Grant specific, necessary privileges instead. Reserve superuser accounts for administrative tasks only.",
+                "severity": "critical",
+                "rationale": "Reduces the impact of application compromise by limiting privileges.",
+                "tags": [
+                    "authentication",
+                    "authorization",
+                    "least_privilege",
+                    "postgresql"
+                ]
+            }
+        },
+        "authorization": {
+            "category_description": "Controls related to database object permissions.",
+            "least_privilege_access": {
+                "description": "Ensure database roles/users have the minimum necessary privileges on database objects (tables, schemas, functions).",
+                "validation": "Review `GRANT` statements and default privileges. Check permissions assigned to application roles and users using `\\dp`, `\\dn+`, `\\df+` in psql or querying `information_schema`.",
+                "validation_type": "manual",
+                "remediation": "Grant specific privileges (`SELECT`, `INSERT`, `UPDATE`, `DELETE`, `EXECUTE`) on required objects only. Avoid granting `ALL PRIVILEGES`. Use role-based access control.",
+                "severity": "high",
+                "rationale": "Limits the scope of potential data breaches or unauthorized modifications if an account is compromised.",
+                "tags": [
+                    "authorization",
+                    "least_privilege",
+                    "postgresql"
+                ]
+            },
+            "restrict_public_schema_permissions": {
+                "description": "Revoke default excessive permissions on the 'public' schema.",
+                "validation": "Check default privileges on the `public` schema using `\\dn+ public` in psql. Ensure `CREATE` and `USAGE` privileges are revoked from `PUBLIC`.",
+                "validation_type": "manual",
+                "remediation": "Revoke `CREATE` and `USAGE` privileges on the `public` schema from the `PUBLIC` role (`REVOKE CREATE ON SCHEMA public FROM PUBLIC; REVOKE USAGE ON SCHEMA public FROM PUBLIC;`). Grant specific usage rights to necessary roles.",
+                "severity": "medium",
+                "rationale": "Prevents unauthorized users from creating objects or accessing functions in the default public schema.",
+                "tags": [
+                    "authorization",
+                    "least_privilege",
+                    "postgresql"
+                ]
+            }
+        },
+        "auditing_logging": {
+            "category_description": "Controls related to database auditing and logging.",
+            "enable_audit_logging": {
+                "description": "Ensure comprehensive database audit logging is enabled.",
+                "validation": "Check PostgreSQL configuration (`postgresql.conf`) for logging parameters (`log_statement`, `log_connections`, `log_disconnections`, `log_duration`). Verify if `pgaudit` extension is enabled and configured.",
+                "validation_type": "manual",
+                "remediation": "Configure logging parameters to capture relevant events (e.g., `log_statement = 'ddl'`, `log_connections = on`, `log_disconnections = on`). Install and configure `pgaudit` for fine-grained auditing.",
+                "severity": "high",
+                "rationale": "Provides an audit trail for security investigations, incident response, and compliance.",
+                "references": [
+                    {
+                        "title": "CIS PostgreSQL Benchmark - Logging"
+                    }
+                ],
+                "tags": [
+                    "auditing",
+                    "logging",
+                    "postgresql",
+                    "pgaudit"
+                ]
+            },
+            "secure_log_storage": {
+                "description": "Ensure database logs are stored securely and retained appropriately.",
+                "validation": "Verify log file permissions, log rotation configuration (`log_rotation_age`, `log_rotation_size`), and log shipping configuration (if used). Check retention policies.",
+                "validation_type": "manual",
+                "remediation": "Configure log files with restrictive permissions. Implement log rotation and ensure logs are shipped to a centralized, secure logging system (SIEM). Define and enforce log retention policies.",
+                "severity": "medium",
+                "rationale": "Protects audit logs from tampering and ensures availability for investigations.",
+                "tags": [
+                    "auditing",
+                    "logging",
+                    "postgresql"
+                ]
+            },
+            "database_activity_monitoring": {
+                "description": "Implement database activity monitoring to detect suspicious access patterns and anomalies.",
+                "validation": "Verify if database activity monitoring is enabled (e.g., AWS RDS Enhanced Monitoring, Azure SQL Auditing, PostgreSQL's auto_explain).",
+                "validation_type": "manual",
+                "remediation": "Enable appropriate database activity monitoring features. Configure alerting for suspicious patterns.",
+                "severity": "medium",
+                "rationale": "Provides visibility into database activity to detect potential security incidents.",
+                "tags": [
+                    "monitoring",
+                    "auditing",
+                    "postgresql",
+                    "cloud_services"
+                ]
+            }
+        },
+        "encryption": {
+            "category_description": "Controls related to data encryption.",
+            "encryption_at_rest": {
+                "description": "Ensure sensitive data is encrypted at rest.",
+                "validation": "Verify if Transparent Data Encryption (TDE) is used (if supported by DB version/edition) or if underlying storage encryption (e.g., EBS encryption, Azure Disk Encryption) is enabled for managed services. Check application-level encryption for specific sensitive fields.",
+                "validation_type": "manual",
+                "remediation": "Enable encryption at rest using database features (TDE) or rely on underlying infrastructure encryption (cloud provider managed disks/storage). Implement application-level encryption using `core.security.cs_crypto` for highly sensitive data.",
+                "severity": "high",
+                "rationale": "Protects data confidentiality if physical storage is compromised.",
+                "tags": [
+                    "encryption",
+                    "data_protection",
+                    "postgresql",
+                    "aws",
+                    "azure",
+                    "gcp"
+                ]
+            },
+            "encryption_in_transit": {
+                "description": "Ensure database connections are encrypted using TLS/SSL.",
+                "validation": "Check PostgreSQL configuration (`postgresql.conf`) for `ssl = on`. Verify client connection strings require SSL (`sslmode=require` or `verify-full`). Check `pg_stat_ssl` view for active SSL connections.",
+                "validation_type": "manual",
+                "remediation": "Enable SSL in `postgresql.conf`. Configure server certificates. Require clients to connect using SSL/TLS, preferably with certificate validation (`sslmode=verify-full`).",
+                "severity": "high",
+                "rationale": "Protects data confidentiality and integrity during transmission between clients and the database server.",
+                "tags": [
+                    "encryption",
+                    "network",
+                    "tls",
+                    "postgresql"
+                ]
+            }
+        },
+        "network_security": {
+            "category_description": "Controls related to securing network access to the database.",
+            "restrict_network_access": {
+                "description": "Limit network access to the database server to authorized hosts/networks.",
+                "validation": "Review firewall rules (Security Groups, NSGs, OS firewall) allowing access to the database port (default 5432). Check PostgreSQL's `pg_hba.conf` file for allowed client IP addresses and authentication methods.",
+                "validation_type": "manual",
+                "remediation": "Configure firewall rules to allow connections only from specific application server IPs or subnets. Configure `pg_hba.conf` to restrict connections based on source IP and require secure authentication methods.",
+                "severity": "critical",
+                "rationale": "Prevents unauthorized network connections to the database.",
+                "tags": [
+                    "network",
+                    "firewall",
+                    "access_control",
+                    "postgresql",
+                    "pg_hba"
+                ]
+            },
+            "limit_listen_addresses": {
+                "description": "Configure the database to listen only on necessary network interfaces.",
+                "validation": "Check the `listen_addresses` parameter in `postgresql.conf`. Ensure it's not set to '*' (listen on all interfaces) unless explicitly required and properly firewalled.",
+                "validation_type": "manual",
+                "remediation": "Set `listen_addresses` to specific IP addresses of the server's network interfaces that need to accept connections (e.g., private IP, localhost).",
+                "severity": "medium",
+                "rationale": "Reduces the database's exposure to the network.",
+                "tags": [
+                    "network",
+                    "configuration",
+                    "postgresql"
+                ]
+            }
+        },
+        "configuration_hardening": {
+            "category_description": "Controls related to secure database configuration settings.",
+            "secure_configuration_parameters": {
+                "description": "Ensure PostgreSQL configuration parameters are set securely.",
+                "validation": "Review `postgresql.conf` against CIS PostgreSQL Benchmark recommendations or other security guidelines. Check parameters related to logging, authentication, memory usage, and extensions.",
+                "validation_type": "manual",
+                "remediation": "Apply secure configurations based on established benchmarks. Disable unused extensions. Tune parameters according to security best practices and performance needs.",
+                "severity": "medium",
+                "rationale": "Hardens the database server against various attacks and misconfigurations.",
+                "references": [
+                    {
+                        "title": "CIS PostgreSQL Benchmark"
+                    }
+                ],
+                "tags": [
+                    "configuration",
+                    "hardening",
+                    "postgresql"
+                ]
+            }
+        },
+        "backup_recovery": {
+            "category_description": "Controls related to database backup and recovery.",
+            "regular_backups": {
+                "description": "Ensure regular, automated backups of the database are performed.",
+                "validation": "Verify backup schedules and successful completion logs. Check backup scripts (`scripts/database/database-manager.sh`) or managed service backup configurations (e.g., RDS snapshots). Review backup strategy documentation (`deployment/database/backup_strategy.md`).",
+                "validation_type": "manual",
+                "remediation": "Implement automated daily full backups and potentially point-in-time recovery (PITR) using WAL archiving. Ensure backups are stored securely off-site or in a separate availability zone/region.",
+                "severity": "critical",
+                "rationale": "Ensures data can be recovered in case of failure, corruption, or disaster.",
+                "tags": [
+                    "backup",
+                    "recovery",
+                    "data_protection",
+                    "postgresql"
+                ]
+            },
+            "backup_verification": {
+                "description": "Ensure database backups are regularly tested for restorability.",
+                "validation": "Review procedures and logs for periodic backup restore tests. Check documentation in `deployment/database/backup_strategy.md` or `deployment/database/maintenance.md`.",
+                "validation_type": "manual",
+                "remediation": "Implement a process to regularly test restoring backups to a separate environment to verify their integrity and the recovery procedure.",
+                "severity": "high",
+                "rationale": "Confirms that backups are valid and can be used for successful recovery when needed.",
+                "tags": [
+                    "backup",
+                    "recovery",
+                    "data_protection",
+                    "postgresql"
+                ]
+            }
+        },
+        "patch_management": {
+            "category_description": "Controls related to applying database software updates.",
+            "apply_security_patches": {
+                "description": "Ensure database software is kept up-to-date with the latest security patches.",
+                "validation": "Check the installed PostgreSQL version (`SELECT version();`). Compare against the latest available minor version releases from the PostgreSQL Global Development Group or managed service provider.",
+                "validation_type": "manual",
+                "remediation": "Establish a process for regularly reviewing and applying database security patches during scheduled maintenance windows. Prioritize critical security updates.",
+                "severity": "high",
+                "rationale": "Protects the database from known vulnerabilities.",
+                "tags": [
+                    "patch_management",
+                    "vulnerability_management",
+                    "postgresql"
+                ]
+            }
+        },
+        "secure_stored_procedures": {
+            "description": "Ensure stored procedures and functions implement proper security controls and input validation.",
+            "validation": "Review stored procedures and functions for secure coding practices, input validation, and proper privilege requirements.",
+            "validation_type": "manual",
+            "remediation": "Implement input validation and security checks in stored procedures. Use SECURITY DEFINER judiciously.",
+            "severity": "medium",
+            "rationale": "Prevents SQL injection and other attacks through stored procedure execution.",
+            "tags": [
+                "code_security",
+                "stored_procedures",
+                "input_validation",
+                "postgresql"
+            ]
+        },
+        "database_change_management": {
+            "description": "Implement proper change management processes for database schema changes.",
+            "validation": "Review database migration processes and change control documentation. Check if schema changes are version-controlled and tested before deployment.",
+            "validation_type": "manual",
+            "remediation": "Use version-controlled migration scripts. Implement change approval process for schema modifications.",
+            "severity": "medium",
+            "rationale": "Reduces risk of service disruption or security issues from untested database changes.",
+            "tags": [
+                "change_management",
+                "migrations",
+                "postgresql"
+            ]
+        },
+        "data_classification": {
+            "description": "Implement data classification and corresponding protection mechanisms for sensitive data in the database.",
+            "validation": "Check if sensitive columns (PII, financial data) are identified and have appropriate protection controls.",
+            "validation_type": "manual",
+            "remediation": "Classify data sensitivity levels. Implement column-level encryption, masking, or row-level security for sensitive data.",
+            "severity": "high",
+            "rationale": "Ensures appropriate protection measures are applied based on data sensitivity.",
+            "tags": [
+                "data_protection",
+                "encryption",
+                "classification",
+                "postgresql"
+            ]
+        }
+    }
+}

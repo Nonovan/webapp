@@ -1,0 +1,242 @@
+{
+    "metadata": {
+        "title": "Cloud Service Security Baseline",
+        "version": "1.0.0",
+        "last_updated": "2024-07-16",
+        "source_standards": [
+            "CIS AWS Foundations Benchmark",
+            "CIS Azure Foundations Benchmark",
+            "CIS GCP Foundations Benchmark",
+            "NIST SP 800-53"
+        ],
+        "applicable_systems": [
+            "Cloud Services (AWS, Azure, GCP)",
+            "Cloud Infrastructure"
+        ],
+        "owner": "Cloud Security Team",
+        "review_cycle": 90,
+        "compliance_frameworks": [
+            "SOC 2",
+            "ISO 27001",
+            "NIST CSF"
+        ]
+    },
+    "controls": {
+        "identity_access_management": {
+            "category_description": "Controls related to identity, authentication, and authorization in cloud environments.",
+            "mfa_for_root_admin": {
+                "description": "Ensure Multi-Factor Authentication (MFA) is enabled for the root/global administrator account.",
+                "validation": "Check IAM settings for the root/admin account in the respective cloud provider console (AWS Root User, Azure Global Admin, GCP Super Admin).",
+                "validation_type": "manual",
+                "remediation": "Enable MFA for the root/global administrator account using a virtual or hardware MFA device.",
+                "severity": "critical",
+                "rationale": "The root/admin account has the highest privileges; MFA significantly reduces the risk of compromise.",
+                "references": [
+                    {
+                        "title": "CIS AWS Foundations Benchmark 1.1"
+                    },
+                    {
+                        "title": "CIS Azure Foundations Benchmark 1.1"
+                    },
+                    {
+                        "title": "CIS GCP Foundations Benchmark 1.1"
+                    }
+                ],
+                "tags": [
+                    "iam",
+                    "mfa",
+                    "authentication",
+                    "aws",
+                    "azure",
+                    "gcp"
+                ]
+            },
+            "least_privilege_roles": {
+                "description": "Ensure IAM roles/users are granted only the minimum permissions necessary to perform their tasks.",
+                "validation": "Review IAM policies attached to users and roles. Use cloud provider tools (e.g., AWS IAM Access Analyzer, Azure PIM, GCP IAM Recommender) to identify excessive permissions.",
+                "validation_type": "manual",
+                "remediation": "Refine IAM policies to follow the principle of least privilege. Remove unused permissions and roles regularly.",
+                "severity": "high",
+                "rationale": "Limits the potential damage from compromised credentials or accidental misconfiguration.",
+                "tags": [
+                    "iam",
+                    "authorization",
+                    "least_privilege",
+                    "aws",
+                    "azure",
+                    "gcp"
+                ]
+            },
+            "strong_iam_password_policy": {
+                "description": "Enforce a strong password policy for IAM users.",
+                "validation": "Check the IAM password policy configuration in the cloud provider settings (AWS IAM, Azure AD, GCP Identity Platform).",
+                "validation_type": "manual",
+                "remediation": "Configure the IAM password policy to require minimum length (e.g., 12+), complexity (uppercase, lowercase, numbers, symbols), password history, and maximum age.",
+                "severity": "medium",
+                "rationale": "Reduces the risk of brute-force attacks against IAM user passwords.",
+                "tags": [
+                    "iam",
+                    "password",
+                    "authentication",
+                    "aws",
+                    "azure",
+                    "gcp"
+                ]
+            }
+        },
+        "network_security": {
+            "category_description": "Controls related to securing cloud network resources.",
+            "restrict_inbound_traffic": {
+                "description": "Ensure Security Groups, Network Security Groups (NSGs), or Firewall Rules restrict inbound traffic to only necessary ports and source IPs.",
+                "validation": "Review firewall rules associated with VMs, load balancers, and other resources. Check for overly permissive rules (e.g., 0.0.0.0/0 on sensitive ports like SSH/RDP).",
+                "validation_type": "manual",
+                "remediation": "Configure firewall rules to allow traffic only from trusted sources and only on required ports. Use specific IP ranges instead of 0.0.0.0/0 where possible.",
+                "severity": "high",
+                "rationale": "Limits the attack surface by preventing unauthorized network access to cloud resources.",
+                "tags": [
+                    "network",
+                    "firewall",
+                    "security_group",
+                    "nsg",
+                    "aws",
+                    "azure",
+                    "gcp"
+                ]
+            },
+            "disable_public_ip_unnecessary": {
+                "description": "Ensure virtual machines and other resources do not have public IP addresses unless explicitly required.",
+                "validation": "Review network configurations for VMs and other resources to identify unnecessary public IP assignments.",
+                "validation_type": "manual",
+                "remediation": "Remove public IP addresses from resources that do not require direct internet access. Use NAT Gateways, load balancers, or bastion hosts for controlled access.",
+                "severity": "medium",
+                "rationale": "Reduces direct exposure of resources to the public internet.",
+                "tags": [
+                    "network",
+                    "public_ip",
+                    "vm",
+                    "aws",
+                    "azure",
+                    "gcp"
+                ]
+            },
+            "encryption_in_transit": {
+                "description": "Ensure data is encrypted in transit using TLS/SSL for connections to and between cloud services.",
+                "validation": "Verify configurations for load balancers, CDNs, API Gateways, and application settings to ensure TLS 1.2+ is enforced. Check internal service communication.",
+                "validation_type": "manual",
+                "remediation": "Configure services to require HTTPS/TLS connections. Use managed TLS certificates and enforce minimum TLS versions.",
+                "severity": "high",
+                "rationale": "Protects data confidentiality and integrity during transmission over networks.",
+                "tags": [
+                    "network",
+                    "encryption",
+                    "tls",
+                    "https",
+                    "aws",
+                    "azure",
+                    "gcp"
+                ]
+            }
+        },
+        "data_protection": {
+            "category_description": "Controls related to protecting data stored in cloud services.",
+            "storage_encryption_at_rest": {
+                "description": "Ensure encryption at rest is enabled for object storage services (e.g., S3, Azure Blob, GCS).",
+                "validation": "Check bucket/container properties in the respective cloud provider console to verify default encryption settings (e.g., SSE-S3, SSE-KMS, Azure Storage Service Encryption, Google-managed keys).",
+                "validation_type": "manual",
+                "remediation": "Enable server-side encryption by default for all storage buckets/containers. Use customer-managed keys (CMK) for enhanced control where required.",
+                "severity": "high",
+                "rationale": "Protects data confidentiality if physical storage media is compromised or accessed improperly.",
+                "tags": [
+                    "data_protection",
+                    "encryption",
+                    "storage",
+                    "s3",
+                    "blob",
+                    "gcs",
+                    "aws",
+                    "azure",
+                    "gcp"
+                ]
+            },
+            "database_encryption_at_rest": {
+                "description": "Ensure encryption at rest is enabled for managed database services (e.g., RDS, Azure SQL DB, Cloud SQL).",
+                "validation": "Check database instance configuration settings in the cloud provider console to verify encryption is enabled.",
+                "validation_type": "manual",
+                "remediation": "Enable encryption at rest when creating database instances. For existing instances, check if encryption can be enabled (may require downtime or migration).",
+                "severity": "high",
+                "rationale": "Protects sensitive data stored in databases from unauthorized access.",
+                "tags": [
+                    "data_protection",
+                    "encryption",
+                    "database",
+                    "rds",
+                    "azure_sql",
+                    "cloud_sql",
+                    "aws",
+                    "azure",
+                    "gcp"
+                ]
+            },
+            "restrict_public_storage_access": {
+                "description": "Ensure object storage buckets/containers are not publicly accessible unless explicitly intended.",
+                "validation": "Review bucket/container policies and ACLs. Use cloud provider tools (e.g., AWS S3 Access Analyzer, Azure Storage access review, GCS public access prevention) to detect public access.",
+                "validation_type": "manual",
+                "remediation": "Configure bucket/container settings to block all public access by default. Grant access using IAM policies, pre-signed URLs, or other secure mechanisms.",
+                "severity": "critical",
+                "rationale": "Prevents accidental data exposure through misconfigured public storage.",
+                "tags": [
+                    "data_protection",
+                    "storage",
+                    "access_control",
+                    "s3",
+                    "blob",
+                    "gcs",
+                    "aws",
+                    "azure",
+                    "gcp"
+                ]
+            }
+        },
+        "logging_monitoring": {
+            "category_description": "Controls related to logging, monitoring, and alerting in cloud environments.",
+            "enable_cloud_audit_logging": {
+                "description": "Ensure comprehensive audit logging is enabled for cloud account activity (e.g., CloudTrail, Azure Activity Log, Google Cloud Audit Logs).",
+                "validation": "Verify that the primary audit logging service is enabled, configured to log all management events across all regions, and logs are securely stored.",
+                "validation_type": "manual",
+                "remediation": "Enable and configure the cloud provider's audit logging service. Ensure logs cover all regions and critical activities (read/write management events). Configure log file validation and secure, long-term storage (e.g., S3 bucket with immutability).",
+                "severity": "high",
+                "rationale": "Provides visibility into account activity for security investigations, compliance, and operational troubleshooting.",
+                "tags": [
+                    "logging",
+                    "monitoring",
+                    "audit",
+                    "cloudtrail",
+                    "activity_log",
+                    "cloud_audit_logs",
+                    "aws",
+                    "azure",
+                    "gcp"
+                ]
+            },
+            "configure_security_alerts": {
+                "description": "Set up alerts for critical security events and suspicious activities.",
+                "validation": "Review monitoring and alerting configurations (e.g., CloudWatch Alarms, Azure Monitor Alerts, Google Cloud Monitoring Alerts) for rules covering events like root login, IAM changes, security group modifications, and failed logins.",
+                "validation_type": "manual",
+                "remediation": "Create alerts based on audit logs and metrics for security-sensitive events. Configure notifications to appropriate security personnel or systems (e.g., SIEM).",
+                "severity": "medium",
+                "rationale": "Enables timely detection and response to potential security incidents.",
+                "tags": [
+                    "monitoring",
+                    "alerting",
+                    "logging",
+                    "cloudwatch",
+                    "azure_monitor",
+                    "cloud_monitoring",
+                    "aws",
+                    "azure",
+                    "gcp"
+                ]
+            }
+        }
+    }
+}

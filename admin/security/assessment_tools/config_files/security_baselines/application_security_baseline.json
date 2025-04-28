@@ -1,0 +1,329 @@
+{
+    "metadata": {
+        "title": "Application Security Baseline",
+        "version": "1.0.0",
+        "last_updated": "2024-07-16",
+        "source_standards": [
+            "OWASP ASVS 4.0.3",
+            "OWASP Top 10 2021",
+            "NIST SP 800-53"
+        ],
+        "applicable_systems": [
+            "Web Applications",
+            "APIs",
+            "Flask Applications"
+        ],
+        "owner": "Application Security Team",
+        "review_cycle": 90,
+        "compliance_frameworks": [
+            "SOC 2",
+            "ISO 27001"
+        ]
+    },
+    "controls": {
+        "input_validation": {
+            "category_description": "Controls related to validating and sanitizing all application inputs.",
+            "server_side_validation": {
+                "description": "Ensure all input validation occurs on the server-side, even if client-side validation is present.",
+                "validation": "Manual code review or SAST tool check for server-side validation logic on all input parameters.",
+                "validation_type": "manual",
+                "remediation": "Implement robust server-side validation for all inputs (query parameters, request bodies, headers, cookies). Do not rely solely on client-side validation.",
+                "severity": "critical",
+                "rationale": "Client-side validation can be bypassed, making server-side validation essential to prevent injection attacks (SQLi, XSS, Command Injection).",
+                "references": [
+                    {
+                        "title": "OWASP ASVS V5: Input Validation and Encoding Requirements",
+                        "url": "https://owasp.org/www-project-application-security-verification-standard/"
+                    }
+                ],
+                "tags": [
+                    "input_validation",
+                    "injection",
+                    "xss",
+                    "sqli"
+                ]
+            },
+            "output_encoding": {
+                "description": "Ensure all output reflected in the UI is properly encoded for its context.",
+                "validation": "Manual code review or SAST tool check for context-aware output encoding (e.g., HTML, JavaScript, CSS) using approved libraries (e.g., Jinja2 autoescaping, Bleach).",
+                "validation_type": "manual",
+                "remediation": "Use context-aware output encoding libraries for all data rendered in user interfaces. Ensure template engines have auto-escaping enabled.",
+                "severity": "high",
+                "rationale": "Prevents Cross-Site Scripting (XSS) attacks by ensuring user-controlled data is treated as data, not code, by the browser.",
+                "references": [
+                    {
+                        "title": "OWASP XSS Prevention Cheat Sheet",
+                        "url": "https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html"
+                    }
+                ],
+                "tags": [
+                    "output_encoding",
+                    "xss"
+                ]
+            },
+            "parameterized_queries": {
+                "description": "Ensure database queries use parameterized statements or ORMs that prevent SQL injection.",
+                "validation": "Manual code review or SAST tool check for use of parameterized queries (e.g., SQLAlchemy) and avoidance of string concatenation for SQL.",
+                "validation_type": "manual",
+                "remediation": "Refactor all database query code to use parameterized statements or a safe ORM. Avoid dynamic query construction with user input.",
+                "severity": "critical",
+                "rationale": "Prevents SQL Injection (SQLi) attacks by separating query logic from user-provided data.",
+                "references": [
+                    {
+                        "title": "OWASP SQL Injection Prevention Cheat Sheet",
+                        "url": "https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html"
+                    }
+                ],
+                "tags": [
+                    "input_validation",
+                    "sqli",
+                    "database"
+                ]
+            }
+        },
+        "authentication": {
+            "category_description": "Controls related to user authentication.",
+            "strong_password_policy": {
+                "description": "Enforce strong password complexity and length requirements.",
+                "validation": "Review application configuration and code for password policy enforcement (length, complexity, history). Check against `config.py` or authentication service settings.",
+                "validation_type": "manual",
+                "remediation": "Configure password policy to meet organizational standards (e.g., min 12 chars, complexity, history). Use libraries like `passlib` for hashing.",
+                "severity": "high",
+                "rationale": "Reduces the risk of brute-force attacks and credential guessing.",
+                "tags": [
+                    "authentication",
+                    "password"
+                ]
+            },
+            "mfa_enabled": {
+                "description": "Ensure Multi-Factor Authentication (MFA) is available and enforced for privileged accounts.",
+                "validation": "Verify MFA configuration in the authentication system (`core/security/cs_authentication.py`, `models/auth/user.py`). Check if MFA is enforced for admin roles.",
+                "validation_type": "manual",
+                "remediation": "Implement and enforce MFA for all administrative and sensitive accounts using TOTP or hardware tokens.",
+                "severity": "critical",
+                "rationale": "Provides an additional layer of security beyond passwords, significantly reducing the risk of account compromise.",
+                "references": [
+                    {
+                        "title": "NIST SP 800-63B: Authentication and Lifecycle Management",
+                        "url": "https://pages.nist.gov/800-63-3/sp800-63b.html"
+                    }
+                ],
+                "tags": [
+                    "authentication",
+                    "mfa"
+                ]
+            },
+            "secure_password_storage": {
+                "description": "Ensure passwords are stored using a strong, salted, adaptive hashing algorithm.",
+                "validation": "Code review of `core/security/cs_authentication.py` or relevant service to confirm use of approved algorithms (e.g., Argon2, bcrypt, scrypt) via libraries like `passlib`.",
+                "validation_type": "manual",
+                "remediation": "Use an approved adaptive hashing algorithm with a unique salt per user for password storage. Ensure work factor is appropriately configured.",
+                "severity": "critical",
+                "rationale": "Protects user passwords even if the credential database is compromised.",
+                "references": [
+                    {
+                        "title": "OWASP Password Storage Cheat Sheet",
+                        "url": "https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html"
+                    }
+                ],
+                "tags": [
+                    "authentication",
+                    "password",
+                    "cryptography"
+                ]
+            }
+        },
+        "session_management": {
+            "category_description": "Controls related to managing user sessions securely.",
+            "secure_session_cookies": {
+                "description": "Ensure session cookies use Secure, HttpOnly, and SameSite attributes.",
+                "validation": "Check Flask application configuration (`app.config`) for `SESSION_COOKIE_SECURE`, `SESSION_COOKIE_HTTPONLY`, `SESSION_COOKIE_SAMESITE` settings. Verify in browser developer tools.",
+                "validation_type": "manual",
+                "remediation": "Configure session cookies with `Secure` (requires HTTPS), `HttpOnly` (prevents client-side script access), and `SameSite=Lax` or `Strict` attributes.",
+                "severity": "high",
+                "rationale": "Protects session cookies from theft via XSS (HttpOnly), sniffing (Secure), and CSRF (SameSite).",
+                "references": [
+                    {
+                        "title": "OWASP Session Management Cheat Sheet",
+                        "url": "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html"
+                    }
+                ],
+                "tags": [
+                    "session",
+                    "cookies",
+                    "xss",
+                    "csrf"
+                ]
+            },
+            "session_timeout": {
+                "description": "Implement appropriate inactivity and absolute session timeouts.",
+                "validation": "Review Flask application configuration (`app.config['PERMANENT_SESSION_LIFETIME']`) and session handling logic (`core/security/cs_session.py`) for inactivity timeout implementation.",
+                "validation_type": "manual",
+                "remediation": "Configure reasonable session inactivity timeouts (e.g., 15-30 minutes) and absolute timeouts (e.g., 8-24 hours).",
+                "severity": "medium",
+                "rationale": "Reduces the window of opportunity for attackers to hijack unattended sessions.",
+                "tags": [
+                    "session",
+                    "authentication"
+                ]
+            }
+        },
+        "access_control": {
+            "category_description": "Controls related to enforcing authorization.",
+            "authorization_enforcement": {
+                "description": "Ensure authorization checks are performed server-side for all sensitive actions and data access.",
+                "validation": "Manual code review or SAST check for authorization logic (e.g., decorators like `@require_permission` from `core/security/cs_authorization.py`) on all relevant endpoints/functions.",
+                "validation_type": "manual",
+                "remediation": "Implement server-side authorization checks based on user roles/permissions before allowing access to resources or execution of actions.",
+                "severity": "critical",
+                "rationale": "Prevents unauthorized access and privilege escalation by ensuring users can only perform actions they are permitted to.",
+                "references": [
+                    {
+                        "title": "OWASP Access Control Cheat Sheet",
+                        "url": "https://cheatsheetseries.owasp.org/cheatsheets/Access_Control_Cheat_Sheet.html"
+                    }
+                ],
+                "tags": [
+                    "authorization",
+                    "access_control"
+                ]
+            },
+            "csrf_protection": {
+                "description": "Implement CSRF protection for all state-changing requests.",
+                "validation": "Check Flask application configuration for CSRF protection (e.g., Flask-WTF or Flask-SeaSurf). Verify anti-CSRF tokens are present in forms and validated server-side.",
+                "validation_type": "manual",
+                "remediation": "Enable and configure CSRF protection middleware. Ensure all forms submitting state-changing requests include and validate an anti-CSRF token.",
+                "severity": "high",
+                "rationale": "Prevents Cross-Site Request Forgery attacks where attackers trick users into performing unwanted actions.",
+                "references": [
+                    {
+                        "title": "OWASP CSRF Prevention Cheat Sheet",
+                        "url": "https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html"
+                    }
+                ],
+                "tags": [
+                    "csrf",
+                    "session",
+                    "access_control"
+                ]
+            }
+        },
+        "security_headers": {
+            "category_description": "Controls related to HTTP security headers.",
+            "content_security_policy": {
+                "description": "Implement a strict Content Security Policy (CSP).",
+                "validation": "Check application middleware (`core/middleware.py`) or web server configuration (NGINX) for CSP header implementation. Validate policy effectiveness using browser tools or online scanners.",
+                "validation_type": "manual",
+                "remediation": "Define and implement a restrictive CSP header to control resource loading and mitigate XSS.",
+                "severity": "medium",
+                "rationale": "Provides an additional layer of defense against XSS and data injection attacks.",
+                "references": [
+                    {
+                        "title": "Content Security Policy (CSP) - MDN",
+                        "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP"
+                    }
+                ],
+                "tags": [
+                    "headers",
+                    "xss",
+                    "csp"
+                ]
+            },
+            "hsts_enabled": {
+                "description": "Implement HTTP Strict Transport Security (HSTS).",
+                "validation": "Check application middleware (`core/middleware.py`) or web server configuration (NGINX) for the `Strict-Transport-Security` header.",
+                "validation_type": "manual",
+                "remediation": "Implement the HSTS header with an appropriate `max-age` and include `includeSubDomains` if applicable. Consider preloading.",
+                "severity": "medium",
+                "rationale": "Enforces the use of HTTPS, protecting against protocol downgrade attacks and cookie hijacking.",
+                "tags": [
+                    "headers",
+                    "https",
+                    "tls"
+                ]
+            }
+        },
+        "error_handling_logging": {
+            "category_description": "Controls for secure error handling and logging.",
+            "generic_error_messages": {
+                "description": "Ensure detailed error messages are not exposed to users.",
+                "validation": "Review application error handling code and test error conditions to ensure generic messages are shown to users while detailed errors are logged server-side.",
+                "validation_type": "manual",
+                "remediation": "Configure application to display generic error messages in production. Log detailed error information (stack traces, etc.) securely on the server.",
+                "severity": "medium",
+                "rationale": "Prevents leakage of sensitive system information (paths, library versions, internal logic) that could aid attackers.",
+                "tags": [
+                    "error_handling",
+                    "information_leakage"
+                ]
+            },
+            "security_event_logging": {
+                "description": "Ensure security-relevant events are logged.",
+                "validation": "Review code (`core/security/cs_audit.py`) and application logs to confirm logging of events like login success/failure, authorization failures, significant transactions, admin actions.",
+                "validation_type": "manual",
+                "remediation": "Implement comprehensive logging for security-relevant events, including user ID, timestamp, source IP, action performed, and outcome. Ensure logs are protected.",
+                "severity": "medium",
+                "rationale": "Provides audit trails for security investigations, incident response, and compliance.",
+                "tags": [
+                    "logging",
+                    "auditing",
+                    "incident_response"
+                ]
+            }
+        },
+        "dependency_management": {
+            "category_description": "Controls related to managing third-party dependencies.",
+            "vulnerability_scanning": {
+                "description": "Regularly scan application dependencies for known security vulnerabilities.",
+                "validation": "Verify CI/CD pipeline includes dependency scanning tools (e.g., Safety, OWASP Dependency-Check) and check scan results.",
+                "validation_type": "manual",
+                "remediation": "Implement automated dependency scanning in the CI/CD pipeline. Set policies for addressing critical and high vulnerabilities.",
+                "severity": "high",
+                "rationale": "Third-party components often contain known vulnerabilities that can be exploited if not patched.",
+                "references": [
+                    {
+                        "title": "OWASP Top 10 2021: A06 - Vulnerable and Outdated Components",
+                        "url": "https://owasp.org/Top10/A06_2021-Vulnerable_and_Outdated_Components/"
+                    }
+                ],
+                "tags": [
+                    "dependency",
+                    "supply_chain",
+                    "vulnerability_management"
+                ]
+            }
+        },
+        "api_security": {
+            "category_description": "Controls specific to securing APIs.",
+            "api_rate_limiting": {
+                "description": "Implement rate limiting on API endpoints to prevent abuse.",
+                "validation": "Check API gateway configuration or application code for rate limiting implementation.",
+                "validation_type": "manual",
+                "remediation": "Configure rate limiting based on client IP, API key, or user account with appropriate thresholds.",
+                "severity": "medium",
+                "rationale": "Prevents abuse, DoS attacks, and excessive usage of API resources.",
+                "tags": [
+                    "api",
+                    "rate_limiting",
+                    "availability"
+                ]
+            }
+        },
+        "secrets_management": {
+            "category_description": "Controls for managing sensitive data and secrets.",
+            "no_hardcoded_secrets": {
+                "description": "Ensure no secrets or credentials are hardcoded in application source code.",
+                "validation": "Scan source code for hardcoded secrets using tools like git-secrets or detect-secrets. Review configuration files.",
+                "validation_type": "manual",
+                "remediation": "Remove hardcoded secrets and use environment variables, secure vaults, or secret management services.",
+                "severity": "critical",
+                "rationale": "Hardcoded secrets in source code are easily discoverable and may be exposed in repositories.",
+                "tags": [
+                    "secrets",
+                    "credentials",
+                    "source_code"
+                ]
+            }
+        }
+    }
+}

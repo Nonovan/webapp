@@ -1,0 +1,391 @@
+{
+    "metadata": {
+        "title": "Web Server Security Baseline",
+        "version": "1.0.0",
+        "last_updated": "2024-07-16",
+        "source_standards": [
+            "CIS Apache HTTP Server Benchmark",
+            "CIS NGINX Benchmark",
+            "OWASP Secure Headers Project",
+            "NIST SP 800-53"
+        ],
+        "applicable_systems": [
+            "NGINX",
+            "Apache HTTP Server"
+        ],
+        "owner": "Web Security Team",
+        "review_cycle": 180,
+        "compliance_frameworks": [
+            "SOC 2",
+            "ISO 27001",
+            "PCI DSS",
+            "NIST CSF"
+        ]
+    },
+    "controls": {
+        "configuration_hardening": {
+            "category_description": "Controls for secure web server configuration.",
+            "disable_server_signature": {
+                "description": "Disable server signature/tokens to avoid disclosing web server version.",
+                "validation": "Check NGINX config for `server_tokens off;`. Check Apache config for `ServerSignature Off` and `ServerTokens Prod`.",
+                "validation_type": "manual",
+                "remediation": "Set `server_tokens off;` in NGINX configuration. Set `ServerSignature Off` and `ServerTokens Prod` in Apache configuration.",
+                "severity": "low",
+                "rationale": "Reduces information leakage that could aid attackers in identifying potential vulnerabilities.",
+                "tags": [
+                    "configuration",
+                    "hardening",
+                    "nginx",
+                    "apache",
+                    "information_leakage"
+                ]
+            },
+            "run_as_non_root": {
+                "description": "Ensure the web server process runs as a dedicated non-root user.",
+                "validation": "Check NGINX config for `user` directive (e.g., `user www-data;`). Check Apache config for `User` and `Group` directives (e.g., `User www-data`, `Group www-data`). Verify process owner using `ps aux | grep nginx` or `ps aux | grep apache`.",
+                "validation_type": "manual",
+                "remediation": "Configure the web server to run under a dedicated, unprivileged user account (e.g., `www-data`, `nginx`, `apache`).",
+                "severity": "medium",
+                "rationale": "Limits the potential damage if the web server process is compromised.",
+                "tags": [
+                    "configuration",
+                    "hardening",
+                    "nginx",
+                    "apache",
+                    "least_privilege"
+                ]
+            },
+            "secure_config_permissions": {
+                "description": "Ensure web server configuration files have restrictive permissions.",
+                "validation": "Check permissions on NGINX configuration files (e.g., `/etc/nginx/nginx.conf`, `/etc/nginx/sites-available/`) and Apache files (e.g., `/etc/apache2/apache2.conf`, `/etc/apache2/sites-available/`). Ensure they are owned by root and not writable by the web server user.",
+                "validation_type": "manual",
+                "remediation": "Set ownership to `root:root` and permissions to `644` or `600` for sensitive configuration files.",
+                "severity": "medium",
+                "rationale": "Protects configuration files from unauthorized modification.",
+                "tags": [
+                    "configuration",
+                    "hardening",
+                    "nginx",
+                    "apache",
+                    "permissions"
+                ]
+            },
+            "disable_unnecessary_modules": {
+                "description": "Disable unused web server modules.",
+                "validation": "Review loaded modules in NGINX (compiled-in or dynamic) and Apache (`apache2ctl -M` or `httpd -M`). Identify and justify the need for each enabled module.",
+                "validation_type": "manual",
+                "remediation": "Disable any Apache modules not explicitly required using `a2dismod`. For NGINX, avoid compiling unnecessary modules or loading dynamic modules if not needed.",
+                "severity": "low",
+                "rationale": "Reduces the attack surface by minimizing the loaded codebase.",
+                "tags": [
+                    "configuration",
+                    "hardening",
+                    "nginx",
+                    "apache",
+                    "attack_surface"
+                ]
+            }
+        },
+        "tls_ssl_configuration": {
+            "category_description": "Controls for secure TLS/SSL setup.",
+            "enforce_https": {
+                "description": "Ensure HTTP traffic is redirected to HTTPS.",
+                "validation": "Check web server configuration for redirection rules (e.g., NGINX `return 301 https://$host$request_uri;`, Apache `RewriteRule` or `Redirect`). Verify HSTS header is present.",
+                "validation_type": "manual",
+                "remediation": "Configure the web server to redirect all HTTP requests to HTTPS using permanent (301) redirects. Implement HSTS header.",
+                "severity": "high",
+                "rationale": "Ensures communication is encrypted, protecting against eavesdropping.",
+                "tags": [
+                    "tls",
+                    "https",
+                    "encryption",
+                    "nginx",
+                    "apache",
+                    "hardening"
+                ]
+            },
+            "strong_tls_protocols": {
+                "description": "Use only strong TLS protocols (TLS 1.2 and TLS 1.3). Disable SSLv3, TLS 1.0, TLS 1.1.",
+                "validation": "Check NGINX `ssl_protocols` directive. Check Apache `SSLProtocol` directive. Use tools like `sslscan` or online checkers.",
+                "validation_type": "manual",
+                "remediation": "Configure `ssl_protocols TLSv1.2 TLSv1.3;` in NGINX. Configure `SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1` in Apache.",
+                "severity": "high",
+                "rationale": "Protects against known vulnerabilities in older protocols.",
+                "tags": [
+                    "tls",
+                    "https",
+                    "encryption",
+                    "nginx",
+                    "apache",
+                    "hardening",
+                    "cryptography"
+                ]
+            },
+            "strong_cipher_suites": {
+                "description": "Use only strong, modern cipher suites.",
+                "validation": "Check NGINX `ssl_ciphers` directive. Check Apache `SSLCipherSuite` directive. Compare against current best practices (e.g., Mozilla SSL Config Generator). Use tools like `sslscan`.",
+                "validation_type": "manual",
+                "remediation": "Configure a list of strong cipher suites, prioritizing AEAD ciphers and Forward Secrecy. Refer to [`deployment/security/config/ssl-params.conf`](deployment/security/config/ssl-params.conf) or industry best practices.",
+                "severity": "high",
+                "rationale": "Protects against cryptographic attacks by using secure algorithms.",
+                "tags": [
+                    "tls",
+                    "https",
+                    "encryption",
+                    "nginx",
+                    "apache",
+                    "hardening",
+                    "cryptography"
+                ]
+            },
+            "enable_hsts": {
+                "description": "Implement HTTP Strict Transport Security (HSTS).",
+                "validation": "Check web server configuration (e.g., [`deployment/security/config/security-headers.conf`](deployment/security/config/security-headers.conf)) or application middleware ([`core/middleware.py`](core/middleware.py)) for the `Strict-Transport-Security` header. Verify header presence in browser responses.",
+                "validation_type": "manual",
+                "remediation": "Add the `Strict-Transport-Security` header with an appropriate `max-age` (e.g., 31536000) and `includeSubDomains` if applicable. Consider HSTS preloading.",
+                "severity": "medium",
+                "rationale": "Enforces HTTPS usage in browsers, mitigating protocol downgrade attacks and man-in-the-middle risks.",
+                "tags": [
+                    "tls",
+                    "https",
+                    "headers",
+                    "nginx",
+                    "apache",
+                    "hardening"
+                ]
+            },
+            "enable_ocsp_stapling": {
+                "description": "Enable OCSP Stapling for improved certificate validation performance and privacy.",
+                "validation": "Check NGINX config for `ssl_stapling on;` and `ssl_stapling_verify on;`. Check Apache config for `SSLUseStapling on` and `SSLStaplingCache`. Verify using `openssl s_client` or online tools.",
+                "validation_type": "manual",
+                "remediation": "Enable OCSP stapling in the web server configuration and ensure appropriate resolver and cache settings are configured.",
+                "severity": "low",
+                "rationale": "Improves TLS handshake performance and user privacy by allowing the server to provide certificate revocation status.",
+                "tags": [
+                    "tls",
+                    "https",
+                    "performance",
+                    "privacy",
+                    "nginx",
+                    "apache",
+                    "hardening"
+                ]
+            }
+        },
+        "http_security_headers": {
+            "category_description": "Controls related to HTTP security headers.",
+            "content_security_policy": {
+                "description": "Implement a strict Content Security Policy (CSP).",
+                "validation": "Check web server configuration (e.g., [`deployment/security/config/security-headers.conf`](deployment/security/config/security-headers.conf)) or application middleware ([`core/middleware.py`](core/middleware.py)) for `Content-Security-Policy` header. Validate policy effectiveness.",
+                "validation_type": "manual",
+                "remediation": "Define and implement a restrictive CSP header to control resource loading and mitigate XSS and data injection attacks.",
+                "severity": "medium",
+                "rationale": "Provides defense-in-depth against XSS and related injection attacks.",
+                "tags": [
+                    "headers",
+                    "xss",
+                    "csp",
+                    "nginx",
+                    "apache",
+                    "hardening"
+                ]
+            },
+            "x_content_type_options": {
+                "description": "Set `X-Content-Type-Options: nosniff` header.",
+                "validation": "Check web server configuration (e.g., [`deployment/security/config/security-headers.conf`](deployment/security/config/security-headers.conf)) or application middleware ([`core/middleware.py`](core/middleware.py)) for the header.",
+                "validation_type": "manual",
+                "remediation": "Add the `X-Content-Type-Options: nosniff` header.",
+                "severity": "low",
+                "rationale": "Prevents browsers from MIME-sniffing responses away from the declared content type, mitigating certain XSS vectors.",
+                "tags": [
+                    "headers",
+                    "xss",
+                    "nginx",
+                    "apache",
+                    "hardening"
+                ]
+            },
+            "x_frame_options": {
+                "description": "Set `X-Frame-Options: DENY` or `SAMEORIGIN` header.",
+                "validation": "Check web server configuration (e.g., [`deployment/security/config/security-headers.conf`](deployment/security/config/security-headers.conf)) or application middleware ([`core/middleware.py`](core/middleware.py)) for the header.",
+                "validation_type": "manual",
+                "remediation": "Add the `X-Frame-Options` header with `DENY` or `SAMEORIGIN` based on application requirements.",
+                "severity": "medium",
+                "rationale": "Protects against clickjacking attacks by controlling whether the site can be framed.",
+                "tags": [
+                    "headers",
+                    "clickjacking",
+                    "nginx",
+                    "apache",
+                    "hardening"
+                ]
+            },
+            "referrer_policy": {
+                "description": "Set an appropriate `Referrer-Policy` header.",
+                "validation": "Check web server configuration (e.g., [`deployment/security/config/security-headers.conf`](deployment/security/config/security-headers.conf)) or application middleware ([`core/middleware.py`](core/middleware.py)) for the header.",
+                "validation_type": "manual",
+                "remediation": "Add the `Referrer-Policy` header with a restrictive value like `strict-origin-when-cross-origin` or `no-referrer`.",
+                "severity": "low",
+                "rationale": "Controls how much referrer information is sent with requests, enhancing user privacy.",
+                "tags": [
+                    "headers",
+                    "privacy",
+                    "nginx",
+                    "apache",
+                    "hardening"
+                ]
+            }
+        },
+        "access_control_filtering": {
+            "category_description": "Controls for restricting access and filtering requests.",
+            "restrict_sensitive_files": {
+                "description": "Block access to sensitive files and directories (e.g., `.git`, `.env`, configuration files, logs).",
+                "validation": "Check web server configuration for `location` blocks (NGINX) or `Directory`/`FilesMatch` directives (Apache) that deny access to sensitive paths/patterns.",
+                "validation_type": "manual",
+                "remediation": "Add configuration rules to explicitly deny access to known sensitive files and directories.",
+                "severity": "high",
+                "rationale": "Prevents exposure of sensitive source code, credentials, or configuration data.",
+                "tags": [
+                    "access_control",
+                    "information_leakage",
+                    "nginx",
+                    "apache",
+                    "hardening"
+                ]
+            },
+            "limit_http_methods": {
+                "description": "Allow only necessary HTTP methods (e.g., GET, POST, HEAD). Disable TRACE, OPTIONS (if not needed for CORS), etc.",
+                "validation": "Check NGINX config (e.g., `if ($request_method !~ ^(GET|POST|HEAD)$ ) { return 405; }`). Check Apache config (`LimitExcept` directive).",
+                "validation_type": "manual",
+                "remediation": "Configure the web server to allow only required HTTP methods and return a 405 (Method Not Allowed) error for others.",
+                "severity": "low",
+                "rationale": "Reduces the attack surface by disabling potentially harmful or unnecessary HTTP methods.",
+                "tags": [
+                    "access_control",
+                    "http",
+                    "nginx",
+                    "apache",
+                    "hardening"
+                ]
+            },
+            "request_size_limits": {
+                "description": "Implement limits on request body size.",
+                "validation": "Check NGINX `client_max_body_size` directive. Check Apache `LimitRequestBody` directive.",
+                "validation_type": "manual",
+                "remediation": "Set appropriate limits for request body size based on application needs (e.g., `client_max_body_size 10m;`).",
+                "severity": "low",
+                "rationale": "Helps prevent Denial-of-Service (DoS) attacks using large request payloads.",
+                "tags": [
+                    "access_control",
+                    "dos",
+                    "nginx",
+                    "apache",
+                    "hardening"
+                ]
+            },
+            "disable_directory_listing": {
+                "description": "Disable automatic directory listing.",
+                "validation": "Check NGINX `autoindex off;` directive. Check Apache `Options -Indexes` directive.",
+                "validation_type": "manual",
+                "remediation": "Ensure directory listing is disabled globally or per-directory.",
+                "severity": "low",
+                "rationale": "Prevents unintended disclosure of directory contents.",
+                "tags": [
+                    "access_control",
+                    "information_leakage",
+                    "nginx",
+                    "apache",
+                    "hardening"
+                ]
+            },
+            "use_waf": {
+                "description": "Implement a Web Application Firewall (WAF) like ModSecurity.",
+                "validation": "Check if ModSecurity module is loaded and enabled. Review rule configuration (e.g., OWASP Core Rule Set) in [`deployment/security/filters/waf/`](deployment/security/filters/waf/) and NGINX/Apache config. Check [`deployment/nginx/scripts/setup-modsecurity.sh`](deployment/nginx/scripts/setup-modsecurity.sh).",
+                "validation_type": "manual",
+                "remediation": "Install, configure, and enable ModSecurity with the OWASP Core Rule Set. Tune rules for the specific application to minimize false positives.",
+                "severity": "medium",
+                "rationale": "Provides an additional layer of protection against common web attacks (SQLi, XSS, etc.).",
+                "tags": [
+                    "waf",
+                    "modsecurity",
+                    "owasp_crs",
+                    "nginx",
+                    "apache",
+                    "hardening",
+                    "application_security"
+                ]
+            }
+        },
+        "logging_monitoring": {
+            "category_description": "Controls for web server logging and monitoring.",
+            "enable_logging": {
+                "description": "Ensure access and error logging are enabled.",
+                "validation": "Check NGINX `access_log` and `error_log` directives. Check Apache `CustomLog` and `ErrorLog` directives.",
+                "validation_type": "manual",
+                "remediation": "Ensure access and error logs are configured to write to specified files or syslog.",
+                "severity": "medium",
+                "rationale": "Provides essential visibility for troubleshooting, security monitoring, and incident response.",
+                "tags": [
+                    "logging",
+                    "monitoring",
+                    "auditing",
+                    "nginx",
+                    "apache"
+                ]
+            },
+            "configure_log_format": {
+                "description": "Use a detailed log format that includes relevant security information.",
+                "validation": "Review NGINX `log_format` directive. Review Apache `LogFormat` directive. Ensure format includes source IP, user agent, request details, status code, referrer, etc.",
+                "validation_type": "manual",
+                "remediation": "Define and use a comprehensive log format that captures necessary fields for security analysis.",
+                "severity": "low",
+                "rationale": "Ensures sufficient detail is captured in logs for effective analysis.",
+                "tags": [
+                    "logging",
+                    "monitoring",
+                    "auditing",
+                    "nginx",
+                    "apache"
+                ]
+            },
+            "forward_logs": {
+                "description": "Forward web server logs to a central logging system (SIEM).",
+                "validation": "Check web server log configuration for syslog forwarding directives. Verify logs are received by the central system.",
+                "validation_type": "manual",
+                "remediation": "Configure the web server to forward access and error logs to the central SIEM/syslog infrastructure.",
+                "severity": "medium",
+                "rationale": "Facilitates centralized log analysis, correlation, and long-term retention.",
+                "tags": [
+                    "logging",
+                    "monitoring",
+                    "auditing",
+                    "siem",
+                    "syslog",
+                    "nginx",
+                    "apache"
+                ]
+            },
+            "secure_log_permissions": {
+                "description": "Ensure log files have restrictive permissions.",
+                "validation": "Check permissions on web server log files (e.g., in `/var/log/nginx/`, `/var/log/apache2/`). Ensure they are not world-readable/writable and owned appropriately.",
+                "validation_type": "manual",
+                "remediation": "Set appropriate permissions (e.g., 640) and ownership (e.g., root:adm or webserver_user:adm) for log files.",
+                "severity": "low",
+                "rationale": "Protects log integrity and confidentiality.",
+                "tags": [
+                    "logging",
+                    "permissions",
+                    "auditing",
+                    "nginx",
+                    "apache"
+                ]
+            }
+        }
+    },
+    "references": [
+        {
+            "title": "CIS NGINX Benchmark 2.1",
+            "url": "https://www.cisecurity.org/benchmark/nginx"
+        }
+    ]
+}

@@ -1,0 +1,445 @@
+{
+    "metadata": {
+        "title": "Linux Server Security Baseline",
+        "version": "1.1.0",
+        "last_updated": "2024-07-16",
+        "source_standards": [
+            "CIS Benchmark for Linux",
+            "NIST SP 800-53",
+            "STIG for Linux"
+        ],
+        "applicable_systems": [
+            "Linux Servers (Ubuntu, CentOS, RHEL)",
+            "Application Servers",
+            "Utility Servers"
+        ],
+        "owner": "Infrastructure Security Team",
+        "review_cycle": 180,
+        "compliance_frameworks": [
+            "SOC 2",
+            "ISO 27001",
+            "PCI DSS"
+        ]
+    },
+    "controls": {
+        "initial_setup": {
+            "category_description": "Initial server setup and configuration hardening.",
+            "automatic_updates": {
+                "description": "Ensure automatic security updates are configured.",
+                "validation": "Check package manager configuration (e.g., `unattended-upgrades` for Debian/Ubuntu, `yum-cron` for RHEL/CentOS). Verify `/etc/cron.d/cloud-platform-security` exists and is configured.",
+                "validation_type": "manual",
+                "remediation": "Install and configure appropriate package for automatic security updates (e.g., `unattended-upgrades`, `yum-cron`). Use [`deployment/security/scripts/security_setup.sh`](deployment/security/scripts/security_setup.sh) to configure cron job.",
+                "severity": "medium",
+                "rationale": "Ensures timely application of security patches to mitigate known vulnerabilities.",
+                "tags": [
+                    "patch_management",
+                    "updates",
+                    "initial_setup"
+                ]
+            },
+            "time_synchronization": {
+                "description": "Ensure time synchronization (NTP) is configured and active.",
+                "validation": "Check status of NTP client (e.g., `systemctl status systemd-timesyncd`, `chronyc sources`, `ntpq -p`). Verify configuration in `/etc/systemd/timesyncd.conf` or `/etc/chrony.conf`.",
+                "validation_type": "manual",
+                "remediation": "Install and configure an NTP client (e.g., `systemd-timesyncd`, `chrony`). Ensure it synchronizes with reliable time sources.",
+                "severity": "low",
+                "rationale": "Accurate time is crucial for log correlation, certificate validation, and security event analysis.",
+                "tags": [
+                    "configuration",
+                    "time",
+                    "ntp",
+                    "initial_setup"
+                ]
+            }
+        },
+        "account_management": {
+            "category_description": "Controls related to user accounts, passwords, and privileges.",
+            "strong_password_policy": {
+                "description": "Enforce strong password complexity, length, history, and age requirements.",
+                "validation": "Check PAM configuration (`/etc/pam.d/common-password` or `/etc/pam.d/system-auth`) for `pam_pwquality.so` settings. Check `/etc/login.defs` for `PASS_MAX_DAYS`, `PASS_MIN_DAYS`, `PASS_WARN_AGE`.",
+                "validation_type": "manual",
+                "remediation": "Configure `pam_pwquality` with appropriate settings (minlen=12+, complexity requirements). Set password aging policies in `/etc/login.defs`. Reference [`docs/security/hardening-checklist.md`](docs/security/hardening-checklist.md#user-management).",
+                "severity": "high",
+                "rationale": "Reduces the risk of brute-force attacks, credential stuffing, and password guessing.",
+                "references": [
+                    {
+                        "title": "CIS Benchmark - Password Policy"
+                    }
+                ],
+                "tags": [
+                    "authentication",
+                    "password",
+                    "pam",
+                    "account_management"
+                ]
+            },
+            "disable_root_login": {
+                "description": "Disable direct root login via SSH.",
+                "validation": "Check `/etc/ssh/sshd_config` for `PermitRootLogin no`.",
+                "validation_type": "manual",
+                "remediation": "Set `PermitRootLogin no` in `/etc/ssh/sshd_config` and restart the SSH service. Use `sudo` for administrative tasks. See [`admin/scripts/system_lockdown.sh`](admin/scripts/system_lockdown.sh).",
+                "severity": "critical",
+                "rationale": "Prevents direct compromise of the root account and encourages use of audited administrative access via `sudo`.",
+                "references": [
+                    {
+                        "title": "CIS Benchmark - SSH Root Login"
+                    }
+                ],
+                "tags": [
+                    "authentication",
+                    "ssh",
+                    "root",
+                    "account_management"
+                ]
+            },
+            "secure_umask": {
+                "description": "Ensure a secure default umask (027 or stricter) is set for users.",
+                "validation": "Check `/etc/profile`, `/etc/bashrc`, and `/etc/login.defs` for default umask settings. Verify by logging in as a user and running `umask`.",
+                "validation_type": "manual",
+                "remediation": "Set `umask 027` in `/etc/profile` and `/etc/login.defs` (UMASK setting). See [`admin/scripts/system_lockdown.sh`](admin/scripts/system_lockdown.sh).",
+                "severity": "medium",
+                "rationale": "Limits default permissions for newly created files and directories, reducing risk of unintended information exposure.",
+                "tags": [
+                    "permissions",
+                    "umask",
+                    "account_management"
+                ]
+            },
+            "sudo_least_privilege": {
+                "description": "Configure sudo to grant minimal necessary privileges.",
+                "validation": "Review `/etc/sudoers` and files in `/etc/sudoers.d/`. Ensure users/groups only have access to commands required for their role. Avoid `ALL=(ALL:ALL) ALL` where possible.",
+                "validation_type": "manual",
+                "remediation": "Define specific command aliases and grant permissions based on roles using group-based rules in `/etc/sudoers.d/`. Use `visudo` for editing.",
+                "severity": "high",
+                "rationale": "Adheres to the principle of least privilege for administrative actions, limiting potential damage from compromised accounts.",
+                "tags": [
+                    "authorization",
+                    "sudo",
+                    "least_privilege",
+                    "account_management"
+                ]
+            }
+        },
+        "filesystem_security": {
+            "category_description": "Controls related to securing the filesystem and file permissions.",
+            "harden_tmp_mounts": {
+                "description": "Ensure /tmp and /dev/shm partitions are mounted with nosuid, nodev, and noexec options.",
+                "validation": "Check `/etc/fstab` for mount options for `/tmp` and `/dev/shm`. Verify with `mount | grep '/tmp'` and `mount | grep '/dev/shm'`.",
+                "validation_type": "manual",
+                "remediation": "Add `nosuid,nodev,noexec` options to the `/tmp` and `/dev/shm` entries in `/etc/fstab`. Remount the partitions or reboot. See [`admin/scripts/system_lockdown.sh`](admin/scripts/system_lockdown.sh).",
+                "severity": "medium",
+                "rationale": "Prevents execution of malicious binaries and device creation in temporary directories, mitigating certain attack vectors.",
+                "references": [
+                    {
+                        "title": "CIS Benchmark - Filesystem Mount Options"
+                    }
+                ],
+                "tags": [
+                    "filesystem",
+                    "mounts",
+                    "hardening"
+                ]
+            },
+            "secure_file_permissions": {
+                "description": "Ensure critical system files have secure permissions.",
+                "validation": "Check permissions of files like `/etc/passwd` (644), `/etc/shadow` (600 or 640), `/etc/group` (644), `/etc/gshadow` (600 or 640), `/etc/ssh/sshd_config` (600).",
+                "validation_type": "manual",
+                "remediation": "Use `chmod` and `chown` to set appropriate permissions and ownership for critical system files as per security best practices. See [`admin/scripts/system_lockdown.sh`](admin/scripts/system_lockdown.sh).",
+                "severity": "medium",
+                "rationale": "Protects sensitive configuration and credential files from unauthorized access or modification.",
+                "tags": [
+                    "permissions",
+                    "filesystem",
+                    "hardening"
+                ]
+            },
+            "file_integrity_monitoring": {
+                "description": "Implement file integrity monitoring.",
+                "validation": "Check if AIDE, Tripwire, or a similar tool is installed and configured. Verify regular scans are scheduled (e.g., via cron). Check [`scripts/security/verify_files.py`](scripts/security/verify_files.py) usage.",
+                "validation_type": "manual",
+                "remediation": "Install and configure a file integrity monitoring tool (e.g., AIDE). Initialize the database and schedule regular checks.",
+                "severity": "medium",
+                "rationale": "Detects unauthorized modifications to critical system files, indicating potential compromise.",
+                "tags": [
+                    "auditing",
+                    "fim",
+                    "filesystem",
+                    "integrity"
+                ]
+            }
+        },
+        "network_security": {
+            "category_description": "Controls related to network configuration and host-based firewall.",
+            "host_firewall_enabled": {
+                "description": "Ensure a host-based firewall (iptables, nftables, ufw) is enabled and configured.",
+                "validation": "Check firewall status (e.g., `iptables -L`, `nft list ruleset`, `ufw status`). Verify default deny policy for incoming traffic.",
+                "validation_type": "manual",
+                "remediation": "Install and configure a host-based firewall. Set default input policy to DROP and explicitly allow necessary traffic (e.g., SSH, HTTP/S). Use [`deployment/security/scripts/iptables_rules.sh`](deployment/security/scripts/iptables_rules.sh) or manage via `ufw`/`firewalld`.",
+                "severity": "high",
+                "rationale": "Provides a critical layer of defense by controlling network traffic to and from the server.",
+                "tags": [
+                    "network",
+                    "firewall",
+                    "iptables",
+                    "nftables",
+                    "ufw"
+                ]
+            },
+            "disable_ip_forwarding": {
+                "description": "Disable IP forwarding unless the server is acting as a router.",
+                "validation": "Check kernel parameter `net.ipv4.ip_forward`. Run `sysctl net.ipv4.ip_forward`.",
+                "validation_type": "manual",
+                "remediation": "Set `net.ipv4.ip_forward = 0` in `/etc/sysctl.conf` or a file in `/etc/sysctl.d/`. Apply with `sysctl -p`. See [`admin/scripts/system_lockdown.sh`](admin/scripts/system_lockdown.sh).",
+                "severity": "medium",
+                "rationale": "Prevents the server from inadvertently routing traffic between networks.",
+                "tags": [
+                    "network",
+                    "kernel",
+                    "hardening",
+                    "sysctl"
+                ]
+            },
+            "disable_ip_redirects": {
+                "description": "Disable sending and acceptance of ICMP redirects.",
+                "validation": "Check kernel parameters `net.ipv4.conf.all.accept_redirects`, `net.ipv4.conf.default.accept_redirects`, `net.ipv4.conf.all.send_redirects`, `net.ipv4.conf.default.send_redirects`.",
+                "validation_type": "manual",
+                "remediation": "Set relevant `accept_redirects` and `send_redirects` parameters to 0 in sysctl configuration. Apply with `sysctl -p`. See [`admin/scripts/system_lockdown.sh`](admin/scripts/system_lockdown.sh).",
+                "severity": "low",
+                "rationale": "Protects against network routing manipulation via ICMP redirects.",
+                "tags": [
+                    "network",
+                    "kernel",
+                    "hardening",
+                    "icmp",
+                    "sysctl"
+                ]
+            },
+            "enable_syn_cookies": {
+                "description": "Enable TCP SYN cookies to mitigate SYN flood attacks.",
+                "validation": "Check kernel parameter `net.ipv4.tcp_syncookies`. Run `sysctl net.ipv4.tcp_syncookies`.",
+                "validation_type": "manual",
+                "remediation": "Set `net.ipv4.tcp_syncookies = 1` in sysctl configuration. Apply with `sysctl -p`.",
+                "severity": "medium",
+                "rationale": "Helps protect the server from SYN flood denial-of-service attacks.",
+                "tags": [
+                    "network",
+                    "kernel",
+                    "hardening",
+                    "dos",
+                    "sysctl"
+                ]
+            },
+            "enable_reverse_path_filtering": {
+                "description": "Enable strict reverse path filtering.",
+                "validation": "Check kernel parameters `net.ipv4.conf.all.rp_filter` and `net.ipv4.conf.default.rp_filter`.",
+                "validation_type": "manual",
+                "remediation": "Set `net.ipv4.conf.all.rp_filter = 1` and `net.ipv4.conf.default.rp_filter = 1` in sysctl configuration. Apply with `sysctl -p`. See [`admin/scripts/system_lockdown.sh`](admin/scripts/system_lockdown.sh).",
+                "severity": "medium",
+                "rationale": "Helps prevent IP spoofing by ensuring traffic replies go back via the same interface they arrived on.",
+                "tags": [
+                    "network",
+                    "kernel",
+                    "hardening",
+                    "spoofing",
+                    "sysctl"
+                ]
+            }
+        },
+        "ssh_hardening": {
+            "category_description": "Controls specific to securing the SSH service.",
+            "use_ssh_protocol_2": {
+                "description": "Ensure only SSH Protocol 2 is used.",
+                "validation": "Check `/etc/ssh/sshd_config` for `Protocol 2`.",
+                "validation_type": "manual",
+                "remediation": "Ensure `Protocol 2` is explicitly set in `/etc/ssh/sshd_config`. Remove or comment out `Protocol 1` if present.",
+                "severity": "high",
+                "rationale": "SSH Protocol 1 is insecure and should not be used.",
+                "tags": [
+                    "ssh",
+                    "protocol",
+                    "hardening"
+                ]
+            },
+            "disable_password_authentication": {
+                "description": "Disable password-based authentication for SSH, prefer key-based authentication.",
+                "validation": "Check `/etc/ssh/sshd_config` for `PasswordAuthentication no`.",
+                "validation_type": "manual",
+                "remediation": "Set `PasswordAuthentication no` in `/etc/ssh/sshd_config`. Ensure key-based authentication is configured and working before disabling passwords.",
+                "severity": "high",
+                "rationale": "Key-based authentication is significantly more resistant to brute-force attacks than passwords.",
+                "tags": [
+                    "ssh",
+                    "authentication",
+                    "hardening",
+                    "keys"
+                ]
+            },
+            "strong_ssh_crypto": {
+                "description": "Configure strong cryptographic algorithms for SSH.",
+                "validation": "Check `/etc/ssh/sshd_config` for `KexAlgorithms`, `Ciphers`, and `MACs` settings. Compare against current best practices or [`deployment/security/ssh-hardening.conf`](deployment/security/ssh-hardening.conf).",
+                "validation_type": "manual",
+                "remediation": "Specify strong, modern algorithms for `KexAlgorithms`, `Ciphers`, and `MACs` in `/etc/ssh/sshd_config` based on organizational policy or standard hardening profiles like [`deployment/security/ssh-hardening.conf`](deployment/security/ssh-hardening.conf). See [`admin/scripts/system_lockdown.sh`](admin/scripts/system_lockdown.sh).",
+                "severity": "medium",
+                "rationale": "Protects against cryptographic attacks by using secure and up-to-date algorithms.",
+                "tags": [
+                    "ssh",
+                    "cryptography",
+                    "hardening"
+                ]
+            },
+            "limit_ssh_access": {
+                "description": "Restrict SSH access to specific users or groups and potentially source IPs.",
+                "validation": "Check `/etc/ssh/sshd_config` for `AllowUsers`, `AllowGroups`, `DenyUsers`, `DenyGroups`. Check host firewall rules ([`deployment/security/scripts/iptables_rules.sh`](deployment/security/scripts/iptables_rules.sh)) for source IP restrictions.",
+                "validation_type": "manual",
+                "remediation": "Use `AllowUsers` or `AllowGroups` in `/etc/ssh/sshd_config` to restrict login. Configure host firewall to limit access to the SSH port (default 22) from trusted IP addresses.",
+                "severity": "medium",
+                "rationale": "Reduces the attack surface by limiting who can attempt SSH connections.",
+                "tags": [
+                    "ssh",
+                    "access_control",
+                    "hardening",
+                    "firewall"
+                ]
+            },
+            "configure_ssh_timeouts": {
+                "description": "Configure SSH client and server timeouts.",
+                "validation": "Check `/etc/ssh/sshd_config` for `ClientAliveInterval` and `ClientAliveCountMax`. Check `/etc/ssh/ssh_config` for `ServerAliveInterval`.",
+                "validation_type": "manual",
+                "remediation": "Set `ClientAliveInterval` (e.g., 300) and `ClientAliveCountMax` (e.g., 0 or 3) in `sshd_config`. Set `ServerAliveInterval` in `ssh_config` for clients.",
+                "severity": "low",
+                "rationale": "Helps terminate idle sessions and detect unresponsive connections.",
+                "tags": [
+                    "ssh",
+                    "hardening",
+                    "timeout"
+                ]
+            }
+        },
+        "logging_auditing": {
+            "category_description": "Controls related to system logging and auditing.",
+            "enable_auditd": {
+                "description": "Ensure the audit daemon (auditd) is installed, enabled, and configured.",
+                "validation": "Check if `auditd` package is installed and service is running (`systemctl status auditd`). Review rules in `/etc/audit/rules.d/`.",
+                "validation_type": "manual",
+                "remediation": "Install `auditd`. Configure appropriate audit rules based on CIS benchmarks or organizational policy (e.g., track logins, permission changes, file access). Ensure service is enabled and running.",
+                "severity": "medium",
+                "rationale": "Provides detailed logging of system events for security monitoring and forensic analysis.",
+                "references": [
+                    {
+                        "title": "CIS Benchmark - Auditd Configuration"
+                    }
+                ],
+                "tags": [
+                    "auditing",
+                    "logging",
+                    "auditd"
+                ]
+            },
+            "configure_rsyslog": {
+                "description": "Ensure system logging (rsyslog/syslog-ng) is configured correctly and logs are forwarded.",
+                "validation": "Check rsyslog/syslog-ng configuration (`/etc/rsyslog.conf`, `/etc/rsyslog.d/`, `/etc/syslog-ng/syslog-ng.conf`). Verify log forwarding rules to central SIEM/log server.",
+                "validation_type": "manual",
+                "remediation": "Configure rsyslog/syslog-ng to capture relevant logs and forward them securely (e.g., using TLS) to a central log management system.",
+                "severity": "medium",
+                "rationale": "Centralized logging facilitates analysis, correlation, and long-term retention of security events.",
+                "tags": [
+                    "logging",
+                    "auditing",
+                    "rsyslog",
+                    "syslog-ng"
+                ]
+            },
+            "secure_log_permissions": {
+                "description": "Ensure log files have restrictive permissions.",
+                "validation": "Check permissions on log files in `/var/log` (e.g., `messages`, `auth.log`, `secure`, `audit/audit.log`). Ensure they are not world-readable or writable.",
+                "validation_type": "manual",
+                "remediation": "Set appropriate permissions (e.g., 640 or 600) and ownership (e.g., root:adm) for log files.",
+                "severity": "low",
+                "rationale": "Protects log integrity and confidentiality.",
+                "tags": [
+                    "logging",
+                    "permissions",
+                    "auditing"
+                ]
+            },
+            "log_rotation": {
+                "description": "Ensure log rotation is configured to prevent logs from consuming disk space.",
+                "validation": "Check logrotate configuration in `/etc/logrotate.conf` and `/etc/logrotate.d/`. Verify retention settings are appropriate.",
+                "validation_type": "manual",
+                "remediation": "Configure logrotate with appropriate retention periods, compression, and rotation frequency.",
+                "severity": "medium",
+                "rationale": "Prevents logs from filling disk space while maintaining adequate history for security analysis.",
+                "tags": [
+                    "logging",
+                    "storage_management",
+                    "logrotate"
+                ]
+            }
+        },
+        "kernel_hardening": {
+            "category_description": "Controls related to securing kernel parameters via sysctl.",
+            "enable_aslr": {
+                "description": "Enable Address Space Layout Randomization (ASLR).",
+                "validation": "Check kernel parameter `kernel.randomize_va_space`. Run `sysctl kernel.randomize_va_space`.",
+                "validation_type": "manual",
+                "remediation": "Set `kernel.randomize_va_space = 2` in sysctl configuration. Apply with `sysctl -p`. See [`admin/scripts/system_lockdown.sh`](admin/scripts/system_lockdown.sh).",
+                "severity": "medium",
+                "rationale": "Makes it harder for attackers to exploit memory corruption vulnerabilities.",
+                "tags": [
+                    "kernel",
+                    "hardening",
+                    "aslr",
+                    "memory_safety",
+                    "sysctl"
+                ]
+            },
+            "protect_links": {
+                "description": "Protect against symlink and hardlink attacks.",
+                "validation": "Check kernel parameters `fs.protected_symlinks` and `fs.protected_hardlinks`.",
+                "validation_type": "manual",
+                "remediation": "Set `fs.protected_symlinks = 1` and `fs.protected_hardlinks = 1` in sysctl configuration. Apply with `sysctl -p`. See [`admin/scripts/system_lockdown.sh`](admin/scripts/system_lockdown.sh).",
+                "severity": "low",
+                "rationale": "Mitigates risks associated with symlink/hardlink-based time-of-check-time-of-use (TOCTOU) attacks.",
+                "tags": [
+                    "kernel",
+                    "hardening",
+                    "filesystem",
+                    "symlink",
+                    "sysctl"
+                ]
+            }
+        },
+        "service_hardening": {
+            "category_description": "Controls related to disabling or securing system services.",
+            "disable_unnecessary_services": {
+                "description": "Disable unnecessary and insecure network services.",
+                "validation": "Check for running services like `telnet`, `rsh`, `rlogin`, `tftp`, `avahi-daemon`, `cups` (if not needed). Use `systemctl list-units --type=service --state=running` or `ss -tulnp`.",
+                "validation_type": "manual",
+                "remediation": "Stop and disable unnecessary services using `systemctl stop <service>` and `systemctl disable <service>`. See [`admin/scripts/system_lockdown.sh`](admin/scripts/system_lockdown.sh) for a list.",
+                "severity": "medium",
+                "rationale": "Reduces the server's attack surface by minimizing the number of running network listeners.",
+                "tags": [
+                    "service",
+                    "hardening",
+                    "attack_surface"
+                ]
+            }
+        },
+        "patch_management": {
+            "category_description": "Controls related to operating system patch management.",
+            "security_updates_process": {
+                "description": "Establish a process for regular application of security patches.",
+                "validation": "Check documentation for patch management process. Verify recent patch logs or package installation history.",
+                "validation_type": "manual",
+                "remediation": "Implement a documented process for regular review and application of security patches, including testing and emergency patch procedures.",
+                "severity": "high",
+                "rationale": "Ensures systematic application of security patches to address known vulnerabilities.",
+                "tags": [
+                    "patch_management",
+                    "vulnerability_management",
+                    "updates"
+                ]
+            }
+        }
+    }
+}
