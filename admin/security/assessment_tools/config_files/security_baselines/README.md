@@ -4,15 +4,15 @@ This directory contains security baseline configurations used by the security as
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- Usage
-- Baseline Structure
-- Customization Guidelines
-- Best Practices & Security
-- Common Features
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Usage](#usage)
+- [Baseline Structure](#baseline-structure)
+- [Customization Guidelines](#customization-guidelines)
+- [Best Practices & Security](#best-practices--security)
+- [Common Features](#common-features)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
@@ -29,6 +29,16 @@ The security baselines provide standardized configuration requirements that syst
   - Logging and monitoring settings
   - Network security controls
   - Resource protection measures
+
+- **`container_baseline.json`**: Security baseline for containerized environments
+  - Container image security requirements
+  - Orchestration security controls
+  - Runtime security configurations
+  - Privilege restrictions
+  - Network policy configurations
+  - Resource limitations
+  - Secrets management requirements
+  - Logging and auditing settings
 
 - **`database_baseline.json`**: Security baseline for database systems
   - Access control configurations
@@ -60,15 +70,29 @@ The security baselines provide standardized configuration requirements that syst
   - Server hardening parameters
   - TLS configuration standards
 
+- **`network_appliance_baseline.json`**: Security baseline for network devices
+  - Access control lists configuration
+  - Management interface security
+  - Protocol security settings
+  - Logging requirements
+  - Firmware update policies
+  - High availability configurations
+  - Traffic filtering requirements
+  - Monitoring and alerting settings
+
 ## Directory Structure
 
 ```plaintext
 admin/security/assessment_tools/config_files/security_baselines/
-├── README.md                   # This documentation
-├── cloud_service_baseline.json # Cloud service security baseline
-├── database_baseline.json      # Database security baseline
-├── linux_server_baseline.json  # Linux server security baseline
-└── web_server_baseline.json    # Web server security baseline
+├── README.md                       # This documentation
+├── cloud_service_baseline.json     # Cloud service security baseline
+├── container_baseline.json         # Container environment security baseline
+├── database_baseline.json          # Database security baseline
+├── linux_server_baseline.json      # Linux server security baseline
+├── network_appliance_baseline.json # Network device security baseline
+├── web_server_baseline.json        # Web server security baseline
+└── schema/                         # JSON schema definitions
+    └── baseline_schema.json        # Schema for validating baseline files
 ```
 
 ## Usage
@@ -89,6 +113,10 @@ The security baselines are used with the security assessment tools to evaluate s
 # Check cloud service configuration against security baseline
 ./configuration_analyzer.py --baseline security_baselines/cloud_service_baseline.json \
   --target aws-production --service-type aws
+
+# Validate container security settings
+./configuration_analyzer.py --baseline security_baselines/container_baseline.json \
+  --target kubernetes-cluster --namespace production
 ```
 
 For programmatic use in Python:
@@ -102,7 +130,8 @@ def load_security_baseline(system_type):
 
     Args:
         system_type (str): The type of system baseline to load
-                          ('linux_server', 'web_server', 'database', 'cloud_service')
+                          ('linux_server', 'web_server', 'database', 'cloud_service',
+                           'container', 'network_appliance')
 
     Returns:
         dict: The security baseline configuration
@@ -203,6 +232,18 @@ When customizing security baselines:
    - Include example commands where appropriate
    - Document potential operational impacts of remediation
 
+5. **Define Control Dependencies**
+   - Identify dependencies between controls
+   - Group related controls logically
+   - Document control implementation order when critical
+   - Address control conflicts proactively
+
+6. **Establish Severity Rankings**
+   - Use consistent severity classifications
+   - Base severity on security impact analysis
+   - Consider both likelihood and impact
+   - Align with organizational risk framework
+
 ## Best Practices & Security
 
 - **Control Categorization**: Group controls by security domain or function
@@ -215,6 +256,8 @@ When customizing security baselines:
 - **Standard References**: Maintain references to source security standards
 - **Technical Validation**: Include technical validation methods for automated verification
 - **Version Control**: Track baseline versions and changes in source control
+- **Validation Testing**: Test baseline validations in isolated environments before deployment
+- **Schema Validation**: Validate all baseline files against the defined JSON schema
 
 ## Common Features
 
@@ -230,6 +273,9 @@ All security baselines share these common elements:
 - **System Applicability**: Clear definition of applicable systems
 - **Technical Details**: Specific configuration parameters and settings
 - **Validation Methods**: Commands or procedures to verify compliance
+- **Control Dependencies**: Relationships between different security controls
+- **Compensating Controls**: Alternative measures when primary controls cannot be implemented
+- **Implementation Timeline**: Guidance on implementation prioritization
 
 ## Related Documentation
 
