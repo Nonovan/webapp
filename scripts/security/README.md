@@ -1,12 +1,34 @@
 # Security Scripts
 
-This directory contains security-related scripts for the Cloud Infrastructure Platform.
+This directory contains security-related scripts for the Cloud Infrastructure Platform, providing essential security controls, monitoring, and management capabilities.
+
+## Contents
+
+- [Overview](#overview)
+- [Key Scripts](#key-scripts)
+- [Directory Structure](#directory-structure)
+- [Best Practices & Security](#best-practices--security)
+- [Common Features](#common-features)
+- [Usage](#usage)
+- [Integration](#integration)
+- [Emergency Response](#emergency-response)
+- [Compliance](#compliance)
+- [Version History](#version-history)
 
 ## Overview
 
-These scripts provide essential security controls, monitoring, and management capabilities for the platform. They are designed to enforce security best practices, identify vulnerabilities, and support compliance requirements across development, staging, and production environments.
+These scripts provide comprehensive security functionality for enforcing security best practices, identifying vulnerabilities, and supporting compliance requirements across development, staging, and production environments. They form the foundation of the platform's security automation framework and integrate with the monitoring, alerting, and documentation systems.
 
 ## Key Scripts
+
+- **`access_review.sh`**: Performs periodic reviews of user access rights, roles, and permissions.
+  - **Usage**: Run this script to audit user access against defined policies.
+  - **Features**:
+    - Dormant account identification
+    - Privilege escalation detection
+    - Role-based access verification
+    - Multi-factor authentication compliance
+    - Automated remediation capabilities
 
 - **`apply_security_updates.sh`**: Safely applies security updates with rollback capabilities.
   - **Usage**: Run this script to apply security patches with verification steps.
@@ -102,18 +124,26 @@ These scripts provide essential security controls, monitoring, and management ca
 
 ```plaintext
 scripts/security/
-├── apply_security_updates.sh    # Security update application with rollback capability
+├── access_review.sh           # User access rights and permissions review
+├── apply_security_updates.sh  # Security update application with rollback capability
 ├── check_certificate_expiration.sh # SSL/TLS certificate expiration monitoring
-├── check_permissions.sh         # File and directory permission verification
-├── firewall_check.sh            # Firewall configuration validation
-├── generate_security_keys.py    # Cryptographic key generation utility
-├── list_users.sh                # User account security analysis
-├── log_analyzer.py              # Security log analysis tool
-├── README.md                    # This documentation
-├── security_audit.py            # Comprehensive security audit tool
-├── ssl-setup.sh                 # SSL/TLS certificate configuration
-├── verify_files.py              # File integrity verification
-└── audit/                       # Audit-specific modules and templates
+├── check_permissions.sh       # File and directory permission verification
+├── firewall_check.sh          # Firewall configuration validation
+├── generate_security_keys.py  # Cryptographic key generation utility
+├── list_users.sh              # User account security analysis
+├── log_analyzer.py            # Security log analysis tool
+├── README.md                  # This documentation
+├── security_audit.py          # Comprehensive security audit tool
+├── ssl-setup.sh               # SSL/TLS certificate configuration
+├── verify_files.py            # File integrity verification
+├── audit/                     # Audit-specific modules and templates
+│   ├── baseline/              # Security baseline configurations
+│   ├── checkers/              # Individual audit check implementations
+│   └── templates/             # Report templates
+└── common/                    # Shared security script utilities
+    ├── logging.sh             # Standardized logging functionality
+    ├── notification.sh        # Alert and notification utilities
+    └── validation.sh          # Input validation functions
 ```
 
 ## Best Practices & Security
@@ -127,6 +157,8 @@ scripts/security/
 - Never hardcode API keys or passwords in these scripts
 - Test scripts in development environments before running in production
 - Keep all security tools updated to address new threats
+- Use the principle of least privilege when granting script execution permissions
+- Implement proper error handling to prevent information leakage
 
 ## Common Features
 
@@ -139,8 +171,23 @@ scripts/security/
 - Clean help and usage documentation
 - Verbose and quiet operation modes
 - Secure handling of credentials and sensitive data
+- Consistent command-line interface patterns
+- Support for dry run modes for validation
 
 ## Usage
+
+### Access Management
+
+```bash
+# Review user access rights against policy
+./access_review.sh --scope all --inactive-days 90 --report-format json
+
+# List users with specific privileges
+./list_users.sh --group admin --last-login 30 --mfa-status
+
+# Check permissions on sensitive files
+./check_permissions.sh --target /etc/cloud-platform --fix --verbose
+```
 
 ### Security Auditing
 
@@ -171,9 +218,6 @@ scripts/security/
 ### Security Monitoring
 
 ```bash
-# List privileged users
-./list_users.sh --admins-only
-
 # Check firewall rules
 ./firewall_check.sh --compare-policy
 
@@ -192,6 +236,8 @@ These scripts integrate with other platform components:
 - **Alerting**: Critical findings trigger security alerts
 - **Documentation**: Results can be used to update security documentation
 - **CI/CD**: Some scripts can be integrated into the CI/CD pipeline
+- **Compliance**: Findings support regulatory compliance reporting
+- **Incident Response**: Scripts provide evidence for security incidents
 
 ## Emergency Response
 
@@ -212,6 +258,8 @@ These scripts help maintain compliance with:
 - NIST Cybersecurity Framework
 - PCI DSS (where applicable)
 - HIPAA (where applicable)
+- CIS Benchmarks
+- OWASP Security Standards
 
 ## Version History
 
@@ -221,3 +269,4 @@ These scripts help maintain compliance with:
 | 1.1 | 2023-10-22 | Added WAF validation | DevOps Team |
 | 1.2 | 2023-12-15 | Updated compliance requirements | Compliance Manager |
 | 2.0 | 2024-03-10 | Major update with enhanced auditing | Security Architect |
+| 2.1 | 2024-07-05 | Added access review capabilities | Security Team |

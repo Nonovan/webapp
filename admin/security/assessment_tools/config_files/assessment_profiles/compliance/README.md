@@ -110,7 +110,6 @@ access_control_auditor.py --base-profile development.json --compliance-profile n
 For programmatic use in Python, a helper function can load and merge profiles (see [`../README.md`](../README.md) for an example `load_assessment_profile` function):
 
 ```python
-# filepath: admin/security/assessment_tools/core_assessment_tools/example_script.py
 # ...existing code...
 from config_loader import load_assessment_profile # Assuming a utility function exists
 
@@ -146,7 +145,6 @@ Example snippet from `pci-dss.json`:
     "name": "PCI DSS v3.2.1 Compliance Profile",
     "standard": "PCI DSS",
     "standard_version": "3.2.1",
-    // ... other metadata ...
   },
   "assessment": {
     "scope": {
@@ -164,35 +162,27 @@ Example snippet from `pci-dss.json`:
       "evidence_required": ["firewall_rulesets", "network_diagrams", /* ... */]
     },
     "requirement_2": {
-      // ... definition for Req 2 ...
     }
-    // ... other requirements ...
   },
   "finding_classification": {
     "critical": {
       "compliance_impact": "direct_violation_high_risk",
       "remediation_sla_days": 7,
-      // ... other classification details ...
     },
     "high": {
-      // ... definition for high severity ...
     }
-    // ... other severities ...
   },
   "assessment_controls": {
       "authentication": {
           "password_policy": { "min_length": 7, /* ... */ },
           "mfa": { "required": true, /* ... */ }
       },
-      // ... other controls ...
   },
   "testing_requirements": {
       "internal_vulnerability_scan": { "frequency_months": 3, /* ... */ },
-      // ... other testing requirements ...
   },
   "attestation_requirements": {
       "policy_review": { "frequency_months": 12, /* ... */ },
-      // ... other attestation requirements ...
   }
 }
 ```

@@ -229,17 +229,25 @@ opentelemetry-sdk==1.22.0  # OpenTelemetry SDK
 opentelemetry-exporter-otlp==1.22.0  # OpenTelemetry exporters
 
 # File integrity and security
-#ssdeep==3.4          # Fuzzy hashing for file similarity detection
-#pyinotify==0.9.6     # File system monitoring (Linux)
-watchdog==3.0.0      # Cross-platform file system monitoring (already included)
-#yara-python==4.3.1   # Pattern matching for malware detection
-xxhash==3.3.0        # Fast hashing algorithm for file integrity
+acefile==0.6.13      # ACE archive format support for file analysis
+checksumdir==1.2.0   # Directory checksum calculation
 python-magic==0.4.27 # File type detection
+xxhash==3.3.0        # Fast hashing algorithm for file integrity
+watchdog==3.0.0      # Cross-platform file system monitoring (already included)
+#ssdeep==3.4          # Fuzzy hashing for file similarity detection
+#pyfsnotify==0.3.0    # Cross-platform file system notification library
+#pyinotify==0.9.6     # File system monitoring (Linux)
+#yara-python==4.3.1   # Pattern matching for malware detection
 
 # Security metrics and validation
 croniter==1.4.1      # Cron expression parser for scheduled scans
+nassl==5.3.0         # TLS/SSL scanning capabilities
+oscrypto==1.3.0      # Cryptographic primitives using OS-level libraries
 schema==0.7.5        # Data validation for security configurations
+trustme==0.9.0       # Test TLS certificate handling (development only)
 validators==0.22.0   # Input validation utilities
+#pyhmac==0.2.1        # HMAC functionality for integrity verification
+#pytrust==0.7.2       # Certificate chain validation utilities
 
-tabulate
-pyyaml
+jsonschema
+pyYAML
