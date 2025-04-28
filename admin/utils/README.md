@@ -175,23 +175,25 @@ with secure_credential("encryption_key") as key:
 ### Error Handling
 
 ```python
-from admin.utils.error_handling import handle_error
+from admin.utils.error_handling import handle_admin_error
 
 try:
     # Perform some operation
     perform_operation()
 except Exception as e:
-    handle_error(e, context="Operation failed")
+    handle_admin_error(e, context="Configuration update", log_audit=True)
 ```
 
 ### Metrics Collection
 
 ```python
-from admin.utils.metrics_utils import collect_metrics
+from admin.utils.metrics_utils import track_operation
 
-# Collect resource usage metrics
-metrics = collect_metrics()
-print(metrics)
+# Track resource usage and execution time of a function
+@track_operation("database_backup", "maintenance")
+def perform_database_backup():
+    # Function will be automatically timed and resource usage tracked
+    run_backup_process()
 ```
 
 ## Best Practices & Security
