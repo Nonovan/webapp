@@ -1,0 +1,338 @@
+{
+    "metadata": {
+        "name": "CCPA Compliance Profile",
+        "version": "1.0.0",
+        "description": "Security assessment profile for California Consumer Privacy Act (CCPA) compliance",
+        "standard": "CCPA",
+        "standard_version": "As amended by CPRA",
+        "last_updated": "2024-07-31",
+        "author": "Security Compliance Team"
+    },
+    "assessment": {
+        "scope": {
+            "include": [
+                "personal_information_processing",
+                "data_subject_rights_management",
+                "data_inventory_and_mapping",
+                "consent_and_preference_management",
+                "third_party_data_sharing",
+                "security_procedures_for_pi"
+            ],
+            "exclude": [
+                "non_personal_information_systems",
+                "employee_data_handling_internal_hr"
+            ]
+        },
+        "depth": "focused",
+        "evidence_collection": true,
+        "evidence_requirements": [
+            "privacy_policy",
+            "data_inventory_and_mapping_records",
+            "data_subject_request_logs_and_procedures",
+            "opt_out_mechanism_and_logs",
+            "security_procedures_documentation",
+            "data_processing_agreements_with_service_providers",
+            "training_records_on_ccpa"
+        ],
+        "report_format": "ccpa_compliance",
+        "requires_documentation": true
+    },
+    "compliance_mapping": {
+        "notice_and_transparency": {
+            "title": "Notice at Collection & Privacy Policy (§ 1798.100, 1798.130)",
+            "controls": [
+                "privacy_policy_accessibility",
+                "privacy_policy_content_review",
+                "notice_at_collection_verification"
+            ],
+            "verification_methods": [
+                "documentation_review",
+                "website_review"
+            ],
+            "evidence_required": [
+                "current_privacy_policy_url",
+                "privacy_policy_version_history",
+                "screenshots_of_notice_at_collection"
+            ]
+        },
+        "right_to_know": {
+            "title": "Right to Know/Access (§ 1798.100, 1798.110, 1798.115)",
+            "controls": [
+                "data_inventory_accuracy",
+                "data_mapping_for_pi",
+                "access_request_intake_process",
+                "identity_verification_procedure",
+                "data_retrieval_and_delivery_process"
+            ],
+            "verification_methods": [
+                "process_validation",
+                "documentation_review",
+                "data_sampling",
+                "system_testing"
+            ],
+            "evidence_required": [
+                "data_inventory_report",
+                "data_flow_diagrams_for_pi",
+                "access_request_procedure_documentation",
+                "sample_access_request_logs",
+                "identity_verification_methods"
+            ]
+        },
+        "right_to_delete": {
+            "title": "Right to Delete (§ 1798.105)",
+            "controls": [
+                "deletion_request_intake_process",
+                "identity_verification_procedure",
+                "data_deletion_execution_process",
+                "deletion_logging_and_confirmation",
+                "exception_handling_for_deletion"
+            ],
+            "verification_methods": [
+                "process_validation",
+                "documentation_review",
+                "log_review",
+                "system_testing"
+            ],
+            "evidence_required": [
+                "deletion_request_procedure_documentation",
+                "sample_deletion_request_logs",
+                "data_retention_policy_showing_exceptions",
+                "confirmation_of_deletion_template"
+            ]
+        },
+        "right_to_opt_out": {
+            "title": "Right to Opt-Out of Sale/Sharing (§ 1798.120, 1798.135)",
+            "controls": [
+                "opt_out_mechanism_presence_and_functionality",
+                "opt_out_request_processing",
+                "third_party_notification_process_for_opt_outs",
+                "opt_out_preference_storage_and_respect"
+            ],
+            "verification_methods": [
+                "website_review",
+                "process_validation",
+                "system_testing",
+                "documentation_review"
+            ],
+            "evidence_required": [
+                "screenshot_of_do_not_sell_link",
+                "opt_out_procedure_documentation",
+                "sample_opt_out_logs",
+                "third_party_data_sharing_agreements"
+            ]
+        },
+        "right_to_correct": {
+            "title": "Right to Correct Inaccurate Personal Information (§ 1798.106)",
+            "controls": [
+                "correction_request_intake_process",
+                "identity_verification_procedure",
+                "data_correction_execution_process",
+                "correction_logging_and_confirmation"
+            ],
+            "verification_methods": [
+                "process_validation",
+                "documentation_review",
+                "log_review"
+            ],
+            "evidence_required": [
+                "correction_request_procedure",
+                "sample_correction_request_logs",
+                "identity_verification_methods"
+            ]
+        },
+        "right_to_limit_use": {
+            "title": "Right to Limit Use and Disclosure of Sensitive Personal Information (§ 1798.121)",
+            "controls": [
+                "limit_use_request_mechanism",
+                "sensitive_pi_identification_and_tagging",
+                "use_limitation_enforcement_process"
+            ],
+            "verification_methods": [
+                "website_review",
+                "process_validation",
+                "data_sampling",
+                "configuration_review"
+            ],
+            "evidence_required": [
+                "screenshot_of_limit_use_link",
+                "sensitive_pi_inventory",
+                "procedure_for_limiting_use"
+            ]
+        },
+        "security_procedures": {
+            "title": "Reasonable Security Procedures and Practices (§ 1798.150)",
+            "controls": [
+                "access_control_for_pi",
+                "encryption_of_pi_at_rest_and_in_transit",
+                "vulnerability_management_program",
+                "incident_response_plan_for_pi_breaches",
+                "data_minimization_practices",
+                "secure_disposal_of_pi"
+            ],
+            "verification_methods": [
+                "configuration_review",
+                "documentation_review",
+                "system_testing",
+                "scan_report_review",
+                "process_validation"
+            ],
+            "evidence_required": [
+                "access_control_policy_and_logs",
+                "encryption_configurations",
+                "vulnerability_scan_reports",
+                "incident_response_plan",
+                "data_retention_and_disposal_policy"
+            ]
+        },
+        "service_provider_contracts": {
+            "title": "Contracts with Service Providers/Contractors (§ 1798.100(d), 1798.140)",
+            "controls": [
+                "contract_review_for_ccpa_clauses",
+                "service_provider_due_diligence"
+            ],
+            "verification_methods": [
+                "documentation_review",
+                "contract_review"
+            ],
+            "evidence_required": [
+                "sample_data_processing_agreements",
+                "vendor_assessment_records"
+            ]
+        }
+    },
+    "finding_classification": {
+        "critical": {
+            "compliance_impact": "direct_violation_high_risk",
+            "description": "Direct violation of CCPA requirement posing significant risk to consumer privacy rights or data security.",
+            "remediation_sla_days": 15,
+            "requires_compensating_control": false,
+            "example": "Failure to provide opt-out mechanism, lack of reasonable security leading to breach."
+        },
+        "high": {
+            "compliance_impact": "direct_violation_medium_risk",
+            "description": "Direct violation of CCPA requirement with moderate risk.",
+            "remediation_sla_days": 30,
+            "requires_compensating_control": true,
+            "example": "Failure to respond to access/deletion requests within timeframe, inaccurate privacy notice."
+        },
+        "medium": {
+            "compliance_impact": "process_gap_or_partial_compliance",
+            "description": "Weakness in process or partial fulfillment of a requirement.",
+            "remediation_sla_days": 60,
+            "requires_compensating_control": true,
+            "example": "Inconsistent handling of requests, incomplete data inventory."
+        },
+        "low": {
+            "compliance_impact": "documentation_or_minor_issue",
+            "description": "Minor deviation or documentation issue.",
+            "remediation_sla_days": 90,
+            "requires_compensating_control": false,
+            "example": "Slightly outdated policy wording, minor gaps in training records."
+        }
+    },
+    "remediation_requirements": {
+        "critical": {
+            "approval_required": [
+                "ciso",
+                "legal_counsel",
+                "privacy_officer"
+            ],
+            "documentation": [
+                "root_cause_analysis",
+                "remediation_plan",
+                "validation_testing"
+            ],
+            "validation_method": "independent_verification"
+        },
+        "high": {
+            "approval_required": [
+                "privacy_officer",
+                "security_manager"
+            ],
+            "documentation": [
+                "remediation_plan",
+                "implementation_evidence"
+            ],
+            "validation_method": "internal_review"
+        },
+        "medium": {
+            "approval_required": [
+                "team_lead",
+                "process_owner"
+            ],
+            "documentation": [
+                "action_plan"
+            ],
+            "validation_method": "self_attestation_with_evidence"
+        },
+        "low": {
+            "approval_required": [
+                "individual_responsible"
+            ],
+            "documentation": [
+                "update_confirmation"
+            ],
+            "validation_method": "self_attestation"
+        }
+    },
+    "assessment_controls": {
+        "data_handling": {
+            "data_minimization": true,
+            "purpose_limitation": true,
+            "retention_policy_enforced": true
+        },
+        "access_control": {
+            "least_privilege_for_pi": true,
+            "access_review_frequency_pi_days": 90
+        },
+        "encryption": {
+            "pi_at_rest_required": true,
+            "pi_in_transit_required": true,
+            "approved_algorithms": [
+                "AES-256"
+            ]
+        },
+        "logging": {
+            "dsr_activity_logging": true,
+            "pi_access_logging": true,
+            "retention_period_days": 365
+        }
+    },
+    "testing_requirements": {
+        "dsr_process_testing": {
+            "frequency_months": 6,
+            "scope": [
+                "access",
+                "deletion",
+                "opt_out",
+                "correction",
+                "limit_use"
+            ],
+            "methodology": [
+                "simulated_requests",
+                "process_walkthrough"
+            ]
+        },
+        "security_controls_for_pi": {
+            "frequency_months": 12,
+            "scope": "systems_processing_pi"
+        }
+    },
+    "attestation_requirements": {
+        "privacy_policy_review": {
+            "frequency_months": 12,
+            "approval_required": [
+                "legal_counsel",
+                "privacy_officer"
+            ]
+        },
+        "data_inventory_review": {
+            "frequency_months": 12,
+            "documentation_required": true
+        },
+        "security_procedures_review": {
+            "frequency_months": 12,
+            "documentation_required": true
+        }
+    }
+}

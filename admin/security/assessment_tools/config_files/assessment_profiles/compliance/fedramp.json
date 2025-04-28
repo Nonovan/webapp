@@ -1,0 +1,358 @@
+{
+    "metadata": {
+        "name": "FedRAMP Moderate Compliance Profile",
+        "version": "1.0.0",
+        "description": "Security assessment profile for FedRAMP Moderate baseline compliance",
+        "standard": "FedRAMP",
+        "standard_version": "Rev 5 (Based on NIST SP 800-53 Rev 5)",
+        "baseline": "Moderate",
+        "last_updated": "2024-07-31",
+        "author": "Security Compliance Team"
+    },
+    "assessment": {
+        "scope": {
+            "include": [
+                "system_boundary_components",
+                "access_control_mechanisms",
+                "audit_and_accountability_systems",
+                "configuration_management_processes",
+                "contingency_planning_elements",
+                "identification_and_authentication_systems",
+                "incident_response_capabilities",
+                "system_and_information_integrity_controls",
+                "physical_and_environmental_protection_relevant_to_cloud",
+                "system_and_communications_protection"
+            ],
+            "exclude": [
+                "corporate_systems_outside_boundary",
+                "systems_not_processing_federal_data"
+            ]
+        },
+        "depth": "comprehensive",
+        "evidence_collection": true,
+        "evidence_requirements": [
+            "System Security Plan (SSP)",
+            "Security Assessment Plan (SAP)",
+            "Security Assessment Report (SAR)",
+            "Plan of Action and Milestones (POA&M)",
+            "Configuration Management Plan",
+            "Contingency Plan",
+            "Incident Response Plan",
+            "Continuous Monitoring Strategy",
+            "Access Control Policies and Procedures",
+            "Audit Logs",
+            "Vulnerability Scan Reports",
+            "Penetration Test Reports"
+        ],
+        "report_format": "fedramp_sar",
+        "requires_documentation": true
+    },
+    "compliance_mapping": {
+        "AC_Access_Control": {
+            "title": "AC - Access Control",
+            "controls": [
+                "AC-2_Account_Management",
+                "AC-3_Access_Enforcement",
+                "AC-6_Least_Privilege",
+                "AC-7_Unsuccessful_Logon_Attempts",
+                "AC-11_Session_Lock",
+                "AC-17_Remote_Access"
+            ],
+            "verification_methods": [
+                "documentation_review",
+                "configuration_review",
+                "system_testing",
+                "interview"
+            ],
+            "evidence_required": [
+                "Access Control Policy",
+                "SSP sections on AC",
+                "User account lists",
+                "Role definitions",
+                "System configurations (e.g., lockout settings, session timeout)",
+                "Remote access logs"
+            ]
+        },
+        "AU_Audit_and_Accountability": {
+            "title": "AU - Audit and Accountability",
+            "controls": [
+                "AU-2_Event_Logging",
+                "AU-3_Content_of_Audit_Records",
+                "AU-4_Audit_Log_Storage_Capacity",
+                "AU-5_Response_to_Audit_Processing_Failures",
+                "AU-6_Audit_Record_Review_Analysis_and_Reporting",
+                "AU-9_Protection_of_Audit_Information",
+                "AU-11_Audit_Record_Retention"
+            ],
+            "verification_methods": [
+                "configuration_review",
+                "log_review",
+                "documentation_review",
+                "system_testing"
+            ],
+            "evidence_required": [
+                "Audit and Accountability Policy",
+                "SSP sections on AU",
+                "Logging configurations",
+                "Audit log samples",
+                "Log review procedures and records",
+                "SIEM configurations"
+            ]
+        },
+        "IR_Incident_Response": {
+            "title": "IR - Incident Response",
+            "controls": [
+                "IR-1_Incident_Response_Policy_and_Procedures",
+                "IR-4_Incident_Handling",
+                "IR-5_Incident_Monitoring",
+                "IR-6_Incident_Reporting",
+                "IR-8_Incident_Response_Plan"
+            ],
+            "verification_methods": [
+                "documentation_review",
+                "process_validation",
+                "interview",
+                "test_results_review"
+            ],
+            "evidence_required": [
+                "Incident Response Policy and Plan",
+                "SSP sections on IR",
+                "Incident reports",
+                "Incident response test results",
+                "US-CERT reporting confirmation"
+            ]
+        },
+        "SI_System_and_Information_Integrity": {
+            "title": "SI - System and Information Integrity",
+            "controls": [
+                "SI-2_Flaw_Remediation",
+                "SI-3_Malicious_Code_Protection",
+                "SI-4_System_Monitoring",
+                "SI-7_Software_Firmware_and_Information_Integrity",
+                "SI-10_Information_Input_Validation"
+            ],
+            "verification_methods": [
+                "configuration_review",
+                "scan_report_review",
+                "documentation_review",
+                "system_testing",
+                "process_validation"
+            ],
+            "evidence_required": [
+                "System and Information Integrity Policy",
+                "SSP sections on SI",
+                "Vulnerability scan reports",
+                "Patch management records",
+                "Antivirus/Antimalware configurations and logs",
+                "File integrity monitoring configurations and logs",
+                "System monitoring tool configurations"
+            ]
+        }
+    },
+    "finding_classification": {
+        "high": {
+            "compliance_impact": "high_risk",
+            "description": "Weakness that could lead to significant mission/business impact, loss of confidentiality, integrity, or availability.",
+            "remediation_sla_days": 30,
+            "requires_compensating_control": false,
+            "example": "Lack of MFA for privileged access, critical vulnerabilities unpatched, inadequate boundary protection."
+        },
+        "moderate": {
+            "compliance_impact": "moderate_risk",
+            "description": "Weakness that could lead to noticeable mission/business impact.",
+            "remediation_sla_days": 90,
+            "requires_compensating_control": true,
+            "example": "Inconsistent log reviews, incomplete contingency plan testing, delayed patching for high vulnerabilities."
+        },
+        "low": {
+            "compliance_impact": "low_risk",
+            "description": "Weakness with limited potential impact.",
+            "remediation_sla_days": 180,
+            "requires_compensating_control": false,
+            "example": "Minor documentation errors, configuration drift from non-critical baseline settings."
+        },
+        "informational": {
+            "compliance_impact": "informational",
+            "description": "Observation or recommendation for improvement, not a direct control failure.",
+            "remediation_sla_days": null,
+            "requires_compensating_control": false,
+            "example": "Opportunity to optimize a process, suggestion for enhanced monitoring."
+        }
+    },
+    "remediation_requirements": {
+        "high": {
+            "approval_required": [
+                "Authorizing Official (AO)",
+                "Information System Security Officer (ISSO)"
+            ],
+            "documentation": [
+                "POA&M Entry",
+                "Root Cause Analysis",
+                "Detailed Remediation Plan",
+                "Validation Testing Results (by 3PAO or AO designated)"
+            ],
+            "validation_method": "independent_verification_or_ao_validation"
+        },
+        "moderate": {
+            "approval_required": [
+                "ISSO",
+                "System Owner"
+            ],
+            "documentation": [
+                "POA&M Entry",
+                "Remediation Plan",
+                "Implementation Evidence",
+                "Internal Validation Results"
+            ],
+            "validation_method": "isso_verification_or_internal_audit"
+        },
+        "low": {
+            "approval_required": [
+                "System Owner"
+            ],
+            "documentation": [
+                "POA&M Entry (or tracked internally)",
+                "Action Plan",
+                "Confirmation of Completion"
+            ],
+            "validation_method": "self_attestation_with_evidence"
+        },
+        "informational": {
+            "approval_required": [],
+            "documentation": [
+                "Consideration documented (optional)"
+            ],
+            "validation_method": "n/a"
+        }
+    },
+    "assessment_controls": {
+        "authentication": {
+            "password_policy": {
+                "min_length": 15,
+                "complexity_requirements": [],
+                "history_count": 24,
+                "max_age_days": 60
+            },
+            "mfa": {
+                "required": true,
+                "approved_methods": [
+                    "app",
+                    "hardware_token",
+                    "smart_card_piv_cac"
+                ],
+                "required_for": [
+                    "remote_network_access",
+                    "privileged_access",
+                    "access_to_security_functions"
+                ]
+            },
+            "account_lockout": {
+                "threshold": 5,
+                "duration_minutes": 30
+            }
+        },
+        "encryption": {
+            "data_at_rest": {
+                "required": true,
+                "algorithms": [
+                    "AES-256"
+                ],
+                "key_management": "documented_process_compliant_with_fips_140"
+            },
+            "data_in_transit": {
+                "required": true,
+                "protocols": [
+                    "TLS 1.2",
+                    "TLS 1.3"
+                ],
+                "prohibited_protocols": [
+                    "SSLv2",
+                    "SSLv3",
+                    "TLS 1.0",
+                    "TLS 1.1"
+                ]
+            }
+        },
+        "audit_logging": {
+            "required_events": [
+                "logon_attempts",
+                "logoff",
+                "account_changes",
+                "privilege_use",
+                "object_access",
+                "policy_changes",
+                "system_startup_shutdown",
+                "security_alerts"
+            ],
+            "retention_period_days": 365,
+            "protected_integrity": true,
+            "review_frequency_days": 7
+        },
+        "vulnerability_management": {
+            "scan_frequency_days": 30,
+            "patch_critical_sla_days": null,
+            "patch_high_sla_days": 30,
+            "patch_moderate_sla_days": 90,
+            "patch_low_sla_days": 180
+        },
+        "access_control": {
+            "principle_of_least_privilege": true,
+            "role_based_access": true,
+            "access_review_frequency_days": 180,
+            "separation_of_duties": true
+        }
+    },
+    "testing_requirements": {
+        "annual_security_assessment": {
+            "frequency_months": 12,
+            "scope": "subset_of_moderate_baseline_controls",
+            "methodology": "3pao_assessment_per_fedramp_guidance"
+        },
+        "penetration_testing": {
+            "frequency_months": 12,
+            "scope": "system_boundary_and_key_interfaces",
+            "methodology": "fedramp_penetration_test_guidance"
+        },
+        "contingency_plan_testing": {
+            "frequency_months": 12,
+            "scope": "system_recovery_and_reconstitution",
+            "methodology": [
+                "tabletop_exercise",
+                "functional_exercise"
+            ]
+        },
+        "continuous_monitoring": {
+            "vulnerability_scanning_os_db_web": "monthly",
+            "configuration_scanning": "monthly",
+            "log_review": "weekly_or_automated_realtime"
+        }
+    },
+    "attestation_requirements": {
+        "ssp_review_update": {
+            "frequency_months": 12,
+            "approval_required": [
+                "ISSO",
+                "System Owner",
+                "AO"
+            ]
+        },
+        "contingency_plan_review_update": {
+            "frequency_months": 12,
+            "approval_required": [
+                "ISSO",
+                "System Owner"
+            ]
+        },
+        "incident_response_plan_review_update": {
+            "frequency_months": 12,
+            "approval_required": [
+                "ISSO",
+                "System Owner"
+            ]
+        },
+        "poam_review": {
+            "frequency_months": 1,
+            "documentation_required": true
+        }
+    }
+}

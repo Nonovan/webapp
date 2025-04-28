@@ -1,0 +1,479 @@
+{
+    "metadata": {
+        "name": "PCI DSS v3.2.1 Compliance Profile",
+        "version": "1.0.0",
+        "description": "Security assessment profile for PCI DSS v3.2.1 compliance",
+        "standard": "PCI DSS",
+        "standard_version": "3.2.1",
+        "last_updated": "2024-02-20",
+        "author": "Security Compliance Team"
+    },
+    "assessment": {
+        "scope": {
+            "include": [
+                "cardholder_data_environment_cde",
+                "systems_connected_to_cde",
+                "network_security",
+                "access_control",
+                "vulnerability_management",
+                "data_protection",
+                "logging_and_monitoring"
+            ],
+            "exclude": [
+                "systems_fully_segmented_from_cde",
+                "non_payment_processing_systems"
+            ]
+        },
+        "depth": "comprehensive",
+        "evidence_collection": true,
+        "evidence_requirements": [
+            "network_diagrams_showing_cde",
+            "firewall_configurations",
+            "system_hardening_standards",
+            "data_flow_diagrams_for_chd",
+            "encryption_configurations",
+            "antivirus_scan_logs",
+            "vulnerability_scan_reports",
+            "penetration_test_reports",
+            "access_control_lists_and_logs",
+            "audit_logs",
+            "security_policies_and_procedures",
+            "incident_response_plan_and_test_results"
+        ],
+        "report_format": "pci_dss_roc",
+        "requires_documentation": true
+    },
+    "compliance_mapping": {
+        "requirement_1": {
+            "title": "Req 1: Install and maintain a firewall configuration to protect cardholder data",
+            "controls": [
+                "firewall_rule_review",
+                "network_segmentation_verification",
+                "network_diagram_accuracy",
+                "firewall_change_control_process",
+                "router_configuration_hardening"
+            ],
+            "verification_methods": [
+                "configuration_review",
+                "documentation_review",
+                "network_testing"
+            ],
+            "evidence_required": [
+                "firewall_rulesets",
+                "network_diagrams",
+                "change_management_records_for_firewalls"
+            ]
+        },
+        "requirement_2": {
+            "title": "Req 2: Do not use vendor-supplied defaults for system passwords and other security parameters",
+            "controls": [
+                "system_hardening_standards_verification",
+                "default_password_change_verification",
+                "unnecessary_services_disabled_check",
+                "secure_configuration_for_non_console_access"
+            ],
+            "verification_methods": [
+                "configuration_review",
+                "documentation_review",
+                "system_testing"
+            ],
+            "evidence_required": [
+                "hardening_standards_documentation",
+                "system_configuration_files",
+                "vulnerability_scan_results_for_defaults"
+            ]
+        },
+        "requirement_3": {
+            "title": "Req 3: Protect stored cardholder data",
+            "controls": [
+                "data_retention_policy_verification",
+                "sensitive_authentication_data_sad_protection",
+                "pan_masking_verification",
+                "pan_encryption_or_tokenization_verification",
+                "cryptographic_key_management_process"
+            ],
+            "verification_methods": [
+                "documentation_review",
+                "data_sampling",
+                "configuration_review",
+                "process_validation"
+            ],
+            "evidence_required": [
+                "data_retention_policy",
+                "encryption_configurations",
+                "key_management_procedures",
+                "data_flow_diagrams"
+            ]
+        },
+        "requirement_4": {
+            "title": "Req 4: Encrypt transmission of cardholder data across open, public networks",
+            "controls": [
+                "strong_cryptography_for_transmission_verification",
+                "pan_transmission_security_over_wireless",
+                "secure_protocols_usage_tls_ssh"
+            ],
+            "verification_methods": [
+                "configuration_review",
+                "network_testing",
+                "documentation_review"
+            ],
+            "evidence_required": [
+                "tls_ssl_configurations",
+                "wireless_network_security_settings",
+                "data_transfer_procedures"
+            ]
+        },
+        "requirement_5": {
+            "title": "Req 5: Protect all systems against malware and regularly update anti-virus software or programs",
+            "controls": [
+                "antivirus_deployment_verification",
+                "antivirus_configuration_and_updates",
+                "periodic_scan_verification",
+                "malware_protection_for_high_risk_systems"
+            ],
+            "verification_methods": [
+                "configuration_review",
+                "log_review",
+                "system_testing"
+            ],
+            "evidence_required": [
+                "antivirus_policy",
+                "antivirus_management_console_screenshots",
+                "scan_logs"
+            ]
+        },
+        "requirement_6": {
+            "title": "Req 6: Develop and maintain secure systems and applications",
+            "controls": [
+                "vulnerability_management_process",
+                "security_patch_installation_timeliness",
+                "secure_software_development_practices",
+                "change_control_procedures_verification",
+                "web_application_firewall_deployment_if_applicable"
+            ],
+            "verification_methods": [
+                "documentation_review",
+                "process_validation",
+                "scan_report_review",
+                "code_review_samples"
+            ],
+            "evidence_required": [
+                "vulnerability_management_policy",
+                "patch_management_records",
+                "secure_coding_guidelines",
+                "change_management_logs",
+                "waf_configuration"
+            ]
+        },
+        "requirement_7": {
+            "title": "Req 7: Restrict access to cardholder data by business need to know",
+            "controls": [
+                "least_privilege_access_control",
+                "role_based_access_control_rbac_implementation",
+                "access_control_system_configuration"
+            ],
+            "verification_methods": [
+                "access_control_review",
+                "documentation_review",
+                "configuration_review"
+            ],
+            "evidence_required": [
+                "access_control_policy",
+                "role_definitions",
+                "access_control_lists"
+            ]
+        },
+        "requirement_8": {
+            "title": "Req 8: Identify and authenticate access to system components",
+            "controls": [
+                "unique_user_id_assignment",
+                "password_policy_enforcement",
+                "multi_factor_authentication_mfa_implementation",
+                "session_management_controls",
+                "service_account_management"
+            ],
+            "verification_methods": [
+                "configuration_review",
+                "system_testing",
+                "documentation_review",
+                "access_control_review"
+            ],
+            "evidence_required": [
+                "authentication_policy",
+                "password_complexity_settings",
+                "mfa_configuration",
+                "user_account_listings"
+            ]
+        },
+        "requirement_9": {
+            "title": "Req 9: Restrict physical access to cardholder data",
+            "controls": [
+                "physical_access_controls_for_cde",
+                "visitor_management_procedures",
+                "media_handling_and_destruction_procedures",
+                "device_security_pos_terminals"
+            ],
+            "verification_methods": [
+                "physical_inspection",
+                "documentation_review",
+                "log_review"
+            ],
+            "evidence_required": [
+                "physical_access_logs",
+                "media_destruction_records",
+                "facility_security_procedures"
+            ]
+        },
+        "requirement_10": {
+            "title": "Req 10: Track and monitor all access to network resources and cardholder data",
+            "controls": [
+                "audit_log_generation_for_all_components",
+                "log_protection_and_integrity_mechanisms",
+                "log_review_process",
+                "log_retention_policy_verification",
+                "time_synchronization_ntp_usage"
+            ],
+            "verification_methods": [
+                "log_review",
+                "configuration_review",
+                "documentation_review",
+                "process_validation"
+            ],
+            "evidence_required": [
+                "logging_policy",
+                "audit_log_samples",
+                "log_review_records",
+                "ntp_configuration"
+            ]
+        },
+        "requirement_11": {
+            "title": "Req 11: Regularly test security systems and processes",
+            "controls": [
+                "vulnerability_scanning_internal_external",
+                "penetration_testing_schedule_and_scope",
+                "intrusion_detection_prevention_system_ids_ips_testing",
+                "file_integrity_monitoring_fim_implementation",
+                "change_detection_mechanisms"
+            ],
+            "verification_methods": [
+                "scan_report_review",
+                "test_results_review",
+                "configuration_review",
+                "documentation_review"
+            ],
+            "evidence_required": [
+                "vulnerability_scan_reports_asv_internal",
+                "penetration_test_reports",
+                "ids_ips_logs_and_configurations",
+                "fim_reports"
+            ]
+        },
+        "requirement_12": {
+            "title": "Req 12: Maintain a policy that addresses information security for all personnel",
+            "controls": [
+                "information_security_policy_existence_and_review",
+                "risk_assessment_process",
+                "security_awareness_training_program",
+                "incident_response_plan_and_testing"
+            ],
+            "verification_methods": [
+                "documentation_review",
+                "training_verification",
+                "test_results_review",
+                "interview"
+            ],
+            "evidence_required": [
+                "information_security_policy",
+                "risk_assessment_reports",
+                "security_awareness_training_records",
+                "incident_response_plan_and_test_results"
+            ]
+        }
+    },
+    "finding_classification": {
+        "critical": {
+            "compliance_impact": "direct_violation_high_risk",
+            "description": "Direct violation of a PCI DSS requirement posing immediate risk to cardholder data.",
+            "remediation_sla_days": 7,
+            "requires_compensating_control": false,
+            "example": "Unencrypted PAN storage, weak firewall rules allowing direct internet access to CDE."
+        },
+        "high": {
+            "compliance_impact": "direct_violation_medium_risk",
+            "description": "Direct violation of a PCI DSS requirement, potential risk to cardholder data.",
+            "remediation_sla_days": 30,
+            "requires_compensating_control": true,
+            "example": "Missing critical patches, inadequate logging."
+        },
+        "medium": {
+            "compliance_impact": "indirect_violation_or_policy_gap",
+            "description": "Weakness that could contribute to a violation or gap in required policies/procedures.",
+            "remediation_sla_days": 60,
+            "requires_compensating_control": true,
+            "example": "Inconsistent application of password policy, incomplete documentation."
+        },
+        "low": {
+            "compliance_impact": "minor_deviation_or_documentation",
+            "description": "Minor deviation from best practice or documentation issue.",
+            "remediation_sla_days": 90,
+            "requires_compensating_control": false,
+            "example": "Outdated network diagram, minor policy wording issue."
+        }
+    },
+    "remediation_requirements": {
+        "critical": {
+            "approval_required": [
+                "qsa",
+                "ciso",
+                "executive_management"
+            ],
+            "documentation": [
+                "root_cause_analysis",
+                "remediation_plan",
+                "validation_testing_by_qsa"
+            ],
+            "validation_method": "qsa_verification"
+        },
+        "high": {
+            "approval_required": [
+                "security_manager",
+                "compliance_officer"
+            ],
+            "documentation": [
+                "remediation_plan",
+                "implementation_evidence",
+                "internal_validation"
+            ],
+            "validation_method": "internal_audit_verification"
+        },
+        "medium": {
+            "approval_required": [
+                "team_lead",
+                "process_owner"
+            ],
+            "documentation": [
+                "action_plan",
+                "implementation_evidence"
+            ],
+            "validation_method": "self_attestation_with_evidence"
+        },
+        "low": {
+            "approval_required": [
+                "individual_responsible"
+            ],
+            "documentation": [
+                "update_confirmation"
+            ],
+            "validation_method": "self_attestation"
+        }
+    },
+    "assessment_controls": {
+        "authentication": {
+            "password_policy": {
+                "min_length": 7,
+                "complexity_requirements": [
+                    "numbers",
+                    "letters"
+                ],
+                "history_count": 4,
+                "max_age_days": 90
+            },
+            "mfa": {
+                "required": true,
+                "required_for": [
+                    "remote_access_to_cde",
+                    "non_console_admin_access_to_cde"
+                ]
+            },
+            "account_lockout": {
+                "threshold": 6,
+                "duration_minutes": 30
+            }
+        },
+        "encryption": {
+            "data_at_rest": {
+                "required": true,
+                "algorithms": [
+                    "AES-128",
+                    "AES-256",
+                    "TDES"
+                ],
+                "key_management": "documented_process_split_knowledge_dual_control"
+            },
+            "data_in_transit": {
+                "required": true,
+                "protocols": [
+                    "TLS 1.1",
+                    "TLS 1.2",
+                    "TLS 1.3"
+                ],
+                "prohibited_protocols": [
+                    "SSL",
+                    "TLS 1.0"
+                ]
+            }
+        },
+        "audit_logging": {
+            "required_events": [
+                "user_access_to_chd",
+                "admin_actions_on_cde",
+                "authentication_attempts",
+                "log_tampering_attempts",
+                "system_component_startup_shutdown"
+            ],
+            "retention_period_days": 365,
+            "protected_integrity": true,
+            "review_frequency_days": 1
+        },
+        "vulnerability_management": {
+            "internal_scan_frequency_days": 90,
+            "external_scan_frequency_days": 90,
+            "patch_critical_sla_days": 30,
+            "patch_high_sla_days": 30
+        },
+        "network_security": {
+            "firewall_rule_review_frequency_months": 6,
+            "network_segmentation_required": true
+        },
+        "access_control": {
+            "access_review_frequency_months": 6
+        }
+    },
+    "testing_requirements": {
+        "internal_vulnerability_scan": {
+            "frequency_months": 3,
+            "scope": "all_cde_components_and_connected_systems"
+        },
+        "external_vulnerability_scan": {
+            "frequency_months": 3,
+            "scope": "all_external_ips_domains_for_cde",
+            "asv_required": true
+        },
+        "penetration_testing": {
+            "frequency_months": 12,
+            "scope": "cde_and_segmentation_controls",
+            "methodology": "pci_dss_guidance"
+        },
+        "segmentation_testing": {
+            "frequency_months": 6,
+            "frequency_months_merchants": 12
+        },
+        "wireless_scanning": {
+            "frequency_months": 3
+        }
+    },
+    "attestation_requirements": {
+        "policy_review": {
+            "frequency_months": 12,
+            "documentation_required": true
+        },
+        "risk_assessment": {
+            "frequency_months": 12,
+            "documentation_required": true
+        },
+        "incident_response_plan_test": {
+            "frequency_months": 12,
+            "documentation_required": true
+        }
+    }
+}

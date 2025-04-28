@@ -1,0 +1,642 @@
+{
+    "metadata": {
+        "name": "NIST Cybersecurity Framework (CSF) v1.1 Compliance Profile",
+        "version": "1.0.0",
+        "description": "Security assessment profile aligned with the NIST Cybersecurity Framework v1.1",
+        "standard": "NIST CSF",
+        "standard_version": "1.1",
+        "last_updated": "2024-02-20",
+        "author": "Security Compliance Team"
+    },
+    "assessment": {
+        "scope": {
+            "include": [
+                "asset_management",
+                "risk_assessment",
+                "access_control",
+                "data_security",
+                "protective_technology",
+                "anomaly_detection",
+                "security_monitoring",
+                "incident_response",
+                "recovery_planning",
+                "communications"
+            ],
+            "exclude": [
+                "physical_security_aspects_covered_by_other_audits",
+                "systems_out_of_scope_for_csf_assessment"
+            ]
+        },
+        "depth": "comprehensive",
+        "evidence_collection": true,
+        "evidence_requirements": [
+            "asset_inventory",
+            "risk_assessment_reports",
+            "security_policies_and_procedures",
+            "access_control_logs",
+            "security_awareness_training_records",
+            "vulnerability_scan_reports",
+            "incident_response_plan",
+            "recovery_plan_test_results",
+            "system_security_plans"
+        ],
+        "report_format": "nist_csf",
+        "requires_documentation": true
+    },
+    "compliance_mapping": {
+        "ID_Identify": {
+            "ID.AM_Asset_Management": {
+                "title": "ID.AM - Asset Management",
+                "controls": [
+                    "asset_inventory_management",
+                    "software_inventory_management",
+                    "asset_classification",
+                    "asset_ownership_tracking"
+                ],
+                "verification_methods": [
+                    "documentation_review",
+                    "inventory_validation",
+                    "configuration_review"
+                ],
+                "evidence_required": [
+                    "asset_inventory_records",
+                    "data_classification_policy",
+                    "configuration_management_database_cmdb"
+                ]
+            },
+            "ID.BE_Business_Environment": {
+                "title": "ID.BE - Business Environment",
+                "controls": [
+                    "business_impact_analysis",
+                    "critical_process_identification",
+                    "dependency_mapping"
+                ],
+                "verification_methods": [
+                    "documentation_review",
+                    "interview"
+                ],
+                "evidence_required": [
+                    "business_impact_analysis_report",
+                    "system_dependency_diagrams"
+                ]
+            },
+            "ID.GV_Governance": {
+                "title": "ID.GV - Governance",
+                "controls": [
+                    "security_policy_establishment",
+                    "role_and_responsibility_definition",
+                    "legal_and_regulatory_compliance_tracking"
+                ],
+                "verification_methods": [
+                    "documentation_review",
+                    "interview"
+                ],
+                "evidence_required": [
+                    "information_security_policy_suite",
+                    "roles_and_responsibilities_matrix",
+                    "compliance_register"
+                ]
+            },
+            "ID.RA_Risk_Assessment": {
+                "title": "ID.RA - Risk Assessment",
+                "controls": [
+                    "vulnerability_identification_process",
+                    "threat_intelligence_integration",
+                    "risk_analysis_and_prioritization",
+                    "risk_response_planning"
+                ],
+                "verification_methods": [
+                    "documentation_review",
+                    "process_validation",
+                    "scan_report_review"
+                ],
+                "evidence_required": [
+                    "risk_assessment_methodology",
+                    "risk_assessment_reports",
+                    "vulnerability_scan_results"
+                ]
+            },
+            "ID.RM_Risk_Management_Strategy": {
+                "title": "ID.RM - Risk Management Strategy",
+                "controls": [
+                    "risk_management_process_establishment",
+                    "risk_tolerance_definition",
+                    "risk_management_integration_with_business"
+                ],
+                "verification_methods": [
+                    "documentation_review",
+                    "interview"
+                ],
+                "evidence_required": [
+                    "risk_management_policy",
+                    "risk_appetite_statement",
+                    "management_review_minutes"
+                ]
+            },
+            "ID.SC_Supply_Chain_Risk_Management": {
+                "title": "ID.SC - Supply Chain Risk Management",
+                "controls": [
+                    "supplier_risk_assessment_process",
+                    "supplier_security_requirements",
+                    "supplier_agreement_reviews"
+                ],
+                "verification_methods": [
+                    "documentation_review",
+                    "contract_review",
+                    "process_validation"
+                ],
+                "evidence_required": [
+                    "supplier_risk_management_policy",
+                    "vendor_assessment_reports",
+                    "supplier_contracts_with_security_clauses"
+                ]
+            }
+        },
+        "PR_Protect": {
+            "PR.AC_Access_Control": {
+                "title": "PR.AC - Access Control",
+                "controls": [
+                    "identity_management_and_authentication",
+                    "least_privilege_enforcement",
+                    "access_provisioning_and_deprovisioning",
+                    "remote_access_management",
+                    "network_access_control"
+                ],
+                "verification_methods": [
+                    "configuration_review",
+                    "access_control_review",
+                    "system_testing",
+                    "documentation_review"
+                ],
+                "evidence_required": [
+                    "access_control_policy",
+                    "user_access_reviews",
+                    "authentication_system_configurations",
+                    "vpn_configurations"
+                ]
+            },
+            "PR.AT_Awareness_and_Training": {
+                "title": "PR.AT - Awareness and Training",
+                "controls": [
+                    "security_awareness_program",
+                    "role_based_security_training",
+                    "training_effectiveness_measurement"
+                ],
+                "verification_methods": [
+                    "documentation_review",
+                    "training_verification",
+                    "interview"
+                ],
+                "evidence_required": [
+                    "security_awareness_training_materials",
+                    "training_completion_records",
+                    "phishing_simulation_results"
+                ]
+            },
+            "PR.DS_Data_Security": {
+                "title": "PR.DS - Data Security",
+                "controls": [
+                    "data_at_rest_protection",
+                    "data_in_transit_protection",
+                    "asset_disposal_and_sanitization",
+                    "data_loss_prevention_mechanisms"
+                ],
+                "verification_methods": [
+                    "configuration_review",
+                    "documentation_review",
+                    "process_validation",
+                    "data_sampling"
+                ],
+                "evidence_required": [
+                    "encryption_policy_and_configurations",
+                    "data_disposal_records",
+                    "dlp_system_rules_and_logs"
+                ]
+            },
+            "PR.IP_Information_Protection_Processes_and_Procedures": {
+                "title": "PR.IP - Information Protection Processes and Procedures",
+                "controls": [
+                    "baseline_configuration_management",
+                    "change_management_process",
+                    "system_development_lifecycle_security",
+                    "backup_and_recovery_procedures"
+                ],
+                "verification_methods": [
+                    "documentation_review",
+                    "process_validation",
+                    "configuration_review",
+                    "backup_validation"
+                ],
+                "evidence_required": [
+                    "secure_baseline_documents",
+                    "change_management_policy_and_logs",
+                    "sdlc_policy",
+                    "backup_policy_and_logs"
+                ]
+            },
+            "PR.MA_Maintenance": {
+                "title": "PR.MA - Maintenance",
+                "controls": [
+                    "system_maintenance_procedures",
+                    "remote_maintenance_security"
+                ],
+                "verification_methods": [
+                    "documentation_review",
+                    "process_validation",
+                    "log_review"
+                ],
+                "evidence_required": [
+                    "maintenance_procedures",
+                    "maintenance_logs",
+                    "remote_access_policies"
+                ]
+            },
+            "PR.PT_Protective_Technology": {
+                "title": "PR.PT - Protective Technology",
+                "controls": [
+                    "audit_log_management",
+                    "malware_protection",
+                    "network_segmentation_and_firewalls",
+                    "vulnerability_management"
+                ],
+                "verification_methods": [
+                    "configuration_review",
+                    "log_review",
+                    "system_testing",
+                    "scan_report_review"
+                ],
+                "evidence_required": [
+                    "logging_configurations_and_samples",
+                    "antivirus_configurations_and_logs",
+                    "firewall_rulesets",
+                    "vulnerability_management_policy_and_reports"
+                ]
+            }
+        },
+        "DE_Detect": {
+            "DE.AE_Anomalies_and_Events": {
+                "title": "DE.AE - Anomalies and Events",
+                "controls": [
+                    "baseline_establishment_for_detection",
+                    "event_analysis_and_correlation",
+                    "impact_assessment_of_events"
+                ],
+                "verification_methods": [
+                    "configuration_review",
+                    "log_review",
+                    "interview"
+                ],
+                "evidence_required": [
+                    "siem_correlation_rules",
+                    "network_traffic_baselines",
+                    "event_analysis_reports"
+                ]
+            },
+            "DE.CM_Security_Continuous_Monitoring": {
+                "title": "DE.CM - Security Continuous Monitoring",
+                "controls": [
+                    "network_monitoring",
+                    "physical_environment_monitoring",
+                    "user_activity_monitoring",
+                    "vulnerability_scanning"
+                ],
+                "verification_methods": [
+                    "configuration_review",
+                    "log_review",
+                    "system_testing",
+                    "physical_inspection"
+                ],
+                "evidence_required": [
+                    "monitoring_tool_configurations",
+                    "alert_logs",
+                    "vulnerability_scan_schedules_and_results"
+                ]
+            },
+            "DE.DP_Detection_Processes": {
+                "title": "DE.DP - Detection Processes",
+                "controls": [
+                    "detection_roles_and_responsibilities",
+                    "detection_process_testing_and_improvement",
+                    "event_threshold_definition"
+                ],
+                "verification_methods": [
+                    "documentation_review",
+                    "process_validation",
+                    "interview"
+                ],
+                "evidence_required": [
+                    "detection_procedures",
+                    "alerting_thresholds_documentation",
+                    "detection_test_results"
+                ]
+            }
+        },
+        "RS_Respond": {
+            "RS.RP_Response_Planning": {
+                "title": "RS.RP - Response Planning",
+                "controls": [
+                    "incident_response_plan_development"
+                ],
+                "verification_methods": [
+                    "documentation_review"
+                ],
+                "evidence_required": [
+                    "incident_response_plan"
+                ]
+            },
+            "RS.CO_Communications": {
+                "title": "RS.CO - Communications",
+                "controls": [
+                    "stakeholder_communication_coordination",
+                    "incident_reporting_mechanisms"
+                ],
+                "verification_methods": [
+                    "documentation_review",
+                    "process_validation",
+                    "interview"
+                ],
+                "evidence_required": [
+                    "communication_plan",
+                    "incident_reporting_procedures"
+                ]
+            },
+            "RS.AN_Analysis": {
+                "title": "RS.AN - Analysis",
+                "controls": [
+                    "incident_investigation_procedures",
+                    "forensic_evidence_collection_and_handling",
+                    "impact_assessment"
+                ],
+                "verification_methods": [
+                    "documentation_review",
+                    "process_validation",
+                    "incident_log_review"
+                ],
+                "evidence_required": [
+                    "incident_analysis_procedures",
+                    "evidence_handling_procedures",
+                    "incident_reports"
+                ]
+            },
+            "RS.MI_Mitigation": {
+                "title": "RS.MI - Mitigation",
+                "controls": [
+                    "incident_containment_procedures",
+                    "vulnerability_mitigation"
+                ],
+                "verification_methods": [
+                    "process_validation",
+                    "system_testing",
+                    "documentation_review"
+                ],
+                "evidence_required": [
+                    "containment_strategies_documentation",
+                    "incident_response_playbooks"
+                ]
+            },
+            "RS.RP_Recovery": {
+                "title": "RS.RP - Recovery (Mistake in CSF v1.1, should be RS.RC)",
+                "controls": [
+                    "incident_eradication_procedures"
+                ],
+                "verification_methods": [
+                    "documentation_review",
+                    "process_validation"
+                ],
+                "evidence_required": [
+                    "eradication_procedures",
+                    "post_incident_checklists"
+                ]
+            },
+            "RS.IM_Improvements": {
+                "title": "RS.IM - Improvements",
+                "controls": [
+                    "lessons_learned_process",
+                    "response_plan_updates"
+                ],
+                "verification_methods": [
+                    "documentation_review",
+                    "interview"
+                ],
+                "evidence_required": [
+                    "post_incident_review_reports",
+                    "updated_incident_response_plan"
+                ]
+            }
+        },
+        "RC_Recover": {
+            "RC.RP_Recovery_Planning": {
+                "title": "RC.RP - Recovery Planning",
+                "controls": [
+                    "recovery_plan_development"
+                ],
+                "verification_methods": [
+                    "documentation_review"
+                ],
+                "evidence_required": [
+                    "disaster_recovery_plan",
+                    "business_continuity_plan"
+                ]
+            },
+            "RC.IM_Improvements": {
+                "title": "RC.IM - Improvements",
+                "controls": [
+                    "recovery_plan_updates_from_lessons_learned"
+                ],
+                "verification_methods": [
+                    "documentation_review"
+                ],
+                "evidence_required": [
+                    "updated_recovery_plans",
+                    "lessons_learned_documentation"
+                ]
+            },
+            "RC.CO_Communications": {
+                "title": "RC.CO - Communications",
+                "controls": [
+                    "recovery_activity_communication",
+                    "reputation_management"
+                ],
+                "verification_methods": [
+                    "documentation_review",
+                    "interview"
+                ],
+                "evidence_required": [
+                    "recovery_communication_plan",
+                    "public_relations_strategy"
+                ]
+            }
+        }
+    },
+    "finding_classification": {
+        "critical": {
+            "impact_level": "high",
+            "description": "Significant deficiency in security posture, high likelihood of exploitation, major business impact.",
+            "remediation_sla_days": 15,
+            "requires_compensating_control": false,
+            "example": "Lack of critical vulnerability patching, absence of MFA for privileged access."
+        },
+        "high": {
+            "impact_level": "medium",
+            "description": "Notable weakness that could lead to compromise under certain conditions, moderate business impact.",
+            "remediation_sla_days": 45,
+            "requires_compensating_control": true,
+            "example": "Inconsistent access reviews, inadequate logging for key systems."
+        },
+        "medium": {
+            "impact_level": "low",
+            "description": "Minor weakness or deviation from best practice, low potential for direct exploitation.",
+            "remediation_sla_days": 90,
+            "requires_compensating_control": false,
+            "example": "Outdated documentation, minor configuration drift from baseline."
+        },
+        "low": {
+            "impact_level": "informational",
+            "description": "Opportunity for improvement or minor documentation issue.",
+            "remediation_sla_days": 120,
+            "requires_compensating_control": false,
+            "example": "Slightly outdated policy wording, suggestion for process optimization."
+        }
+    },
+    "remediation_requirements": {
+        "critical": {
+            "approval_required": [
+                "ciso",
+                "system_owner"
+            ],
+            "documentation": [
+                "root_cause_analysis",
+                "corrective_action_plan",
+                "validation_testing"
+            ],
+            "validation_method": "independent_verification"
+        },
+        "high": {
+            "approval_required": [
+                "security_manager",
+                "system_owner"
+            ],
+            "documentation": [
+                "remediation_plan",
+                "implementation_evidence"
+            ],
+            "validation_method": "internal_review"
+        },
+        "medium": {
+            "approval_required": [
+                "team_lead"
+            ],
+            "documentation": [
+                "action_plan"
+            ],
+            "validation_method": "self_attestation_with_evidence"
+        },
+        "low": {
+            "approval_required": [
+                "individual_responsible"
+            ],
+            "documentation": [
+                "confirmation_of_update"
+            ],
+            "validation_method": "self_attestation"
+        }
+    },
+    "assessment_controls": {
+        "authentication": {
+            "password_policy": {
+                "min_length": 12,
+                "complexity_requirements": [
+                    "uppercase",
+                    "lowercase",
+                    "numbers",
+                    "special_chars"
+                ],
+                "history_count": 12,
+                "max_age_days": 90
+            },
+            "mfa": {
+                "required": true,
+                "approved_methods": [
+                    "app",
+                    "hardware_token"
+                ],
+                "required_for": [
+                    "remote_access",
+                    "privileged_access",
+                    "sensitive_data_access"
+                ]
+            }
+        },
+        "encryption": {
+            "data_at_rest": {
+                "required": true,
+                "algorithms": [
+                    "AES-256"
+                ]
+            },
+            "data_in_transit": {
+                "required": true,
+                "protocols": [
+                    "TLS 1.2",
+                    "TLS 1.3"
+                ]
+            }
+        },
+        "audit_logging": {
+            "required_events": [
+                "authentication_attempts",
+                "authorization_changes",
+                "privileged_actions",
+                "security_configuration_changes",
+                "incident_detection_events"
+            ],
+            "retention_period_days": 365,
+            "protected_integrity": true,
+            "review_frequency_days": 30
+        },
+        "vulnerability_management": {
+            "scan_frequency_days": 30,
+            "patch_critical_sla_days": 14,
+            "patch_high_sla_days": 30
+        },
+        "access_control": {
+            "principle_of_least_privilege": true,
+            "access_review_frequency_days": 90
+        }
+    },
+    "testing_requirements": {
+        "security_control_testing": {
+            "frequency_months": 12,
+            "scope": "key_security_controls"
+        },
+        "incident_response_testing": {
+            "frequency_months": 12,
+            "methodology": [
+                "tabletop_exercise",
+                "simulation"
+            ]
+        },
+        "recovery_plan_testing": {
+            "frequency_months": 12,
+            "scope": "critical_systems"
+        }
+    },
+    "attestation_requirements": {
+        "risk_assessment_review": {
+            "frequency_months": 12,
+            "approval_required": [
+                "management"
+            ]
+        },
+        "policy_review": {
+            "frequency_months": 12,
+            "approval_required": [
+                "management"
+            ]
+        },
+        "security_awareness_effectiveness": {
+            "frequency_months": 12,
+            "documentation_required": true
+        }
+    }
+}

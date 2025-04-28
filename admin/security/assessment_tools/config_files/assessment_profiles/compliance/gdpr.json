@@ -1,0 +1,389 @@
+{
+    "metadata": {
+        "name": "GDPR Compliance Profile",
+        "version": "1.0.0",
+        "description": "Security assessment profile for General Data Protection Regulation (GDPR) compliance",
+        "standard": "GDPR",
+        "standard_version": "Regulation (EU) 2016/679",
+        "last_updated": "2024-07-31",
+        "author": "Privacy Compliance Team"
+    },
+    "assessment": {
+        "scope": {
+            "include": [
+                "personal_data_processing_activities",
+                "data_subject_rights_management",
+                "consent_mechanisms",
+                "data_protection_by_design_and_default",
+                "security_of_processing",
+                "data_breach_notification_procedures",
+                "data_protection_impact_assessments_dpia",
+                "international_data_transfers",
+                "data_processing_agreements_dpa",
+                "records_of_processing_activities_ropa"
+            ],
+            "exclude": [
+                "systems_not_processing_personal_data",
+                "anonymized_data_stores"
+            ]
+        },
+        "depth": "comprehensive",
+        "evidence_collection": true,
+        "evidence_requirements": [
+            "Records of Processing Activities (ROPA)",
+            "Data Protection Impact Assessments (DPIA)",
+            "Data Processing Agreements (DPA) with processors",
+            "Privacy Policies and Notices",
+            "Consent Records",
+            "Data Subject Request Logs and Procedures",
+            "Security Incident Logs and Breach Notification Records",
+            "Data Transfer Mechanisms Documentation (SCCs, BCRs)",
+            "Security Measure Documentation (Art. 32)",
+            "Training Records on Data Protection"
+        ],
+        "report_format": "gdpr_compliance",
+        "requires_documentation": true
+    },
+    "compliance_mapping": {
+        "art_5_principles": {
+            "title": "Article 5 - Principles relating to processing of personal data",
+            "controls": [
+                "lawfulness_fairness_transparency_check",
+                "purpose_limitation_verification",
+                "data_minimization_assessment",
+                "accuracy_validation",
+                "storage_limitation_review",
+                "integrity_confidentiality_security_check"
+            ],
+            "verification_methods": [
+                "documentation_review",
+                "process_validation",
+                "data_sampling",
+                "configuration_review"
+            ],
+            "evidence_required": [
+                "ROPA",
+                "Privacy Policy",
+                "Data Retention Policy",
+                "Data Flow Diagrams",
+                "Security Policy (Art. 32)"
+            ]
+        },
+        "art_6_lawful_basis": {
+            "title": "Article 6 - Lawfulness of processing",
+            "controls": [
+                "lawful_basis_identification_for_each_processing_activity",
+                "consent_mechanism_validation_if_applicable",
+                "legitimate_interest_assessment_lia_if_applicable"
+            ],
+            "verification_methods": [
+                "documentation_review",
+                "process_validation"
+            ],
+            "evidence_required": [
+                "ROPA",
+                "Consent Records",
+                "Legitimate Interest Assessments"
+            ]
+        },
+        "art_7_consent": {
+            "title": "Article 7 - Conditions for consent",
+            "controls": [
+                "consent_request_clarity_and_granularity",
+                "consent_withdrawal_mechanism_check",
+                "record_keeping_of_consent"
+            ],
+            "verification_methods": [
+                "documentation_review",
+                "system_testing",
+                "process_validation"
+            ],
+            "evidence_required": [
+                "Consent Forms/Interfaces",
+                "Consent Management Platform Logs",
+                "Privacy Policy section on Consent"
+            ]
+        },
+        "art_12_23_data_subject_rights": {
+            "title": "Articles 12-23 - Data Subject Rights",
+            "controls": [
+                "dsr_intake_process_review",
+                "identity_verification_procedure",
+                "right_to_information_process_check",
+                "right_of_access_process_check",
+                "right_to_rectification_process_check",
+                "right_to_erasure_process_check",
+                "right_to_restriction_process_check",
+                "right_to_data_portability_process_check",
+                "right_to_object_process_check",
+                "automated_decision_making_process_check"
+            ],
+            "verification_methods": [
+                "process_validation",
+                "documentation_review",
+                "system_testing",
+                "log_review"
+            ],
+            "evidence_required": [
+                "DSR Procedures Document",
+                "DSR Request Logs",
+                "Template Responses",
+                "System capabilities for fulfilling requests"
+            ]
+        },
+        "art_25_dpbd": {
+            "title": "Article 25 - Data protection by design and by default",
+            "controls": [
+                "dpbd_integration_into_development_lifecycle",
+                "privacy_enhancing_technologies_pet_usage",
+                "default_settings_privacy_friendliness"
+            ],
+            "verification_methods": [
+                "documentation_review",
+                "process_validation",
+                "configuration_review",
+                "interview"
+            ],
+            "evidence_required": [
+                "SDLC Policy",
+                "DPIA Records",
+                "System Configuration Baselines",
+                "Architecture Design Documents"
+            ]
+        },
+        "art_32_security": {
+            "title": "Article 32 - Security of processing",
+            "controls": [
+                "risk_assessment_for_security_measures",
+                "pseudonymisation_and_encryption_usage",
+                "confidentiality_integrity_availability_resilience_check",
+                "backup_and_recovery_process_validation",
+                "security_testing_and_evaluation_process"
+            ],
+            "verification_methods": [
+                "documentation_review",
+                "configuration_review",
+                "system_testing",
+                "penetration_test_review",
+                "vulnerability_scan_review"
+            ],
+            "evidence_required": [
+                "Security Policy",
+                "Risk Assessment Reports",
+                "Encryption Configurations",
+                "Backup and Restore Test Results",
+                "Penetration Test Reports",
+                "Vulnerability Scan Reports"
+            ]
+        },
+        "art_33_34_breach_notification": {
+            "title": "Articles 33 & 34 - Data Breach Notification",
+            "controls": [
+                "breach_detection_process",
+                "internal_reporting_procedure",
+                "risk_assessment_for_notification_obligation",
+                "supervisory_authority_notification_process_72h",
+                "data_subject_notification_process"
+            ],
+            "verification_methods": [
+                "documentation_review",
+                "process_validation",
+                "log_review",
+                "tabletop_exercise"
+            ],
+            "evidence_required": [
+                "Incident Response Plan",
+                "Breach Notification Procedure",
+                "Past Breach Records (if any)",
+                "Breach Risk Assessment Template"
+            ]
+        },
+        "art_35_dpia": {
+            "title": "Article 35 - Data Protection Impact Assessment",
+            "controls": [
+                "dpia_trigger_criteria_defined",
+                "dpia_process_documentation",
+                "dpia_consultation_with_dpo",
+                "dpia_integration_with_project_lifecycle"
+            ],
+            "verification_methods": [
+                "documentation_review",
+                "process_validation",
+                "interview"
+            ],
+            "evidence_required": [
+                "DPIA Policy/Procedure",
+                "Completed DPIA Reports",
+                "Project Management Methodology Documentation"
+            ]
+        }
+    },
+    "finding_classification": {
+        "high_risk": {
+            "compliance_impact": "high_risk_to_rights_freedoms",
+            "description": "Finding indicates a high risk to the rights and freedoms of natural persons (potential for significant harm, discrimination, identity theft, financial loss, etc.). May require notification.",
+            "remediation_sla_days": 15,
+            "requires_compensating_control": false,
+            "example": "Processing sensitive data without explicit consent or lawful basis, major security vulnerability exposing personal data, failure to notify a serious breach."
+        },
+        "medium_risk": {
+            "compliance_impact": "potential_non_compliance",
+            "description": "Finding indicates non-compliance with GDPR requirements but may not pose an immediate high risk to individuals. Requires corrective action.",
+            "remediation_sla_days": 45,
+            "requires_compensating_control": true,
+            "example": "Incomplete ROPA, inadequate DSR procedure, consent mechanism not fully compliant, minor security gaps."
+        },
+        "low_risk": {
+            "compliance_impact": "documentation_or_process_gap",
+            "description": "Finding relates to minor gaps in documentation, processes, or awareness that should be addressed for best practice.",
+            "remediation_sla_days": 90,
+            "requires_compensating_control": false,
+            "example": "Slightly outdated privacy notice, minor record-keeping inconsistency, opportunity to improve training materials."
+        },
+        "informational": {
+            "compliance_impact": "observation_for_improvement",
+            "description": "Observation or recommendation for improvement, not a direct GDPR non-compliance.",
+            "remediation_sla_days": null,
+            "requires_compensating_control": false,
+            "example": "Suggestion for optimizing DSR workflow, recommendation for additional privacy-enhancing technology."
+        }
+    },
+    "remediation_requirements": {
+        "high_risk": {
+            "approval_required": [
+                "dpo",
+                "legal_counsel",
+                "ciso"
+            ],
+            "documentation": [
+                "root_cause_analysis",
+                "detailed_remediation_plan",
+                "evidence_of_correction",
+                "validation_testing",
+                "dpia_update_if_needed"
+            ],
+            "validation_method": "independent_verification_or_dpo_signoff"
+        },
+        "medium_risk": {
+            "approval_required": [
+                "dpo",
+                "relevant_process_owner"
+            ],
+            "documentation": [
+                "remediation_plan",
+                "implementation_evidence",
+                "internal_validation_results"
+            ],
+            "validation_method": "dpo_review_or_internal_audit"
+        },
+        "low_risk": {
+            "approval_required": [
+                "process_owner"
+            ],
+            "documentation": [
+                "action_plan",
+                "confirmation_of_completion"
+            ],
+            "validation_method": "self_attestation_with_evidence"
+        },
+        "informational": {
+            "approval_required": [],
+            "documentation": [
+                "consideration_documented_optional"
+            ],
+            "validation_method": "n/a"
+        }
+    },
+    "assessment_controls": {
+        "data_protection": {
+            "encryption_at_rest": {
+                "required_for_personal_data": true,
+                "algorithms": [
+                    "AES-256"
+                ]
+            },
+            "encryption_in_transit": {
+                "required_for_personal_data": true,
+                "protocols": [
+                    "TLS 1.2",
+                    "TLS 1.3"
+                ]
+            },
+            "pseudonymisation": {
+                "techniques_evaluated": true,
+                "applied_where_appropriate": true
+            },
+            "data_minimization": {
+                "collection_limited_to_purpose": true,
+                "retention_policy_enforced": true
+            }
+        },
+        "access_control": {
+            "role_based_access_for_personal_data": true,
+            "least_privilege_applied": true,
+            "access_review_frequency_days": 90
+        },
+        "audit_logging": {
+            "access_to_personal_data_logged": true,
+            "modification_of_personal_data_logged": true,
+            "log_retention_period_days": 180,
+            "log_integrity_protected": true
+        },
+        "consent_management": {
+            "granular_consent_options": true,
+            "easy_withdrawal_mechanism": true,
+            "consent_record_keeping": true
+        },
+        "data_subject_rights_tooling": {
+            "dsr_request_portal": true,
+            "automated_fulfillment_support": true
+        }
+    },
+    "testing_requirements": {
+        "data_subject_request_process": {
+            "frequency_months": 6,
+            "scope": [
+                "access_request",
+                "erasure_request"
+            ],
+            "methodology": "simulated_request_end_to_end"
+        },
+        "data_breach_response_exercise": {
+            "frequency_months": 12,
+            "scope": "simulated_personal_data_breach",
+            "methodology": "tabletop_exercise"
+        },
+        "security_of_processing_art32": {
+            "frequency_months": 12,
+            "scope": "systems_processing_personal_data",
+            "methodology": [
+                "vulnerability_scanning",
+                "penetration_testing"
+            ]
+        }
+    },
+    "attestation_requirements": {
+        "ropa_review_update": {
+            "frequency_months": 12,
+            "approval_required": [
+                "dpo"
+            ]
+        },
+        "dpia_review": {
+            "frequency_months": 12,
+            "scope": "high_risk_processing_activities",
+            "documentation_required": true
+        },
+        "privacy_policy_review": {
+            "frequency_months": 12,
+            "approval_required": [
+                "dpo",
+                "legal_counsel"
+            ]
+        },
+        "data_protection_training_effectiveness": {
+            "frequency_months": 12,
+            "documentation_required": true
+        }
+    }
+}
