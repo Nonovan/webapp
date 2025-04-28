@@ -4,15 +4,15 @@ This directory contains configuration profiles that define parameters, scope, an
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- Usage
-- Profile Structure
-- Customization Guidelines
-- Best Practices & Security
-- Common Features
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Usage](#usage)
+- [Profile Structure](#profile-structure)
+- [Customization Guidelines](#customization-guidelines)
+- [Best Practices & Security](#best-practices--security)
+- [Common Features](#common-features)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
@@ -57,14 +57,19 @@ Assessment profiles define the configuration parameters used by security assessm
 ```plaintext
 admin/security/assessment_tools/config_files/assessment_profiles/
 ├── README.md                # This documentation
-├── compliance/             # Compliance-specific assessment profiles
-│   ├── hipaa.json          # HIPAA compliance profile
-│   ├── iso27001.json       # ISO 27001 compliance profile
-│   ├── nist-csf.json       # NIST Cybersecurity Framework profile
-│   └── pci-dss.json        # PCI DSS compliance profile
-├── default.json            # Default assessment profile
-├── development.json        # Development environment profile
-└── production.json         # Production environment profile
+├── compliance/              # Compliance-specific assessment profiles
+│   ├── README.md            # Compliance profiles documentation
+│   ├── ccpa.json            # California Consumer Privacy Act profile
+│   ├── cmmc.json            # Cybersecurity Maturity Model Certification profile
+│   ├── fedramp.json         # FedRAMP Moderate compliance profile
+│   ├── gdpr.json            # GDPR compliance profile
+│   ├── hipaa.json           # HIPAA Security Rule compliance profile
+│   ├── iso27001.json        # ISO 27001:2013 compliance profile
+│   ├── nist-csf.json        # NIST Cybersecurity Framework profile
+│   └── pci-dss.json         # PCI DSS v3.2.1 compliance profile
+├── default.json             # Default assessment profile
+├── development.json         # Development environment profile
+└── production.json          # Production environment profile
 ```
 
 ## Usage

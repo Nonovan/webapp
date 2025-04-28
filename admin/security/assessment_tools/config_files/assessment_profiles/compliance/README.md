@@ -28,6 +28,13 @@ The compliance assessment profiles define configuration parameters focused on sp
   - Security procedures for personal information
   - Finding classification aligned with privacy impact
 
+- **`cmmc.json`**: Cybersecurity Maturity Model Certification profile
+  - Implementation of CMMC security practices across domains
+  - Controls mapped to CMMC maturity levels
+  - Process and practice requirements by domain
+  - Assessment methodology aligned with CMMC assessment guides
+  - Evidence requirements for certification
+
 - **`fedramp.json`**: FedRAMP Moderate compliance profile
   - Based on NIST SP 800-53 Rev 5 controls
   - Moderate baseline control selection
@@ -81,6 +88,7 @@ The compliance assessment profiles define configuration parameters focused on sp
 admin/security/assessment_tools/config_files/assessment_profiles/compliance/
 ├── README.md       # This documentation
 ├── ccpa.json       # CCPA compliance profile
+├── cmmc.json       # CMMC compliance profile
 ├── fedramp.json    # FedRAMP Moderate compliance profile
 ├── gdpr.json       # GDPR compliance profile
 ├── hipaa.json      # HIPAA Security Rule compliance profile

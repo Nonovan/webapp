@@ -1,0 +1,413 @@
+{
+    "metadata": {
+        "name": "Production Environment Assessment Profile",
+        "version": "1.0.0",
+        "description": "Security assessment profile for production environments with focus on strict security controls, comprehensive monitoring, and thorough verification",
+        "environment": "production",
+        "last_updated": "2024-08-15",
+        "author": "Security Operations Team"
+    },
+    "assessment": {
+        "scope": {
+            "include": [
+                "system_configuration",
+                "network_security",
+                "access_control",
+                "authentication",
+                "data_protection",
+                "logging_monitoring",
+                "vulnerability_management",
+                "high_availability",
+                "disaster_recovery",
+                "incident_response",
+                "secure_deployment",
+                "compliance"
+            ],
+            "exclude": [
+                "development_tools",
+                "test_data"
+            ]
+        },
+        "depth": "comprehensive",
+        "evidence_collection": true,
+        "auto_remediation": false,
+        "report_format": "detailed"
+    },
+    "security_controls": {
+        "authentication": {
+            "password_policy": {
+                "min_length": 14,
+                "complexity_requirements": [
+                    "uppercase",
+                    "lowercase",
+                    "numbers",
+                    "special_chars"
+                ],
+                "history_count": 24,
+                "max_age_days": 60
+            },
+            "mfa": {
+                "required": true,
+                "approved_methods": [
+                    "app",
+                    "hardware_token",
+                    "biometric"
+                ],
+                "required_for": [
+                    "all_access",
+                    "remote_access",
+                    "privileged_access"
+                ]
+            },
+            "session_management": {
+                "timeout_minutes": 15,
+                "reauthentication_for_sensitive_actions": true,
+                "concurrent_sessions_limit": 3,
+                "secure_session_id": true
+            }
+        },
+        "encryption": {
+            "data_at_rest": {
+                "required": true,
+                "algorithms": [
+                    "AES-256"
+                ],
+                "key_management": "centralized_key_vault"
+            },
+            "data_in_transit": {
+                "required": true,
+                "protocols": [
+                    "TLS 1.2",
+                    "TLS 1.3"
+                ],
+                "prohibited_protocols": [
+                    "SSL",
+                    "TLS 1.0",
+                    "TLS 1.1"
+                ],
+                "perfect_forward_secrecy": true,
+                "strong_cipher_suites": true
+            }
+        },
+        "audit_logging": {
+            "required_events": [
+                "authentication_attempts",
+                "authentication_failures",
+                "authorization_changes",
+                "privileged_actions",
+                "security_configuration_changes",
+                "system_startup_shutdown",
+                "data_access",
+                "data_modifications",
+                "administrative_actions"
+            ],
+            "retention_period_days": 365,
+            "protected_integrity": true,
+            "review_frequency_days": 7,
+            "alerting": true,
+            "centralized_logging": true,
+            "tamper_proof_storage": true
+        },
+        "vulnerability_management": {
+            "scan_frequency_days": 7,
+            "patch_critical_sla_days": 7,
+            "patch_high_sla_days": 15,
+            "patch_medium_sla_days": 30,
+            "patch_low_sla_days": 90,
+            "automated_scanning": true,
+            "vulnerability_feeds": true,
+            "zero_day_response_plan": true
+        },
+        "access_control": {
+            "principle_of_least_privilege": true,
+            "role_based_access": true,
+            "access_review_frequency_days": 30,
+            "segregation_of_duties": true,
+            "just_in_time_access": true,
+            "privileged_access_management": true,
+            "privileged_session_recording": true
+        },
+        "network_security": {
+            "firewall_required": true,
+            "default_deny": true,
+            "network_segmentation": true,
+            "intrusion_detection": true,
+            "intrusion_prevention": true,
+            "secure_remote_access": true,
+            "network_traffic_encryption": true,
+            "ddos_protection": true,
+            "web_application_firewall": true,
+            "api_gateway": true
+        },
+        "backup_recovery": {
+            "backup_frequency_hours": 24,
+            "backup_encryption": true,
+            "offsite_backups": true,
+            "backup_testing_frequency_days": 30,
+            "recovery_time_objective_hours": 4,
+            "recovery_point_objective_hours": 1,
+            "backup_retention_days": 90
+        },
+        "secure_deployment": {
+            "change_management_process": true,
+            "deployment_approvals": true,
+            "rollback_plan": true,
+            "immutable_infrastructure": true,
+            "blue_green_deployment": true,
+            "canary_releases": true,
+            "automated_security_tests": true,
+            "post_deployment_verification": true
+        },
+        "monitoring": {
+            "uptime_monitoring": true,
+            "performance_monitoring": true,
+            "anomaly_detection": true,
+            "business_impact_alerting": true,
+            "24x7_monitoring": true,
+            "automated_incident_response": true,
+            "service_level_objectives": true
+        },
+        "high_availability": {
+            "redundancy_required": true,
+            "geo_redundancy": true,
+            "load_balancing": true,
+            "auto_scaling": true,
+            "fault_tolerance": true,
+            "chaos_testing": true
+        },
+        "data_protection": {
+            "data_classification": true,
+            "data_loss_prevention": true,
+            "data_masking": true,
+            "secure_data_destruction": true,
+            "sensitive_data_discovery": true,
+            "database_activity_monitoring": true
+        },
+        "incident_response": {
+            "incident_response_plan": true,
+            "incident_response_team": true,
+            "incident_severity_levels": true,
+            "incident_playbooks": true,
+            "forensic_readiness": true,
+            "breach_notification_process": true,
+            "post_incident_review": true
+        }
+    },
+    "finding_classification": {
+        "critical": {
+            "impact_level": "severe",
+            "description": "Critical security issue that requires immediate attention",
+            "remediation_sla_days": 2,
+            "requires_compensating_control": true,
+            "block_deployment": true,
+            "example": "Exposed credentials, remote code execution vulnerability, unauthorized privileged access"
+        },
+        "high": {
+            "impact_level": "significant",
+            "description": "Serious security issue that should be addressed promptly",
+            "remediation_sla_days": 7,
+            "requires_compensating_control": true,
+            "block_deployment": true,
+            "example": "Missing authentication, insecure direct object references, injection vulnerabilities"
+        },
+        "medium": {
+            "impact_level": "moderate",
+            "description": "Security issue that should be addressed soon",
+            "remediation_sla_days": 30,
+            "requires_compensating_control": false,
+            "block_deployment": false,
+            "example": "TLS configuration issues, missing security headers, insecure defaults"
+        },
+        "low": {
+            "impact_level": "minor",
+            "description": "Minor security issue or improvement opportunity",
+            "remediation_sla_days": 90,
+            "requires_compensating_control": false,
+            "block_deployment": false,
+            "example": "Information disclosure, outdated libraries with minor vulnerabilities"
+        },
+        "informational": {
+            "impact_level": "advisory",
+            "description": "Best practice recommendation or observation",
+            "remediation_sla_days": null,
+            "requires_compensating_control": false,
+            "block_deployment": false,
+            "example": "Documentation improvements, best practice recommendations"
+        }
+    },
+    "remediation_requirements": {
+        "critical": {
+            "approval_required": [
+                "ciso",
+                "system_owner",
+                "incident_response_team"
+            ],
+            "documentation": [
+                "root_cause_analysis",
+                "remediation_plan",
+                "validation_testing",
+                "post_remediation_audit"
+            ],
+            "validation_method": "independent_verification_and_executive_signoff"
+        },
+        "high": {
+            "approval_required": [
+                "security_manager",
+                "system_owner",
+                "infrastructure_team"
+            ],
+            "documentation": [
+                "detailed_root_cause",
+                "remediation_plan",
+                "implementation_evidence",
+                "testing_results"
+            ],
+            "validation_method": "security_team_verification_and_manager_approval"
+        },
+        "medium": {
+            "approval_required": [
+                "security_analyst",
+                "team_lead"
+            ],
+            "documentation": [
+                "problem_statement",
+                "action_plan",
+                "implementation_confirmation",
+                "testing_results"
+            ],
+            "validation_method": "security_team_verification"
+        },
+        "low": {
+            "approval_required": [
+                "team_lead"
+            ],
+            "documentation": [
+                "action_plan",
+                "implementation_confirmation"
+            ],
+            "validation_method": "self_attestation_with_evidence"
+        },
+        "informational": {
+            "approval_required": [],
+            "documentation": [
+                "acknowledgment"
+            ],
+            "validation_method": "self_attestation"
+        }
+    },
+    "testing_requirements": {
+        "vulnerability_scanning": {
+            "frequency_months": 1,
+            "scope": "all_systems",
+            "tools": [
+                "nessus",
+                "qualys",
+                "openvas",
+                "owasp_zap"
+            ],
+            "automated_scanning": true
+        },
+        "penetration_testing": {
+            "frequency_months": 6,
+            "scope": "all_internet_facing_systems",
+            "methodology": [
+                "owasp_testing_guide",
+                "network_penetration",
+                "social_engineering",
+                "red_team"
+            ],
+            "external_firm_required": true
+        },
+        "security_review": {
+            "frequency_months": 3,
+            "scope": "security_controls",
+            "methodology": [
+                "documentation_review",
+                "configuration_validation",
+                "interview",
+                "control_testing"
+            ],
+            "independent_reviewer_required": true
+        },
+        "compliance_auditing": {
+            "frequency_months": 12,
+            "scope": "applicable_regulations",
+            "methodology": [
+                "control_assessment",
+                "evidence_collection",
+                "compliance_mapping"
+            ],
+            "third_party_validation": true
+        },
+        "backup_restore_testing": {
+            "frequency_months": 1,
+            "scope": "critical_systems",
+            "methodology": [
+                "full_restoration",
+                "functionality_testing",
+                "data_integrity_validation"
+            ]
+        },
+        "disaster_recovery_testing": {
+            "frequency_months": 6,
+            "scope": "all_systems",
+            "methodology": [
+                "tabletop_exercise",
+                "functional_test",
+                "full_simulation"
+            ],
+            "report_required": true
+        },
+        "incident_response_testing": {
+            "frequency_months": 3,
+            "scope": "all_teams",
+            "methodology": [
+                "tabletop_exercise",
+                "simulation",
+                "red_team"
+            ],
+            "executive_participation_required": true
+        }
+    },
+    "attestation_requirements": {
+        "security_control_effectiveness": {
+            "frequency_months": 6,
+            "documentation_required": true,
+            "approval_required": [
+                "ciso",
+                "compliance_officer"
+            ]
+        },
+        "policy_compliance": {
+            "frequency_months": 6,
+            "documentation_required": true,
+            "approval_required": [
+                "security_manager",
+                "system_owner"
+            ]
+        },
+        "risk_assessment": {
+            "frequency_months": 6,
+            "documentation_required": true,
+            "approval_required": [
+                "ciso",
+                "system_owner"
+            ]
+        },
+        "business_continuity_readiness": {
+            "frequency_months": 3,
+            "documentation_required": true,
+            "approval_required": [
+                "business_continuity_manager",
+                "system_owner"
+            ]
+        },
+        "security_awareness": {
+            "frequency_months": 6,
+            "documentation_required": true,
+            "approval_required": [
+                "security_training_manager"
+            ]
+        }
+    }
+}

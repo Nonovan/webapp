@@ -1,12 +1,12 @@
 {
     "metadata": {
         "name": "FedRAMP Moderate Compliance Profile",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "description": "Security assessment profile for FedRAMP Moderate baseline compliance",
         "standard": "FedRAMP",
         "standard_version": "Rev 5 (Based on NIST SP 800-53 Rev 5)",
         "baseline": "Moderate",
-        "last_updated": "2024-07-31",
+        "last_updated": "2024-08-15",
         "author": "Security Compliance Team"
     },
     "assessment": {
@@ -71,6 +71,16 @@
                 "Role definitions",
                 "System configurations (e.g., lockout settings, session timeout)",
                 "Remote access logs"
+            ],
+            "references": [
+                {
+                    "title": "NIST SP 800-53 Rev. 5 - AC Family",
+                    "url": "https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final"
+                },
+                {
+                    "title": "FedRAMP Security Controls Baseline",
+                    "url": "https://www.fedramp.gov/assets/resources/documents/FedRAMP_Security_Controls_Baseline.xlsx"
+                }
             ]
         },
         "AU_Audit_and_Accountability": {
@@ -97,6 +107,75 @@
                 "Audit log samples",
                 "Log review procedures and records",
                 "SIEM configurations"
+            ],
+            "references": [
+                {
+                    "title": "NIST SP 800-53 Rev. 5 - AU Family",
+                    "url": "https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final"
+                }
+            ]
+        },
+        "CP_Contingency_Planning": {
+            "title": "CP - Contingency Planning",
+            "controls": [
+                "CP-2_Contingency_Plan",
+                "CP-4_Contingency_Plan_Testing",
+                "CP-6_Alternate_Storage_Site",
+                "CP-7_Alternate_Processing_Site",
+                "CP-9_System_Backup",
+                "CP-10_System_Recovery_and_Reconstitution"
+            ],
+            "verification_methods": [
+                "documentation_review",
+                "process_validation",
+                "test_results_review",
+                "interview"
+            ],
+            "evidence_required": [
+                "Contingency Planning Policy",
+                "SSP sections on CP",
+                "Contingency Plan",
+                "Backup configurations and logs",
+                "Test results for contingency operations",
+                "Disaster recovery procedures"
+            ],
+            "references": [
+                {
+                    "title": "NIST SP 800-53 Rev. 5 - CP Family",
+                    "url": "https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final"
+                },
+                {
+                    "title": "FedRAMP Continuous Monitoring Strategy Guide",
+                    "url": "https://www.fedramp.gov/assets/resources/documents/CSP_Continuous_Monitoring_Strategy_Guide.pdf"
+                }
+            ]
+        },
+        "IA_Identification_and_Authentication": {
+            "title": "IA - Identification and Authentication",
+            "controls": [
+                "IA-2_Identification_and_Authentication_Organizational_Users",
+                "IA-4_Identifier_Management",
+                "IA-5_Authenticator_Management",
+                "IA-8_Identification_and_Authentication_Non-Organizational_Users"
+            ],
+            "verification_methods": [
+                "configuration_review",
+                "documentation_review",
+                "system_testing"
+            ],
+            "evidence_required": [
+                "Identification and Authentication Policy",
+                "SSP sections on IA",
+                "MFA configurations",
+                "Password policy settings",
+                "Identity provider configurations",
+                "Credential management processes"
+            ],
+            "references": [
+                {
+                    "title": "NIST SP 800-53 Rev. 5 - IA Family",
+                    "url": "https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final"
+                }
             ]
         },
         "IR_Incident_Response": {
@@ -120,6 +199,41 @@
                 "Incident reports",
                 "Incident response test results",
                 "US-CERT reporting confirmation"
+            ],
+            "references": [
+                {
+                    "title": "NIST SP 800-53 Rev. 5 - IR Family",
+                    "url": "https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final"
+                },
+                {
+                    "title": "FedRAMP Incident Communications Procedure",
+                    "url": "https://www.fedramp.gov/assets/resources/documents/CSP_Incident_Communications_Procedures.pdf"
+                }
+            ]
+        },
+        "RA_Risk_Assessment": {
+            "title": "RA - Risk Assessment",
+            "controls": [
+                "RA-3_Risk_Assessment",
+                "RA-5_Vulnerability_Scanning"
+            ],
+            "verification_methods": [
+                "documentation_review",
+                "scan_report_review",
+                "process_validation"
+            ],
+            "evidence_required": [
+                "Risk Assessment Policy",
+                "SSP sections on RA",
+                "System risk assessments",
+                "Vulnerability scan reports",
+                "Risk remediation plans"
+            ],
+            "references": [
+                {
+                    "title": "NIST SP 800-53 Rev. 5 - RA Family",
+                    "url": "https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final"
+                }
             ]
         },
         "SI_System_and_Information_Integrity": {
@@ -146,10 +260,57 @@
                 "Antivirus/Antimalware configurations and logs",
                 "File integrity monitoring configurations and logs",
                 "System monitoring tool configurations"
+            ],
+            "references": [
+                {
+                    "title": "NIST SP 800-53 Rev. 5 - SI Family",
+                    "url": "https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final"
+                }
+            ]
+        },
+        "SC_System_and_Communications_Protection": {
+            "title": "SC - System and Communications Protection",
+            "controls": [
+                "SC-7_Boundary_Protection",
+                "SC-8_Transmission_Confidentiality_and_Integrity",
+                "SC-12_Cryptographic_Key_Establishment_and_Management",
+                "SC-13_Cryptographic_Protection"
+            ],
+            "verification_methods": [
+                "configuration_review",
+                "system_testing",
+                "documentation_review",
+                "architecture_review"
+            ],
+            "evidence_required": [
+                "System and Communications Protection Policy",
+                "SSP sections on SC",
+                "Network architecture diagrams",
+                "Firewall and router configurations",
+                "Encryption configurations",
+                "TLS settings and certificates",
+                "Key management documentation"
+            ],
+            "references": [
+                {
+                    "title": "NIST SP 800-53 Rev. 5 - SC Family",
+                    "url": "https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final"
+                },
+                {
+                    "title": "NIST SP 800-52 Rev. 2 - Guidelines for TLS",
+                    "url": "https://csrc.nist.gov/publications/detail/sp/800-52/rev-2/final"
+                }
             ]
         }
     },
     "finding_classification": {
+        "critical": {
+            "compliance_impact": "severe_risk",
+            "description": "Critical vulnerability or control failure with immediate potential for compromise or breach.",
+            "remediation_sla_days": 15,
+            "requires_compensating_control": false,
+            "example": "Unpatched critical vulnerability allowing remote code execution, exposed sensitive FedRAMP data."
+        },
         "high": {
             "compliance_impact": "high_risk",
             "description": "Weakness that could lead to significant mission/business impact, loss of confidentiality, integrity, or availability.",
@@ -180,6 +341,21 @@
         }
     },
     "remediation_requirements": {
+        "critical": {
+            "approval_required": [
+                "Authorizing Official (AO)",
+                "Information System Security Officer (ISSO)",
+                "System Owner"
+            ],
+            "documentation": [
+                "POA&M Entry",
+                "Root Cause Analysis",
+                "Detailed Remediation Plan with Timeline",
+                "Validation Testing Results (by 3PAO or AO designated)",
+                "Risk Acceptance Documentation (if applicable)"
+            ],
+            "validation_method": "independent_verification_with_evidence"
+        },
         "high": {
             "approval_required": [
                 "Authorizing Official (AO)",
@@ -229,7 +405,12 @@
         "authentication": {
             "password_policy": {
                 "min_length": 15,
-                "complexity_requirements": [],
+                "complexity_requirements": [
+                    "uppercase",
+                    "lowercase",
+                    "numbers",
+                    "special_chars"
+                ],
                 "history_count": 24,
                 "max_age_days": 60
             },
@@ -247,8 +428,14 @@
                 ]
             },
             "account_lockout": {
-                "threshold": 5,
-                "duration_minutes": 30
+                "threshold": 3,
+                "duration_minutes": 30,
+                "reset_counter_after_minutes": 15
+            },
+            "session_management": {
+                "timeout_minutes": 15,
+                "concurrent_sessions_limit": 1,
+                "reauthentication_for_sensitive_actions": true
             }
         },
         "encryption": {
@@ -257,7 +444,8 @@
                 "algorithms": [
                     "AES-256"
                 ],
-                "key_management": "documented_process_compliant_with_fips_140"
+                "key_management": "documented_process_compliant_with_fips_140",
+                "fips_validation_required": true
             },
             "data_in_transit": {
                 "required": true,
@@ -265,12 +453,23 @@
                     "TLS 1.2",
                     "TLS 1.3"
                 ],
+                "cipher_suites": [
+                    "ECDHE-ECDSA-AES256-GCM-SHA384",
+                    "ECDHE-RSA-AES256-GCM-SHA384",
+                    "DHE-RSA-AES256-GCM-SHA384"
+                ],
                 "prohibited_protocols": [
                     "SSLv2",
                     "SSLv3",
                     "TLS 1.0",
                     "TLS 1.1"
-                ]
+                ],
+                "fips_validation_required": true
+            },
+            "key_management": {
+                "key_rotation_frequency_days": 90,
+                "key_protection_requirements": "hardware_security_module_or_equivalent",
+                "key_access_authorization": "dual_control_with_split_knowledge"
             }
         },
         "audit_logging": {
@@ -282,36 +481,87 @@
                 "object_access",
                 "policy_changes",
                 "system_startup_shutdown",
-                "security_alerts"
+                "security_alerts",
+                "access_to_sensitive_data",
+                "configuration_changes",
+                "administrative_actions"
             ],
             "retention_period_days": 365,
             "protected_integrity": true,
-            "review_frequency_days": 7
+            "review_frequency_days": 7,
+            "automated_alerting": true,
+            "backup_storage_required": true,
+            "timestamp_synchronization": "ntp_or_equivalent",
+            "log_storage_volume_monitoring": true
         },
         "vulnerability_management": {
             "scan_frequency_days": 30,
-            "patch_critical_sla_days": null,
+            "patch_critical_sla_days": 15,
             "patch_high_sla_days": 30,
             "patch_moderate_sla_days": 90,
-            "patch_low_sla_days": 180
+            "patch_low_sla_days": 180,
+            "scanning_tool_requirements": "fedramp_approved",
+            "authenticated_scanning_required": true,
+            "web_application_scanning_required": true,
+            "database_scanning_required": true,
+            "false_positive_management_process": true
         },
         "access_control": {
             "principle_of_least_privilege": true,
             "role_based_access": true,
-            "access_review_frequency_days": 180,
-            "separation_of_duties": true
+            "access_review_frequency_days": 90,
+            "privileged_access_review_frequency_days": 30,
+            "separation_of_duties": true,
+            "access_provisioning_process": "documented_with_approvals",
+            "privileged_access_time_limitation": true,
+            "emergency_access_procedure": true
+        },
+        "configuration_management": {
+            "baseline_configurations_required": true,
+            "configuration_change_control_process": true,
+            "security_impact_analysis_required": true,
+            "configuration_monitoring_automated": true,
+            "configuration_deviation_approval_required": true,
+            "secure_baseline_standard": "fedramp_provided_or_equivalent"
+        },
+        "contingency_planning": {
+            "backup_frequency": "daily",
+            "backup_encryption_required": true,
+            "offsite_storage_required": true,
+            "recovery_time_objective_hours": 24,
+            "recovery_point_objective_hours": 24,
+            "alternate_site_requirements": "documented_and_tested"
         }
     },
     "testing_requirements": {
         "annual_security_assessment": {
             "frequency_months": 12,
             "scope": "subset_of_moderate_baseline_controls",
-            "methodology": "3pao_assessment_per_fedramp_guidance"
+            "methodology": "3pao_assessment_per_fedramp_guidance",
+            "required_documentation": [
+                "Security Assessment Plan (SAP)",
+                "Security Assessment Report (SAR)"
+            ],
+            "deliverables": [
+                "SAP",
+                "SAR",
+                "POA&M updates",
+                "Raw testing results"
+            ]
         },
         "penetration_testing": {
             "frequency_months": 12,
             "scope": "system_boundary_and_key_interfaces",
-            "methodology": "fedramp_penetration_test_guidance"
+            "methodology": "fedramp_penetration_test_guidance",
+            "required_documentation": [
+                "Penetration Test Plan",
+                "Penetration Test Report"
+            ],
+            "test_types": [
+                "network_layer",
+                "application_layer",
+                "social_engineering_optional"
+            ]
         },
         "contingency_plan_testing": {
             "frequency_months": 12,
@@ -319,12 +569,36 @@
             "methodology": [
                 "tabletop_exercise",
                 "functional_exercise"
+            ],
+            "required_documentation": [
+                "Test Plan",
+                "Test Results",
+                "After Action Report",
+                "Plan Updates Based on Findings"
             ]
         },
         "continuous_monitoring": {
             "vulnerability_scanning_os_db_web": "monthly",
             "configuration_scanning": "monthly",
-            "log_review": "weekly_or_automated_realtime"
+            "log_review": "weekly_or_automated_realtime",
+            "poam_review": "monthly",
+            "security_control_assessment": {
+                "frequency": "subset_monthly_full_annual",
+                "methodology": "fedramp_established_process"
+            },
+            "incident_response_testing": {
+                "frequency_months": 12,
+                "methodology": "tabletop_or_functional_exercise"
+            }
+        },
+        "security_impact_analysis": {
+            "required_for": [
+                "configuration_changes",
+                "software_updates",
+                "environment_changes"
+            ],
+            "documentation_required": true,
+            "approval_process": "defined_with_authority_levels"
         }
     },
     "attestation_requirements": {
@@ -334,6 +608,13 @@
                 "ISSO",
                 "System Owner",
                 "AO"
+            ],
+            "documentation_required": true,
+            "content_requirements": [
+                "System description updates",
+                "Control implementation updates",
+                "Changes to system boundary",
+                "New interconnections"
             ]
         },
         "contingency_plan_review_update": {
@@ -341,6 +622,13 @@
             "approval_required": [
                 "ISSO",
                 "System Owner"
+            ],
+            "documentation_required": true,
+            "content_requirements": [
+                "Recovery procedures",
+                "Contact information updates",
+                "Resource requirements",
+                "Test results incorporation"
             ]
         },
         "incident_response_plan_review_update": {
@@ -348,11 +636,59 @@
             "approval_required": [
                 "ISSO",
                 "System Owner"
+            ],
+            "documentation_required": true,
+            "content_requirements": [
+                "Response procedures",
+                "Contact information updates",
+                "Roles and responsibilities",
+                "Incident categorization",
+                "Reporting requirements"
             ]
         },
         "poam_review": {
             "frequency_months": 1,
-            "documentation_required": true
+            "documentation_required": true,
+            "approval_required": [
+                "ISSO",
+                "System Owner"
+            ],
+            "content_requirements": [
+                "Status updates",
+                "Milestone tracking",
+                "Completion evidence",
+                "Risk acceptance documentation"
+            ]
+        },
+        "configuration_management_plan": {
+            "frequency_months": 12,
+            "documentation_required": true,
+            "approval_required": [
+                "ISSO",
+                "System Owner"
+            ]
         }
-    }
+    },
+    "references": [
+        {
+            "title": "FedRAMP Program Documentation",
+            "url": "https://www.fedramp.gov/documents/",
+            "description": "Official FedRAMP guidance and templates"
+        },
+        {
+            "title": "NIST SP 800-53 Rev. 5",
+            "url": "https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final",
+            "description": "Security and Privacy Controls for Information Systems and Organizations"
+        },
+        {
+            "title": "FedRAMP Continuous Monitoring Strategy Guide",
+            "url": "https://www.fedramp.gov/assets/resources/documents/CSP_Continuous_Monitoring_Strategy_Guide.pdf",
+            "description": "Guide for implementing FedRAMP continuous monitoring requirements"
+        },
+        {
+            "title": "FedRAMP Security Assessment Framework",
+            "url": "https://www.fedramp.gov/assets/resources/documents/FedRAMP_Security_Assessment_Framework.pdf",
+            "description": "Framework for conducting FedRAMP security assessments"
+        }
+    ]
 }

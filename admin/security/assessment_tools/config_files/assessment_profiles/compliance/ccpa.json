@@ -53,6 +53,16 @@
                 "current_privacy_policy_url",
                 "privacy_policy_version_history",
                 "screenshots_of_notice_at_collection"
+            ],
+            "references": [
+                {
+                    "title": "CCPA § 1798.100(b)",
+                    "description": "Requirements for notice at collection"
+                },
+                {
+                    "title": "CCPA § 1798.130",
+                    "description": "Requirements for privacy notices"
+                }
             ]
         },
         "right_to_know": {
@@ -182,6 +192,17 @@
                 "vulnerability_scan_reports",
                 "incident_response_plan",
                 "data_retention_and_disposal_policy"
+            ],
+            "references": [
+                {
+                    "title": "CCPA § 1798.150",
+                    "description": "Private right of action for data breaches resulting from failure to implement reasonable security procedures"
+                },
+                {
+                    "title": "California Attorney General's Data Breach Report 2016",
+                    "url": "https://oag.ca.gov/privacy/data-breach-report-2016",
+                    "description": "Recommendations for reasonable security practices"
+                }
             ]
         },
         "service_provider_contracts": {
@@ -228,6 +249,13 @@
             "remediation_sla_days": 90,
             "requires_compensating_control": false,
             "example": "Slightly outdated policy wording, minor gaps in training records."
+        },
+        "informational": {
+            "compliance_impact": "observation_for_improvement",
+            "description": "Observation or recommendation for improvement, not a direct CCPA non-compliance.",
+            "remediation_sla_days": null,
+            "requires_compensating_control": false,
+            "example": "Suggestion for improving consumer privacy experience, best practice recommendation."
         }
     },
     "remediation_requirements": {
@@ -290,12 +318,23 @@
             "pi_in_transit_required": true,
             "approved_algorithms": [
                 "AES-256"
+            ],
+            "prohibited_protocols": [
+                "SSL",
+                "TLS 1.0",
+                "TLS 1.1"
             ]
         },
         "logging": {
             "dsr_activity_logging": true,
             "pi_access_logging": true,
-            "retention_period_days": 365
+            "retention_period_days": 365,
+            "protected_integrity": true
+        },
+        "consent_management": {
+            "granular_consent_options": true,
+            "easy_withdrawal_mechanism": true,
+            "consent_record_keeping": true
         }
     },
     "testing_requirements": {
@@ -315,7 +354,16 @@
         },
         "security_controls_for_pi": {
             "frequency_months": 12,
-            "scope": "systems_processing_pi"
+            "scope": "systems_processing_pi",
+            "methodology": [
+                "vulnerability_scanning",
+                "configuration_review"
+            ]
+        },
+        "privacy_notice_validation": {
+            "frequency_months": 3,
+            "scope": "public_facing_privacy_notices",
+            "methodology": "ui_and_content_review"
         }
     },
     "attestation_requirements": {
@@ -333,6 +381,28 @@
         "security_procedures_review": {
             "frequency_months": 12,
             "documentation_required": true
+        },
+        "staff_training_verification": {
+            "frequency_months": 12,
+            "scope": "staff_handling_consumer_requests",
+            "documentation_required": true
         }
-    }
+    },
+    "references": [
+        {
+            "title": "California Consumer Privacy Act (CCPA)",
+            "url": "https://leginfo.legislature.ca.gov/faces/codes_displayText.xhtml?division=3.&part=4.&lawCode=CIV&title=1.81.5",
+            "description": "Official text of the California Consumer Privacy Act"
+        },
+        {
+            "title": "California Privacy Rights Act (CPRA)",
+            "url": "https://cppa.ca.gov/regulations/",
+            "description": "CPRA amendments to the CCPA"
+        },
+        {
+            "title": "California Attorney General CCPA Regulations",
+            "url": "https://www.oag.ca.gov/privacy/ccpa/regs",
+            "description": "Regulations implementing the CCPA"
+        }
+    ]
 }
