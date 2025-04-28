@@ -1,0 +1,326 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Security Baseline Schema",
+    "description": "Defines the structure for security baseline configuration files used by assessment tools.",
+    "type": "object",
+    "properties": {
+        "metadata": {
+            "description": "Information about the baseline file.",
+            "type": "object",
+            "properties": {
+                "title": {
+                    "description": "Human-readable title for the baseline.",
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 100
+                },
+                "version": {
+                    "description": "Version of the baseline file (e.g., 1.2.0).",
+                    "type": "string",
+                    "pattern": "^\\d+\\.\\d+\\.\\d+$"
+                },
+                "last_updated": {
+                    "description": "Date the baseline was last updated (YYYY-MM-DD).",
+                    "type": "string",
+                    "format": "date"
+                },
+                "source_standards": {
+                    "description": "List of industry standards this baseline is derived from (e.g., CIS, NIST).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "minItems": 1
+                },
+                "applicable_systems": {
+                    "description": "List of system types or environments this baseline applies to.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "minItems": 1
+                },
+                "owner": {
+                    "description": "Team or individual responsible for maintaining the baseline.",
+                    "type": "string"
+                },
+                "review_cycle": {
+                    "description": "How frequently the baseline should be reviewed (in days).",
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 90
+                },
+                "compliance_frameworks": {
+                    "description": "List of compliance frameworks this baseline helps satisfy.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "revision_history": {
+                    "description": "History of changes to this baseline.",
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "version": {
+                                "type": "string",
+                                "pattern": "^\\d+\\.\\d+\\.\\d+$"
+                            },
+                            "date": {
+                                "type": "string",
+                                "format": "date"
+                            },
+                            "author": {
+                                "type": "string"
+                            },
+                            "changes": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "version",
+                            "date",
+                            "changes"
+                        ]
+                    }
+                },
+                "risk_level": {
+                    "description": "Overall risk level addressed by this baseline.",
+                    "type": "string",
+                    "enum": [
+                        "critical",
+                        "high",
+                        "medium",
+                        "low"
+                    ]
+                },
+                "loaded_files": {
+                    "description": "List of baseline files that were loaded and merged (for reporting).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            },
+            "required": [
+                "title",
+                "version",
+                "last_updated"
+            ]
+        },
+        "controls": {
+            "description": "Security controls grouped by category.",
+            "type": "object",
+            "patternProperties": {
+                "^[a-zA-Z0-9_]+$": {
+                    "description": "A category of security controls (e.g., account_management, network_security).",
+                    "type": "object",
+                    "properties": {
+                        "category_description": {
+                            "description": "Description of this control category.",
+                            "type": "string"
+                        }
+                    },
+                    "patternProperties": {
+                        "^[a-zA-Z0-9_.-]+$": {
+                            "description": "A specific security control definition.",
+                            "type": "object",
+                            "properties": {
+                                "description": {
+                                    "description": "Optional description of the control's purpose.",
+                                    "type": "string"
+                                },
+                                "validation": {
+                                    "description": "Command or procedure to validate the control's implementation.",
+                                    "type": "string"
+                                },
+                                "validation_type": {
+                                    "description": "Type of validation to perform.",
+                                    "type": "string",
+                                    "enum": [
+                                        "command",
+                                        "api",
+                                        "manual",
+                                        "custom"
+                                    ],
+                                    "default": "command"
+                                },
+                                "expected_output": {
+                                    "description": "Expected output from validation command (regex or exact match).",
+                                    "type": "string"
+                                },
+                                "validation_operator": {
+                                    "description": "How to evaluate validation result against expected output.",
+                                    "type": "string",
+                                    "enum": [
+                                        "contains",
+                                        "equals",
+                                        "regex",
+                                        "not_contains",
+                                        "exit_code"
+                                    ],
+                                    "default": "contains"
+                                },
+                                "remediation": {
+                                    "description": "Steps to take to remediate a non-compliant control.",
+                                    "type": "string"
+                                },
+                                "auto_remediation": {
+                                    "description": "Command or script that can automatically remediate the issue.",
+                                    "type": "string"
+                                },
+                                "severity": {
+                                    "description": "Severity rating of the control if non-compliant.",
+                                    "type": "string",
+                                    "enum": [
+                                        "critical",
+                                        "high",
+                                        "medium",
+                                        "low",
+                                        "info"
+                                    ]
+                                },
+                                "rationale": {
+                                    "description": "Justification for why this control is necessary.",
+                                    "type": "string"
+                                },
+                                "impact": {
+                                    "description": "Potential impact of implementing this control.",
+                                    "type": "string",
+                                    "enum": [
+                                        "high",
+                                        "medium",
+                                        "low"
+                                    ]
+                                },
+                                "dependencies": {
+                                    "description": "Other controls this control depends on.",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "references": {
+                                    "description": "References to standards or documentation.",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "title": {
+                                                "type": "string"
+                                            },
+                                            "url": {
+                                                "type": "string",
+                                                "format": "uri"
+                                            }
+                                        },
+                                        "required": [
+                                            "title"
+                                        ]
+                                    }
+                                },
+                                "implementation_groups": {
+                                    "description": "Implementation phases or difficulty levels.",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string",
+                                        "enum": [
+                                            "basic",
+                                            "intermediate",
+                                            "advanced"
+                                        ]
+                                    }
+                                },
+                                "tags": {
+                                    "description": "Additional classification tags for the control.",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "applicability": {
+                                    "description": "Specific conditions when this control applies.",
+                                    "type": "object",
+                                    "properties": {
+                                        "environments": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string",
+                                                "enum": [
+                                                    "all",
+                                                    "production",
+                                                    "staging",
+                                                    "development"
+                                                ]
+                                            },
+                                            "default": [
+                                                "all"
+                                            ]
+                                        },
+                                        "condition": {
+                                            "type": "string",
+                                            "description": "Conditional expression to determine applicability."
+                                        }
+                                    }
+                                },
+                                "testing": {
+                                    "description": "Testing methods for this control.",
+                                    "type": "object",
+                                    "properties": {
+                                        "method": {
+                                            "type": "string",
+                                            "enum": [
+                                                "automated",
+                                                "manual",
+                                                "hybrid"
+                                            ]
+                                        },
+                                        "frequency": {
+                                            "type": "string",
+                                            "enum": [
+                                                "continuous",
+                                                "daily",
+                                                "weekly",
+                                                "monthly",
+                                                "quarterly"
+                                            ]
+                                        },
+                                        "test_cases": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    }
+                                },
+                                "compensating_controls": {
+                                    "description": "Alternative controls that can be used if this one can't be implemented.",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            },
+                            "required": [
+                                "validation",
+                                "remediation",
+                                "severity",
+                                "rationale"
+                            ],
+                            "additionalProperties": true
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "additionalProperties": false,
+            "minProperties": 1
+        }
+    },
+    "required": [
+        "metadata",
+        "controls"
+    ],
+    "additionalProperties": false
+}
