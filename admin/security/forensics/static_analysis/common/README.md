@@ -4,13 +4,13 @@ This directory contains shared utilities and common components used by the stati
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- Usage
-- Security Features
-- Best Practices
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Usage](#usage)
+- [Security Features](#security-features)
+- [Best Practices](#best-practices)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
@@ -106,13 +106,13 @@ admin/security/forensics/static_analysis/common/
 The common components are designed to be imported and used by the static analysis tools:
 
 ```python
-from static_analysis.common import file_utils, hash_utils
-from static_analysis.common.yara_rules import YaraScanner
-from static_analysis.common.signature_db import SignatureDBManager
+from admin.security.forensics.static_analysis.common import file_utils, hash_utils
+from admin.security.forensics.static_analysis.common.yara_rules import YaraScanner
+from admin.security.forensics.static_analysis.common.signature_db import SignatureDBManager
 
 # File analysis
 file_type = file_utils.identify_file_type('/path/to/suspicious_file')
-file_metadata = file_utils.extract_metadata('/path/to/suspicious_file')
+file_metadata = file_utils.extract_metadata_by_format('/path/to/suspicious_file')
 
 # Hash calculation
 hashes = hash_utils.calculate_multiple_hashes(
