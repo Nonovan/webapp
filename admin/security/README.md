@@ -4,14 +4,15 @@ This directory contains security tools, configurations, and documentation for th
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- Security Standards
-- Usage Guidelines
-- Best Practices & Security
-- Common Features
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Security Standards](#security-standards)
+- [Usage Guidelines](#usage-guidelines)
+- [Best Practices & Security](#best-practices--security)
+- [Common Features](#common-features)
+- [Hardening Guidelines](#hardening-guidelines)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
@@ -218,6 +219,65 @@ This security toolset implements controls and follows methodologies aligned with
 - **Standardized Reporting**: Consistent reporting formats across tools
 - **Version Management**: Clear versioning and change tracking for all tools
 
+## Hardening Guidelines
+
+Security tools in this directory implement and enforce hardening guidelines based on industry best practices. These guidelines apply to various system types:
+
+### System Hardening
+
+- **Linux System Hardening**
+  - Secure kernel parameter configuration
+  - Service restrictions and secure defaults
+  - File system access controls and secure mount options
+  - User and group security settings
+  - Network protocol hardening
+
+- **Container Security**
+  - Minimal base images with security patches
+  - Image scanning and vulnerability management
+  - Runtime security controls
+  - Resource limitation and isolation
+  - Network policy enforcement
+
+- **Database Hardening**
+  - Authentication security measures
+  - Access control implementation
+  - Audit configuration
+  - Encryption settings
+  - Data protection measures
+
+### Application Security Hardening
+
+- **Web Application Security**
+  - Content Security Policy implementation
+  - HTTP Security Headers configuration
+  - Input validation requirements
+  - Session security management
+  - Authentication and authorization controls
+
+- **API Security**
+  - Authentication enforcement
+  - Rate limiting implementation
+  - Input validation requirements
+  - Error handling security
+  - Output encoding enforcement
+
+### Network Security
+
+- **Firewall Configuration**
+  - Default-deny rule base
+  - Explicit allow rules for required services
+  - Stateful inspection requirements
+  - Rule review and verification procedures
+  - Egress filtering implementation
+
+- **TLS Configuration**
+  - Strong cipher suite selection
+  - Protocol version requirements
+  - Certificate management
+  - Key exchange parameter settings
+  - Perfect Forward Secrecy requirements
+
 ## Related Documentation
 
 - Security Architecture Overview
@@ -228,3 +288,8 @@ This security toolset implements controls and follows methodologies aligned with
 - Security Assessment Methodology
 - Evidence Handling Guidelines
 - Security Training Materials
+- Security Hardening Checklist
+- Security Update Policy
+- Certificate Management
+- Authentication Standards
+- Network Security Guidelines
