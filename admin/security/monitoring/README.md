@@ -4,13 +4,15 @@ This directory contains specialized security monitoring tools for administrative
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- Configuration
-- Security Features
-- Usage Examples
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Configuration](#configuration)
+- [Security Features](#security-features)
+- [Usage Examples](#usage-examples)
+- [Report Generation](#report-generation)
+- [Common Workflows](#common-workflows)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
@@ -24,6 +26,7 @@ The monitoring directory contains specialized security monitoring tools for admi
   - Resource usage pattern monitoring
   - System call pattern analysis
   - User behavior analytics
+  - HTML, JSON, and text report generation
 
 - **`integrity_monitor.sh`**: Enhanced file integrity monitoring system
   - Administrative configuration integrity verification
@@ -31,6 +34,7 @@ The monitoring directory contains specialized security monitoring tools for admi
   - Cryptographic verification of system binaries
   - Detection of unauthorized file modifications
   - Rootkit and backdoor detection capabilities
+  - Structured report generation for findings
 
 - **`privilege_audit.py`**: Administrative privilege monitoring
   - Administrative action verification
@@ -38,6 +42,7 @@ The monitoring directory contains specialized security monitoring tools for admi
   - Privileged account usage tracking
   - Role-based access control validation
   - Unexpected privilege changes
+  - Integration with alerting system
 
 - **`security_dashboard.py`**: Administrative security dashboard generator
   - Anomaly detection visualization
@@ -45,6 +50,8 @@ The monitoring directory contains specialized security monitoring tools for admi
   - Real-time security posture visualization
   - Security metrics tracking
   - Threat intelligence integration
+  - Environment-aware display options
+  - Multiple output formats (HTML, JSON)
 
 - **`security_event_correlator.py`**: Security event correlation engine
   - Advanced persistent threat detection
@@ -52,6 +59,8 @@ The monitoring directory contains specialized security monitoring tools for admi
   - Baseline deviation alerting
   - Cross-system event analysis
   - Sequential attack detection
+  - Rule-based correlation capabilities
+  - HTML report generation for findings
 
 - **`threat_intelligence.py`**: Threat intelligence integration tool
   - Automated blocklist updates
@@ -59,6 +68,8 @@ The monitoring directory contains specialized security monitoring tools for admi
   - IP reputation analysis and alerting
   - Known malicious pattern detection
   - Threat feed integration and management
+  - Detailed HTML reporting on threat matches
+  - Batch indicator processing
 
 ## Directory Structure
 
@@ -69,6 +80,7 @@ admin/security/monitoring/
 ├── config/                       # Configuration files
 │   ├── README.md                 # Configuration documentation
 │   ├── baseline/                 # Security baselines for different environments
+│   │   ├── README.md             # Baseline documentation
 │   │   ├── development.json      # Development environment baseline
 │   │   ├── production.json       # Production environment baseline
 │   │   └── staging.json          # Staging environment baseline
@@ -93,6 +105,7 @@ admin/security/monitoring/
 ├── threat_intelligence.py        # Threat intelligence integration tool
 └── utils/                        # Utility functions
     ├── README.md                 # Utilities documentation
+    ├── __init__.py               # Package initialization
     ├── alert_formatter.py        # Security alert formatting functions
     ├── event_normalizer.py       # Event normalization functions
     ├── indicator_matcher.py      # IOC matching functions
@@ -101,7 +114,9 @@ admin/security/monitoring/
 
 ## Configuration
 
-The security monitoring tools use configuration files in the config directory:
+The security monitoring tools use configuration files in the config directory to determine what to monitor and how to respond:
+
+### Threat Intelligence Configuration
 
 ```json
 // threat_feeds.json
@@ -129,6 +144,29 @@ The security monitoring tools use configuration files in the config directory:
 }
 ```
 
+### Baselines
+
+Each environment has specific baseline files that define normal behavior patterns:
+
+```json
+// production.json (example)
+{
+  "authentication": {
+    "failed_login_threshold": 5,
+    "brute_force_time_window": 300,
+    "session_duration_avg": 28800
+  },
+  "system_activity": {
+    "cpu_baseline": {
+      "web_servers": {"normal_range": [10, 50], "alert_threshold": 85}
+    },
+    "network_baseline": {
+      "outbound_connections_per_hour": {"normal_range": [100, 5000]}
+    }
+  }
+}
+```
+
 ## Security Features
 
 - **Access Controls**: Only authorized security personnel can access these tools
@@ -152,6 +190,9 @@ The security monitoring tools use configuration files in the config directory:
 
 # Check only critical configuration files
 ./integrity_monitor.sh --scope config-files --alert-on-change
+
+# Generate JSON report of integrity status
+./integrity_monitor.sh --output-format json --report-file /tmp/integrity_report.json
 ```
 
 ### Security Dashboard Generation
@@ -162,6 +203,9 @@ The security monitoring tools use configuration files in the config directory:
 
 # Generate a focused dashboard for a specific incident
 ./security_dashboard.py --incident-id INC-2023-42 --detail-level high
+
+# Generate dashboard as JSON data
+./security_dashboard.py --format json --output /tmp/security_data.json
 ```
 
 ### Security Event Correlation
@@ -172,6 +216,9 @@ The security monitoring tools use configuration files in the config directory:
 
 # Analyze events related to a specific user
 ./security_event_correlator.py --user-id 42 --detection-mode aggressive
+
+# Generate HTML report of correlated events
+./security_event_correlator.py --hours 48 --output-format html
 ```
 
 ### Threat Intelligence Integration
@@ -182,7 +229,83 @@ The security monitoring tools use configuration files in the config directory:
 
 # Check specific indicators against threat intelligence
 ./threat_intelligence.py --check-ioc "185.159.128.243" --type ip
+
+# Process multiple indicators from a file
+./threat_intelligence.py --report --indicators-file /tmp/suspicious_ips.txt
 ```
+
+### Anomaly Detection
+
+```bash
+# Run full anomaly detection scan
+./anomaly_detector.sh --scope all --sensitivity high
+
+# Focus on user behavior anomalies
+./anomaly_detector.sh --scope user --timeframe 48h
+
+# Generate HTML report of detected anomalies
+./anomaly_detector.sh --output-format html --report-file /tmp/anomalies.html
+```
+
+## Report Generation
+
+All tools can generate reports in various formats. The main output formats include:
+
+### HTML Reports
+
+HTML reports feature rich visualizations with:
+
+- Severity color-coding (critical, high, medium, low)
+- Interactive elements for exploring details
+- Print-friendly formatting
+- Responsive design for different screen sizes
+- Consistent styling across all monitoring tools
+
+### JSON Reports
+
+JSON format provides structured data for:
+
+- Integration with other security tools
+- Custom dashboard construction
+- Automated analysis and response
+- Historical data analysis
+- Audit record maintenance
+
+### Text Reports
+
+Plain text reports offer:
+
+- Console-friendly output
+- Email compatibility
+- Quick review of findings
+- Low bandwidth requirements
+- Simplified archiving
+
+## Common Workflows
+
+### Incident Investigation
+
+1. Start with the security dashboard for a high-level overview
+2. Run event correlation to identify attack patterns
+3. Use anomaly detection to find unusual behaviors
+4. Verify file integrity to check for unauthorized changes
+5. Query threat intelligence for indicators
+
+### Daily Security Monitoring
+
+1. Generate the security dashboard each morning
+2. Review anomaly detection reports
+3. Check integrity verification status
+4. Update threat intelligence feeds
+5. Investigate any correlated events
+
+### Security Baseline Management
+
+1. Run anomaly detection in learning mode
+2. Adjust baseline thresholds based on findings
+3. Update detection rules based on new threats
+4. Verify changes with dry-run mode
+5. Apply changes to production environment
 
 ## Related Documentation
 
