@@ -118,78 +118,84 @@ The toolset implements a unified assessment methodology with proper planning, di
 
 ```plaintext
 admin/security/assessment_tools/
-├── README.md                     # This documentation
-├── USAGE.md                      # Detailed usage instructions
 ├── CONTRIBUTING.md               # Contribution guidelines
+├── README.md                     # This documentation
 ├── SECURITY_STANDARDS.md         # Referenced security standards
+├── USAGE.md                      # Detailed usage instructions
+├── config_files/                 # Configuration files
+│   ├── README.md                 # Configuration documentation
+│   ├── assessment_profiles/      # Assessment profiles
+│   │   ├── compliance/           # Compliance-specific profiles
+│   │   │   ├── README.md         # Compliance profiles documentation
+│   │   │   ├── ccpa.json         # California Consumer Privacy Act profile
+│   │   │   ├── cmmc.json         # Cybersecurity Maturity Model Certification profile
+│   │   │   ├── fedramp.json      # FedRAMP Moderate compliance profile
+│   │   │   ├── gdpr.json         # GDPR compliance profile
+│   │   │   ├── hipaa.json        # HIPAA Security Rule compliance profile
+│   │   │   ├── iso27001.json     # ISO 27001:2013 compliance profile
+│   │   │   ├── nist-csf.json     # NIST Cybersecurity Framework profile
+│   │   │   └── pci-dss.json      # PCI DSS compliance profile
+│   │   ├── default.json          # Default assessment profile
+│   │   ├── development.json      # Development environment profile
+│   │   └── production.json       # Production environment profile
+│   ├── custom_rules/             # Custom assessment rules
+│   │   ├── example_rule.json     # Example rule template
+│   │   ├── infra_rules.json      # Infrastructure-specific rules
+│   │   ├── javascript_rules.json # JavaScript-specific rules
+│   │   └── python_rules.json     # Python-specific rules
+│   ├── integrations/             # Integration configurations
+│   │   ├── jira.json             # JIRA integration settings
+│   │   ├── servicenow.json       # ServiceNow integration settings
+│   │   ├── slack.json            # Slack notification settings
+│   │   └── splunk.json           # Splunk integration settings
+│   └── security_baselines/       # Security baseline definitions
+│       ├── application_baseline.json   # Application security baseline
+│       ├── cloud_service_baseline.json # Cloud service security baseline
+│       ├── container_baseline.json     # Container security baseline
+│       ├── database_baseline.json      # Database security baseline
+│       ├── linux_server_baseline.json  # Linux server security baseline
+│       └── web_server_baseline.json    # Web server security baseline
 ├── core_assessment_tools/        # Primary assessment tools
-│   ├── vulnerability_scanner.py  # Vulnerability scanning tool
-│   ├── configuration_analyzer.py # Configuration assessment tool
-│   ├── network_security_tester.py # Network security testing tool
+│   ├── README.md                 # Core tools documentation
 │   ├── access_control_auditor.py # Access control validation tool
 │   ├── code_security_analyzer.py # Code security analysis tool
+│   ├── common/                   # Shared components for core tools
+│   │   ├── __init__.py           # Package initialization
+│   │   ├── assessment_base.py    # Base classes for assessment tools
+│   │   ├── connection_manager.py # Secure connection handling
+│   │   ├── data_types.py         # Common data structures
+│   │   ├── error_handlers.py     # Error handling utilities
+│   │   ├── output_formatters.py  # Output formatting utilities
+│   │   ├── permission_utils.py   # Permission verification utilities
+│   │   ├── result_cache.py       # Result caching implementation
+│   │   └── validation.py         # Input validation utilities
+│   ├── configuration_analyzer.py # Configuration assessment tool
+│   ├── network_security_tester.py # Network security testing tool
 │   ├── password_strength_tester.py # Password policy testing tool
-│   ├── README.md                 # Core tools documentation
-│   └── common/                   # Shared components for core tools
-│       ├── __init__.py           # Package initialization
-│       ├── assessment_base.py    # Base classes for assessment tools
-│       ├── connection_manager.py # Secure connection handling
-│       ├── data_types.py         # Common data structures
-│       ├── error_handlers.py     # Error handling utilities
-│       ├── output_formatters.py  # Output formatting utilities
-│       ├── permission_utils.py   # Permission verification utilities
-│       ├── result_cache.py       # Result caching implementation
-│       └── validation.py         # Input validation utilities
-├── supporting_scripts/           # Supporting functionality
-│   ├── assessment_utils.py       # Shared assessment utilities
-│   ├── report_generator.py       # Report generation engine
-│   ├── finding_classifier.py     # Finding classification and prioritization
-│   ├── remediation_tracker.py    # Remediation status tracking
-│   ├── evidence_collector.py     # Evidence collection and management
-│   ├── assessment_coordinator.py # Assessment workflow coordination
-│   ├── README.md                 # Supporting scripts documentation
-│   └── templates/                # Report and output templates
-│       ├── executive_summary.md  # Executive summary template
-│       ├── technical_report.md   # Technical report template
-│       ├── finding_detail.md     # Individual finding template
-│       ├── remediation_plan.md   # Remediation plan template
-│       ├── sections/             # Reusable template sections
-│       │   ├── header.md         # Standard report header
-│       │   ├── methodology.md    # Assessment methodology section
-│       │   ├── risk_rating.md    # Risk rating explanation
-│       │   └── disclaimer.md     # Legal disclaimer text
-│       └── styles/               # Style definitions for output formats
-│           ├── pdf.css           # PDF output styling
-│           ├── html.css          # HTML output styling
-│           └── docx.json         # Word document styling
-└── config_files/                 # Configuration files
-    ├── README.md                 # Configuration documentation
-    ├── assessment_profiles/      # Assessment profiles
-    │   ├── default.json          # Default assessment profile
-    │   ├── production.json       # Production environment profile
-    │   ├── development.json      # Development environment profile
-    │   └── compliance/           # Compliance-specific profiles
-    │       ├── pci-dss.json      # PCI DSS compliance profile
-    │       ├── hipaa.json        # HIPAA compliance profile
-    │       ├── iso27001.json     # ISO 27001 compliance profile
-    │       └── nist-csf.json     # NIST Cybersecurity Framework profile
-    ├── security_baselines/       # Security baseline definitions
-    │   ├── linux_server_baseline.json  # Linux server security baseline
-    │   ├── web_server_baseline.json    # Web server security baseline
-    │   ├── database_baseline.json      # Database security baseline
-    │   ├── container_baseline.json     # Container security baseline
-    │   ├── application_baseline.json   # Application security baseline
-    │   └── cloud_service_baseline.json # Cloud service security baseline
-    ├── custom_rules/             # Custom assessment rules
-    │   ├── example_rule.json     # Example rule template
-    │   ├── javascript_rules.json # JavaScript-specific rules
-    │   ├── python_rules.json     # Python-specific rules
-    │   └── infra_rules.json      # Infrastructure-specific rules
-    └── integrations/             # Integration configurations
-        ├── jira.json             # JIRA integration settings
-        ├── slack.json            # Slack notification settings
-        ├── splunk.json           # Splunk integration settings
-        └── servicenow.json       # ServiceNow integration settings
+│   └── vulnerability_scanner.py  # Vulnerability scanning tool
+└── supporting_scripts/           # Supporting functionality
+    ├── README.md                 # Supporting scripts documentation
+    ├── assessment_coordinator.py # Assessment workflow coordination
+    ├── assessment_utils.py       # Shared assessment utilities
+    ├── evidence_collector.py     # Evidence collection and management
+    ├── finding_classifier.py     # Finding classification and prioritization
+    ├── remediation_tracker.py    # Remediation status tracking
+    ├── report_generator.py       # Report generation engine
+    └── templates/                # Report and output templates
+        ├── README.md             # Templates documentation
+        ├── executive_summary.md  # Executive summary template
+        ├── finding_detail.md     # Individual finding template
+        ├── remediation_plan.md   # Remediation plan template
+        ├── sections/             # Reusable template sections
+        │   ├── disclaimer.md     # Legal disclaimer text
+        │   ├── header.md         # Standard report header
+        │   ├── methodology.md    # Assessment methodology section
+        │   └── risk_rating.md    # Risk rating explanation
+        ├── styles/               # Style definitions for output formats
+        │   ├── docx.json         # Word document styling
+        │   ├── html.css          # HTML output styling
+        │   └── pdf.css           # PDF output styling
+        └── technical_report.md   # Technical report template
 ```
 
 ## Configuration
