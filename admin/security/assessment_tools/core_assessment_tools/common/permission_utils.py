@@ -205,6 +205,86 @@ def require_permission(permission: str):
     return decorator
 
 
+def secure_operation(permission: str, audit_name: str = None, require_mfa: bool = False):
+    """
+    Enhanced decorator that detects targets and handles all permission checks.
+
+    Args:
+        permission: Permission required for the operation
+        audit_name: Name to use in audit logs (defaults to function name)
+        require_mfa: Whether MFA is required for this operation
+
+    Returns:
+        Decorated function
+    """
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # Extract target from arguments
+            target = None
+            target_id = None
+
+            # Try to find target in args and kwargs
+            if args and hasattr(args[0], 'target'):
+                target = args[0].target
+            elif 'target' in kwargs:
+                target = kwargs['target']
+
+            if isinstance(target, AssessmentTarget):
+                target_id = target.target_id
+            elif isinstance(target, str):
+                target_id = target
+
+            # Get operation name for audit
+            operation = audit_name or func.__name__
+
+            # Check for cached permission result first
+            cached_result = get_cached_permission(permission, target)
+            if cached_result is not None:
+                if not cached_result:
+                    error_msg = f"Permission denied (cached): {permission} for {target_id or 'global'}"
+                    logger.warning(error_msg)
+                    raise AssessmentException(error_msg)
+            else:
+                # Check for required permission
+                granted = check_assessment_permission(permission, target, require_mfa)
+
+                # Cache the result
+                cache_permission_result(permission, target, granted)
+
+                if not granted:
+                    error_msg = f"Permission denied: {permission} for {target_id or 'global'}"
+                    logger.warning(error_msg)
+                    raise AssessmentException(error_msg)
+
+            # Audit the permission usage
+            audit_permission_usage(
+                permission,
+                target,
+                True,  # Permission granted if we reached here
+                operation,
+                details={"args": str(args), "kwargs": str(kwargs)}
+            )
+
+            try:
+                # Execute the function
+                result = func(*args, **kwargs)
+                return result
+            except Exception as e:
+                # Audit failures
+                audit_permission_usage(
+                    permission,
+                    target,
+                    True,  # Permission was granted
+                    operation,
+                    details={"error": str(e), "error_type": type(e).__name__}
+                )
+                raise  # Re-raise the exception
+
+        return wrapper
+    return decorator
+
+
 def get_user_permissions() -> Dict[str, List[str]]:
     """
     Get the current user's permissions.
@@ -324,6 +404,396 @@ def verify_role_permission(role: str, operation: str) -> bool:
 
     # Check if the required permission is in the role's permissions
     return required_permission in permissions
+
+
+def check_delegated_permission(
+    username: str,
+    permission: str,
+    target: Optional[Union[str, AssessmentTarget]] = None
+) -> bool:
+    """
+    Check if a user has a permission that has been delegated to them.
+
+    Args:
+        username: The user to check delegated permissions for
+        permission: The permission to check for
+        target: Optional target to check permission against
+
+    Returns:
+        True if the user has the delegated permission, False otherwise
+    """
+    logger.debug(f"Checking delegated permission '{permission}' for user {username}")
+
+    try:
+        # Look for delegation environment variables
+        delegations_file = os.environ.get("ASSESSMENT_DELEGATIONS_FILE")
+        if not delegations_file:
+            # Use default path relative to project root
+            project_root = Path(__file__).parent.parent.parent.parent.parent
+            delegations_file = project_root / "admin" / "security" / "assessment_tools" / "config_files" / "delegations.json"
+
+        if not Path(delegations_file).exists():
+            logger.debug(f"Delegations file not found: {delegations_file}")
+            return False
+
+        # Read delegations from file
+        import json
+        with open(delegations_file, 'r') as f:
+            delegations = json.load(f)
+
+        # Get current time for expiration check
+        from datetime import datetime
+        now = datetime.now().isoformat()
+
+        # Check for valid delegation
+        if username in delegations:
+            for delegation in delegations[username]:
+                if (delegation["permission"] == permission and
+                    delegation["valid_until"] > now and
+                    delegation["is_active"]):
+
+                    # Check target restriction if applicable
+                    if "target_id" in delegation and target:
+                        target_id = target.target_id if isinstance(target, AssessmentTarget) else target
+                        if delegation["target_id"] != target_id:
+                            continue
+
+                    logger.debug(f"Found valid delegation for {username}: {permission}")
+                    return True
+
+        return False
+
+    except Exception as e:
+        logger.error(f"Error checking delegated permissions: {str(e)}")
+        return False
+
+
+def elevate_permissions_temporarily(
+    reason: str,
+    duration_minutes: int = 60,
+    require_approval: bool = True
+) -> Dict[str, Any]:
+    """
+    Temporarily elevate permissions for emergency scenarios.
+
+    Args:
+        reason: Reason for requesting elevated permissions
+        duration_minutes: Duration in minutes for elevated access
+        require_approval: Whether approval is required for elevation
+
+    Returns:
+        Dictionary with elevation status and token if successful
+    """
+    logger.info(f"Requesting temporary permission elevation: {reason}")
+
+    try:
+        # Generate a unique request ID
+        import uuid
+        import time
+        from datetime import datetime, timedelta
+
+        request_id = str(uuid.uuid4())
+        elevation_token = None
+
+        # Calculate expiration
+        expiration = datetime.now() + timedelta(minutes=duration_minutes)
+
+        # Record elevation request
+        elevation_request = {
+            "request_id": request_id,
+            "reason": reason,
+            "requested_at": datetime.now().isoformat(),
+            "expiration": expiration.isoformat(),
+            "approved": not require_approval,
+            "approver": None
+        }
+
+        # Log audit event for the elevation request
+        log_security_finding(
+            severity="medium",
+            finding_type="permission_elevation_request",
+            description=f"Temporary permission elevation requested: {reason}",
+            details=elevation_request
+        )
+
+        # If approval is required, wait for it or use approval API
+        if require_approval:
+            # Implementation would depend on your approval workflow
+            # This is a simplified example that could be expanded
+            approval_env = os.environ.get("ASSESSMENT_AUTO_APPROVE")
+            if approval_env == "true":
+                elevation_request["approved"] = True
+                elevation_request["approver"] = "auto_approval"
+            else:
+                # In a real implementation, this might wait for an approval API response
+                # or check an approval queue
+                logger.info(f"Elevation request {request_id} waiting for approval")
+                return {
+                    "status": "pending_approval",
+                    "request_id": request_id,
+                    "expiration": expiration.isoformat()
+                }
+
+        # If approved, generate an elevation token
+        if elevation_request["approved"]:
+            # In a real implementation, this would generate a secure token
+            # with appropriate claims and signatures
+            elevation_token = f"elevation_{request_id}_{int(time.time())}"
+
+            # Set the token in environment for other functions to use
+            os.environ["ASSESSMENT_ELEVATION_TOKEN"] = elevation_token
+            os.environ["ASSESSMENT_ELEVATION_EXPIRY"] = elevation_request["expiration"]
+
+            logger.info(f"Permission elevation granted until {elevation_request['expiration']}")
+
+            return {
+                "status": "approved",
+                "request_id": request_id,
+                "token": elevation_token,
+                "expiration": elevation_request["expiration"]
+            }
+
+        return {
+            "status": "rejected",
+            "request_id": request_id
+        }
+
+    except Exception as e:
+        logger.error(f"Error during permission elevation request: {str(e)}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
+def batch_check_permissions(
+    permissions: List[str],
+    targets: Optional[List[Union[str, AssessmentTarget]]] = None
+) -> Dict[str, Dict[str, bool]]:
+    """
+    Check multiple permissions against multiple targets efficiently.
+
+    Args:
+        permissions: List of permissions to check
+        targets: Optional list of targets to check against
+
+    Returns:
+        Dictionary mapping permissions to targets with boolean results
+    """
+    logger.debug(f"Batch checking {len(permissions)} permissions against {len(targets) if targets else 0} targets")
+
+    results = {}
+
+    try:
+        # If no targets specified, use None for all permission checks
+        if not targets:
+            targets = [None]
+
+        # Process each permission
+        for permission in permissions:
+            results[permission] = {}
+
+            # Check against each target
+            for target in targets:
+                target_id = target.target_id if isinstance(target, AssessmentTarget) else target
+                target_key = str(target_id) if target_id else "global"
+
+                # Check permission
+                results[permission][target_key] = check_assessment_permission(permission, target)
+
+        return results
+
+    except Exception as e:
+        logger.error(f"Error during batch permission check: {str(e)}")
+        return {}
+
+
+def get_cached_permission(
+    permission: str,
+    target: Optional[Union[str, AssessmentTarget]] = None,
+    max_cache_age_seconds: int = 300
+) -> Optional[bool]:
+    """
+    Get a cached permission result if available and not expired.
+
+    Args:
+        permission: Permission to check
+        target: Target to check permission against
+        max_cache_age_seconds: Maximum age of cache entry in seconds
+
+    Returns:
+        Cached result if available, None otherwise
+    """
+    import time
+
+    # Generate a cache key
+    target_id = target.target_id if isinstance(target, AssessmentTarget) else target
+    cache_key = f"{permission}:{target_id if target_id else 'global'}"
+
+    # Check for cached result in environment variable
+    cache_var = f"ASSESSMENT_PERMISSION_CACHE_{hash(cache_key) & 0xffffffff:x}"
+    cached_data = os.environ.get(cache_var)
+
+    if cached_data:
+        try:
+            timestamp, result = cached_data.split(":", 1)
+            timestamp = float(timestamp)
+
+            # Check if cache is still valid
+            if time.time() - timestamp <= max_cache_age_seconds:
+                return result.lower() == "true"
+
+        except (ValueError, TypeError):
+            # Invalid cache format, ignore
+            pass
+
+    return None
+
+def cache_permission_result(
+    permission: str,
+    target: Optional[Union[str, AssessmentTarget]],
+    result: bool
+) -> None:
+    """
+    Cache a permission check result for future use.
+
+    Args:
+        permission: Permission that was checked
+        target: Target that was checked
+        result: Result of the permission check
+    """
+    import time
+
+    # Generate a cache key
+    target_id = target.target_id if isinstance(target, AssessmentTarget) else target
+    cache_key = f"{permission}:{target_id if target_id else 'global'}"
+
+    # Store in environment variable
+    cache_var = f"ASSESSMENT_PERMISSION_CACHE_{hash(cache_key) & 0xffffffff:x}"
+    os.environ[cache_var] = f"{time.time()}:{result}"
+
+
+def sync_with_admin_permissions() -> bool:
+    """
+    Synchronize assessment tool permissions with the main admin permission framework.
+
+    Returns:
+        True if synchronization was successful, False otherwise
+    """
+    logger.debug("Synchronizing with admin permission framework")
+
+    try:
+        # Check if admin CLI is available
+        admin_cli_path = os.environ.get("ADMIN_CLI_PATH")
+        if not admin_cli_path:
+            project_root = Path(__file__).parent.parent.parent.parent.parent
+            admin_cli_path = project_root / "admin" / "cli" / "grant_permissions.py"
+
+        if not Path(admin_cli_path).exists():
+            logger.warning(f"Admin CLI not found at {admin_cli_path}")
+            return False
+
+        # Import the admin permissions module dynamically
+        import sys
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("grant_permissions", admin_cli_path)
+        admin_perms = importlib.util.module_from_spec(spec)
+        sys.modules["grant_permissions"] = admin_perms
+        spec.loader.exec_module(admin_perms)
+
+        # Get current user and check permissions using admin framework
+        import getpass
+        current_user = getpass.getuser()
+
+        # Map assessment permissions to admin permissions
+        permission_map = {
+            PERMISSION_READ: "assessment:read",
+            PERMISSION_EXECUTE: "assessment:execute",
+            PERMISSION_WRITE: "assessment:write",
+            PERMISSION_ADMIN: "assessment:admin"
+        }
+
+        # Check each permission using admin framework
+        synced_permissions = {}
+        for assessment_perm, admin_perm in permission_map.items():
+            try:
+                result = admin_perms.check_user_permission(current_user, admin_perm)
+                synced_permissions[assessment_perm] = result["has_permission"]
+            except Exception as e:
+                logger.error(f"Error checking admin permission {admin_perm}: {str(e)}")
+
+        # Store synced permissions in environment
+        os.environ["ASSESSMENT_SYNCED_PERMISSIONS"] = ",".join(
+            [p for p, has in synced_permissions.items() if has]
+        )
+
+        logger.info(f"Successfully synced permissions with admin framework")
+        return True
+
+    except Exception as e:
+        logger.error(f"Error synchronizing with admin permissions: {str(e)}")
+        return False
+
+
+def audit_permission_usage(
+    permission: str,
+    target: Optional[Union[str, AssessmentTarget]],
+    granted: bool,
+    operation: str,
+    details: Optional[Dict[str, Any]] = None
+) -> None:
+    """
+    Audit permission usage for security analysis and compliance.
+
+    Args:
+        permission: Permission that was checked
+        target: Target that was checked
+        granted: Whether the permission was granted
+        operation: Operation being performed
+        details: Additional operation details
+    """
+    try:
+        # Create audit record
+        import time
+        import getpass
+        from datetime import datetime
+
+        target_id = target.target_id if isinstance(target, AssessmentTarget) else target
+
+        audit_record = {
+            "timestamp": datetime.now().isoformat(),
+            "permission": permission,
+            "target": target_id,
+            "granted": granted,
+            "operation": operation,
+            "user": getpass.getuser(),
+            "process_id": os.getpid(),
+            "details": details or {}
+        }
+
+        # Log to assessment security log
+        if granted:
+            log_level = "debug" if permission == PERMISSION_READ else "info"
+            getattr(logger, log_level)(
+                f"Permission granted: {permission} for {target_id or 'global'}"
+            )
+        else:
+            logger.warning(
+                f"Permission denied: {permission} for {target_id or 'global'}"
+            )
+
+        # Record security event for non-read operations or denied permissions
+        if permission != PERMISSION_READ or not granted:
+            log_security_finding(
+                severity="low" if granted else "medium",
+                finding_type="permission_audit",
+                description=f"Permission {'granted' if granted else 'denied'}: {permission}",
+                details=audit_record
+            )
+
+    except Exception as e:
+        logger.error(f"Error auditing permission usage: {str(e)}")
 
 
 # ---- Helper functions ----
