@@ -252,3 +252,4 @@ validators==0.22.0   # Input validation utilities
 jsonschema
 pyYAML
 python-dateutil
+olefile
