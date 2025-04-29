@@ -33,9 +33,12 @@ try:
     from admin.security.forensics.utils.forensic_constants import (
         DEFAULT_TIMESTAMP_FORMAT, DEFAULT_TIMEZONE
     )
+    CONSTANTS_AVAILABLE = True
 except ImportError:
-    FALLBACK_TIMESTAMP_FORMAT = "iso8601"
-    FALLBACK_TIMEZONE = "UTC"
+    logging.warning("Forensic constants not found. Using default values.")
+    CONSTANTS_AVAILABLE = False
+    FALLBACK_TIMESTAMP_FORMAT = "iso8601"  # Use a new variable for the fallback value
+    FALLBACK_TIMEZONE = "UTC"  # Use a new variable for the fallback value
 
 # Attempt to import templating engine (optional)
 try:

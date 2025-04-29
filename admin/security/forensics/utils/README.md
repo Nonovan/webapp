@@ -4,13 +4,13 @@ This directory contains shared utility functions and helper modules that support
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- Usage
-- Security Features
-- Best Practices
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Usage](#usage)
+- [Security Features](#security-features)
+- [Best Practices](#best-practices)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
@@ -67,22 +67,50 @@ The forensic analysis utilities implement core functionality needed by multiple 
   - Integrity check validation
   - Type and range validation
 
+- **`format_converter.py`**: File format conversion utilities
+  - Binary to text conversions (base64, hex)
+  - Timestamp format standardization
+  - Data structure transformations
+  - Character encoding handling
+  - Safe format conversion with validation
+
+- **`report_builder.py`**: Report generation utilities
+  - Standardized report templates
+  - Multi-format output (text, JSON, HTML, PDF)
+  - Template-based report generation
+  - Findings categorization and formatting
+  - Legal compliance with reporting standards
+
+- **`network_utils.py`**: Network forensics utilities
+  - Network capture parsing
+  - Protocol analysis helpers
+  - Connection reconstruction
+  - Network identifier normalization
+  - Traffic pattern analysis support
+
+- **`forensic_constants.py`**: Common constants and configurations
+  - Standardized timestamp formats
+  - Default file paths and settings
+  - Common forensic file signatures
+  - Standard placeholder values
+  - System-wide forensic settings
+
 ## Directory Structure
 
 ```plaintext
 admin/security/forensics/utils/
-├── README.md              # This documentation
-├── sanitize.py            # Data sanitization utilities
+├── [README.md](http://_vscodecontentref_/1)              # This documentation
 ├── crypto.py              # Cryptographic verification tools
-├── logging_utils.py       # Secure logging utilities
-├── timestamp_utils.py     # Timestamp normalization tools
-├── file_utils.py          # Forensic file operations
 ├── evidence_tracker.py    # Evidence management utilities
-├── validation_utils.py    # Input validation functions
+├── file_utils.py          # Forensic file operations
 ├── format_converter.py    # File format conversion utilities
-├── report_builder.py      # Report generation utilities
+├── forensic_constants.py  # Common constants and configurations
+├── logging_utils.py       # Secure logging utilities
 ├── network_utils.py       # Network forensics utilities
-└── forensic_constants.py  # Common constants and configurations
+├── report_builder.py      # Report generation utilities
+├── sanitize.py            # Data sanitization utilities
+├── timestamp_utils.py     # Timestamp normalization tools
+└── validation_utils.py    # Input validation functions
 ```
 
 ## Usage
@@ -95,7 +123,7 @@ from admin.security.forensics.utils import crypto, file_utils, logging_utils
 # Calculate and verify file hash
 file_path = "/secure/evidence/incident-42/suspicious_file.exe"
 hash_value = crypto.calculate_hash(file_path, algorithm="sha256")
-logging_utils.log_operation("hash_calculation", {"file": file_path, "hash": hash_value})
+logging_utils.log_forensic_operation("hash_calculation", {"file": file_path, "hash": hash_value})
 
 # Secure file copy with metadata preservation
 source_path = "/secure/evidence/incident-42/config.xml"
@@ -154,6 +182,32 @@ sanitize.prepare_external_report(
 )
 ```
 
+### Report Generation
+
+```python
+from admin.security.forensics.utils import report_builder
+
+# Generate a report in multiple formats
+report_data = {
+    "case_summary": "Investigation into unauthorized access on server WEB01.",
+    "key_findings": [
+        {"timestamp": "2023-10-27T10:15:00Z", "finding": "Suspicious login from IP 198.51.100.10", "severity": "High"},
+        {"timestamp": "2023-10-27T10:22:00Z", "finding": "Malware detected: Trojan.GenericKD.123", "severity": "Critical"},
+    ],
+    "evidence_collected": ["Memory dump from WEB01", "Disk image of /var/log partition"]
+}
+
+# Generate a PDF report
+report_builder.generate_forensic_report(
+    report_data=report_data,
+    output_path="/secure/evidence/incident-42/reports/forensic_report.pdf",
+    report_format="pdf",
+    case_id="incident-42",
+    analyst_name="Jane Smith",
+    report_title="Forensic Analysis of Server Compromise"
+)
+```
+
 ## Security Features
 
 - **Evidence Integrity**: All file operations maintain integrity through hashing
@@ -194,6 +248,12 @@ When using these utilities:
    - Use `crypto` for protecting sensitive evidence
    - Apply appropriate access controls to evidence files
    - Securely delete temporary files when no longer needed
+
+5. **Reporting**
+   - Use standardized templates for consistency
+   - Include all required metadata in reports
+   - Maintain separation between facts and analysis
+   - Ensure proper handling of sensitive information in reports
 
 ## Related Documentation
 

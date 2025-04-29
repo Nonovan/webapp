@@ -4,7 +4,8 @@ Data Format Conversion Utilities for the Forensic Analysis Toolkit.
 This module provides functions for converting data between various formats
 commonly encountered during digital forensic investigations. This includes
 encoding/decoding (Base64, Hex), timestamp format conversions, and basic
-handling of structured data formats like JSON and CSV relevant to artifacts.
+handling of structured data formats like JSON, CSV, XML and other formats
+relevant to forensic artifacts.
 
 Functions prioritize clarity, error handling, and integration with forensic logging.
 """
@@ -44,10 +45,11 @@ try:
         COMMON_TIMESTAMP_FORMATS,
         TEMP_DIR_FORENSICS,
     )
+    # Keep the imported constants
 except ImportError:
     logging.warning("Forensic constants not found. Using default values.")
-    FALLBACK_TIMESTAMP_FORMAT = "iso8601"  # Corresponds to datetime.isoformat()
-    FALLBACK_COMMON_TIMESTAMP_FORMATS = [
+    DEFAULT_TIMESTAMP_FORMAT_FALLBACK = "iso8601"  # Corresponds to datetime.isoformat()
+    COMMON_TIMESTAMP_FORMATS.extend([
         "%Y-%m-%dT%H:%M:%S.%fZ",         # ISO 8601 with microseconds
         "%Y-%m-%dT%H:%M:%SZ",            # ISO 8601
         "%Y-%m-%d %H:%M:%S.%f%z",        # ISO with space and timezone
@@ -55,13 +57,8 @@ except ImportError:
         "%d/%b/%Y:%H:%M:%S %z",          # Apache/nginx log format
         "%b %d %H:%M:%S",                # Syslog format
         "%m/%d/%Y %I:%M:%S %p",          # US format with AM/PM
-    ]
-    FALLBACK_TEMP_DIR = "/tmp/forensics"
-
-    # Use fallback values
-    DEFAULT_TIMESTAMP_FORMAT_FALLBACK = FALLBACK_TIMESTAMP_FORMAT
-    resolved_common_timestamp_formats = COMMON_TIMESTAMP_FORMATS if 'COMMON_TIMESTAMP_FORMATS' in locals() else FALLBACK_COMMON_TIMESTAMP_FORMATS
-    TEMP_DIR_FORENSICS = FALLBACK_TEMP_DIR
+    ])
+    TEMP_DIR_FORENSICS = "/tmp/forensics"
 
     # Ensure temp directory exists
     os.makedirs(TEMP_DIR_FORENSICS, exist_ok=True)
@@ -639,6 +636,11 @@ def convert_file_format(
         ("bin", "hex"): _convert_bin_to_hex,
         ("base64", "bin"): _convert_base64_to_bin,
         ("bin", "base64"): _convert_bin_to_base64,
+        ("txt", "json"): _convert_txt_to_json,
+        ("json", "txt"): _convert_json_to_txt,
+        ("csv", "xml"): _convert_csv_to_xml,
+        ("tsv", "csv"): _convert_tsv_to_csv,
+        ("csv", "tsv"): _convert_csv_to_tsv,
     }
 
     format_pair = (input_format.lower(), output_format.lower())
@@ -695,7 +697,7 @@ def detect_file_format(file_path: str) -> str:
     try:
         # Check extension first
         ext = os.path.splitext(file_path)[1].lower().lstrip('.')
-        if ext in ('json', 'xml', 'csv', 'txt', 'html', 'bin', 'hex'):
+        if ext in ('json', 'xml', 'csv', 'tsv', 'txt', 'html', 'bin', 'hex'):
             return ext
 
         # If no helpful extension, try to determine by content
@@ -728,6 +730,9 @@ def detect_file_format(file_path: str) -> str:
                 elif b',' in first_line and first_line.count(b',') >= 2:
                     # Might be CSV
                     return 'csv'
+                elif b'\t' in first_line and first_line.count(b'\t') >= 2:
+                    # Might be TSV
+                    return 'tsv'
 
                 # Check for hex dump format
                 if re.match(r'^[0-9a-fA-F]{8}\s+(?:[0-9a-fA-F]{2}\s+)+', first_line_text):
@@ -859,6 +864,150 @@ def _convert_xml_to_csv(input_path: str, output_path: str) -> bool:
         return success
     except Exception as e:
         logger.error("Error converting XML to CSV: %s", e)
+        return False
+
+def _convert_csv_to_xml(input_path: str, output_path: str) -> bool:
+    """Converts a CSV file to XML format (via JSON as intermediate step)."""
+    try:
+        # First convert to JSON structure
+        with tempfile.NamedTemporaryFile(delete=False, dir=TEMP_DIR_FORENSICS, suffix='.json') as temp_file:
+            temp_json_path = temp_file.name
+
+        success = _convert_csv_to_json(input_path, temp_json_path)
+        if not success:
+            os.unlink(temp_json_path)
+            return False
+
+        # Then convert JSON to XML
+        success = _convert_json_to_xml(temp_json_path, output_path)
+        os.unlink(temp_json_path)
+        return success
+    except Exception as e:
+        logger.error("Error converting CSV to XML: %s", e)
+        return False
+
+def _convert_tsv_to_csv(input_path: str, output_path: str) -> bool:
+    """Converts a TSV file to CSV format."""
+    try:
+        # Read TSV file
+        with open(input_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        # Convert TSV to CSV - replace tabs with commas but handle quotes
+        csv_lines = []
+        for line in lines:
+            # Basic conversion - real CSV would need to handle quotes and escaping properly
+            fields = line.strip().split('\t')
+            # Quote fields that contain commas
+            quoted_fields = [f'"{field}"' if ',' in field else field for field in fields]
+            csv_lines.append(','.join(quoted_fields))
+
+        # Write CSV file
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(csv_lines))
+
+        return True
+    except Exception as e:
+        logger.error("Error converting TSV to CSV: %s", e)
+        return False
+
+def _convert_csv_to_tsv(input_path: str, output_path: str) -> bool:
+    """Converts a CSV file to TSV format."""
+    try:
+        # Read CSV properly with Python's csv module to handle quotes
+        rows = []
+        with open(input_path, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            for row in reader:
+                rows.append(row)
+
+        # Write TSV file
+        with open(output_path, 'w', encoding='utf-8') as f:
+            for row in rows:
+                # Replace any tabs within fields with spaces to avoid breaking TSV format
+                escaped_row = [field.replace('\t', ' ') for field in row]
+                f.write('\t'.join(escaped_row) + '\n')
+
+        return True
+    except Exception as e:
+        logger.error("Error converting CSV to TSV: %s", e)
+        return False
+
+def _convert_txt_to_json(input_path: str, output_path: str) -> bool:
+    """
+    Attempts to convert a text file to JSON by parsing key-value pairs or structured content.
+    This is a best-effort conversion and might not work for all text files.
+    """
+    try:
+        with open(input_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Try to detect if it's a JSON-like format with key-value pairs
+        result = {}
+
+        # Look for key-value pairs in format "key: value" or "key = value"
+        kv_pattern = re.compile(r'^([^:=\n]+)[:=]\s*(.+)$', re.MULTILINE)
+        matches = kv_pattern.findall(content)
+
+        if matches:
+            for key, value in matches:
+                # Clean up keys and values
+                key = key.strip()
+                value = value.strip()
+
+                # Try to convert value to appropriate type
+                if value.lower() in ('true', 'false'):
+                    value = (value.lower() == 'true')
+                elif value.isdigit():
+                    value = int(value)
+                elif re.match(r'^-?\d+(\.\d+)?$', value):
+                    value = float(value)
+
+                result[key] = value
+
+            # Write the resulting JSON
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(result, f, indent=2)
+            return True
+        else:
+            # If no key-value pairs found, create a JSON with the content as text
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump({"content": content}, f, indent=2)
+            return True
+
+    except Exception as e:
+        logger.error("Error converting text to JSON: %s", e)
+        return False
+
+def _convert_json_to_txt(input_path: str, output_path: str) -> bool:
+    """Converts a JSON file to a plain text representation."""
+    try:
+        # Read JSON file
+        with open(input_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        # Convert to text representation
+        # For simple key-value objects, use key: value format
+        if isinstance(data, dict):
+            lines = []
+            for key, value in data.items():
+                # For nested structures, use JSON pretty print
+                if isinstance(value, (dict, list)):
+                    lines.append(f"{key}: {json.dumps(value, indent=2)}")
+                else:
+                    lines.append(f"{key}: {value}")
+            text_content = '\n'.join(lines)
+        else:
+            # For other structures, use pretty-printed JSON
+            text_content = json.dumps(data, indent=2)
+
+        # Write to text file
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(text_content)
+
+        return True
+    except Exception as e:
+        logger.error("Error converting JSON to text: %s", e)
         return False
 
 def _convert_hex_to_bin(input_path: str, output_path: str) -> bool:
@@ -1082,5 +1231,5 @@ if __name__ == "__main__":
     try:
         import shutil
         shutil.rmtree(test_dir)
-    except:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to clean up test directory: {e}")

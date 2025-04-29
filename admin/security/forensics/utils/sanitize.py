@@ -30,6 +30,15 @@ except ImportError:
             log_msg += f", Details: {details}"
         logging.log(level, log_msg)
 
+# Attempt to import forensic constants
+try:
+    from admin.security.forensics.utils.forensic_constants import DEFAULT_REDACTION_PLACEHOLDER
+    CONSTANTS_AVAILABLE = True
+except ImportError:
+    logging.warning("Forensic constants not found. Using default values for sanitization.")
+    CONSTANTS_AVAILABLE = False
+    FALLBACK_REDACTION_PLACEHOLDER = "[REDACTED]"
+
 logger = logging.getLogger(__name__)
 
 # --- Default Redaction Patterns ---
@@ -55,9 +64,6 @@ CREDENTIAL_ASSIGNMENT_PATTERN = re.compile(
     re.IGNORECASE
 )
 
-# Default placeholder for redacted information
-DEFAULT_REDACTION_PLACEHOLDER = "[REDACTED]"
-
 # Predefined policy levels mapping to patterns
 # In a real app, this could be loaded from config
 REDACTION_POLICIES = {
@@ -74,7 +80,7 @@ def redact_sensitive_data(
     content: str,
     patterns: Optional[List[Union[str, Pattern]]] = None,
     policy: Optional[str] = "high",
-    placeholder: str = DEFAULT_REDACTION_PLACEHOLDER
+    placeholder: str = FALLBACK_REDACTION_PLACEHOLDER
 ) -> str:
     """
     Redacts sensitive information from a string based on regex patterns or a predefined policy.
@@ -138,7 +144,6 @@ def redact_sensitive_data(
             logger.error(f"Regex error during redaction with pattern '{pattern.pattern}': {e}")
             log_forensic_operation("redact_sensitive_data", False, {**operation_details, "error": f"Regex error: {e}"}, level=logging.ERROR)
             # Continue with other patterns if possible, but report failure
-            return content # Or potentially return partially sanitized content with warning
 
     operation_details["redactions_count"] = redactions_made
     log_forensic_operation("redact_sensitive_data", True, operation_details)
@@ -171,11 +176,20 @@ def sanitize_json_object(
     Returns:
         The sanitized Python object.
     """
+    # Use credential keywords as default key patterns if none provided
+    if key_patterns is None:
+        key_patterns = CREDENTIAL_KEYWORDS
+
     compiled_key_patterns: List[Pattern] = []
     if key_patterns:
         for p in key_patterns:
             try:
-                compiled_key_patterns.append(re.compile(p, re.IGNORECASE))
+                if isinstance(p, str):
+                    compiled_key_patterns.append(re.compile(p, re.IGNORECASE))
+                elif isinstance(p, re.Pattern):
+                    compiled_key_patterns.append(p)
+                else:
+                    logger.warning(f"Invalid key pattern type: {type(p)}. Skipping.")
             except re.error as e:
                 logger.warning(f"Invalid key regex pattern '{p}': {e}. Skipping.")
 
@@ -262,7 +276,7 @@ def prepare_external_report(
                     data = json.load(infile)
                     sanitized_data = sanitize_json_object(
                         data,
-                        key_patterns=key_patterns or CREDENTIAL_KEYWORDS, # Default to redacting credential keys
+                        key_patterns=key_patterns,  # Will default to CREDENTIAL_KEYWORDS in the function
                         value_policy=redaction_policy,
                         placeholder=placeholder
                     )
@@ -292,8 +306,18 @@ def prepare_external_report(
         log_forensic_operation("prepare_external_report", True, operation_details)
         return True
 
-    except (OSError, IOError, Exception) as e:
+    except (OSError, IOError) as e:
         logger.error(f"Error during report sanitization: {e}", exc_info=True)
+        log_forensic_operation("prepare_external_report", False, {**operation_details, "error": f"I/O error: {str(e)}"}, level=logging.ERROR)
+        # Clean up potentially partially written file
+        if os.path.exists(output_path):
+            try:
+                os.remove(output_path)
+            except OSError:
+                logger.warning(f"Could not remove partially written sanitized file: {output_path}")
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error during report sanitization: {e}", exc_info=True)
         log_forensic_operation("prepare_external_report", False, {**operation_details, "error": str(e)}, level=logging.ERROR)
         # Clean up potentially partially written file
         if os.path.exists(output_path):
