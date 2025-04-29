@@ -35,6 +35,23 @@ PROJECT_ROOT = PACKAGE_PATH.parent.parent.parent.parent.parent
 # Initialize version
 __version__ = "1.0.0"
 
+# Output format constants
+FORMAT_JSON = "json"
+FORMAT_CSV = "csv"
+FORMAT_XML = "xml"
+FORMAT_HTML = "html"
+FORMAT_MARKDOWN = "markdown"
+FORMAT_TEXT = "text"
+FORMAT_STANDARD = "standard"
+FORMAT_SARIF = "sarif"
+FORMAT_JUNIT = "junit"
+
+# Default output formats list
+VALID_OUTPUT_FORMATS = [
+    FORMAT_JSON, FORMAT_CSV, FORMAT_XML, FORMAT_HTML, FORMAT_MARKDOWN,
+    FORMAT_TEXT, FORMAT_STANDARD, FORMAT_SARIF, FORMAT_JUNIT
+]
+
 # Try to import components and handle missing dependencies gracefully
 try:
     from .assessment_base import (
@@ -178,6 +195,73 @@ def initialize_common_components(config_path: Optional[str] = None) -> bool:
         logger.error(f"Failed to initialize common assessment components: {e}")
         return False
 
+def format_assessment_output(
+    data: Dict[str, Any],
+    format_type: str = FORMAT_STANDARD,
+    output_file: Optional[str] = None,
+    **kwargs
+) -> Union[str, bool]:
+    """
+    Format assessment data into the specified output format.
+
+    Args:
+        data: Assessment data to format
+        format_type: Output format (json, csv, xml, html, markdown, text, standard, sarif, junit)
+        output_file: Optional file path to write results to
+        **kwargs: Additional format-specific options
+
+    Returns:
+        Formatted string if output_file is None, otherwise boolean success status
+    """
+    try:
+        format_type = format_type.lower()
+
+        # Validate output format
+        if format_type not in VALID_OUTPUT_FORMATS:
+            logger.warning(f"Unsupported format '{format_type}', using '{FORMAT_STANDARD}' instead")
+            format_type = FORMAT_STANDARD
+
+        # Use ResultFormatter if available
+        formatter = ResultFormatter()
+
+        # Check if data is already an AssessmentResult
+        if hasattr(data, 'to_dict'):
+            results = data
+        else:
+            # Create a minimal AssessmentResult
+            from datetime import datetime
+
+            results = AssessmentResult(
+                assessment_id=data.get("assessment_id", "generated"),
+                name=data.get("name", "Assessment Results"),
+                target=data.get("target", {}),
+                findings=data.get("findings", []),
+                start_time=data.get("start_time", datetime.now()),
+                end_time=data.get("end_time", datetime.now()),
+                status=data.get("status", "completed")
+            )
+
+        # Format the output
+        formatted_content = formatter.format(
+            results=results,
+            format_type=format_type,
+            include_evidence=kwargs.get('include_evidence', False),
+            filter_severity=kwargs.get('filter_severity', None),
+            compliance_map=kwargs.get('compliance_map', None)
+        )
+
+        # Write to file if specified
+        if output_file:
+            return formatter.write_to_file(formatted_content, output_file)
+
+        return formatted_content
+
+    except Exception as e:
+        logger.error(f"Error formatting assessment output: {e}", exc_info=True)
+        if output_file:
+            return False
+        return f"Error formatting output: {str(e)}"
+
 # Define public API
 __all__ = [
     # Core classes
@@ -223,6 +307,19 @@ __all__ = [
     'format_markdown_output',
     'generate_summary',
     'export_findings',
+    'format_assessment_output',
+
+    # Output format constants
+    'FORMAT_JSON',
+    'FORMAT_CSV',
+    'FORMAT_XML',
+    'FORMAT_HTML',
+    'FORMAT_MARKDOWN',
+    'FORMAT_TEXT',
+    'FORMAT_STANDARD',
+    'FORMAT_SARIF',
+    'FORMAT_JUNIT',
+    'VALID_OUTPUT_FORMATS',
 
     # Utilities
     'validate_target',

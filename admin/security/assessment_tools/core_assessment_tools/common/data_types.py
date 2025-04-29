@@ -203,6 +203,52 @@ class Evidence:
 
 
 @dataclass
+class EvidenceCollection:
+    """
+    Collection of evidence for an assessment.
+
+    Manages all evidence gathered during an assessment with chain of custody tracking.
+    """
+
+    collection_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    evidence_items: List[Evidence] = field(default_factory=list)
+    collection_start: datetime.datetime = field(default_factory=datetime.datetime.now)
+    collection_end: Optional[datetime.datetime] = None
+    collector: Optional[str] = None
+    chain_of_custody: List[Dict[str, Any]] = field(default_factory=list)
+    integrity_hash: Optional[str] = None
+
+    def add_evidence(self, evidence: Evidence) -> None:
+        """Add evidence item and record in chain of custody."""
+        self.evidence_items.append(evidence)
+        self.chain_of_custody.append({
+            "timestamp": datetime.datetime.now().isoformat(),
+            "action": "added",
+            "evidence_id": evidence.evidence_id,
+            "actor": self.collector
+        })
+        self._update_integrity_hash()
+
+    def _update_integrity_hash(self) -> None:
+        """Update integrity hash for evidence collection."""
+        import hashlib
+        hash_data = "".join(sorted([ev.evidence_id for ev in self.evidence_items]))
+        self.integrity_hash = hashlib.sha256(hash_data.encode()).hexdigest()
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert evidence collection to dictionary."""
+        return {
+            "collection_id": self.collection_id,
+            "evidence_items": [ev.to_dict() for ev in self.evidence_items],
+            "collection_start": self.collection_start.isoformat(),
+            "collection_end": self.collection_end.isoformat() if self.collection_end else None,
+            "collector": self.collector,
+            "chain_of_custody": self.chain_of_custody,
+            "integrity_hash": self.integrity_hash
+        }
+
+
+@dataclass
 class Remediation:
     """
     Remediation guidance for a security finding.
@@ -239,6 +285,69 @@ class Remediation:
 
         if self.code_sample:
             result["code_sample"] = self.code_sample
+
+        return result
+
+
+@dataclass
+class RemediationPlan:
+    """
+    Plan for remediating security findings.
+
+    Tracks remediation activities, assignments, and verification.
+    """
+
+    finding_id: str
+    plan_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    remediation_status: str = "planned"  # planned, in-progress, completed, verified, deferred
+    assigned_to: Optional[str] = None
+    reviewer: Optional[str] = None
+    due_date: Optional[datetime.datetime] = None
+    steps: List[Dict[str, Any]] = field(default_factory=list)
+    completion_date: Optional[datetime.datetime] = None
+    verification_date: Optional[datetime.datetime] = None
+    verification_evidence: List[Evidence] = field(default_factory=list)
+    notes: List[Dict[str, Any]] = field(default_factory=list)
+
+    def add_note(self, content: str, author: str) -> None:
+        """Add a note to the remediation plan."""
+        self.notes.append({
+            "timestamp": datetime.datetime.now().isoformat(),
+            "content": content,
+            "author": author
+        })
+
+    def update_status(self, status: str, updated_by: str) -> None:
+        """Update remediation status."""
+        self.remediation_status = status
+        self.add_note(f"Status updated to {status}", updated_by)
+
+        if status == "completed":
+            self.completion_date = datetime.datetime.now()
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert remediation plan to dictionary."""
+        result = {
+            "plan_id": self.plan_id,
+            "finding_id": self.finding_id,
+            "remediation_status": self.remediation_status,
+            "steps": self.steps,
+            "notes": self.notes
+        }
+
+        # Add optional fields
+        if self.assigned_to:
+            result["assigned_to"] = self.assigned_to
+        if self.reviewer:
+            result["reviewer"] = self.reviewer
+        if self.due_date:
+            result["due_date"] = self.due_date.isoformat()
+        if self.completion_date:
+            result["completion_date"] = self.completion_date.isoformat()
+        if self.verification_date:
+            result["verification_date"] = self.verification_date.isoformat()
+        if self.verification_evidence:
+            result["verification_evidence"] = [e.to_dict() for e in self.verification_evidence]
 
         return result
 
@@ -628,13 +737,109 @@ class AssessmentResult:
         """
         return json.dumps(self.to_dict(), indent=indent)
 
-    def save_to_file(self, file_path: Union[str, Path], indent: int = 2) -> None:
+    def save_to_file(self, file_path: Union[str, Path], indent: int = 2) -> bool:
         """
         Save results to a JSON file.
 
         Args:
             file_path: Path where to save the JSON file
             indent: JSON indentation level
+
+        Returns:
+            True if successful, False otherwise
         """
-        with open(file_path, 'w') as f:
-            json.dump(self.to_dict(), f, indent=indent)
+        try:
+            # Convert string path to Path object for better path handling
+            path_obj = Path(file_path) if isinstance(file_path, str) else file_path
+
+            # Create parent directories if they don't exist
+            path_obj.parent.mkdir(parents=True, exist_ok=True)
+
+            # Use atomic write pattern by first writing to a temporary file
+            temp_file = path_obj.with_suffix('.tmp')
+            with open(temp_file, 'w') as f:
+                json.dump(self.to_dict(), f, indent=indent)
+
+            # Attempt to set secure permissions (0600 - owner read/write only)
+            try:
+                import os
+                os.chmod(temp_file, 0o600)
+            except (ImportError, OSError):
+                # Continue even if setting permissions fails
+                pass
+
+            # Rename to target file (atomic on most filesystems)
+            temp_file.rename(path_obj)
+
+            return True
+        except (IOError, OSError, TypeError) as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to save assessment results to {file_path}: {str(e)}")
+            return False
+
+
+@dataclass
+class ComplianceMapping:
+    """
+    Maps findings to specific compliance framework controls.
+
+    Enables detailed mapping of security findings to regulatory requirements.
+    """
+
+    framework: str  # e.g., "pci-dss", "nist-csf", "iso27001"
+    version: str  # Framework version
+    control_mappings: Dict[str, List[str]] = field(default_factory=dict)  # Maps finding IDs to control IDs
+    control_descriptions: Dict[str, str] = field(default_factory=dict)  # Describes each control
+    compliance_status: Dict[str, str] = field(default_factory=dict)  # Status per control
+
+    def add_finding_mapping(self, finding_id: str, control_ids: List[str]) -> None:
+        """Map a finding to compliance controls."""
+        self.control_mappings[finding_id] = control_ids
+
+    def set_compliance_status(self, control_id: str, status: str) -> None:
+        """Set compliance status for a control."""
+        self.compliance_status[control_id] = status
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert compliance mapping to dictionary."""
+        return {
+            "framework": self.framework,
+            "version": self.version,
+            "control_mappings": self.control_mappings,
+            "control_descriptions": self.control_descriptions,
+            "compliance_status": self.compliance_status
+        }
+
+
+@dataclass
+class AssessmentContext:
+    """
+    Contextual information about an assessment.
+
+    Contains business context, environment details, and assessment parameters.
+    """
+
+    environment: str  # e.g., "production", "development", "testing"
+    business_criticality: str = "medium"  # low, medium, high, critical
+    data_classification: str = "internal"  # public, internal, confidential, restricted
+    system_owner: Optional[str] = None
+    assessment_requestor: Optional[str] = None
+    assessment_profile: Optional[str] = None  # Name of profile used
+    authorized_by: Optional[str] = None
+    scope_limitations: List[str] = field(default_factory=list)
+    assessment_parameters: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert assessment context to dictionary."""
+        return {
+            "environment": self.environment,
+            "business_criticality": self.business_criticality,
+            "data_classification": self.data_classification,
+            "system_owner": self.system_owner,
+            "assessment_requestor": self.assessment_requestor,
+            "assessment_profile": self.assessment_profile,
+            "authorized_by": self.authorized_by,
+            "scope_limitations": self.scope_limitations,
+            "assessment_parameters": self.assessment_parameters
+        }

@@ -4,20 +4,27 @@ This directory contains shared utilities and common components used across the s
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- Configuration
-- Security Features
-- Usage Examples
-- Best Practices
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Configuration](#configuration)
+- [Security Features](#security-features)
+- [Usage Examples](#usage-examples)
+- [Best Practices](#best-practices)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
 The common components provide a foundation for all security assessment tools, implementing core functionality for assessment execution, result processing, evidence collection, and secure logging. These shared utilities ensure that all assessment tools follow consistent patterns, maintain proper security controls, and generate standardized outputs that can be easily aggregated and analyzed.
 
 ## Key Components
+
+- **`assessment_base.py`**: Base classes for assessment tools
+  - Common interfaces for all assessment tools
+  - Shared assessment state definitions
+  - Standardized initialization and cleanup
+  - Assessment exception handling
+  - Standard result models
 
 - **`assessment_engine.py`**: Core assessment functionality
   - Standardized assessment execution framework
@@ -28,12 +35,19 @@ The common components provide a foundation for all security assessment tools, im
   - Resource management and cleanup
 
 - **`result_formatter.py`**: Assessment result formatting
-  - Structured output generation (JSON, CSV, XML)
+  - Structured output generation (JSON, CSV, XML, HTML, Markdown)
   - Finding severity classification
   - CVSS score calculation
   - Compliance mapping support
   - Report template rendering
   - Evidence linking and attachment
+
+- **`output_formatters.py`**: Standalone formatting utilities
+  - Individual format conversion functions
+  - Multiple output formats (JSON, CSV, XML, HTML, Markdown)
+  - Clean separation of formatting logic
+  - Content transformation utilities
+  - Reusable rendering components
 
 - **`evidence_collector.py`**: Assessment evidence collection
   - Secure evidence gathering and storage
@@ -51,22 +65,73 @@ The common components provide a foundation for all security assessment tools, im
   - Log aggregation support
   - Performance impact minimization
 
+- **`connection_manager.py`**: Secure connection handling
+  - Authentication and session management
+  - Secure credential handling
+  - Connection pooling and reuse
+  - Protocol-specific connections
+  - Timeout and retry handling
+
+- **`data_types.py`**: Common data structures
+  - Standardized result and finding models
+  - Evidence data structures
+  - Target definition models
+  - Assessment configuration types
+  - Severity and risk classification
+
+- **`error_handlers.py`**: Error handling utilities
+  - Standardized exception handling
+  - Error categorization and classification
+  - Safe recovery patterns
+  - Error reporting utilities
+  - Exponential backoff implementation
+
+- **`permission_utils.py`**: Permission verification utilities
+  - Access control checks
+  - Authorization validation
+  - Permission model implementation
+  - Role-based access checks
+  - Capability verification
+
+- **`result_cache.py`**: Result caching implementation
+  - Assessment result storage
+  - Cache invalidation logic
+  - Performance optimization
+  - Memory and disk caching
+  - Thread-safe access
+
+- **`validation.py`**: Input validation utilities
+  - Parameter validation
+  - Schema verification
+  - Type checking
+  - Range and boundary validation
+  - Input sanitization
+
 - **`__init__.py`**: Package initialization
   - Module exports
   - Version information
   - Dependency checks
   - Configuration validation
+  - Format constants and definitions
 
 ## Directory Structure
 
 ```plaintext
 admin/security/assessment_tools/core_assessment_tools/common/
 ├── __init__.py               # Package initialization
+├── assessment_base.py        # Base assessment classes
 ├── assessment_engine.py      # Core assessment functionality
 ├── assessment_logging.py     # Secure logging functionality
+├── connection_manager.py     # Secure connection handling
+├── data_types.py             # Common data structures
+├── error_handlers.py         # Error handling utilities
 ├── evidence_collector.py     # Assessment evidence collection
+├── output_formatters.py      # Output formatting utilities
+├── permission_utils.py       # Permission verification utilities
 ├── README.md                 # This documentation
-└── result_formatter.py       # Assessment result formatting
+├── result_cache.py           # Result caching implementation
+├── result_formatter.py       # Assessment result formatting
+└── validation.py             # Input validation utilities
 ```
 
 ## Configuration
@@ -192,7 +257,7 @@ evidence_path = collector.get_evidence_path()
 
 ```python
 from common.result_formatter import ResultFormatter
-from common.assessment_engine import AssessmentResults
+from common.data_types import AssessmentResult
 
 # Format assessment results
 formatter = ResultFormatter()
@@ -212,6 +277,31 @@ formatter.write_to_file(
 
 # Generate executive summary
 summary = formatter.generate_summary(assessment_results)
+```
+
+### Output Formatters
+
+```python
+from common.output_formatters import format_json_output, format_html_output, write_to_file
+
+# Format data as JSON
+findings_data = [
+    {"id": "VULN-001", "title": "SQL Injection", "severity": "critical"},
+    {"id": "VULN-002", "title": "XSS Vulnerability", "severity": "high"}
+]
+
+# Format as JSON
+json_output = format_json_output(findings_data, indent=2)
+
+# Format as HTML
+html_output = format_html_output(
+    {"findings": findings_data},
+    title="Security Assessment Findings",
+    include_css=True
+)
+
+# Write to file
+write_to_file(html_output, "/var/reports/findings.html")
 ```
 
 ## Best Practices
@@ -234,3 +324,5 @@ summary = formatter.generate_summary(assessment_results)
 - Vulnerability Management Process
 - Compliance Framework Documentation
 - Evidence Handling Guide
+- Reporting Format Standards
+- Output Format Specification
