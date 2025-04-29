@@ -118,6 +118,148 @@ class ExponentialBackoff:
         return self._attempts
 
 
+class ErrorScope:
+    """
+    Context manager for handling errors within a scope.
+
+    Example:
+        with ErrorScope("database_operations", reraise=False) as scope:
+            perform_database_operations()
+            if scope.had_errors:
+                logger.warning("Some operations failed but execution continued")
+    """
+
+    def __init__(
+        self,
+        context: str,
+        reraise: bool = True,
+        assessment_id: Optional[str] = None,
+        notify: bool = False,
+        severity: ErrorSeverity = ErrorSeverity.ERROR
+    ):
+        """
+        Initialize error scope.
+
+        Args:
+            context: Description of this error handling scope
+            reraise: Whether to reraise caught exceptions
+            assessment_id: Optional ID of the assessment
+            notify: Whether to trigger error notifications
+            severity: Default severity level for errors in this scope
+        """
+        self.context = context
+        self.reraise = reraise
+        self.assessment_id = assessment_id
+        self.notify = notify
+        self.severity = severity
+        self.errors: List[Dict[str, Any]] = []
+        self.had_errors = False
+
+    def __enter__(self) -> 'ErrorScope':
+        return self
+
+    def __exit__(self, exc_type: Optional[Type[BaseException]],
+                exc_val: Optional[BaseException],
+                exc_tb: Optional[Any]) -> bool:
+        if exc_val:
+            self.had_errors = True
+            # Process the error
+            error_details = handle_assessment_error(
+                error=exc_val,
+                context=self.context,
+                assessment_id=self.assessment_id,
+                severity=self.severity,
+                notify=self.notify,
+                exit_on_error=False
+            )
+            self.errors.append(error_details)
+
+            # Return True to suppress the exception, False to reraise it
+            return not self.reraise
+
+        return True  # No exception occurred
+
+
+class ErrorReporter:
+    """
+    Collects and reports errors across assessment operations.
+
+    Tracks errors for later analysis and reporting, providing summaries
+    and statistics on failures.
+    """
+
+    def __init__(self, assessment_id: Optional[str] = None):
+        """Initialize error reporter."""
+        self.assessment_id = assessment_id
+        self.errors: List[Dict[str, Any]] = []
+        self.error_counts: Dict[str, int] = {}
+
+    def record_error(self, error: Exception, context: str,
+                    severity: ErrorSeverity = ErrorSeverity.ERROR) -> None:
+        """
+        Record an error for later reporting.
+
+        Args:
+            error: The exception that occurred
+            context: Where the error occurred
+            severity: Error severity level
+        """
+        error_details = collect_error_details(error, context)
+        error_details["severity"] = severity.value
+        error_details["assessment_id"] = self.assessment_id
+
+        self.errors.append(error_details)
+
+        # Update error counts
+        error_type = error.__class__.__name__
+        self.error_counts[error_type] = self.error_counts.get(error_type, 0) + 1
+
+        # Log the error
+        if severity == ErrorSeverity.CRITICAL:
+            logger.critical(f"{context}: {error}", exc_info=True)
+        elif severity == ErrorSeverity.ERROR:
+            logger.error(f"{context}: {error}", exc_info=True)
+        else:
+            logger.warning(f"{context}: {error}")
+
+    def get_summary(self) -> Dict[str, Any]:
+        """Get error summary statistics."""
+        return {
+            "total_errors": len(self.errors),
+            "error_types": self.error_counts,
+            "severity_counts": self._count_by_severity(),
+            "assessment_id": self.assessment_id
+        }
+
+    def _count_by_severity(self) -> Dict[str, int]:
+        """Count errors by severity level."""
+        counts: Dict[str, int] = {}
+        for error in self.errors:
+            severity = error.get("severity", "unknown")
+            counts[severity] = counts.get(severity, 0) + 1
+        return counts
+
+    def generate_report(self, include_details: bool = False) -> Dict[str, Any]:
+        """
+        Generate a comprehensive error report.
+
+        Args:
+            include_details: Whether to include full error details
+
+        Returns:
+            Report dictionary
+        """
+        report = {
+            "summary": self.get_summary(),
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+        if include_details:
+            report["errors"] = self.errors
+
+        return report
+
+
 def handle_assessment_error(
     error: Exception,
     context: str = "",
@@ -715,3 +857,128 @@ def _send_error_notification(error_details: Dict[str, Any]) -> None:
     #     source="security_assessment_tools"
     # )
     pass
+
+
+def rate_limit(
+    calls_limit: int = 10,
+    period: float = 60.0,
+    wait_if_limited: bool = True
+) -> Callable:
+    """
+    Decorator for rate limiting function calls.
+
+    Args:
+        calls_limit: Maximum number of calls allowed in the period
+        period: Time period in seconds
+        wait_if_limited: Whether to wait or raise exception when limit is reached
+
+    Returns:
+        Decorated function
+    """
+    def decorator(func: F) -> F:
+        # Per-function call history
+        call_history: List[float] = []
+
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            current_time = time.time()
+
+            # Remove calls older than the period
+            call_history[:] = [t for t in call_history if current_time - t <= period]
+
+            # Check if we're at the limit
+            if len(call_history) >= calls_limit:
+                # Calculate time to wait until next allowed call
+                if wait_if_limited:
+                    wait_time = period - (current_time - call_history[0])
+                    if wait_time > 0:
+                        logger.info(f"Rate limit reached for {func.__name__}, waiting {wait_time:.2f}s")
+                        time.sleep(wait_time)
+                        # Remove the oldest call now that we've waited
+                        call_history.pop(0)
+                else:
+                    raise AssessmentExecutionError(
+                        f"Rate limit exceeded for {func.__name__}: {calls_limit} calls per {period}s"
+                    )
+
+            # Record this call and execute function
+            call_history.append(time.time())
+            return func(*args, **kwargs)
+
+        return cast(F, wrapper)
+
+    return decorator
+
+
+def graceful_degradation(
+    fallback_function: Optional[Callable] = None,
+    fallback_value: Any = None,
+    log_level: ErrorSeverity = ErrorSeverity.WARNING
+) -> Callable:
+    """
+    Decorator that provides graceful degradation by falling back to simpler implementation.
+
+    Args:
+        fallback_function: Alternative function to call if primary fails
+        fallback_value: Static value to return if primary fails (used if no fallback_function)
+        log_level: Severity level for logging degradation events
+
+    Returns:
+        Decorated function
+    """
+    def decorator(func: F) -> F:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                if log_level == ErrorSeverity.CRITICAL:
+                    logger.critical(f"Degrading function {func.__name__}: {e}", exc_info=True)
+                elif log_level == ErrorSeverity.ERROR:
+                    logger.error(f"Degrading function {func.__name__}: {e}", exc_info=True)
+                else:
+                    logger.warning(f"Degrading function {func.__name__}: {e}", exc_info=True)
+
+                # Try the fallback function if provided
+                if fallback_function:
+                    return fallback_function(*args, **kwargs)
+
+                # Otherwise return the fallback value
+                return fallback_value
+
+        return cast(F, wrapper)
+
+    return decorator
+
+
+def resource_scan_error_handler(func: F) -> F:
+    """
+    Decorator for handling errors specific to resource scanning operations.
+
+    Categorizes errors into network, access, resource, or general issues
+    and provides domain-specific handling.
+
+    Args:
+        func: Function to decorate
+
+    Returns:
+        Decorated function
+    """
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return func(*args, **kwargs)
+        except (ConnectionError, TimeoutError) as e:
+            # Network errors
+            raise AssessmentExecutionError(f"Network error during scan: {str(e)}")
+        except PermissionError as e:
+            # Access errors
+            raise AssessmentExecutionError(f"Access denied during scan: {str(e)}")
+        except (FileNotFoundError, KeyError, ValueError) as e:
+            # Resource errors
+            raise AssessmentExecutionError(f"Resource error during scan: {str(e)}")
+        except Exception as e:
+            # General errors
+            raise AssessmentExecutionError(f"Scan failed: {str(e)}")
+
+    return cast(F, wrapper)
