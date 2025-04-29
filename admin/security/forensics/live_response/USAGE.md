@@ -68,13 +68,13 @@ sha256sum -c checksums.txt
 
 The `memory_acquisition.sh` script provides memory capture capabilities for incident response.
 
-#### Basic Usage
+#### Memory Acquisition Basic Usage
 
 ```bash
 ./memory_acquisition.sh --output /path/to/evidence/memory.dump
 ```
 
-#### Common Options
+#### Memory Acquisition Options
 
 | Option | Description | Example |
 |--------|-------------|---------|
@@ -85,7 +85,7 @@ The `memory_acquisition.sh` script provides memory capture capabilities for inci
 | `--case-id` | Case identifier for documentation | `--case-id IR-2024-042` |
 | `--examiner` | Name of forensic examiner | `--examiner "Jane Smith"` |
 
-#### Examples
+#### Memory Acquisition Examples
 
 ```bash
 # Capture memory using LiME module with compression
@@ -100,15 +100,15 @@ The `memory_acquisition.sh` script provides memory capture capabilities for inci
 
 ### Volatile Data Collection
 
-The `volatile_data.sh` script collects process information, network connections, user sessions, loaded modules, and other volatile system state data.
+The volatile_data.sh script collects process information, network connections, user sessions, loaded modules, and other volatile system state data.
 
-#### Basic Usage
+#### Volatile Data Basic Usage
 
 ```bash
 ./volatile_data.sh --output /path/to/evidence/volatile/
 ```
 
-#### Common Options
+#### Volatile Data Options
 
 | Option | Description | Example |
 |--------|-------------|---------|
@@ -123,7 +123,7 @@ The `volatile_data.sh` script collects process information, network connections,
 | `--case-id` | Case identifier for documentation | `--case-id IR-2024-042` |
 | `--examiner` | Name of forensic examiner | `--examiner "Jane Smith"` |
 
-#### Available Collection Categories
+#### Collection Categories
 
 - `processes` - Running processes and related information
 - `network` - Network connections and configuration
@@ -138,7 +138,7 @@ The `volatile_data.sh` script collects process information, network connections,
 - `open_files` - Currently open file handles
 - `mounted_devices` - Mounted filesystem information
 
-#### Examples
+#### Volatile Data Examples
 
 ```bash
 # Collect all default categories with process arguments
@@ -155,13 +155,13 @@ The `volatile_data.sh` script collects process information, network connections,
 
 The network_state.sh script collects comprehensive information about network configuration and connections.
 
-#### Basic Usage
+#### Network State Basic Usage
 
 ```bash
 ./network_state.sh --output /path/to/evidence/network/
 ```
 
-#### Common Options
+#### Network State Options
 
 | Option | Description | Example |
 |--------|-------------|---------|
@@ -176,7 +176,7 @@ The network_state.sh script collects comprehensive information about network con
 | `--examiner` | Examiner name | `--examiner "Jane Smith"` |
 | `--duration` | Time duration for monitoring | `--duration 5m` |
 
-#### Examples
+#### Network State Examples
 
 ```bash
 # Collect comprehensive network state
@@ -193,13 +193,13 @@ The network_state.sh script collects comprehensive information about network con
 
 The `evidence_packaging.sh` script packages collected evidence with proper chain of custody documentation.
 
-#### Basic Usage
+#### Packaging Basic Usage
 
 ```bash
 ./evidence_packaging.sh --source /path/to/evidence/ --output /path/to/packages/ --case-id CASE-42 --examiner "Jane Smith"
 ```
 
-#### Common Options
+#### Packaging Options
 
 | Option | Description | Example |
 |--------|-------------|---------|
@@ -212,7 +212,7 @@ The `evidence_packaging.sh` script packages collected evidence with proper chain
 | `--description` | Evidence description | `--description "Server memory and logs"` |
 | `--notes` | Additional examiner notes | `--notes "Collected during IR-42"` |
 
-#### Examples
+#### Packaging Examples
 
 ```bash
 # Package evidence as encrypted ZIP
@@ -266,13 +266,13 @@ mkdir -p "$EVIDENCE_DIR"
 
 ### Targeted Collection for Specific Incident Types
 
-#### For Suspected Malware Infection
+#### Malware Investigation
 
 ```bash
 ./volatile_data.sh --output "$EVIDENCE_DIR/volatile/" --collect processes,modules,startup_items,scheduled_tasks,command_history --process-args --process-env --case-id "$CASE_ID" --examiner "$EXAMINER_NAME"
 ```
 
-#### For Network Intrusion Investigation
+#### Network Intrusion Investigation
 
 ```bash
 ./network_state.sh --output "$EVIDENCE_DIR/network/" --connections established --capture-packets 10000 --firewall --duration 10m --case-id "$CASE_ID" --examiner "$EXAMINER_NAME"
