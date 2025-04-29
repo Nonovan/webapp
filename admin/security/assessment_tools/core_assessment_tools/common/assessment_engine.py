@@ -436,6 +436,21 @@ class AssessmentEngine:
         """
         return self.progress
 
+    def convert_format(self, content: str, input_format: str, output_format: str) -> str:
+        """
+        Convert content from one format to another using the ResultFormatter.
+
+        Args:
+            content: Content to convert
+            input_format: Current format of content
+            output_format: Desired output format
+
+        Returns:
+            Converted content
+        """
+        formatter = ResultFormatter()
+        return formatter.convert_format(content, input_format, output_format)
+
     def cleanup(self) -> None:
         """Clean up assessment resources."""
         try:
@@ -515,6 +530,152 @@ class AssessmentEngine:
             # Ensure cleanup happens even if there's an exception
             self.cleanup()
 
+    def generate_report(self, report_template: str = "standard",
+                        compliance_mapping: Optional[str] = None) -> str:
+        """
+        Generate a formatted report of the assessment results.
+
+        Args:
+            report_template: Template to use for the report (standard, executive, detailed)
+            compliance_mapping: Optional compliance framework to map findings against
+
+        Returns:
+            Path to the generated report file
+        """
+        try:
+            from ..supporting_scripts.report_generator import ReportGenerator
+
+            self.logger.info(f"Generating {report_template} report with compliance mapping: {compliance_mapping}")
+
+            generator = ReportGenerator(
+                assessment_id=self.assessment_id,
+                target=self.target,
+                assessor=self.additional_params.get('assessor', 'security_assessment')
+            )
+
+            # Add findings to the report
+            for finding in self.findings:
+                generator.add_finding(finding)
+
+            # Add evidence if collected
+            if self.evidence_collection and self.evidence_collector:
+                evidence_report = self.evidence_collector.get_evidence_report()
+                generator.add_evidence(evidence_report)
+
+            # Generate the report
+            report_path = generator.generate_report(
+                format=self.output_format,
+                template=report_template,
+                compliance_framework=compliance_mapping,
+                output_path=self.output_file
+            )
+
+            self.logger.info(f"Report generated successfully: {report_path}")
+            return report_path
+
+        except ImportError:
+            self.logger.warning("Report generator not available, skipping report generation")
+            self.add_warning("Report generation skipped: report_generator module not available")
+            return ""
+        except Exception as e:
+            error_msg = f"Error generating report: {str(e)}"
+            self.add_error(error_msg)
+            self.logger.error(error_msg, exc_info=True)
+            return ""
+
+    def pause(self) -> bool:
+        """
+        Pause the currently running assessment.
+
+        Returns:
+            True if successfully paused, False otherwise
+        """
+        if not self.is_running:
+            self.logger.warning("Cannot pause: Assessment is not running")
+            return False
+
+        try:
+            self.logger.info(f"Pausing assessment: {self.assessment_id}")
+            self.status = AssessmentStatus.PAUSED
+            self.progress.status = ProgressStatus.PAUSED
+
+            # Pause any active plugins
+            for plugin in self.plugins:
+                if hasattr(plugin, 'pause') and callable(getattr(plugin, 'pause')):
+                    plugin.pause()
+
+            self.logger.info("Assessment paused successfully")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to pause assessment: {str(e)}", exc_info=True)
+            return False
+
+    def resume(self) -> bool:
+        """
+        Resume a paused assessment.
+
+        Returns:
+            True if successfully resumed, False otherwise
+        """
+        if self.status != AssessmentStatus.PAUSED:
+            self.logger.warning("Cannot resume: Assessment is not paused")
+            return False
+
+        try:
+            self.logger.info(f"Resuming assessment: {self.assessment_id}")
+            self.status = AssessmentStatus.RUNNING
+            self.progress.status = ProgressStatus.EXECUTING
+
+            # Resume any paused plugins
+            for plugin in self.plugins:
+                if hasattr(plugin, 'resume') and callable(getattr(plugin, 'resume')):
+                    plugin.resume()
+
+            self.logger.info("Assessment resumed successfully")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to resume assessment: {str(e)}", exc_info=True)
+            return False
+
+    def send_notification(self, event_type: str, message: str,
+                          recipients: Optional[List[str]] = None) -> bool:
+        """
+        Send notifications about assessment events.
+
+        Args:
+            event_type: Type of event (start, complete, error, finding)
+            message: Notification message
+            recipients: List of recipient emails/channels, uses config if None
+
+        Returns:
+            True if notification sent successfully, False otherwise
+        """
+        try:
+            if not self.config.get('notification', {}).get('enabled', False):
+                self.logger.debug("Notifications disabled, skipping")
+                return False
+
+            # Get recipients from config if not provided
+            if not recipients:
+                recipients = self.config.get('notification', {}).get('recipients', [])
+
+            # For critical-only setting, only send critical notifications
+            if (self.config.get('notification', {}).get('critical_only', False) and
+                event_type not in ['error', 'critical']):
+                self.logger.debug(f"Skipping non-critical notification: {event_type}")
+                return False
+
+            self.logger.info(f"Sending {event_type} notification to {recipients}")
+
+            # Implement notification sending logic (would integrate with notification services)
+            # For demonstration, we'll just log it
+            self.logger.info(f"NOTIFICATION [{event_type}]: {message} to {recipients}")
+
+            return True
+        except Exception as e:
+            self.logger.error(f"Error sending notification: {str(e)}", exc_info=True)
+            return False
+
     def _load_configuration(self) -> Dict[str, Any]:
         """
         Load assessment configuration from the profile.
@@ -577,23 +738,110 @@ class AssessmentEngine:
         # Standard profile
         return config_path / f"{profile_name}.json"
 
+    def discover_plugins(self) -> List[Type[AssessmentPlugin]]:
+        """
+        Discover available assessment plugins based on configuration.
+
+        Returns:
+            List of plugin classes that can be instantiated
+        """
+        try:
+            self.logger.info("Discovering assessment plugins")
+            discovered_plugins = []
+
+            # Get plugin directories from configuration
+            plugin_dirs = self.config.get('plugins', {}).get('directories', ['plugins'])
+            plugin_types = self._get_required_plugin_types()
+
+            # Base path for plugin discovery
+            base_path = Path(__file__).parent.parent
+
+            for plugin_dir in plugin_dirs:
+                plugin_path = base_path / plugin_dir
+                if not plugin_path.exists() or not plugin_path.is_dir():
+                    self.logger.warning(f"Plugin directory not found: {plugin_path}")
+                    continue
+
+                # Import plugins dynamically
+                sys.path.insert(0, str(plugin_path))
+                try:
+                    for file in plugin_path.glob("*.py"):
+                        if file.name.startswith("_"):
+                            continue
+
+                        module_name = file.stem
+                        try:
+                            module = __import__(module_name)
+
+                            # Find plugin classes in module
+                            for attr_name in dir(module):
+                                attr = getattr(module, attr_name)
+                                if (isinstance(attr, type) and
+                                    issubclass(attr, AssessmentPlugin) and
+                                    attr != AssessmentPlugin and
+                                    attr.plugin_type in plugin_types):
+                                    discovered_plugins.append(attr)
+                                    self.logger.debug(f"Discovered plugin: {attr_name}")
+                        except (ImportError, AttributeError) as e:
+                            self.logger.warning(f"Error importing plugin {module_name}: {e}")
+                finally:
+                    sys.path.pop(0)
+
+            self.logger.info(f"Discovered {len(discovered_plugins)} plugins")
+            return discovered_plugins
+
+        except Exception as e:
+            self.logger.error(f"Error discovering plugins: {str(e)}", exc_info=True)
+            return []
+
+    def _get_required_plugin_types(self) -> List[str]:
+        """Get the required plugin types based on assessment configuration."""
+        # Default to all plugin types if not specified
+        plugin_types = ["vulnerability", "configuration", "access_control", "network"]
+
+        # If compliance framework is specified, add compliance plugins
+        if self.compliance_framework:
+            plugin_types.append("compliance")
+
+        # Override if explicitly set in config
+        if self.config.get('plugins', {}).get('types'):
+            plugin_types = self.config.get('plugins', {}).get('types')
+
+        return plugin_types
+
     def _load_plugins(self) -> None:
         """
         Load assessment plugins based on configuration.
         """
         self.logger.info("Loading assessment plugins")
 
-        # In a real implementation, this would dynamically load plugins
-        # based on the assessment type and configuration
+        # Discover available plugin classes
+        plugin_classes = self.discover_plugins()
 
-        # For now, we'll leave this as a placeholder
-        # Actual implementations would load plugin classes based on:
-        # 1. Assessment type
-        # 2. Profile configuration
-        # 3. Target type
+        # Instantiate and initialize plugins
+        for plugin_class in plugin_classes:
+            try:
+                # Skip plugins that don't match current assessment parameters
+                if (hasattr(plugin_class, 'is_applicable') and
+                    not plugin_class.is_applicable(self.target, self.profile_name, self.compliance_framework)):
+                    self.logger.debug(f"Skipping inapplicable plugin: {plugin_class.__name__}")
+                    continue
 
-        # Example placeholder for plugin discovery
-        self.logger.debug("Plugin loading completed")
+                # Create plugin instance
+                plugin = plugin_class(
+                    assessment_id=self.assessment_id,
+                    config=self.config,
+                    non_invasive=self.non_invasive
+                )
+
+                # Add to plugins list
+                self.add_plugin(plugin)
+                self.logger.info(f"Loaded plugin: {plugin.name} ({plugin.version})")
+
+            except Exception as e:
+                self.logger.error(f"Error loading plugin {plugin_class.__name__}: {str(e)}", exc_info=True)
+
+        self.logger.info(f"Loaded {len(self.plugins)} plugins")
 
     def _run_plugins_sequential(self) -> None:
         """
@@ -769,6 +1017,188 @@ class AssessmentEngine:
         except Exception as e:
             self.logger.error(f"Error writing results to file: {str(e)}", exc_info=True)
             self.add_error(f"Failed to write results: {str(e)}")
+
+    def create_remediation_items(self) -> List[str]:
+        """
+        Create remediation tracking items from assessment findings.
+
+        Returns:
+            List of remediation item IDs created
+        """
+        try:
+            from ..supporting_scripts.remediation_tracker import RemediationTracker
+
+            self.logger.info("Creating remediation items from findings")
+
+            tracker = RemediationTracker()
+            remediation_ids = []
+
+            for finding in self.findings:
+                # Skip informational findings for remediation tracking
+                if finding.severity in [FindingSeverity.INFO, FindingSeverity.NONE]:
+                    continue
+
+                # Create remediation item
+                remediation_id = tracker.create_item(
+                    finding_id=finding.finding_id,
+                    title=finding.title,
+                    description=finding.description,
+                    severity=finding.severity.value,
+                    target=self.target.target_id,
+                    assessment_id=self.assessment_id,
+                    due_date_days=self._get_sla_for_severity(finding.severity)
+                )
+
+                if remediation_id:
+                    remediation_ids.append(remediation_id)
+
+            self.logger.info(f"Created {len(remediation_ids)} remediation items")
+            return remediation_ids
+
+        except ImportError:
+            self.logger.warning("Remediation tracker not available, skipping remediation creation")
+            return []
+        except Exception as e:
+            self.logger.error(f"Error creating remediation items: {str(e)}", exc_info=True)
+            return []
+
+    def _get_sla_for_severity(self, severity: FindingSeverity) -> int:
+        """Get SLA days based on finding severity."""
+        sla_mapping = self.config.get('finding_classification', {})
+
+        if severity == FindingSeverity.CRITICAL:
+            return sla_mapping.get('critical', {}).get('remediation_sla_days', 7)
+        elif severity == FindingSeverity.HIGH:
+            return sla_mapping.get('high', {}).get('remediation_sla_days', 30)
+        elif severity == FindingSeverity.MEDIUM:
+            return sla_mapping.get('medium', {}).get('remediation_sla_days', 60)
+        elif severity == FindingSeverity.LOW:
+            return sla_mapping.get('low', {}).get('remediation_sla_days', 90)
+        else:
+            return 90  # Default SLA
+
+    def save_state(self, state_file: Optional[str] = None) -> str:
+        """
+        Save the current assessment state to allow resumption.
+
+        Args:
+            state_file: Optional file path to save state, uses default if None
+
+        Returns:
+            Path to the state file
+        """
+        try:
+            if not state_file:
+                base_dir = Path(__file__).parent.parent.parent
+                state_dir = base_dir / "state"
+                state_dir.mkdir(exist_ok=True)
+                state_file = str(state_dir / f"{self.assessment_id}_state.json")
+
+            self.logger.info(f"Saving assessment state to {state_file}")
+
+            # Prepare state dictionary
+            state = {
+                "assessment_id": self.assessment_id,
+                "name": self.name,
+                "target": self.target.to_dict(),
+                "profile_name": self.profile_name,
+                "status": self.status.value,
+                "start_time": self.start_time.isoformat() if self.start_time else None,
+                "end_time": self.end_time.isoformat() if self.end_time else None,
+                "output_format": self.output_format,
+                "output_file": self.output_file,
+                "compliance_framework": self.compliance_framework,
+                "evidence_collection": self.evidence_collection,
+                "non_invasive": self.non_invasive,
+                "findings": [finding.to_dict() for finding in self.findings],
+                "errors": self.errors,
+                "warnings": self.warnings,
+                "progress": {
+                    "status": self.progress.status.value,
+                    "percent_complete": self.progress.percent_complete,
+                    "current_operation": self.progress.current_operation,
+                    "message": self.progress.message
+                }
+            }
+
+            # Write state to file
+            import json
+            with open(state_file, 'w') as f:
+                json.dump(state, f, indent=2)
+
+            self.logger.info(f"Assessment state saved to {state_file}")
+            return state_file
+
+        except Exception as e:
+            self.logger.error(f"Error saving assessment state: {str(e)}", exc_info=True)
+            return ""
+
+    @classmethod
+    def load_state(cls, state_file: str) -> 'AssessmentEngine':
+        """
+        Load assessment state from a state file.
+
+        Args:
+            state_file: Path to the state file
+
+        Returns:
+            AssessmentEngine with restored state
+        """
+        logger = logging.getLogger(__name__)
+        logger.info(f"Loading assessment state from {state_file}")
+
+        try:
+            import json
+            with open(state_file, 'r') as f:
+                state = json.load(f)
+
+            # Create target
+            target = AssessmentTarget(**state.get('target', {}))
+
+            # Create engine instance
+            engine = cls(
+                name=state.get('name', 'Unknown'),
+                target=target,
+                assessment_id=state.get('assessment_id'),
+                profile_name=state.get('profile_name', 'default'),
+                output_format=state.get('output_format', 'standard'),
+                output_file=state.get('output_file'),
+                compliance_framework=state.get('compliance_framework'),
+                evidence_collection=state.get('evidence_collection', False),
+                non_invasive=state.get('non_invasive', True)
+            )
+
+            # Restore state
+            engine.status = AssessmentStatus(state.get('status', 'not_started'))
+
+            if state.get('start_time'):
+                engine.start_time = datetime.datetime.fromisoformat(state['start_time'])
+                engine.progress.start_time = engine.start_time
+
+            if state.get('end_time'):
+                engine.end_time = datetime.datetime.fromisoformat(state['end_time'])
+                engine.progress.end_time = engine.end_time
+
+            # Restore findings, errors and warnings
+            for finding_data in state.get('findings', []):
+                engine.findings.append(Finding.from_dict(finding_data))
+
+            engine.errors = state.get('errors', [])
+            engine.warnings = state.get('warnings', [])
+
+            # Restore progress
+            progress_data = state.get('progress', {})
+            engine.progress.status = ProgressStatus(progress_data.get('status', 'not_started'))
+            engine.progress.percent_complete = progress_data.get('percent_complete', 0.0)
+            engine.progress.current_operation = progress_data.get('current_operation', '')
+            engine.progress.message = progress_data.get('message', '')
+
+            logger.info(f"Assessment state loaded successfully: {engine.assessment_id}")
+            return engine
+
+        except Exception as e:
+            logger.error(f"Error loading assessment state: {str(e)}", exc_info=True)
+            raise ValueError(f"Failed to load assessment state: {str(e)}")
 
 
 def run_assessment(

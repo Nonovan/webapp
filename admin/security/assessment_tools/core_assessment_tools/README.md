@@ -59,6 +59,10 @@ The tools work together to provide comprehensive security coverage:
   - Network topology analysis
   - Connectivity mapping
   - Traffic pattern analysis
+  - Zero trust network validation
+  - Container network security checks
+  - East-West traffic analysis
+  - DDoS protection assessment
 
 - **`access_control_auditor.py`**: Access control validation
   - Permission model validation
@@ -69,6 +73,8 @@ The tools work together to provide comprehensive security coverage:
   - Access control visualization
   - Unauthorized access attempt simulation
   - Dynamic permission testing
+  - Temporary privilege management
+  - Just-in-time access control verification
 
 - **`code_security_analyzer.py`**: Application security assessment
   - Static code analysis with security focus
@@ -79,6 +85,9 @@ The tools work together to provide comprehensive security coverage:
   - Custom rule development framework
   - SAST/SCA integration capabilities
   - Secure code pattern recommendation
+  - Infrastructure as Code validation
+  - Secrets detection in code
+  - Software composition analysis
 
 - **`password_strength_tester.py`**: Authentication security validation
   - Password policy enforcement validation
@@ -89,12 +98,16 @@ The tools work together to provide comprehensive security coverage:
   - Multi-factor authentication validation
   - Account lockout verification
   - Password reset flow security testing
+  - Session management validation
+  - SSO implementation assessment
+  - Certificate-based authentication validation
 
 ## Directory Structure
 
 ```plaintext
 admin/security/assessment_tools/core_assessment_tools/
 ├── README.md                     # This documentation
+├── __init__.py                   # Package initialization with exports
 ├── access_control_auditor.py     # Access control validation tool
 ├── code_security_analyzer.py     # Application security assessment tool
 ├── common/                       # Shared components
@@ -151,6 +164,14 @@ admin/security/assessment_tools/core_assessment_tools/
 
    ```bash
    python3 -c "from common.connection_manager import test_connection; test_connection()"
+   ```
+
+5. Set up permissions for evidence collection:
+
+   ```bash
+   # Create evidence directory with appropriate permissions
+   mkdir -p ~/.assessment_tools/evidence
+   chmod 700 ~/.assessment_tools/evidence
    ```
 
 ## Configuration
@@ -221,6 +242,9 @@ All tools support the following configuration override options:
 | `--non-invasive` | Use only non-invasive tests | `--non-invasive` |
 | `--output-format` | Set output format | `--output-format json` |
 | `--output-file` | Set output file | `--output-file results.json` |
+| `--evidence` | Enable evidence collection | `--evidence` |
+| `--timeout` | Set operation timeout | `--timeout 300` |
+| `--cache-results` | Cache results for future reference | `--cache-results` |
 
 ## Security Features
 
@@ -238,6 +262,9 @@ All tools support the following configuration override options:
 - **Rate Limiting**: Built-in rate limiting to prevent service disruption
 - **Connection Timeouts**: Appropriate timeouts to prevent resource exhaustion
 - **Secure Error Handling**: Error messages designed not to leak sensitive information
+- **Session Protection**: Secure management of assessment sessions
+- **Evidence Chain of Custody**: Cryptographic verification of evidence integrity
+- **Secure Credential Handling**: Credentials never stored in plaintext or logs
 
 ## Usage Examples
 
@@ -320,6 +347,18 @@ All tools support the following configuration override options:
 # Test DNS security configurations
 ./network_security_tester.py --target dns-servers \
   --test-type dns-security --include-dnssec
+
+# Check zero trust implementation
+./network_security_tester.py --target internal-network \
+  --test-type zero-trust --context-aware
+
+# Test container network policies
+./network_security_tester.py --target kubernetes-cluster \
+  --test-type container-network --namespace production
+
+# Check east-west traffic controls
+./network_security_tester.py --target app-servers \
+  --test-type lateral-movement --visualize-paths
 ```
 
 ### Access Control Validation
@@ -344,6 +383,14 @@ All tools support the following configuration override options:
 # Validate cross-service permissions
 ./access_control_auditor.py --role api-service-account \
   --cross-service-analysis --output-format json
+
+# Check temporary privilege management
+./access_control_auditor.py --application admin-portal \
+  --validate-temporary-access --expiration-check
+
+# Analyze just-in-time privileges
+./access_control_auditor.py --scope production-environment \
+  --check-jit-access --verify-approval-flow
 ```
 
 ### Code Security Analysis
@@ -368,6 +415,14 @@ All tools support the following configuration override options:
 # Analyze code with specific focus areas
 ./code_security_analyzer.py --target ./banking-api \
   --focus-areas "input-validation,authentication,encryption" --detailed-output
+
+# Check for secrets in code
+./code_security_analyzer.py --target ./infrastructure-repo \
+  --secrets-detection --entropy-analysis
+
+# Analyze IaC templates
+./code_security_analyzer.py --target ./terraform \
+  --language terraform --ruleset cloud-security
 ```
 
 ### Password Security Testing
@@ -392,6 +447,14 @@ All tools support the following configuration override options:
 # Audit multi-factor authentication implementation
 ./password_strength_tester.py --target sso-service \
   --check-mfa --required-level high
+
+# Validate session management
+./password_strength_tester.py --target web-application \
+  --check-session --verify-expiration --verify-rotation
+
+# Test password reset functionality
+./password_strength_tester.py --target user-portal \
+  --check-reset-flow --verify-identity-confirmation
 ```
 
 ## Integration Points
@@ -406,6 +469,21 @@ from admin.security.assessment_tools.api import SecurityAssessmentAPI
 
 api = SecurityAssessmentAPI()
 results = api.run_vulnerability_scan(target="web-server-01", profile="production")
+
+# Batch execution with consolidated reporting
+all_results = api.run_security_assessment(
+    targets=["web-server-01", "api-server-02", "database-03"],
+    assessment_types=["vulnerability", "configuration", "network"],
+    profile="production"
+)
+
+# Schedule recurring assessments
+api.schedule_assessment(
+    target="payment-system",
+    assessment_type="vulnerability",
+    schedule="weekly",
+    notify_on="critical,high"
+)
 ```
 
 ### CI/CD Pipeline Integration
@@ -428,6 +506,35 @@ security_scan:
       uses: github/codeql-action/upload-sarif@v2
       with:
         sarif_file: code-scan.sarif
+
+# Example Jenkins pipeline integration
+pipeline {
+    agent any
+    stages {
+        stage('Security Assessment') {
+            steps {
+                sh '''
+                ./admin/security/assessment_tools/core_assessment_tools/vulnerability_scanner.py \
+                  --target ${DEPLOYMENT_TARGET} \
+                  --profile production \
+                  --output-file vuln-scan.json
+                '''
+
+                sh '''
+                ./admin/security/assessment_tools/supporting_scripts/finding_classifier.py \
+                  --input vuln-scan.json \
+                  --risk-threshold medium \
+                  --output classified-findings.json
+                '''
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: '*-scan.json', fingerprint: true
+                }
+            }
+        }
+    }
+}
 ```
 
 ### Supporting Scripts Integration
@@ -444,6 +551,40 @@ All assessment tools produce output compatible with the supporting scripts:
   --format pdf \
   --template comprehensive \
   --output vulnerability-report.pdf
+
+# Classify findings and track remediation
+../supporting_scripts/finding_classifier.py \
+  --input vuln-scan.json \
+  --compliance pci-dss \
+  --risk-model standard \
+  --output classified-findings.json
+
+../supporting_scripts/remediation_tracker.py \
+  --findings classified-findings.json \
+  --assign-team security-team \
+  --sla-config ../config_files/sla_config.json \
+  --notify
+```
+
+### Ticketing System Integration
+
+```bash
+# Create tickets for findings
+./vulnerability_scanner.py --target api-gateway \
+  --profile production --output-format json --output-file scan-results.json
+
+../supporting_scripts/assessment_utils.py create-tickets \
+  --findings scan-results.json \
+  --system jira \
+  --project SEC \
+  --assignee security-team \
+  --template vulnerability-ticket
+
+# Update existing tickets with new scan results
+../supporting_scripts/assessment_utils.py update-tickets \
+  --findings scan-results.json \
+  --system jira \
+  --close-resolved
 ```
 
 ## Troubleshooting
@@ -457,6 +598,12 @@ Common issues and solutions:
 | Permission denied | Insufficient privileges | Request elevated permissions or use service account |
 | Missing dependencies | Incomplete installation | Run `pip install -r ../requirements.txt` |
 | Configuration not found | Incorrect path | Verify config file paths and existence |
+| Cache corruption | Inconsistent state | Clear cache with `--clear-cache` flag |
+| Too many findings | Noisy results | Use `--severity-threshold` to filter results |
+| Scan too slow | Resource constraints | Use `--parallel` to enable parallel processing |
+| Assessment hanging | Unresponsive target | Set appropriate `--timeout` value |
+| Evidence storage error | Permissions issue | Check directory permissions and free space |
+| Rate limiting errors | Too many requests | Reduce parallelism or add delays with `--rate-limit` |
 
 For detailed logging:
 
@@ -464,6 +611,21 @@ For detailed logging:
 # Enable debug logging
 export LOG_LEVEL=DEBUG
 ./vulnerability_scanner.py --target test-server --profile production
+
+# Save logs to file
+./vulnerability_scanner.py --target production-db \
+  --log-file ./vulnerability-scan.log --log-level DEBUG
+```
+
+Debugging tool execution:
+
+```bash
+# Run with tracing enabled
+python -m trace --trace ./password_strength_tester.py --target auth-service
+
+# Profile performance bottlenecks
+python -m cProfile -o profile.out ./network_security_tester.py --target network-segment
+python -m pstats profile.out
 ```
 
 ## Related Documentation

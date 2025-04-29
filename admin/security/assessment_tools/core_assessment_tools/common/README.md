@@ -7,6 +7,7 @@ This directory contains shared utilities and common components used across the s
 - [Overview](#overview)
 - [Key Components](#key-components)
 - [Directory Structure](#directory-structure)
+- [Component Interactions](#component-interactions)
 - [Configuration](#configuration)
 - [Security Features](#security-features)
 - [Usage Examples](#usage-examples)
@@ -134,6 +135,50 @@ admin/security/assessment_tools/core_assessment_tools/common/
 └── validation.py             # Input validation utilities
 ```
 
+## Component Interactions
+
+The common components work together in a cohesive architecture, with well-defined responsibilities and interfaces:
+
+```plaintext
+┌─────────────────────────────┐
+│     Assessment Engine       │
+│  (orchestrates assessment)  │
+└───────────────┬─────────────┘
+                │
+        ┌───────┴────────┐
+        │                │
+┌───────▼──────┐   ┌─────▼────────┐     ┌───────────────┐
+│ Assessment   │   │ Evidence      │────▶│ Result Cache  │
+│ Base Classes │   │ Collector     │     │               │
+└──────────────┘   └──────┬────────┘     └───────┬───────┘
+                          │                      │
+                   ┌──────▼────────┐     ┌──────▼────────┐
+                   │ Connection    │     │ Result        │
+                   │ Manager       │     │ Formatter     │
+                   └──────┬────────┘     └──────┬────────┘
+                          │                      │
+┌──────────────┐   ┌──────▼────────┐     ┌──────▼────────┐
+│ Permission   │◀──┤ Validation    │     │ Output        │
+│ Utils        │   │ Utils         │     │ Formatters    │
+└──────────────┘   └───────────────┘     └───────────────┘
+        ▲                  ▲
+        │                  │
+┌───────┴──────┐   ┌──────┴────────┐
+│ Error        │   │ Assessment    │
+│ Handlers     │   │ Logging       │
+└──────────────┘   └───────────────┘
+```
+
+Key interactions include:
+
+- **Assessment Engine** coordinates all assessment operations and manages the lifecycle
+- **Evidence Collector** gathers and stores assessment evidence with secure chain of custody
+- **Connection Manager** handles secure connections to assessment targets
+- **Result Formatter** processes assessment findings into standardized formats
+- **Validation** ensures all inputs and configurations meet security requirements
+- **Permission Utils** enforces proper access controls for all operations
+- **Error Handlers** provide consistent, secure error management patterns
+
 ## Configuration
 
 The common components use configuration from the parent assessment tools directory:
@@ -189,6 +234,10 @@ def get_evidence_storage_path() -> Path:
 - **Rate Limiting**: Built-in protection against resource exhaustion
 - **Error Handling**: Secure error handling preventing information leakage
 - **Secure Cleanup**: Guaranteed resource cleanup even during exceptions
+- **Log Integrity**: Tamper-evident logging with secure chain of custody
+- **Circuit Breakers**: Protection against cascading failures during assessment
+- **Data Encryption**: Sensitive assessment data is encrypted at rest
+- **Non-repudiation**: Signed evidence collection with verifiable timestamps
 
 ## Usage Examples
 
@@ -304,6 +353,55 @@ html_output = format_html_output(
 write_to_file(html_output, "/var/reports/findings.html")
 ```
 
+### Format Conversion
+
+```python
+from common.result_formatter import ResultFormatter
+
+# Create formatter instance
+formatter = ResultFormatter()
+
+# Convert between formats
+with open('assessment-results.json', 'r') as f:
+    json_content = f.read()
+
+# Convert JSON to other formats
+html_content = formatter.convert_format(json_content, "json", "html")
+markdown_content = formatter.convert_format(json_content, "json", "markdown")
+csv_content = formatter.convert_format(json_content, "json", "csv")
+
+# Write converted content to files
+with open('assessment-results.html', 'w') as f:
+    f.write(html_content)
+```
+
+### Secure Connections
+
+```python
+from common.connection_manager import ConnectionManager, ConnectionTarget
+
+# Create connection manager with secure defaults
+manager = ConnectionManager(
+    verify_ssl=True,
+    timeout=30,
+    retries=3,
+    cert_path="/path/to/client.cert"
+)
+
+# Create connection target
+target = ConnectionTarget(
+    hostname="database.example.com",
+    port=5432,
+    protocol="postgresql",
+    auth_method="certificate"
+)
+
+# Establish secure connection
+with manager.connect(target) as conn:
+    results = conn.execute("SELECT version();")
+    manager.log_connection_event(target, "Database version check", success=True)
+```
+
 ## Best Practices
 
 - **Component Re-use**: Use these shared components rather than duplicating functionality
@@ -315,6 +413,10 @@ write_to_file(html_output, "/var/reports/findings.html")
 - **Access Control**: Verify user permissions before running assessments
 - **Rate Limiting**: Implement appropriate delays for scanning operations
 - **Integration**: Follow the established patterns when integrating with other tools
+- **Defense in Depth**: Apply multiple security controls for critical operations
+- **Timeout Management**: Always implement appropriate timeouts for external operations
+- **Centralized Authentication**: Use the connection manager for all target system access
+- **Content Validation**: Validate all content from assessment targets before processing
 
 ## Related Documentation
 
@@ -326,3 +428,8 @@ write_to_file(html_output, "/var/reports/findings.html")
 - Evidence Handling Guide
 - Reporting Format Standards
 - Output Format Specification
+- Secure Coding Guidelines
+- Assessment Plugin Development
+- Assessment Workflow Automation
+- Assessment Tool Integration API
+- CVSS Scoring Implementation

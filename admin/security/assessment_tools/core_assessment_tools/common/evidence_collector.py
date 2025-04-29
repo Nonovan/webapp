@@ -289,6 +289,57 @@ class EvidenceCollector:
                 os.unlink(evidence_path)
             raise
 
+    def set_evidence_retention_period(self, evidence_id: str, retention_period: str) -> bool:
+        """
+        Set or update the retention period for specific evidence.
+
+        Args:
+            evidence_id: ID of the evidence
+            retention_period: How long to retain the evidence (e.g., "90d", "1y")
+
+        Returns:
+            True if successful, False otherwise
+        """
+        evidence = self._get_evidence_by_id(evidence_id)
+        if not evidence:
+            self.logger.warning(f"Evidence not found: {evidence_id}")
+            return False
+
+        metadata = evidence.metadata or {}
+        old_retention = metadata.get("retention_period", self.retention_period)
+        metadata["retention_period"] = retention_period
+
+        # Update evidence
+        evidence.metadata = metadata
+        self._update_evidence(evidence)
+
+        # Add chain of custody entry
+        self._add_custody_entry(
+            evidence_id=evidence_id,
+            action="set_retention",
+            details={
+                "old_retention_period": old_retention,
+                "new_retention_period": retention_period
+            }
+        )
+
+        self.logger.info(f"Set retention period for evidence {evidence_id} to {retention_period}")
+        return True
+
+    def get_expired_evidence(self, current_time: Optional[datetime.datetime] = None) -> List[Evidence]:
+        """
+        Get list of evidence items that have exceeded their retention period.
+
+        Args:
+            current_time: Time to check against (defaults to now)
+
+        Returns:
+            List of expired evidence items
+        """
+        # Implementation would require retention period parsing logic
+        # This is a placeholder for the concept
+        pass
+
     def collect_file(
         self,
         file_path: Union[str, Path],
@@ -525,6 +576,104 @@ class EvidenceCollector:
 
         except Exception as e:
             self.logger.error(f"Failed to collect command output evidence: {e}")
+            if os.path.exists(evidence_path):
+                os.unlink(evidence_path)
+            raise
+
+    def collect_database_evidence(
+        self,
+        query_result: Union[str, List[Dict[str, Any]]],
+        source_database: str,
+        query: Optional[str] = None,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """
+        Collect database query results as evidence.
+
+        Args:
+            query_result: The query results as string or structured data
+            source_database: Database source identifier
+            query: Optional query that produced the results
+            title: Title for this evidence
+            description: Description of this evidence
+            metadata: Additional metadata
+
+        Returns:
+            Evidence ID of the collected database evidence
+        """
+        evidence_type = EvidenceType.DATABASE
+        evidence_id = self._generate_evidence_id()
+
+        # Convert structured data to formatted text if needed
+        if isinstance(query_result, list):
+            content = json.dumps(query_result, indent=2)
+        else:
+            content = str(query_result)
+
+        # Create evidence file path
+        evidence_path = self._get_evidence_path(evidence_type, f"{evidence_id}.json")
+
+        try:
+            # Write content to evidence file
+            with open(evidence_path, "w", encoding="utf-8") as f:
+                f.write(content)
+
+            # Set proper permissions
+            os.chmod(evidence_path, DEFAULT_EVIDENCE_FILE_PERMISSIONS)
+
+            # Calculate hash for integrity verification
+            file_hash = self._calculate_file_hash(evidence_path)
+
+            # Prepare metadata
+            combined_metadata = {
+                "hash": file_hash,
+                "hash_algorithm": DEFAULT_HASH_ALGORITHM,
+                "source_database": source_database,
+                "file_size": os.path.getsize(evidence_path),
+                "content_type": "application/json"
+            }
+
+            if query:
+                combined_metadata["query"] = query
+
+            if metadata:
+                combined_metadata.update(metadata)
+
+            # Create evidence record
+            evidence = Evidence(
+                evidence_id=evidence_id,
+                title=title or f"Database evidence: {source_database}",
+                description=description or f"Database query results from {source_database}",
+                evidence_type=evidence_type.value,
+                file_path=evidence_path,
+                collection_time=datetime.datetime.now(),
+                collected_by=self.assessor,
+                metadata=combined_metadata
+            )
+
+            # Record evidence
+            self._record_evidence(evidence)
+
+            # Add chain of custody entry
+            self._add_custody_entry(
+                evidence_id=evidence_id,
+                action=EvidenceAction.COLLECT,
+                details={
+                    "type": evidence_type.value,
+                    "source_database": source_database,
+                    "has_query": query is not None
+                }
+            )
+
+            # Log collection
+            self.logger.info(f"Collected database evidence from {source_database} (ID: {evidence_id})")
+
+            return evidence_id
+
+        except Exception as e:
+            self.logger.error(f"Failed to collect database evidence: {e}")
             if os.path.exists(evidence_path):
                 os.unlink(evidence_path)
             raise
@@ -1136,6 +1285,34 @@ class EvidenceCollector:
 
         return results
 
+    def find_evidence_by_tags(self, tags: List[str], match_all: bool = False) -> List[Evidence]:
+        """
+        Find evidence by tags.
+
+        Args:
+            tags: List of tags to search for
+            match_all: If True, all tags must match; if False, any tag match will be included
+
+        Returns:
+            List of evidence items with matching tags
+        """
+        results = []
+
+        for evidence in self.evidence_items:
+            metadata = evidence.metadata or {}
+            evidence_tags = metadata.get("tags", [])
+
+            if match_all:
+                # All tags must be present
+                if all(tag in evidence_tags for tag in tags):
+                    results.append(evidence)
+            else:
+                # Any tag match is sufficient
+                if any(tag in evidence_tags for tag in tags):
+                    results.append(evidence)
+
+        return results
+
     def get_custody_chain(self, evidence_id: str) -> List[Dict[str, Any]]:
         """
         Get the chain of custody for evidence.
@@ -1201,6 +1378,136 @@ class EvidenceCollector:
         )
 
         self.logger.info(f"Linked evidence {evidence_id} to finding {finding_id}")
+        return True
+
+    def add_evidence_tags(self, evidence_id: str, tags: List[str]) -> bool:
+        """
+        Add tags to evidence for better organization and searching.
+
+        Args:
+            evidence_id: ID of the evidence to tag
+            tags: List of tags to add
+
+        Returns:
+            True if successful, False otherwise
+        """
+        evidence = self._get_evidence_by_id(evidence_id)
+        if not evidence:
+            self.logger.warning(f"Evidence not found: {evidence_id}")
+            return False
+
+        metadata = evidence.metadata or {}
+
+        # Initialize tags list if it doesn't exist
+        if "tags" not in metadata:
+            metadata["tags"] = []
+
+        # Add new tags (avoid duplicates)
+        for tag in tags:
+            if tag not in metadata["tags"]:
+                metadata["tags"].append(tag)
+
+        # Update evidence
+        evidence.metadata = metadata
+        self._update_evidence(evidence)
+
+        # Add chain of custody entry
+        self._add_custody_entry(
+            evidence_id=evidence_id,
+            action="tag",
+            details={"tags_added": tags}
+        )
+
+        self.logger.info(f"Added tags {tags} to evidence {evidence_id}")
+        return True
+
+    def set_evidence_classification(self, evidence_id: str, classification: str) -> bool:
+        """
+        Set the security classification of evidence.
+
+        Args:
+            evidence_id: ID of the evidence
+            classification: Security classification (e.g., "Public", "Confidential")
+
+        Returns:
+            True if successful, False otherwise
+        """
+        evidence = self._get_evidence_by_id(evidence_id)
+        if not evidence:
+            self.logger.warning(f"Evidence not found: {evidence_id}")
+            return False
+
+        metadata = evidence.metadata or {}
+        old_classification = metadata.get("classification", "Unclassified")
+        metadata["classification"] = classification
+
+        # Update evidence
+        evidence.metadata = metadata
+        self._update_evidence(evidence)
+
+        # Add chain of custody entry
+        self._add_custody_entry(
+            evidence_id=evidence_id,
+            action="classify",
+            details={
+                "old_classification": old_classification,
+                "new_classification": classification
+            }
+        )
+
+        self.logger.info(f"Changed classification of evidence {evidence_id} to {classification}")
+        return True
+
+    def add_evidence_note(
+        self,
+        evidence_id: str,
+        note: str,
+        note_type: str = "analysis"
+    ) -> bool:
+        """
+        Add a note or annotation to evidence.
+
+        Args:
+            evidence_id: ID of the evidence
+            note: Note text
+            note_type: Type of note (analysis, observation, etc.)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        evidence = self._get_evidence_by_id(evidence_id)
+        if not evidence:
+            self.logger.warning(f"Evidence not found: {evidence_id}")
+            return False
+
+        metadata = evidence.metadata or {}
+
+        # Initialize notes list if it doesn't exist
+        if "notes" not in metadata:
+            metadata["notes"] = []
+
+        # Add new note with timestamp
+        note_entry = {
+            "timestamp": datetime.datetime.now().isoformat(),
+            "analyst": self.assessor,
+            "type": note_type,
+            "content": note
+        }
+
+        metadata["notes"].append(note_entry)
+
+        # Update evidence
+        evidence.metadata = metadata
+        self._update_evidence(evidence)
+
+        # Add chain of custody entry
+        self._add_custody_entry(
+            evidence_id=evidence_id,
+            action="add_note",
+            details={"note_type": note_type}
+        )
+
+        self.logger.info(f"Added {note_type} note to evidence {evidence_id}")
         return True
 
     def finalize(self) -> List[Evidence]:

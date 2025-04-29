@@ -463,3 +463,198 @@ class AssessmentExecutionError(AssessmentException):
 class AssessmentConfigurationError(AssessmentException):
     """Exception raised when assessment configuration is invalid."""
     pass
+
+
+class CVSSScoreCalculator:
+    """
+    Handles calculation of CVSS scores for security findings.
+
+    This class implements the Common Vulnerability Scoring System (CVSS) methodology
+    for consistent vulnerability severity assessment across all security tools.
+    """
+
+    def __init__(self):
+        """Initialize the CVSS calculator."""
+        self.logger = logging.getLogger("cvss_calculator")
+
+    def calculate_base_score(self,
+                             attack_vector: str,  # N(etwork), A(djacent), L(ocal), P(hysical)
+                             attack_complexity: str,  # L(ow), H(igh)
+                             privileges_required: str,  # N(one), L(ow), H(igh)
+                             user_interaction: str,  # N(one), R(equired)
+                             scope: str,  # U(nchanged), C(hanged)
+                             confidentiality: str,  # N(one), L(ow), H(igh)
+                             integrity: str,  # N(one), L(ow), H(igh)
+                             availability: str  # N(one), L(ow), H(igh)
+                             ) -> float:
+        """
+        Calculate the CVSS base score based on the core metrics.
+
+        Args:
+            attack_vector: The context by which vulnerability exploitation is possible
+            attack_complexity: The conditions beyond the attacker's control required for exploitation
+            privileges_required: Level of privileges required for exploitation
+            user_interaction: Whether user interaction is required for exploitation
+            scope: Whether the vulnerability impacts resources beyond the vulnerable component
+            confidentiality: Impact to the confidentiality of information
+            integrity: Impact to the integrity of information and system operations
+            availability: Impact to the availability of the affected component
+
+        Returns:
+            The calculated CVSS base score (0.0-10.0)
+        """
+        # Implementation would calculate the score based on CVSS formula
+        # This is a placeholder for the actual calculation
+        self.logger.debug("Calculating CVSS base score")
+
+        # Convert metrics to numeric values
+        av_values = {"N": 0.85, "A": 0.62, "L": 0.55, "P": 0.2}
+        ac_values = {"L": 0.77, "H": 0.44}
+        pr_values = {"N": 0.85, "L": 0.62 if scope == "U" else 0.68, "H": 0.27 if scope == "U" else 0.5}
+        ui_values = {"N": 0.85, "R": 0.62}
+        c_values = {"N": 0, "L": 0.22, "H": 0.56}
+        i_values = {"N": 0, "L": 0.22, "H": 0.56}
+        a_values = {"N": 0, "L": 0.22, "H": 0.56}
+
+        # Convert metrics to scores
+        try:
+            av_score = av_values[attack_vector]
+            ac_score = ac_values[attack_complexity]
+            pr_score = pr_values[privileges_required]
+            ui_score = ui_values[user_interaction]
+            c_score = c_values[confidentiality]
+            i_score = i_values[integrity]
+            a_score = a_values[availability]
+
+            # Calculate exploitability
+            exploitability = 8.22 * av_score * ac_score * pr_score * ui_score
+
+            # Calculate impact
+            impact_base = 1 - ((1 - c_score) * (1 - i_score) * (1 - a_score))
+
+            if scope == "U":
+                impact = 6.42 * impact_base
+                base_score = min(exploitability + impact, 10)
+            else:  # scope == "C"
+                impact = 7.52 * (impact_base - 0.029) - 3.25 * (impact_base - 0.02)**15
+                base_score = min(1.08 * (exploitability + impact), 10)
+
+            # Round to 1 decimal place
+            base_score = round(base_score, 1)
+
+            self.logger.debug(f"CVSS Base Score: {base_score}")
+            return base_score
+
+        except KeyError as e:
+            self.logger.error(f"Invalid CVSS metric value: {e}")
+            # Return safe default if error occurs
+            return 0.0
+
+    def calculate_temporal_score(self,
+                                base_score: float,
+                                exploit_code_maturity: str = "X",  # N(ot defined), U(nproven), P(roof-of-concept), F(unctional), H(igh)
+                                remediation_level: str = "X",      # N(ot defined), O(fficial fix), T(emporary fix), W(orkaround), U(navailable)
+                                report_confidence: str = "X"       # N(ot defined), U(nknown), R(easonable), C(onfirmed)
+                                ) -> float:
+        """
+        Calculate the CVSS temporal score based on base score and temporal metrics.
+
+        Args:
+            base_score: The CVSS base score
+            exploit_code_maturity: State of exploit techniques or code availability
+            remediation_level: Available remediation status
+            report_confidence: Confidence level in the existence of vulnerability
+
+        Returns:
+            The calculated CVSS temporal score (0.0-10.0)
+        """
+        # Implementation would calculate the temporal score
+
+        # Convert metrics to numeric values
+        ecm_values = {"X": 1.0, "N": 1.0, "U": 0.91, "P": 0.94, "F": 0.97, "H": 1.0}
+        rl_values = {"X": 1.0, "N": 1.0, "O": 0.95, "T": 0.96, "W": 0.97, "U": 1.0}
+        rc_values = {"X": 1.0, "N": 1.0, "U": 0.92, "R": 0.96, "C": 1.0}
+
+        try:
+            ecm_score = ecm_values[exploit_code_maturity]
+            rl_score = rl_values[remediation_level]
+            rc_score = rc_values[report_confidence]
+
+            # Calculate temporal score
+            temporal_score = base_score * ecm_score * rl_score * rc_score
+
+            # Round to 1 decimal place
+            temporal_score = round(temporal_score, 1)
+
+            self.logger.debug(f"CVSS Temporal Score: {temporal_score}")
+            return temporal_score
+
+        except KeyError as e:
+            self.logger.error(f"Invalid temporal metric value: {e}")
+            return base_score
+
+    def calculate_environmental_score(self,
+                                     base_score: float,
+                                     confidentiality_requirement: str = "X",  # N(ot defined), L(ow), M(edium), H(igh)
+                                     integrity_requirement: str = "X",        # N(ot defined), L(ow), M(edium), H(igh)
+                                     availability_requirement: str = "X"      # N(ot defined), L(ow), M(edium), H(igh)
+                                     ) -> float:
+        """
+        Calculate the CVSS environmental score based on base score and environmental metrics.
+
+        Args:
+            base_score: The CVSS base score
+            confidentiality_requirement: Importance of confidentiality to the target system
+            integrity_requirement: Importance of integrity to the target system
+            availability_requirement: Importance of availability to the target system
+
+        Returns:
+            The calculated CVSS environmental score (0.0-10.0)
+        """
+        # Implementation would calculate the environmental score
+        # This is a simplified implementation
+
+        # Convert metrics to numeric values
+        cr_values = {"X": 1.0, "N": 1.0, "L": 0.5, "M": 1.0, "H": 1.5}
+        ir_values = {"X": 1.0, "N": 1.0, "L": 0.5, "M": 1.0, "H": 1.5}
+        ar_values = {"X": 1.0, "N": 1.0, "L": 0.5, "M": 1.0, "H": 1.5}
+
+        try:
+            cr_score = cr_values[confidentiality_requirement]
+            ir_score = ir_values[integrity_requirement]
+            ar_score = ar_values[availability_requirement]
+
+            # This is a simplified calculation
+            modifier = (cr_score + ir_score + ar_score) / 3
+            environmental_score = base_score * modifier
+
+            # Cap at 10.0 and round to 1 decimal place
+            environmental_score = min(round(environmental_score, 1), 10.0)
+
+            self.logger.debug(f"CVSS Environmental Score: {environmental_score}")
+            return environmental_score
+
+        except KeyError as e:
+            self.logger.error(f"Invalid environmental metric value: {e}")
+            return base_score
+
+    def get_severity_from_score(self, score: float) -> FindingSeverity:
+        """
+        Convert a CVSS score to a severity level.
+
+        Args:
+            score: The CVSS score (0.0-10.0)
+
+        Returns:
+            The corresponding FindingSeverity level
+        """
+        if score >= 9.0:
+            return FindingSeverity.CRITICAL
+        elif score >= 7.0:
+            return FindingSeverity.HIGH
+        elif score >= 4.0:
+            return FindingSeverity.MEDIUM
+        elif score > 0.0:
+            return FindingSeverity.LOW
+        else:
+            return FindingSeverity.INFO

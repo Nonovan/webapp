@@ -50,6 +50,52 @@ class SecureRotatingFileHandler(logging.handlers.RotatingFileHandler):
             pass  # Handle cases when we can't set permissions
 
 
+class EncryptedFileHandler(logging.FileHandler):
+    """Handler that encrypts log entries before writing to file."""
+
+    def __init__(self, filename, public_key_path, mode='a', encoding=None):
+        super().__init__(filename, mode, encoding, delay=True)
+        self.public_key_path = public_key_path
+        # Load public key on initialization
+        self._load_encryption_key()
+
+    def _load_encryption_key(self):
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.backends import default_backend
+
+        try:
+            with open(self.public_key_path, "rb") as key_file:
+                self.public_key = serialization.load_pem_public_key(
+                    key_file.read(),
+                    backend=default_backend()
+                )
+        except Exception as e:
+            logger.error(f"Failed to load encryption key: {str(e)}")
+            raise
+
+    def emit(self, record):
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import padding
+
+        try:
+            msg = self.format(record)
+            encrypted = self.public_key.encrypt(
+                msg.encode(),
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None
+                )
+            )
+            # Write base64-encoded encrypted data
+            import base64
+            encrypted_b64 = base64.b64encode(encrypted).decode()
+            self.stream.write(f"{encrypted_b64}\n")
+            self.flush()
+        except Exception as e:
+            self.handleError(record)
+
+
 class SensitiveDataFilter(logging.Filter):
     """Filter to redact sensitive information from logs."""
 
@@ -443,3 +489,247 @@ def sanitize_sensitive_data(data: Union[Dict[str, Any], str]) -> Union[Dict[str,
 
     # Return unchanged for other types
     return data
+
+
+def add_log_integrity_protection(log_file: str, integrity_file: Optional[str] = None) -> None:
+    """
+    Add integrity protection to log files by computing and storing cryptographic hashes.
+
+    Args:
+        log_file: Path to the log file to protect
+        integrity_file: Optional path to store integrity information, defaults to log_file + '.integrity'
+    """
+    import hashlib
+    import time
+
+    if integrity_file is None:
+        integrity_file = f"{log_file}.integrity"
+
+    try:
+        with open(log_file, 'rb') as f:
+            log_contents = f.read()
+
+        log_hash = hashlib.sha256(log_contents).hexdigest()
+        timestamp = int(time.time())
+
+        with open(integrity_file, 'a') as f:
+            f.write(f"{timestamp}:{log_hash}:{os.path.basename(log_file)}\n")
+
+        # Set secure permissions on the integrity file
+        os.chmod(integrity_file, 0o400)  # Read-only by owner
+
+        logger.info(f"Added integrity protection to {log_file}")
+    except Exception as e:
+        logger.error(f"Failed to add integrity protection: {str(e)}")
+
+
+def validate_log_integrity(log_file: str, integrity_file: Optional[str] = None) -> bool:
+    """
+    Validate the integrity of a log file using stored hashes.
+
+    Args:
+        log_file: Path to the log file to validate
+        integrity_file: Optional path to integrity file, defaults to log_file + '.integrity'
+
+    Returns:
+        Boolean indicating if log file integrity is intact
+    """
+    import hashlib
+
+    if integrity_file is None:
+        integrity_file = f"{log_file}.integrity"
+
+    try:
+        if not os.path.exists(integrity_file):
+            logger.warning(f"Integrity file not found for {log_file}")
+            return False
+
+        with open(log_file, 'rb') as f:
+            log_contents = f.read()
+
+        current_hash = hashlib.sha256(log_contents).hexdigest()
+
+        with open(integrity_file, 'r') as f:
+            last_entry = f.readlines()[-1]
+
+        timestamp, stored_hash, filename = last_entry.strip().split(':')
+
+        if current_hash != stored_hash:
+            logger.warning(f"Log integrity check failed for {log_file}")
+            return False
+
+        logger.info(f"Log integrity verified for {log_file}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to validate log integrity: {str(e)}")
+        return False
+
+
+def archive_logs_securely(log_dir: str, archive_dir: str, sign: bool = True) -> None:
+    """
+    Archive logs with optional digital signature for non-repudiation.
+
+    Args:
+        log_dir: Directory containing logs to archive
+        archive_dir: Directory to store archives
+        sign: Whether to digitally sign the archive
+    """
+    import shutil
+    import tarfile
+    import datetime
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    archive_name = f"security_logs_{timestamp}.tar.gz"
+    archive_path = os.path.join(archive_dir, archive_name)
+
+    try:
+        os.makedirs(archive_dir, mode=0o750, exist_ok=True)
+
+        with tarfile.open(archive_path, "w:gz") as tar:
+            tar.add(log_dir, arcname=os.path.basename(log_dir))
+
+        # Set secure permissions on the archive
+        os.chmod(archive_path, 0o400)  # Read-only by owner
+
+        if sign:
+            # Implement digital signature using organization's PKI
+            # This is a placeholder for the actual implementation
+            _sign_archive(archive_path, f"{archive_path}.sig")
+
+        logger.info(f"Archived logs to {archive_path}")
+        return archive_path
+    except Exception as e:
+        logger.error(f"Failed to archive logs: {str(e)}")
+        return None
+
+
+def configure_siem_forwarding(
+    logger: logging.Logger,
+    siem_url: str,
+    api_key: str,
+    log_level: str = "INFO",
+    batch_size: int = 10,
+    ssl_verify: bool = True
+) -> None:
+    """
+    Configure forwarding of security logs to a SIEM system.
+
+    Args:
+        logger: Logger to configure
+        siem_url: URL of the SIEM endpoint
+        api_key: Authentication key for SIEM
+        log_level: Minimum log level to forward
+        batch_size: Number of logs to batch before sending
+        ssl_verify: Whether to verify SSL certificates
+    """
+    class SIEMHandler(logging.Handler):
+        def __init__(self, url, api_key, batch_size, ssl_verify):
+            super().__init__()
+            self.url = url
+            self.api_key = api_key
+            self.batch_size = batch_size
+            self.ssl_verify = ssl_verify
+            self.log_queue = []
+
+        def emit(self, record):
+            import requests
+
+            self.log_queue.append(self.format(record))
+
+            if len(self.log_queue) >= self.batch_size:
+                try:
+                    headers = {
+                        'Content-Type': 'application/json',
+                        'Authorization': f'Bearer {self.api_key}'
+                    }
+                    response = requests.post(
+                        self.url,
+                        json={'logs': self.log_queue},
+                        headers=headers,
+                        verify=self.ssl_verify
+                    )
+                    response.raise_for_status()
+                    self.log_queue = []
+                except Exception as e:
+                    logger.error(f"Failed to forward logs to SIEM: {str(e)}")
+
+    level = getattr(logging, log_level.upper(), DEFAULT_LOG_LEVEL)
+
+    # Create and add the SIEM handler
+    siem_handler = SIEMHandler(siem_url, api_key, batch_size, ssl_verify)
+    siem_handler.setLevel(level)
+    siem_handler.setFormatter(AssessmentJsonFormatter())
+    logger.addHandler(siem_handler)
+
+    logger.info("SIEM log forwarding configured")
+
+
+def add_trusted_timestamp(logger: logging.Logger) -> None:
+    """
+    Add a filter that includes cryptographically verifiable timestamps from a trusted source.
+
+    Args:
+        logger: Logger to configure with trusted timestamps
+    """
+    class TrustedTimestampFilter(logging.Filter):
+        def filter(self, record):
+            # In a production implementation, this would use a trusted timestamp service
+            # For now, we'll simulate with a local timestamp and a hash
+            import hashlib
+            import time
+
+            timestamp = time.time()
+            record.trusted_timestamp = timestamp
+
+            # Create a verifiable hash that includes the timestamp and log message
+            content = f"{timestamp}:{record.getMessage()}"
+            record.timestamp_hash = hashlib.sha256(content.encode()).hexdigest()
+
+            return True
+
+    timestamp_filter = TrustedTimestampFilter()
+
+    # Add to all handlers
+    for handler in logger.handlers:
+        handler.addFilter(timestamp_filter)
+
+
+def configure_log_retention(
+    log_dir: str,
+    retention_days: int = 90,
+    compliance_mode: bool = True
+) -> None:
+    """
+    Configure automatic log retention based on policy.
+
+    Args:
+        log_dir: Directory containing logs
+        retention_days: Number of days to retain logs
+        compliance_mode: If True, logs are archived before deletion for compliance
+    """
+    import time
+    import glob
+
+    log_files = glob.glob(os.path.join(log_dir, "*.log"))
+    current_time = time.time()
+    retention_seconds = retention_days * 86400  # days to seconds
+
+    for log_file in log_files:
+        file_mtime = os.path.getmtime(log_file)
+        if current_time - file_mtime > retention_seconds:
+            try:
+                if compliance_mode:
+                    # Archive before deletion
+                    archive_dir = os.path.join(log_dir, "archived")
+                    archived = archive_logs_securely([log_file], archive_dir)
+
+                    if archived:
+                        logger.info(f"Archived expired log: {log_file}")
+                        os.remove(log_file)
+                else:
+                    # Direct deletion
+                    os.remove(log_file)
+
+                logger.info(f"Removed expired log: {log_file}")
+            except Exception as e:
+                logger.error(f"Failed to process expired log {log_file}: {str(e)}")

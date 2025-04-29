@@ -122,20 +122,51 @@ try:
         ConnectionManager,
         secure_connect,
         test_connectivity,
-        get_connection_for_target
+        get_connection_for_target,
+        ConnectionTarget,
+        ConnectionType,
+        ConnectionPool,
+        ConnectionError,
+        AuthenticationError,
+        SSLError,
+        ConnectionTimeoutError
     )
 
     from .error_handlers import (
         handle_assessment_error,
         retry_operation,
         safe_execute,
-        ExponentialBackoff
+        ExponentialBackoff,
+        ErrorScope,
+        ErrorSeverity,
+        ErrorReporter,
+        validate_assessment_preconditions,
+        handle_specific_exceptions,
+        circuit_breaker,
+        capture_assessment_exceptions,
+        with_timeout,
+        error_chain_formatter
     )
 
     from .permission_utils import (
         check_assessment_permission,
         verify_target_access,
         has_required_permissions
+    )
+
+    from .result_cache import (
+        ResultCache,
+        invalidate_cache_key,
+        invalidate_cache_pattern,
+        clear_all_cache,
+        get_cached_assessment,
+        cache_assessment_result,
+        get_cached_results_summary,
+        export_cache_to_file,
+        import_cache_from_file,
+        prune_expired_cache_entries,
+        get_cache_stats,
+        configure_cache
     )
 
     HAS_ALL_COMPONENTS = True
@@ -332,17 +363,48 @@ __all__ = [
     'ConnectionManager',
     'secure_connect',
     'test_connectivity',
+    'get_connection_for_target',
+    'ConnectionTarget',
+    'ConnectionType',
+    'ConnectionPool',
+    'ConnectionError',
+    'AuthenticationError',
+    'SSLError',
+    'ConnectionTimeoutError',
 
     # Error handling
     'handle_assessment_error',
     'retry_operation',
     'safe_execute',
     'ExponentialBackoff',
+    'ErrorScope',
+    'ErrorSeverity',
+    'ErrorReporter',
+    'validate_assessment_preconditions',
+    'handle_specific_exceptions',
+    'circuit_breaker',
+    'capture_assessment_exceptions',
+    'with_timeout',
+    'error_chain_formatter',
 
     # Permission management
     'check_assessment_permission',
     'verify_target_access',
     'has_required_permissions',
+
+    # Result cache
+    'ResultCache',
+    'invalidate_cache_key',
+    'invalidate_cache_pattern',
+    'clear_all_cache',
+    'get_cached_assessment',
+    'cache_assessment_result',
+    'get_cached_results_summary',
+    'export_cache_to_file',
+    'import_cache_from_file',
+    'prune_expired_cache_entries',
+    'get_cache_stats',
+    'configure_cache',
 
     # Package info
     'initialize_common_components',
