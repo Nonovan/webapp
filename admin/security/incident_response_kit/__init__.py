@@ -317,6 +317,7 @@ class Incident:
 def import_core_functions():
     global initialize_incident, collect_evidence, isolate_system, notify_stakeholders
     global update_status, run_playbook, restore_service, harden_system
+    global track_incident_status, verify_file_integrity, build_timeline
 
     try:
         # Import primary functions from module scripts
@@ -354,18 +355,31 @@ def import_core_functions():
                 raise NotImplementedError("Notification system not available")
 
         try:
-            from .coordination.status_tracker import update_status
-            logger.debug("Loaded update_status function")
+            from .coordination.status_tracker import update_status, get_incident_status, list_incidents
+            logger.debug("Loaded status_tracker functions")
         except ImportError as e:
             logger.warning(f"Failed to import status_tracker module: {e}")
             def update_status(*args, **kwargs):
                 raise NotImplementedError("Status tracker not available")
+            def get_incident_status(*args, **kwargs):
+                raise NotImplementedError("Status tracker not available")
+            def list_incidents(*args, **kwargs):
+                raise NotImplementedError("Status tracker not available")
+
+        try:
+            from .coordination.status_tracker import initialize_incident_status as track_incident_status
+            logger.debug("Loaded track_incident_status function")
+        except ImportError as e:
+            logger.warning(f"Failed to import track_incident_status function: {e}")
+            def track_incident_status(*args, **kwargs):
+                raise NotImplementedError("Status tracking not available")
     else:
         def notify_stakeholders(*args, **kwargs):
             raise NotImplementedError("Coordination modules not available")
-
         def update_status(*args, **kwargs):
             raise NotImplementedError("Coordination modules not available")
+        def track_incident_status(*args, **kwargs):
+            raise NotImplementedError("Status tracking not available")
 
     # Import playbook functions if available
     if PLAYBOOKS_AVAILABLE:
@@ -379,6 +393,29 @@ def import_core_functions():
     else:
         def run_playbook(*args, **kwargs):
             raise NotImplementedError("Playbooks not available")
+
+    # Import forensic tool functions if available
+    if FORENSIC_TOOLS_AVAILABLE:
+        try:
+            from .forensic_tools.file_integrity import verify_file_integrity
+            logger.debug("Loaded verify_file_integrity function")
+        except ImportError as e:
+            logger.warning(f"Failed to import file_integrity module: {e}")
+            def verify_file_integrity(*args, **kwargs):
+                raise NotImplementedError("File integrity verification not available")
+
+        try:
+            from .forensic_tools.timeline_builder import build_timeline
+            logger.debug("Loaded build_timeline function")
+        except ImportError as e:
+            logger.warning(f"Failed to import timeline_builder module: {e}")
+            def build_timeline(*args, **kwargs):
+                raise NotImplementedError("Timeline building not available")
+    else:
+        def verify_file_integrity(*args, **kwargs):
+            raise NotImplementedError("Forensic tools not available")
+        def build_timeline(*args, **kwargs):
+            raise NotImplementedError("Forensic tools not available")
 
     # Import recovery functions if available
     if RECOVERY_AVAILABLE:
@@ -400,7 +437,6 @@ def import_core_functions():
     else:
         def restore_service(*args, **kwargs):
             raise NotImplementedError("Recovery modules not available")
-
         def harden_system(*args, **kwargs):
             raise NotImplementedError("Recovery modules not available")
 
