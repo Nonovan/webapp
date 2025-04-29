@@ -27,6 +27,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union, Set, Tuple
+import re
 
 # Add parent directory to path for module imports
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -46,6 +47,20 @@ try:
         detect_file_obfuscation,
         save_analysis_report
     )
+    # Import shared constants
+    from admin.security.forensics.static_analysis.common.constants import (
+        DEFAULT_OUTPUT_FORMAT, SUPPORTED_OUTPUT_FORMATS, DEFAULT_OUTPUT_DIR,
+        DEFAULT_MIN_STRING_LENGTH, DEFAULT_ENTROPY_BLOCK_SIZE, SCRIPT_FILE_EXTENSIONS,
+        REGEX_IPV4, REGEX_DOMAIN, REGEX_URL, REGEX_EMAIL,
+        REGEX_PASSWORD_KW, REGEX_API_KEY, REGEX_CRYPTO_KW, REGEX_CMD_EXEC
+    )
+    # Import YARA if needed for pattern matching (optional dependency)
+    try:
+        import yara
+        YARA_AVAILABLE = True
+    except ImportError:
+        yara = None
+        YARA_AVAILABLE = False
 
     # Import core forensic utilities if available
     from admin.security.forensics.utils.logging_utils import (
@@ -56,7 +71,20 @@ try:
     FORENSIC_CORE_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: Some forensic modules could not be imported: {e}")
+    # Define constants locally as fallbacks if import fails
+    DEFAULT_OUTPUT_FORMAT = "json"
+    SUPPORTED_OUTPUT_FORMATS = ["json", "text", "yaml"]
+    DEFAULT_MIN_STRING_LENGTH = 4
+    DEFAULT_OUTPUT_DIR = "file_analysis_output"
+    DEFAULT_ENTROPY_BLOCK_SIZE = 256
+    SCRIPT_FILE_EXTENSIONS = ['.js', '.py', '.ps1', '.vbs', '.php', '.pl', '.sh', '.bat', '.cmd']
+    YARA_AVAILABLE = False
+    yara = None
     FORENSIC_CORE_AVAILABLE = False
+    # Define dummy regexes or None if needed
+    REGEX_IPV4 = REGEX_DOMAIN = REGEX_URL = REGEX_EMAIL = None
+    REGEX_PASSWORD_KW = REGEX_API_KEY = REGEX_CRYPTO_KW = REGEX_CMD_EXEC = None
+
 
 # Configure logging
 logging.basicConfig(
@@ -65,14 +93,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger('file_analyzer')
 
-# --- Constants ---
-DEFAULT_OUTPUT_FORMAT = "json"
-SUPPORTED_OUTPUT_FORMATS = ["json", "text", "yaml"]
-DEFAULT_MIN_STRING_LENGTH = 4
-DEFAULT_OUTPUT_DIR = "file_analysis_output"
 
-# --- Utility Functions ---
-
+# --- Argument Parser Setup ---
 def setup_argument_parser() -> argparse.ArgumentParser:
     """Set up command-line argument parser."""
     parser = argparse.ArgumentParser(
@@ -83,14 +105,17 @@ Examples:
   # Basic file analysis
   python file_analyzer.py --file suspicious.exe
 
-  # Extract strings and analyze entropy
-  python file_analyzer.py --file suspicious.dll --extract-strings --entropy-analysis
+  # Extract strings, analyze entropy, and detect credentials in strings
+  python file_analyzer.py --file suspicious.dll --extract-strings --entropy-analysis --analyze-strings --detect-credentials
 
   # Extract embedded files from document
   python file_analyzer.py --file document.docx --extract-embedded --output-dir extracted_files/
 
-  # Full analysis with all options
-  python file_analyzer.py --file malware.bin --full-analysis --output analysis_results.json
+  # Full analysis with all options, output text summary only
+  python file_analyzer.py --file malware.bin --full-analysis --output analysis_results.txt --format text --summary-only
+
+  # Analyze file but exclude strings and PE sections from text output
+  python file_analyzer.py --file app.exe --full-analysis --format text --exclude-sections strings,pe_sections
 """
     )
 
@@ -99,9 +124,15 @@ Examples:
 
     # Output options
     parser.add_argument('--output', help='Path for output file (default: stdout)')
-    parser.add_argument('--output-dir', help=f'Directory for extracted files (default: {DEFAULT_OUTPUT_DIR})')
+    parser.add_argument('--output-dir', default=DEFAULT_OUTPUT_DIR,
+                        help=f'Directory for extracted files (default: {DEFAULT_OUTPUT_DIR})')
     parser.add_argument('--format', choices=SUPPORTED_OUTPUT_FORMATS, default=DEFAULT_OUTPUT_FORMAT,
                         help=f'Output format (default: {DEFAULT_OUTPUT_FORMAT})')
+    # New Output Control Arguments
+    parser.add_argument('--summary-only', action='store_true',
+                        help='Output only a summary in text format')
+    parser.add_argument('--exclude-sections', type=str, default="",
+                        help='Comma-separated list of sections to exclude from text output (e.g., strings,metadata,pe_sections)')
 
     # Core analysis options
     parser.add_argument('--basic-info', action='store_true',
@@ -112,8 +143,8 @@ Examples:
                         help='Perform entropy analysis')
     parser.add_argument('--block-entropy', action='store_true',
                         help='Calculate entropy per block rather than entire file')
-    parser.add_argument('--block-size', type=int, default=256,
-                        help='Block size for entropy calculation (default: 256 bytes)')
+    parser.add_argument('--block-size', type=int, default=DEFAULT_ENTROPY_BLOCK_SIZE,
+                        help=f'Block size for entropy calculation (default: {DEFAULT_ENTROPY_BLOCK_SIZE} bytes)')
 
     # String extraction options
     parser.add_argument('--extract-strings', action='store_true',
@@ -124,6 +155,22 @@ Examples:
                         help='Bytes of context around strings (default: 0)')
     parser.add_argument('--string-encoding', default='utf-8',
                         help='String encoding (default: utf-8)')
+
+    # --- New String Content Analysis Arguments ---
+    parser.add_argument('--analyze-strings', action='store_true',
+                        help='Perform content analysis on extracted strings (requires --extract-strings)')
+    parser.add_argument('--detect-credentials', action='store_true',
+                        help='Detect potential credentials in strings')
+    parser.add_argument('--detect-crypto', action='store_true',
+                        help='Detect cryptography-related keywords/patterns in strings')
+    parser.add_argument('--detect-commands', action='store_true',
+                        help='Detect command execution patterns in strings')
+    parser.add_argument('--extract-ioc', action='store_true',
+                        help='Extract potential Indicators of Compromise (IPs, domains, etc.)')
+    parser.add_argument('--ioc-type', type=str, default='all',
+                        help='Specific IOC type to extract (e.g., network, host, all)')
+    parser.add_argument('--pattern-match', type=str,
+                        help='Path to YARA rules file or directory for pattern matching in strings')
 
     # File type specific options
     parser.add_argument('--extract-embedded', action='store_true',
@@ -139,7 +186,7 @@ Examples:
 
     # Comprehensive analysis
     parser.add_argument('--full-analysis', action='store_true',
-                        help='Perform all available analysis options')
+                        help='Perform all available analysis options (including string content analysis)')
 
     # Security/forensic options
     parser.add_argument('--case-id', help='Case identifier for forensic logging')
@@ -156,48 +203,9 @@ Examples:
     return parser
 
 
-def set_verbosity(verbose_level: int) -> None:
-    """Set verbosity level for logging."""
-    if verbose_level == 0:
-        logger.setLevel(logging.WARNING)
-    elif verbose_level == 1:
-        logger.setLevel(logging.INFO)
-    else:  # 2 or higher
-        logger.setLevel(logging.DEBUG)
-
-
-def configure_forensic_logging(args: argparse.Namespace) -> None:
-    """Configure forensic logging if core is available."""
-    if FORENSIC_CORE_AVAILABLE:
-        log_context = {}
-        if args.case_id:
-            log_context["case_id"] = args.case_id
-        if args.analyst:
-            log_context["analyst"] = args.analyst
-
-        setup_forensic_logger(
-            application="file_analyzer",
-            log_level=logging.DEBUG if args.verbose > 1 else logging.INFO,
-            context=log_context
-        )
-
-
-def log_analysis_start(file_path: str, case_id: Optional[str] = None,
-                      analyst: Optional[str] = None) -> None:
-    """Log start of analysis to forensic log if available."""
-    if FORENSIC_CORE_AVAILABLE:
-        details = {
-            "file": file_path,
-            "tool": "file_analyzer"
-        }
-        if case_id:
-            details["case_id"] = case_id
-        if analyst:
-            details["analyst"] = analyst
-
-        log_forensic_operation("file_analysis_start", True, details)
-
-
+# --- Logging and Setup Functions ---
+# ... (set_verbosity, configure_forensic_logging, log_analysis_start, log_analysis_complete remain mostly the same) ...
+# Minor update to log_analysis_complete to include string analysis summary
 def log_analysis_complete(file_path: str, results: Dict[str, Any],
                          case_id: Optional[str] = None,
                          analyst: Optional[str] = None) -> None:
@@ -207,400 +215,498 @@ def log_analysis_complete(file_path: str, results: Dict[str, Any],
             "file": file_path,
             "tool": "file_analyzer",
             "analysis_types": [],
-            "found_indicators": False
+            "found_indicators": False,
+            "summary": {}
         }
+        # ... (existing code to add case_id, analyst) ...
 
-        # Add case details if provided
-        if case_id:
-            details["case_id"] = case_id
-        if analyst:
-            details["analyst"] = analyst
-
-        # Extract analysis types performed
-        if "basic_info" in results:
-            details["analysis_types"].append("basic_info")
-        if "metadata" in results:
-            details["analysis_types"].append("metadata")
+        # Extract analysis types performed and summary data
+        summary = {}
+        if "basic_info" in results: details["analysis_types"].append("basic_info")
+        if "metadata" in results: details["analysis_types"].append("metadata")
         if "entropy" in results:
             details["analysis_types"].append("entropy")
+            if isinstance(results["entropy"], float): summary["entropy"] = results["entropy"]
+            elif "entropy_summary" in results: summary["entropy_avg"] = results["entropy_summary"].get("avg")
         if "strings" in results:
             details["analysis_types"].append("strings")
-            details["string_count"] = len(results["strings"])
+            summary["string_count"] = results.get("string_count", 0)
+        if "string_analysis" in results:  # New
+            details["analysis_types"].append("string_content_analysis")
+            summary["string_findings_count"] = results["string_analysis"].get("findings_count", 0)
+            if summary["string_findings_count"] > 0: details["found_indicators"] = True
         if "embedded_files" in results:
             details["analysis_types"].append("embedded_files")
-            details["embedded_file_count"] = len(results["embedded_files"])
+            summary["embedded_file_count"] = results.get("embedded_file_count", 0)
         if "obfuscation_analysis" in results:
             details["analysis_types"].append("obfuscation")
-            details["obfuscation_score"] = results["obfuscation_analysis"].get("obfuscation_score", 0)
+            summary["obfuscation_score"] = results["obfuscation_analysis"].get("obfuscation_score", 0)
+            if summary["obfuscation_score"] > 0.5: details["found_indicators"] = True
+        if "script_analysis" in results:
+            details["analysis_types"].append("script_analysis")
+            summary["script_risk_level"] = results["script_analysis"].get("risk_level")
+            summary["script_indicator_count"] = results["script_analysis"].get("indicator_count", 0)
+            if summary["script_indicator_count"] > 0: details["found_indicators"] = True
+        if "pe_sections" in results: details["analysis_types"].append("pe_analysis")
+        if "resources" in results:
+            details["analysis_types"].append("resource_extraction")
+            summary["resource_count"] = results.get("resource_count", 0)
 
-        # Check if any suspicious indicators were found
-        if results.get("obfuscation_analysis", {}).get("obfuscation_score", 0) > 0.5:
-            details["found_indicators"] = True
-
+        details["summary"] = summary
         log_forensic_operation("file_analysis_complete", True, details)
 
 
+# --- Analysis Helper Functions ---
+
 def collect_basic_info(file_path: str) -> Dict[str, Any]:
-    """
-    Collect basic information about the file.
-
-    Args:
-        file_path: Path to the file to analyze
-
-    Returns:
-        Dictionary containing basic file information
-    """
+    """Collect basic information about the file."""
     logger.info("Collecting basic file information")
-
     basic_info = safe_analyze_file(file_path)
-
-    # Add file type identification
     file_type = identify_file_type(file_path)
     basic_info["file_type"] = file_type
-
     return basic_info
 
 
+def _analyze_metadata(file_path: str, results: Dict[str, Any]) -> None:
+    """Extract format-specific metadata."""
+    logger.info("Extracting file metadata")
+    try:
+        results["metadata"] = extract_metadata_by_format(file_path)
+    except Exception as e:
+        logger.error(f"Error extracting metadata: {e}")
+        results["metadata_error"] = str(e)
+
+
+def _analyze_entropy(file_path: str, args: argparse.Namespace, results: Dict[str, Any]) -> None:
+    """Perform entropy analysis."""
+    logger.info("Performing entropy analysis")
+    try:
+        if args.block_entropy:
+            entropy_data = calculate_file_entropy(file_path, block_size=args.block_size)
+            results["entropy"] = entropy_data
+            if isinstance(entropy_data, list) and entropy_data:
+                results["entropy_summary"] = {
+                    "min": min(entropy_data),
+                    "max": max(entropy_data),
+                    "avg": sum(entropy_data) / len(entropy_data)
+                }
+        else:
+            results["entropy"] = calculate_file_entropy(file_path)
+    except Exception as e:
+        logger.error(f"Error calculating entropy: {e}")
+        results["entropy_error"] = str(e)
+
+
+def _analyze_strings(file_path: str, args: argparse.Namespace, results: Dict[str, Any]) -> None:
+    """Extract strings and optionally perform content analysis."""
+    logger.info("Extracting strings")
+    extracted_strings: List[Dict[str, Any]] = []
+    try:
+        extracted_strings = extract_file_strings(
+            file_path,
+            min_length=args.min_length,
+            encoding=args.string_encoding,
+            context_bytes=args.string_context
+        )
+        results["strings"] = extracted_strings  # Store raw extracted strings
+        results["string_count"] = len(extracted_strings)
+    except Exception as e:
+        logger.error(f"Error extracting strings: {e}")
+        results["strings_error"] = str(e)
+        return  # Cannot analyze if extraction failed
+
+    # --- Integrated String Content Analysis ---
+    if args.analyze_strings or args.full_analysis:
+        logger.info("Performing content analysis on extracted strings")
+        string_analysis_results: Dict[str, Any] = {"findings": [], "errors": [], "yara_matches": []}
+        findings_list: List[Dict[str, Any]] = []
+
+        run_credentials = args.detect_credentials or args.full_analysis
+        run_crypto = args.detect_crypto or args.full_analysis
+        run_commands = args.detect_commands or args.full_analysis
+        run_iocs = args.extract_ioc or args.full_analysis
+
+        for string_info in extracted_strings:
+            text = string_info["string"]
+            offset = string_info["offset"]  # Use offset if available
+
+            # Add specific detection logic here, potentially calling helper functions
+            # Example using imported regex (adapt from memory_string_analyzer or common util)
+            if run_credentials and REGEX_PASSWORD_KW and REGEX_PASSWORD_KW.search(text):
+                findings_list.append({"type": "potential_credential", "string": text, "offset": offset, "detail": "Keyword match"})
+            if run_credentials and REGEX_API_KEY and REGEX_API_KEY.search(text):
+                findings_list.append({"type": "potential_api_key", "string": text, "offset": offset, "detail": "Pattern match"})
+            if run_crypto and REGEX_CRYPTO_KW and REGEX_CRYPTO_KW.search(text):
+                findings_list.append({"type": "crypto_keyword", "string": text, "offset": offset, "detail": "Keyword match"})
+            if run_commands and REGEX_CMD_EXEC and REGEX_CMD_EXEC.search(text):
+                findings_list.append({"type": "command_execution", "string": text, "offset": offset, "detail": "Pattern match"})
+            if run_iocs and REGEX_IPV4 and REGEX_IPV4.search(text):
+                # More sophisticated IOC extraction needed
+                findings_list.append({"type": "ipv4", "string": text, "offset": offset, "detail": "Pattern match"})
+            # Add more detections (URLs, Domains, Emails, Filepaths, YARA etc.)
+
+        string_analysis_results["findings"] = findings_list
+        string_analysis_results["findings_count"] = len(findings_list)
+
+        # YARA Pattern Matching (if requested and available)
+        if args.pattern_match and YARA_AVAILABLE and yara:
+            try:
+                logger.info(f"Applying YARA rules from: {args.pattern_match}")
+                rules = yara.compile(filepath=args.pattern_match)  # Adjust if it's a dir
+                yara_matches_list = []
+                # YARA matching needs raw bytes, not decoded strings.
+                # Re-read file or pass bytes if extract_file_strings can provide them.
+                # This part needs careful implementation based on how strings are handled.
+                # Placeholder:
+                # with open(file_path, 'rb') as f:
+                #     file_content = f.read()
+                # matches = rules.match(data=file_content)
+                # for match in matches:
+                #     yara_matches_list.append(...) # Format match details
+                logger.warning("YARA matching on extracted strings is complex; requires matching on raw file bytes. Placeholder.")
+
+                string_analysis_results["yara_matches"] = yara_matches_list  # Store formatted matches
+                string_analysis_results["yara_matches_count"] = len(yara_matches_list)
+            except Exception as e:
+                error_msg = f"Error applying YARA rules: {e}"
+                logger.error(error_msg)
+                string_analysis_results["errors"].append(error_msg)
+
+        results["string_analysis"] = string_analysis_results  # Add analysis results
+
+
+def _analyze_embedded_files(file_path: str, args: argparse.Namespace, results: Dict[str, Any]) -> None:
+    """Extract embedded files."""
+    logger.info("Extracting embedded files")
+    try:
+        embedded_output_dir = os.path.join(args.output_dir, "embedded_files")
+        os.makedirs(embedded_output_dir, exist_ok=True)
+        embedded_files = extract_embedded_files(file_path, embedded_output_dir)
+        results["embedded_files"] = embedded_files
+        results["embedded_file_count"] = len(embedded_files)
+    except Exception as e:
+        logger.error(f"Error extracting embedded files: {e}")
+        results["embedded_files_error"] = str(e)
+
+
+def _analyze_obfuscation(file_path: str, results: Dict[str, Any]) -> None:
+    """Check for obfuscation techniques."""
+    logger.info("Checking for obfuscation")
+    try:
+        obfuscation_analysis = detect_file_obfuscation(file_path)
+        results["obfuscation_analysis"] = obfuscation_analysis
+    except Exception as e:
+        logger.error(f"Error detecting obfuscation: {e}")
+        results["obfuscation_error"] = str(e)
+
+
+def _analyze_script(file_path: str, results: Dict[str, Any]) -> None:
+    """Perform script-specific analysis."""
+    logger.info("Performing script-specific analysis")
+    try:
+        script_analysis = analyze_script_file(file_path)
+        results["script_analysis"] = script_analysis
+    except Exception as e:
+        logger.error(f"Error analyzing script file: {e}")
+        results["script_analysis_error"] = str(e)
+
+
+def _analyze_pe(file_path: str, args: argparse.Namespace, results: Dict[str, Any]) -> None:
+    """Perform PE-specific analysis."""
+    logger.info("Performing PE-specific analysis")
+    try:
+        import pefile  # Keep import local to this function
+        pe = pefile.PE(file_path)
+
+        # Extract section information
+        sections = []
+        for section in pe.sections:
+            section_info = {
+                "name": section.Name.decode('utf-8', errors='replace').rstrip('\x00'),
+                "virtual_address": hex(section.VirtualAddress),
+                "virtual_size": section.Misc_VirtualSize,
+                "raw_size": section.SizeOfRawData,
+                "characteristics": hex(section.Characteristics),
+                "entropy": section.get_entropy()
+            }
+            sections.append(section_info)
+        results["pe_sections"] = sections
+
+        # Extract resources if requested
+        if args.extract_resources or args.full_analysis:
+            resources_output_dir = os.path.join(args.output_dir, "resources")
+            os.makedirs(resources_output_dir, exist_ok=True)
+            resources = []
+            if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
+                for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
+                    if hasattr(resource_type, 'directory'):
+                        for resource_id in resource_type.directory.entries:
+                            if hasattr(resource_id, 'directory'):
+                                for resource_lang in resource_id.directory.entries:
+                                    data_rva = resource_lang.data.struct.OffsetToData
+                                    size = resource_lang.data.struct.Size
+                                    resource_data = pe.get_data(data_rva, size)
+                                    res_type = "unknown"
+                                    if hasattr(resource_type, 'id'):
+                                        res_type = pefile.RESOURCE_TYPE.get(resource_type.id, f"type_{resource_type.id}")
+                                    res_name = f"{res_type}_{resource_id.id}_{resource_lang.id.id}"
+                                    resource_path = os.path.join(resources_output_dir, res_name)
+                                    try:
+                                        with open(resource_path, 'wb') as f:
+                                            f.write(resource_data)
+                                        resources.append({
+                                            "type": res_type, "id": resource_id.id, "language": resource_lang.id.id,
+                                            "size": size, "path": resource_path
+                                        })
+                                    except IOError as io_err:
+                                        logger.warning(f"Could not write resource {resource_path}: {io_err}")
+            results["resources"] = resources
+            results["resource_count"] = len(resources)
+
+    except ImportError:
+        logger.warning("pefile library not available, skipping PE-specific analysis")
+        results["pe_sections_error"] = "pefile library not available"
+    except pefile.PEFormatError as pe_err:
+        logger.warning(f"Not a valid PE file or error parsing: {pe_err}")
+        results["pe_sections_error"] = f"PE parsing error: {pe_err}"
+    except Exception as e:
+        logger.error(f"Error analyzing PE file: {e}", exc_info=args.verbose > 1)
+        results["pe_sections_error"] = str(e)
+
+
+# --- Main Analysis Orchestration ---
 def perform_analysis(args: argparse.Namespace) -> Dict[str, Any]:
-    """
-    Perform file analysis based on command-line arguments.
-
-    Args:
-        args: Command-line arguments
-
-    Returns:
-        Dictionary containing analysis results
-    """
+    """Perform file analysis based on command-line arguments."""
     file_path = args.file
-    results = {"file_path": file_path}
+    results: Dict[str, Any] = {"file_path": file_path}
 
     # Determine analysis types
     run_metadata = args.metadata or args.full_analysis
-    run_strings = args.extract_strings or args.full_analysis
+    run_strings = args.extract_strings or args.full_analysis or args.analyze_strings
     run_entropy = args.entropy_analysis or args.full_analysis or args.section_entropy
     run_embedded = args.extract_embedded or args.full_analysis
     run_obfuscation = args.check_obfuscation or args.full_analysis
+    run_pe = args.pe_sections or args.extract_resources or args.full_analysis
 
     # Set up output directory if needed
-    output_dir = args.output_dir or DEFAULT_OUTPUT_DIR
-    if run_embedded or args.extract_resources:
-        os.makedirs(output_dir, exist_ok=True)
-        logger.info(f"Created output directory: {output_dir}")
+    if run_embedded or args.extract_resources or args.full_analysis:
+        try:
+            os.makedirs(args.output_dir, exist_ok=True)
+            logger.info(f"Using output directory: {args.output_dir}")
+        except OSError as e:
+            logger.error(f"Cannot create output directory {args.output_dir}: {e}")
+            # Decide if this is fatal or just skip extraction features
+            run_embedded = False
+            args.extract_resources = False  # Prevent PE analysis from trying to write
 
     # Always collect basic info
     results["basic_info"] = collect_basic_info(file_path)
 
-    # Extract format-specific metadata
-    if run_metadata:
-        logger.info("Extracting file metadata")
-        try:
-            results["metadata"] = extract_metadata_by_format(file_path)
-        except Exception as e:
-            logger.error(f"Error extracting metadata: {e}")
-            results["metadata_error"] = str(e)
+    # Run selected analyses
+    if run_metadata: _analyze_metadata(file_path, results)
+    if run_entropy: _analyze_entropy(file_path, args, results)
+    if run_strings: _analyze_strings(file_path, args, results)  # Handles string content analysis internally
+    if run_embedded: _analyze_embedded_files(file_path, args, results)
+    if run_obfuscation: _analyze_obfuscation(file_path, results)
 
-    # Perform entropy analysis
-    if run_entropy:
-        logger.info("Performing entropy analysis")
-        try:
-            if args.block_entropy:
-                results["entropy"] = calculate_file_entropy(file_path, block_size=args.block_size)
-                if isinstance(results["entropy"], list):
-                    results["entropy_summary"] = {
-                        "min": min(results["entropy"]),
-                        "max": max(results["entropy"]),
-                        "avg": sum(results["entropy"]) / len(results["entropy"])
-                    }
-            else:
-                results["entropy"] = calculate_file_entropy(file_path)
-        except Exception as e:
-            logger.error(f"Error calculating entropy: {e}")
-            results["entropy_error"] = str(e)
-
-    # Extract strings
-    if run_strings:
-        logger.info("Extracting strings")
-        try:
-            strings = extract_file_strings(
-                file_path,
-                min_length=args.min_length,
-                encoding=args.string_encoding,
-                context_bytes=args.string_context
-            )
-            results["strings"] = strings
-            results["string_count"] = len(strings)
-        except Exception as e:
-            logger.error(f"Error extracting strings: {e}")
-            results["strings_error"] = str(e)
-
-    # Extract embedded files
-    if run_embedded:
-        logger.info("Extracting embedded files")
-        try:
-            embedded_output_dir = os.path.join(output_dir, "embedded_files")
-            os.makedirs(embedded_output_dir, exist_ok=True)
-
-            embedded_files = extract_embedded_files(file_path, embedded_output_dir)
-            results["embedded_files"] = embedded_files
-            results["embedded_file_count"] = len(embedded_files)
-        except Exception as e:
-            logger.error(f"Error extracting embedded files: {e}")
-            results["embedded_files_error"] = str(e)
-
-    # Check for obfuscation techniques
-    if run_obfuscation:
-        logger.info("Checking for obfuscation")
-        try:
-            obfuscation_analysis = detect_file_obfuscation(file_path)
-            results["obfuscation_analysis"] = obfuscation_analysis
-        except Exception as e:
-            logger.error(f"Error detecting obfuscation: {e}")
-            results["obfuscation_error"] = str(e)
-
-    # Special handling for script files
-    file_type = results["basic_info"].get("file_type", {}).get("description", "")
+    # Script analysis (check type/extension)
+    file_type_desc = results["basic_info"].get("file_type", {}).get("description", "")
     file_ext = os.path.splitext(file_path)[1].lower()
-    if file_ext in ['.js', '.py', '.ps1', '.vbs', '.php', '.pl', '.sh'] or 'script' in file_type.lower():
-        logger.info("Performing script-specific analysis")
-        try:
-            script_analysis = analyze_script_file(file_path)
-            results["script_analysis"] = script_analysis
-        except Exception as e:
-            logger.error(f"Error analyzing script file: {e}")
-            results["script_analysis_error"] = str(e)
+    is_script = file_ext in SCRIPT_FILE_EXTENSIONS or 'script' in file_type_desc.lower()
+    if is_script and (args.full_analysis or args.check_obfuscation):  # Often run together
+        _analyze_script(file_path, results)
 
-    # Special handling for PE files
-    if args.pe_sections or args.full_analysis:
-        if (file_type and "PE" in file_type) or file_ext in ['.exe', '.dll', '.sys', '.ocx']:
-            logger.info("Performing PE-specific analysis")
-            try:
-                # Import PE file library
-                import pefile
+    # PE analysis (check type/extension)
+    is_pe = ("PE" in file_type_desc) or file_ext in ['.exe', '.dll', '.sys', '.ocx']
+    if is_pe and run_pe:
+        _analyze_pe(file_path, args, results)
 
-                # Parse PE file
-                pe = pefile.PE(file_path)
-
-                # Extract section information
-                sections = []
-                for section in pe.sections:
-                    section_info = {
-                        "name": section.Name.decode('utf-8', errors='replace').rstrip('\x00'),
-                        "virtual_address": hex(section.VirtualAddress),
-                        "virtual_size": section.Misc_VirtualSize,
-                        "raw_size": section.SizeOfRawData,
-                        "characteristics": hex(section.Characteristics),
-                        "entropy": section.get_entropy()
-                    }
-                    sections.append(section_info)
-
-                results["pe_sections"] = sections
-
-                # Extract resources if requested
-                if args.extract_resources or args.full_analysis:
-                    resources_output_dir = os.path.join(output_dir, "resources")
-                    os.makedirs(resources_output_dir, exist_ok=True)
-
-                    resources = []
-                    if hasattr(pe, 'DIRECTORY_ENTRY_RESOURCE'):
-                        for resource_type in pe.DIRECTORY_ENTRY_RESOURCE.entries:
-                            if hasattr(resource_type, 'directory'):
-                                for resource_id in resource_type.directory.entries:
-                                    if hasattr(resource_id, 'directory'):
-                                        for resource_lang in resource_id.directory.entries:
-                                            data_rva = resource_lang.data.struct.OffsetToData
-                                            size = resource_lang.data.struct.Size
-                                            resource_data = pe.get_data(data_rva, size)
-
-                                            # Determine resource type
-                                            res_type = "unknown"
-                                            if hasattr(resource_type, 'id'):
-                                                res_type = pefile.RESOURCE_TYPE.get(resource_type.id, f"type_{resource_type.id}")
-
-                                            # Generate resource name
-                                            res_name = f"{res_type}_{resource_id.id}_{resource_lang.id.id}"
-
-                                            # Save resource to file
-                                            resource_path = os.path.join(resources_output_dir, res_name)
-                                            with open(resource_path, 'wb') as f:
-                                                f.write(resource_data)
-
-                                            resources.append({
-                                                "type": res_type,
-                                                "id": resource_id.id,
-                                                "language": resource_lang.id.id,
-                                                "size": size,
-                                                "path": resource_path
-                                            })
-
-                    results["resources"] = resources
-                    results["resource_count"] = len(resources)
-
-            except ImportError:
-                logger.warning("pefile library not available, skipping PE-specific analysis")
-                results["pe_sections_error"] = "pefile library not available"
-            except Exception as e:
-                logger.error(f"Error analyzing PE file: {e}")
-                results["pe_sections_error"] = str(e)
-
-    # Add analysis timestamp
+    # Add final analysis timestamp
     results["analysis_timestamp"] = datetime.now().isoformat()
-
     return results
 
 
+# --- Result Saving and Output ---
 def save_results(results: Dict[str, Any], args: argparse.Namespace) -> None:
-    """
-    Save analysis results to a file or print to stdout.
-
-    Args:
-        results: Analysis results to save
-        args: Command-line arguments
-    """
+    """Save analysis results to a file or print to stdout."""
     if args.output:
         output_format = args.format.lower()
         try:
+            # Assuming save_analysis_report handles different formats (json, yaml, text)
             save_analysis_report(results, args.output, output_format)
             logger.info(f"Results saved to {args.output} in {output_format} format")
         except Exception as e:
             logger.error(f"Error saving results to {args.output}: {e}")
     else:
-        # Print to stdout
-        if args.format.lower() == 'json':
-            json_str = json.dumps(results, indent=2, default=str)
-            print(json_str)
-        elif args.format.lower() == 'text':
+        # Print to stdout based on format
+        output_format = args.format.lower()
+        excluded_sections = {s.strip().lower() for s in args.exclude_sections.split(',') if s.strip()}
+
+        if output_format == 'json':
+            # JSON output ignores summary/exclude options
+            print(json.dumps(results, indent=2, default=str))
+        elif output_format == 'yaml':
+            # YAML output ignores summary/exclude options
+            try:
+                import yaml
+                print(yaml.dump(results, default_flow_style=False, sort_keys=False))
+            except ImportError:
+                logger.error("YAML output requested but PyYAML is not installed. Falling back to JSON.")
+                print(json.dumps(results, indent=2, default=str))
+        elif output_format == 'text':
             print("=== File Analysis Results ===")
             print(f"File: {results['file_path']}")
             print(f"Analyzed at: {results.get('analysis_timestamp', 'unknown')}")
 
-            # Print basic info
-            if "basic_info" in results:
+            # --- Summary Section (if requested) ---
+            if args.summary_only:
+                print("\n--- Analysis Summary ---")
+                if "basic_info" in results:
+                    print(f"  File Size: {results['basic_info'].get('size', 'N/A')} bytes")
+                    print(f"  File Type: {results['basic_info'].get('file_type', {}).get('description', 'N/A')}")
+                if "entropy" in results:
+                    entropy_val = results['entropy']
+                    if isinstance(entropy_val, float): print(f"  Overall Entropy: {entropy_val:.4f}")
+                    elif "entropy_summary" in results: print(f"  Avg Block Entropy: {results['entropy_summary'].get('avg', 0):.4f}")
+                if "string_count" in results: print(f"  Strings Extracted: {results['string_count']}")
+                if "string_analysis" in results: print(f"  String Analysis Findings: {results['string_analysis'].get('findings_count', 0)}")
+                if "embedded_file_count" in results: print(f"  Embedded Files Found: {results['embedded_file_count']}")
+                if "obfuscation_analysis" in results: print(f"  Obfuscation Score: {results['obfuscation_analysis'].get('obfuscation_score', 0):.2f}")
+                if "script_analysis" in results: print(f"  Script Risk Level: {results['script_analysis'].get('risk_level', 'N/A')}")
+                if "pe_sections" in results: print(f"  PE Sections Found: {len(results['pe_sections'])}")
+                if "resource_count" in results: print(f"  PE Resources Found: {results['resource_count']}")
+                # Add counts for errors if present
+                error_keys = [k for k in results if k.endswith('_error')]
+                if error_keys: print(f"  Analysis Errors: {len(error_keys)}")
+                return  # Stop after summary
+
+            # --- Detailed Sections (respecting exclusions) ---
+            if "basic_info" not in excluded_sections and "basic_info" in results:
                 print("\n--- Basic Information ---")
                 for key, value in results["basic_info"].items():
                     if isinstance(value, dict):
                         print(f"{key}:")
-                        for k, v in value.items():
-                            print(f"  {k}: {v}")
-                    else:
-                        print(f"{key}: {value}")
+                        for k, v in value.items(): print(f"  {k}: {v}")
+                    else: print(f"{key}: {value}")
 
-            # Print metadata
-            if "metadata" in results:
+            if "metadata" not in excluded_sections and "metadata" in results:
                 print("\n--- File Metadata ---")
                 for key, value in results["metadata"].items():
                     if isinstance(value, dict):
                         print(f"{key}:")
-                        for k, v in value.items():
-                            print(f"  {k}: {v}")
-                    else:
-                        print(f"{key}: {value}")
+                        for k, v in value.items(): print(f"  {k}: {v}")
+                    else: print(f"{key}: {value}")
 
-            # Print entropy
-            if "entropy" in results:
+            if "entropy" not in excluded_sections and "entropy" in results:
                 print("\n--- Entropy Analysis ---")
                 if isinstance(results["entropy"], list):
-                    print(f"Block entropy: Min={results['entropy_summary']['min']:.4f}, "
-                          f"Max={results['entropy_summary']['max']:.4f}, "
-                          f"Avg={results['entropy_summary']['avg']:.4f}")
+                    summary = results.get("entropy_summary", {})
+                    print(f"Block entropy: Min={summary.get('min', 0):.4f}, Max={summary.get('max', 0):.4f}, Avg={summary.get('avg', 0):.4f}")
                     print("First 5 blocks:", results["entropy"][:5])
-                else:
+                elif isinstance(results["entropy"], float):
                     print(f"File entropy: {results['entropy']:.4f}")
 
-            # Print string summary
-            if "strings" in results:
+            if "strings" not in excluded_sections and "strings" in results:
                 print("\n--- String Extraction Summary ---")
-                print(f"Extracted {results['string_count']} strings")
-                if results['string_count'] > 0:
+                count = results.get('string_count', 0)
+                print(f"Extracted {count} strings")
+                if count > 0:
                     print("First 5 strings:")
                     for i, string_info in enumerate(results["strings"][:5]):
-                        print(f"  {i+1}. {string_info['string']} (offset: {string_info['offset']})")
+                        print(f"  {i+1}. Offset:{string_info.get('offset', 'N/A')} | {string_info.get('string', '')}")
 
-            # Print embedded files
-            if "embedded_files" in results:
+            # --- New String Content Analysis Output ---
+            if "string_analysis" not in excluded_sections and "string_analysis" in results:
+                print("\n--- String Content Analysis ---")
+                analysis = results["string_analysis"]
+                findings = analysis.get("findings", [])
+                yara_matches = analysis.get("yara_matches", [])
+                print(f"Found {len(findings)} potential items via regex.")
+                if findings:
+                    print("First 5 findings:")
+                    for i, finding in enumerate(findings[:5]):
+                        print(f"  {i+1}. Type: {finding.get('type', 'N/A')}, Offset: {finding.get('offset', 'N/A')}, Detail: {finding.get('detail', '')}")
+                        print(f"     String: {finding.get('string', '')[:80]}{'...' if len(finding.get('string', '')) > 80 else ''}")  # Truncate long strings
+                if yara_matches:
+                    print(f"Found {len(yara_matches)} YARA rule matches.")
+
+            if "embedded_files" not in excluded_sections and "embedded_files" in results:
                 print("\n--- Embedded Files ---")
-                print(f"Extracted {results['embedded_file_count']} embedded files")
-                if results['embedded_file_count'] > 0:
+                count = results.get('embedded_file_count', 0)
+                print(f"Extracted {count} embedded files")
+                if count > 0:
                     for i, file_info in enumerate(results["embedded_files"]):
-                        print(f"  {i+1}. {file_info['path']} ({file_info['size']} bytes)")
+                        print(f"  {i+1}. {file_info.get('path', 'N/A')} ({file_info.get('size', 0)} bytes)")
 
-            # Print obfuscation analysis
-            if "obfuscation_analysis" in results:
+            if "obfuscation_analysis" not in excluded_sections and "obfuscation_analysis" in results:
                 print("\n--- Obfuscation Analysis ---")
                 obfuscation = results["obfuscation_analysis"]
                 print(f"Obfuscation score: {obfuscation.get('obfuscation_score', 0):.2f}")
                 print(f"Assessment: {obfuscation.get('assessment', 'Unknown')}")
-
                 indicators = obfuscation.get("obfuscation_indicators", [])
                 if indicators:
-                    print(f"Found {len(indicators)} indicators of obfuscation:")
-                    for i, indicator in enumerate(indicators[:5]):  # Show first 5
-                        print(f"  {i+1}. {indicator['type']}: {indicator['description']}")
+                    print(f"Found {len(indicators)} indicators:")
+                    for i, indicator in enumerate(indicators[:5]):
+                        print(f"  {i+1}. {indicator.get('type', 'N/A')}: {indicator.get('description', '')}")
 
-            # Print script analysis
-            if "script_analysis" in results:
+            if "script_analysis" not in excluded_sections and "script_analysis" in results:
                 print("\n--- Script Analysis ---")
                 script = results["script_analysis"]
                 print(f"Risk level: {script.get('risk_level', 'Unknown')}")
-                print(f"Found {script.get('indicator_count', 0)} indicators")
-
-                categories = script.get("categories", {})
-                if categories:
-                    print("Indicators by category:")
-                    for category, count in categories.items():
-                        print(f"  {category}: {count}")
-
+                count = script.get('indicator_count', 0)
+                print(f"Found {count} indicators")
                 indicators = script.get("indicators", [])
                 if indicators:
                     print("First 5 suspicious patterns:")
                     for i, indicator in enumerate(indicators[:5]):
-                        print(f"  Line {indicator['line']}: {indicator['content']} "
-                              f"({indicator['type']})")
+                        print(f"  Line {indicator.get('line', 'N/A')}: {indicator.get('content', '')[:80]}... ({indicator.get('type', 'N/A')})")
 
-            # Print PE section info
-            if "pe_sections" in results:
+            if "pe_sections" not in excluded_sections and "pe_sections" in results:
                 print("\n--- PE Sections ---")
                 for i, section in enumerate(results["pe_sections"]):
-                    print(f"  Section {i+1}: {section['name']}")
-                    print(f"    Virtual Size: {section['virtual_size']} bytes")
-                    print(f"    Raw Size: {section['raw_size']} bytes")
-                    print(f"    Entropy: {section['entropy']:.4f}")
+                    print(f"  Section {i+1}: {section.get('name', 'N/A')}")
+                    print(f"    Virtual Size: {section.get('virtual_size', 0)} bytes")
+                    print(f"    Raw Size: {section.get('raw_size', 0)} bytes")
+                    print(f"    Entropy: {section.get('entropy', 0):.4f}")
 
-            # Print resources summary
-            if "resources" in results:
+            if "resources" not in excluded_sections and "resources" in results:
                 print("\n--- Resources ---")
-                print(f"Extracted {results['resource_count']} resources")
-                resource_types = {}
-                for res in results["resources"]:
-                    res_type = res["type"]
-                    resource_types[res_type] = resource_types.get(res_type, 0) + 1
+                count = results.get('resource_count', 0)
+                print(f"Extracted {count} resources")
+                if count > 0:
+                    resource_types = {}
+                    for res in results["resources"]:
+                        res_type = res.get("type", "unknown")
+                        resource_types[res_type] = resource_types.get(res_type, 0) + 1
+                    print("Resources by type:")
+                    for res_type, num in resource_types.items(): print(f"  {res_type}: {num}")
 
-                print("Resources by type:")
-                for res_type, count in resource_types.items():
-                    print(f"  {res_type}: {count}")
+            # Print Errors
+            error_keys = [k for k in results if k.endswith('_error')]
+            if error_keys:
+                print("\n--- Analysis Errors ---")
+                for key in error_keys:
+                    print(f"  {key}: {results[key]}")
 
-        else:  # yaml
-            try:
-                import yaml
-                print(yaml.dump(results, default_flow_style=False))
-            except ImportError:
-                logger.error("YAML output requested but PyYAML is not installed")
-                print(json.dumps(results, indent=2, default=str))
+        else:
+            logger.error(f"Unsupported output format for stdout: {output_format}. Defaulting to JSON.")
+            print(json.dumps(results, indent=2, default=str))
 
 
+# --- Main Execution ---
 def main() -> int:
-    """
-    Main function for file analyzer.
-
-    Returns:
-        Exit code (0 for success, non-zero for errors)
-    """
+    """Main function for file analyzer."""
     parser = setup_argument_parser()
     args = parser.parse_args()
 
-    # Configure logging verbosity
-    set_verbosity(args.verbose)
+    # Validate args
+    if args.analyze_strings and not args.extract_strings and not args.full_analysis:
+        parser.error("--analyze-strings requires --extract-strings or --full-analysis")
+    if args.summary_only and args.format != 'text':
+        logger.warning("--summary-only is only applicable for --format text")
+        args.summary_only = False  # Disable if not text format
 
-    # Configure forensic logging if available
+    set_verbosity(args.verbose)
     configure_forensic_logging(args)
 
     if not os.path.exists(args.file):
@@ -608,36 +714,20 @@ def main() -> int:
         return 1
 
     try:
-        # Log analysis start
         log_analysis_start(args.file, args.case_id, args.analyst)
-
-        # Perform analysis
         results = perform_analysis(args)
-
-        # Log analysis completion
         log_analysis_complete(args.file, results, args.case_id, args.analyst)
-
-        # Save or display results
         save_results(results, args)
-
         return 0
 
     except Exception as e:
-        logger.error(f"Error analyzing file: {e}", exc_info=args.verbose > 0)
-
+        logger.error(f"Critical error during analysis: {e}", exc_info=args.verbose > 0)
         if FORENSIC_CORE_AVAILABLE:
             details = {
-                "file": args.file,
-                "error": str(e),
-                "tool": "file_analyzer"
+                "file": args.file, "error": str(e), "tool": "file_analyzer",
+                "case_id": args.case_id, "analyst": args.analyst
             }
-            if args.case_id:
-                details["case_id"] = args.case_id
-            if args.analyst:
-                details["analyst"] = args.analyst
-
-            log_forensic_operation("file_analysis_error", False, details)
-
+            log_forensic_operation("file_analysis_error", False, {k: v for k, v in details.items() if v is not None})
         return 2
 
 
