@@ -1,4 +1,4 @@
-# Static Analysis Tools
+# Static Analysis Tools for Forensic Analysis
 
 This directory contains tools for performing static analysis of files and artifacts during digital forensic investigations in the Cloud Infrastructure Platform. These tools enable security teams to analyze suspicious files, binaries, and other digital artifacts without executing them, providing critical insights during incident response.
 
@@ -55,6 +55,7 @@ The static analysis tools provide non-invasive examination capabilities for digi
 ```plaintext
 admin/security/forensics/static_analysis/
 ├── README.md               # This documentation
+├── __init__.py             # Package initialization and exports
 ├── file_analyzer.py        # File structure analysis tool
 ├── signature_checker.py    # File signature verification tool
 ├── hash_compare.py         # Hash calculation and comparison tool
@@ -63,6 +64,7 @@ admin/security/forensics/static_analysis/
     ├── __init__.py         # Package initialization
     ├── file_utils.py       # File handling utilities
     ├── hash_utils.py       # Hashing functionality
+    ├── output_constants.py # Shared constants and regex patterns
     ├── yara_rules/         # YARA rule definitions
     │   ├── README.md       # YARA rules documentation
     │   ├── malware/        # Malware-specific rules
