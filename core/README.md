@@ -66,6 +66,12 @@ The core package serves as the backbone of the Cloud Infrastructure Platform, pr
   - Contains formatting and conversion utilities
   - Includes file integrity verification and baseline management
 
+- **`utils/`**: Specialized utility modules
+  - Provides modular, reusable functionality across the application
+  - Implements standardized patterns for common operations
+  - Includes specialized formatting and string manipulation
+  - Ensures consistent handling of common data types
+
 ## Directory Structure
 
 ```plaintext
@@ -93,20 +99,23 @@ core/
 │   ├── cs_session.py        # Session management
 │   ├── cs_utils.py          # Security utilities
 │   └── README.md            # Security module documentation
-└── templates/            # Core templates
-    ├── README.md         # Templates documentation
-    ├── cs_file_integrity_2.py # File integrity template utility
-    ├── errors/           # Error page templates
-    │   ├── 400.html      # Bad request error template
-    │   ├── 401.html      # Unauthorized error template
-    │   ├── 403.html      # Forbidden error template
-    │   ├── 404.html      # Not found error template
-    │   ├── 500.html      # Internal server error template
-    │   └── base_error.html # Base template for all error pages
-    └── layouts/          # Base layout templates
-        ├── base.html     # Core layout template
-        ├── minimal.html  # Minimal layout without navigation
-        └── secure.html   # Security-enhanced layout
+├── templates/            # Core templates
+│   ├── README.md         # Templates documentation
+│   ├── cs_file_integrity_2.py # File integrity template utility
+│   ├── errors/           # Error page templates
+│   │   ├── 400.html      # Bad request error template
+│   │   ├── 401.html      # Unauthorized error template
+│   │   ├── 403.html      # Forbidden error template
+│   │   ├── 404.html      # Not found error template
+│   │   ├── 500.html      # Internal server error template
+│   │   └── base_error.html # Base template for all error pages
+│   └── layouts/          # Base layout templates
+│       ├── base.html     # Core layout template
+│       ├── minimal.html  # Minimal layout without navigation
+│       └── secure.html   # Security-enhanced layout
+└── utils/              # Specialized utilities
+    ├── __init__.py     # Utility package initialization
+    └── string.py       # String manipulation utilities
 ```
 
 ## Configuration
@@ -158,6 +167,7 @@ The core package uses the following configuration settings:
 - **Resource Protection**: Rate limiting and resource quotas prevent abuse
 - **Secure Baseline Management**: Secure handling of integrity baselines with controlled updates
 - **Secure Headers**: HTTP security headers are enforced on all responses
+- **String Manipulation Safety**: Secure string handling with proper encoding
 
 ## Common Features
 
@@ -171,6 +181,8 @@ The core package uses the following configuration settings:
 - Security header management with proper configuration
 - Standardized error handling
 - Structured metrics collection
+- Common string utilities for consistent text processing
+- URL-safe slug generation for content management
 
 ## Usage Examples
 
@@ -271,6 +283,18 @@ success, message = update_file_integrity_baseline(
 )
 ```
 
+### String Utilities
+
+```python
+from core.utils.string import slugify, truncate_text
+
+# Generate URL-friendly slug
+post_slug = slugify("My Blog Post Title!")  # Output: "my-blog-post-title"
+
+# Truncate text with word boundary
+excerpt = truncate_text(long_content, length=150)  # Truncates at word boundary
+```
+
 ## Related Documentation
 
 - Application Architecture
@@ -279,9 +303,11 @@ success, message = update_file_integrity_baseline(
 - File Integrity Monitoring Guide
 - Monitoring and Metrics
 - Security Architecture
+- String Utility Reference
+- URL Generation Guidelines
 
 ## Version Information
 
-- **Version**: 0.0.1
-- **Last Updated**: 2024-05-20
+- **Version**: 0.1.0
+- **Last Updated**: 2024-07-15
 - **Maintainers**: Platform Engineering Team

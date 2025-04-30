@@ -18,7 +18,7 @@ from jinja2 import TemplateNotFound
 from flask_wtf.csrf import CSRFError
 from werkzeug.exceptions import HTTPException
 
-from blueprints import register_blueprints
+from blueprints import register_all_blueprints
 from extensions import jwt, init_extensions, metrics
 from core.config import Config
 from core.loggings import setup_app_logging, get_security_logger
