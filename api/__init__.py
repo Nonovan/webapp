@@ -63,6 +63,78 @@ api_error_count = metrics.counter(
     labels={'type': lambda: g.get('error_type', 'unknown'), 'endpoint': lambda: request.endpoint}
 )
 
+def _log_api_security_incident(error_type: str, description: str, severity: str = "medium",
+                               additional_details: Optional[Dict[str, Any]] = None) -> None:
+    """
+    Centralized security incident logging for API errors.
+
+    Logs security-relevant API errors as incidents with appropriate
+    severity, description, and contextual information, providing
+    consistent security monitoring across all API endpoints.
+
+    Args:
+        error_type: Type of error or security event
+        description: Human-readable description of the incident
+        severity: Severity level (low, medium, high, critical)
+        additional_details: Any additional context to include in the log
+    """
+    try:
+        details = {
+            'path': request.path,
+            'method': request.method,
+            'endpoint': request.endpoint,
+            'user_agent': request.user_agent.string if request.user_agent else 'Unknown',
+            'referrer': request.referrer or 'Direct',
+            'remote_ip': request.remote_addr,
+            'error_type': error_type
+        }
+
+        # Add user information if available
+        if hasattr(g, 'user') and g.user:
+            details['user_id'] = g.user.id
+            details['username'] = g.user.username
+        elif hasattr(g, 'user_id') and g.user_id:
+            details['user_id'] = g.user_id
+
+        # Add request parameters with sensitive data filtering
+        if request.args:
+            filtered_args = {k: '******' if k.lower() in ('token', 'password', 'key', 'secret', 'auth')
+                            else v for k, v in request.args.items()}
+            details['request_args'] = filtered_args
+
+        # Merge with any additional details provided
+        if additional_details:
+            details.update(additional_details)
+
+        # Get appropriate event type from AuditLog
+        event_type = AuditLog.EVENT_API_ERROR
+        if error_type == '403':
+            event_type = AuditLog.EVENT_ACCESS_DENIED
+        elif error_type == '401':
+            event_type = AuditLog.EVENT_AUTHENTICATION_FAILURE
+
+        # Log the security event
+        log_security_event(
+            event_type=event_type,
+            description=description,
+            severity=severity,
+            details=details
+        )
+
+        # Increment metrics counter
+        if hasattr(metrics, 'counter'):
+            try:
+                metrics.increment('api.security_incidents', labels={
+                    'type': error_type,
+                    'severity': severity
+                })
+            except Exception:
+                pass
+
+    except Exception as e:
+        # Fail gracefully if logging fails
+        current_app.logger.error(f"Failed to log security incident: {e}")
+
 # Define API-wide error handlers
 @api_bp.errorhandler(404)
 def resource_not_found(_e):
@@ -74,9 +146,18 @@ def resource_not_found(_e):
 @api_bp.errorhandler(500)
 def internal_server_error(_e):
     """Handle internal server errors with a consistent JSON response"""
-    current_app.logger.error(f"Internal server error: {str(_e)}")
+    error_message = str(_e)
+    current_app.logger.error(f"Internal server error: {error_message}")
     g.error_type = '500'
     api_error_count.inc()
+
+    # Log security incident for server errors
+    _log_api_security_incident(
+        error_type='500',
+        description=f"API server error: {error_message[:100]}",
+        severity="high"
+    )
+
     return jsonify(error="Internal server error", status_code=500), 500
 
 @api_bp.errorhandler(429)
@@ -84,6 +165,20 @@ def too_many_requests(_e):
     """Handle rate limiting with a consistent JSON response"""
     g.error_type = '429'
     api_error_count.inc()
+
+    # Log potential DoS attempt
+    _log_api_security_incident(
+        error_type='429',
+        description="Rate limit exceeded",
+        severity="medium",
+        additional_details={
+            'rate_limiting': {
+                'endpoint': request.endpoint,
+                'client_ip': request.remote_addr
+            }
+        }
+    )
+
     return jsonify(
         error="Too many requests",
         status_code=429,
@@ -96,18 +191,13 @@ def forbidden(_e):
     g.error_type = '403'
     api_error_count.inc()
 
-    # Log security event for potential unauthorized access attempts
-    log_security_event(
-        event_type=AuditLog.EVENT_ACCESS_DENIED,
-        description="API access denied",
-        severity=AuditLog.SEVERITY_WARNING,
-        ip_address=request.remote_addr,
-        details={
-            'path': request.path,
-            'method': request.method,
-            'user_agent': request.user_agent.string if request.user_agent else 'Unknown'
-        }
+    # Log security incident for forbidden access
+    _log_api_security_incident(
+        error_type='403',
+        description="API access forbidden",
+        severity="medium"
     )
+
     return jsonify(error="Forbidden", status_code=403), 403
 
 @api_bp.errorhandler(401)
@@ -115,6 +205,14 @@ def unauthorized(_e):
     """Handle unauthorized access with a consistent JSON response"""
     g.error_type = '401'
     api_error_count.inc()
+
+    # Log security incident for authentication failure
+    _log_api_security_incident(
+        error_type='401',
+        description="Authentication required for API access",
+        severity="low"
+    )
+
     return jsonify(
         error="Unauthorized",
         status_code=401,
