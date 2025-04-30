@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, Tuple, BinaryIO, Union, Any, Set
 from werkzeug.utils import secure_filename
 from flask import g, current_app
 
-from core.security_utils import validate_path
+from core.security.cs_authentication import validate_path
 from extensions import metrics
 
 

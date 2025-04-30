@@ -71,7 +71,7 @@ from .ics.ics_control_log import ICSControlLog
 # Build the __all__ list for proper exports
 __all__ = [
     # Core components
-    'db', 'BaseModel', 'TimestampMixin', 'AuditableMixin',
+    'db', 'BaseModel', 'TimestampMixin', 'AuditableMixin', 'bulk_update_models',
 
     # Auth models
     'User', 'Role', 'Permission', 'UserSession', 'UserActivity',
@@ -431,6 +431,94 @@ def _looks_like_token(value: str) -> bool:
         return True
 
     return False
+
+def bulk_update_models(model_class: Type[BaseModel], model_ids: List[int],
+                      update_data: Dict[str, Any], commit: bool = True) -> Dict[str, Any]:
+    """
+    Update multiple model instances with the same attribute values.
+
+    Args:
+        model_class: The model class to update
+        model_ids: List of model IDs to update
+        update_data: Dictionary of attribute values to update
+        commit: Whether to commit the transaction (default: True)
+
+    Returns:
+        Dict: Result information including count of updated records and any errors
+
+    Example:
+        result = bulk_update_models(Post, [1, 2, 3], {"status": "published", "published_at": datetime.now()})
+    """
+    if not issubclass(model_class, BaseModel):
+        raise TypeError(f"model_class must be a subclass of BaseModel, got {model_class.__name__}")
+
+    if not model_ids:
+        return {"updated_count": 0, "error": None, "skipped": []}
+
+    result = {
+        "updated_count": 0,
+        "error": None,
+        "skipped": []
+    }
+
+    try:
+        # Find all matching records
+        records = model_class.query.filter(model_class.id.in_(model_ids)).all()
+        found_ids = {record.id for record in records}
+
+        # Track IDs that weren't found
+        result["skipped"] = [id for id in model_ids if id not in found_ids]
+
+        # Update each record
+        for record in records:
+            try:
+                # Use the model's update method which includes proper audit logging
+                record.update(commit=False, **update_data)
+                result["updated_count"] += 1
+            except Exception as e:
+                result["skipped"].append(record.id)
+                if current_app:
+                    current_app.logger.warning(
+                        f"Failed to update {model_class.__name__} with ID {record.id}: {str(e)}"
+                    )
+
+        # Commit all changes at once if requested
+        if commit and result["updated_count"] > 0:
+            db.session.commit()
+
+            # Log bulk update as a separate audit event if we have request context
+            if has_request_context():
+                try:
+                    from .security.audit_log import AuditLog
+
+                    user_id = getattr(g, 'user_id', None)
+                    ip_address = request.remote_addr if request else None
+
+                    AuditLog.create(
+                        event_type=AuditLog.EVENT_BULK_UPDATE,
+                        user_id=user_id,
+                        object_type=model_class.__name__,
+                        description=f"Bulk updated {result['updated_count']} {model_class.__name__} records",
+                        ip_address=ip_address,
+                        details={
+                            "updated_fields": list(update_data.keys()),
+                            "updated_count": result["updated_count"],
+                            "skipped_ids": result["skipped"]
+                        },
+                        severity=AuditLog.SEVERITY_INFO
+                    )
+                except Exception as e:
+                    if current_app:
+                        current_app.logger.error(f"Failed to log bulk update: {str(e)}")
+
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        error_message = str(e)
+        result["error"] = error_message
+        if current_app:
+            current_app.logger.error(f"Database error during bulk update of {model_class.__name__}: {error_message}")
+
+    return result
 
 # Initialize audit listeners
 _setup_audit_listeners()

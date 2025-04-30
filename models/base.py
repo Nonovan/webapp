@@ -330,15 +330,16 @@ class BaseModel(db.Model, TimestampMixin):
 
         return cast(T_Model, instance)
 
-    def update(self, **kwargs) -> bool:
+    def update(self, commit: bool = True, **kwargs) -> bool:
         """
         Update the instance with new attribute values.
 
         Args:
+            commit: Whether to commit the transaction immediately (default: True)
             **kwargs: Attribute values to update
 
         Returns:
-            bool: True if update was successful
+            bool: True if update was successful, False otherwise
 
         Raises:
             SQLAlchemyError: If database error occurs during update
@@ -346,33 +347,45 @@ class BaseModel(db.Model, TimestampMixin):
         try:
             # Keep track of changed fields for auditing
             fields_changed = []
+            old_values = {}
 
             for key, value in kwargs.items():
                 if hasattr(self, key):
                     current_value = getattr(self, key)
+                    # Only update if value has changed
                     if current_value != value:
                         fields_changed.append(key)
+                        old_values[key] = current_value
                         setattr(self, key, value)
                 else:
                     logger = current_app.logger if current_app else logging.getLogger(__name__)
                     logger.warning("Attempted to update non-existent attribute %s on %s",
                                   key, self.__class__.__name__)
 
+            # If no changes made, return early
             if not fields_changed:
-                return True  # No changes made
+                return True
 
-            db.session.commit()
+            if commit:
+                db.session.commit()
 
             # Log change if the model supports it
             if isinstance(self, AuditableMixin) and fields_changed:
-                self.log_change(fields_changed)
+                changes_detail = ", ".join([f"{field}: {old_values[field]} → {getattr(self, field)}"
+                                        for field in fields_changed[:5]])  # Limit detail to first 5 changes
+                if len(fields_changed) > 5:
+                    changes_detail += f" and {len(fields_changed) - 5} more fields"
+
+                self.log_change(fields_changed, f"Updated fields: {changes_detail}")
 
             return True
+
         except SQLAlchemyError as e:
-            db.session.rollback()
+            if commit:
+                db.session.rollback()
             logger = current_app.logger if current_app else logging.getLogger(__name__)
             logger.error("Failed to update %s: %s", self.__class__.__name__, str(e))
-            raise
+            return False
 
     def delete(self) -> bool:
         """

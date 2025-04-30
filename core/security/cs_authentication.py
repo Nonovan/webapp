@@ -730,3 +730,79 @@ def _is_api_request() -> bool:
         return True
 
     return False
+
+
+def validate_path(path: str, base_dir: Optional[str] = None, allow_absolute: bool = False) -> bool:
+    """
+    Validate a file path for security concerns like path traversal attacks.
+
+    This function verifies that a file path is secure by checking for directory
+    traversal attempts, ensuring proper path format, and optionally verifying
+    the path stays within a specified base directory.
+
+    Args:
+        path: The file path to validate
+        base_dir: Optional base directory that the path must be within
+        allow_absolute: Whether to allow absolute paths (default: False)
+
+    Returns:
+        bool: True if the path is valid and secure, False otherwise
+
+    Example:
+        >>> validate_path("uploads/file.txt")
+        True
+        >>> validate_path("../etc/passwd")
+        False
+        >>> validate_path("subdir/file.txt", base_dir="/var/uploads")
+        True
+    """
+    if not path:
+        log_warning("Empty path provided for validation")
+        metrics.increment('security.path_validation_failure')
+        return False
+
+    try:
+        # Check for directory traversal attempts
+        if '..' in path.split('/') or '..' in path.split('\\'):
+            log_warning(f"Path traversal attempt detected: {path}")
+            metrics.increment('security.path_traversal_attempt')
+            return False
+
+        # Check for tilde (home directory) expansion
+        if '~' in path:
+            log_warning(f"Home directory expansion attempt detected: {path}")
+            metrics.increment('security.path_validation_failure')
+            return False
+
+        # Check if path is absolute but not allowed
+        if not allow_absolute and (path.startswith('/') or path.startswith('\\')):
+            log_warning(f"Absolute path not allowed: {path}")
+            metrics.increment('security.path_validation_failure')
+            return False
+
+        # If base directory is specified, ensure path stays within it
+        if base_dir:
+            import os
+            # Normalize paths for consistent comparison
+            norm_base = os.path.normpath(os.path.abspath(base_dir))
+
+            # Handle both absolute and relative paths
+            if os.path.isabs(path):
+                norm_path = os.path.normpath(path)
+            else:
+                norm_path = os.path.normpath(os.path.join(norm_base, path))
+
+            # Check if the normalized path starts with the base directory
+            if not norm_path.startswith(norm_base):
+                log_warning(f"Path would escape base directory: {path}")
+                metrics.increment('security.path_validation_failure')
+                return False
+
+        # Path validation passed
+        metrics.increment('security.path_validation_success')
+        return True
+
+    except Exception as e:
+        log_error(f"Error validating path: {e}")
+        metrics.increment('security.path_validation_error')
+        return False
