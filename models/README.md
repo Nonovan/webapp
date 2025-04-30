@@ -10,6 +10,9 @@ This package defines the application's data model layer with a focus on:
 - Common base functionality through inheritance
 - Comprehensive type annotations and documentation
 - Security and audit features
+- Automated logging for security-critical operations
+
+The models implement the Active Record pattern through SQLAlchemy, where each model instance represents a row in the database and provides methods for CRUD operations. This approach encapsulates database operations within the models themselves, promoting code organization and reusability.
 
 ## Directory Structure
 
@@ -66,8 +69,15 @@ models/
 ├── security/                # Security-related models
 │   ├── __init__.py          # Security module exports
 │   ├── audit_log.py         # Security audit records
-│   ├── security_incident.py # Security incidents
-│   └── system_config.py     # Security configurations
+│   ├── compliance_check.py  # Compliance verification
+│   ├── login_attempt.py     # Authentication attempt tracking
+│   ├── README.md            # Security module documentation
+│   ├── security_baseline.py # Security standards definition
+│   ├── security_incident.py # Security incident management
+│   ├── security_scan.py     # Security scan results
+│   ├── system_config.py     # Security configurations
+│   ├── threat_intelligence.py # Threat intelligence data
+│   └── vulnerability_record.py # Vulnerability management
 └── storage/                 # Storage-related models
     ├── __init__.py          # Storage module exports
     └── file_upload.py       # File upload tracking
@@ -117,6 +127,11 @@ models/
     - Comprehensive audit logging
     - System configuration management
     - Security controls
+    - Vulnerability management
+    - Compliance verification
+    - Threat intelligence
+    - Security baseline definitions
+    - Security scanning
 8. **Storage (`storage/`)**:
     - File upload tracking and management
     - File scanning and validation
@@ -130,6 +145,7 @@ models/
 - **`auth/permission_delegation.py`**: Temporary permission transfers between users
 - **`auth/mfa_method.py`**: Multi-factor authentication implementation
 - **`security/audit_log.py`**: Comprehensive security auditing system
+- **`security/vulnerability_record.py`**: Vulnerability tracking and lifecycle management
 - **`content/content_revision.py`**: Version history tracking for content
 - **`cloud/cloud_resource.py`**: Cloud resource management with cost tracking
 - **`security/system_config.py`**: System-wide configuration storage
@@ -159,6 +175,9 @@ models/
 - **Multi-Factor Authentication**: Support for multiple MFA methods
 - **Content Versioning**: Revision history for content changes
 - **Security Incident Management**: Full workflow for security incidents
+- **Vulnerability Management**: Comprehensive vulnerability lifecycle handling
+- **Threat Intelligence**: Tracking of security threats and indicators
+- **Sanitization**: Automatic removal of sensitive data from logs
 
 ## RBAC System
 
@@ -427,6 +446,53 @@ else:
     )
 ```
 
+### Vulnerability Management
+
+```python
+from models.security import VulnerabilityRecord
+
+# Record a new vulnerability
+vuln = VulnerabilityRecord(
+    title="SQL Injection in Search Function",
+    description="The search API endpoint is vulnerable to SQL injection attacks",
+    severity=VulnerabilityRecord.SEVERITY_HIGH,
+    cvss_score=8.5,
+    cvss_vector="AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+    vulnerability_type=VulnerabilityRecord.TYPE_CODE,
+    affected_resources=[
+        {"type": "api", "id": "search-endpoint"}
+    ],
+    status=VulnerabilityRecord.STATUS_OPEN
+)
+vuln.save()
+
+# Add affected resources
+vuln.add_affected_resource({
+    "type": "server",
+    "id": "web-server-01"
+})
+
+# Create remediation plan
+vuln.remediation_steps = """
+1. Apply input validation to the search parameter
+2. Use parameterized queries
+3. Update API documentation
+4. Add security tests
+"""
+vuln.remediation_deadline = datetime.now(timezone.utc) + timedelta(days=7)
+vuln.assign_to(user_id=5, assigned_by_id=1)
+vuln.save()
+
+# Mark as resolved
+vuln.resolve(
+    resolution_summary="Implemented parameterized queries and input validation",
+    user_id=5
+)
+
+# Verify the fix
+vuln.verify(user_id=security_team_id)
+```
+
 ### Permission Delegation
 
 ```python
@@ -465,6 +531,9 @@ delegation.revoke(
 - **Role Hierarchy**: Supports role inheritance for complex permission structures
 - **MFA Support**: Multiple authentication factors for sensitive operations
 - **Delegated Access**: Temporary, auditable permission transfers between users
+- **Sensitive Data Protection**: Automatic redaction of sensitive data in logs
+- **Vulnerability Management**: Full vulnerability lifecycle tracking and remediation
+- **Threat Intelligence**: Storage and processing of threat indicators
 
 ## Contributing New Models
 
@@ -491,3 +560,5 @@ When adding new models:
 - OAuth Integration Guide
 - API Key Management
 - Security Monitoring and Auditing
+- Vulnerability Management Policy
+- Threat Intelligence Integration Guide
