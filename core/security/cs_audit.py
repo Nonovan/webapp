@@ -20,7 +20,7 @@ from flask import request, g, has_request_context, current_app, has_app_context,
 
 # Internal imports
 from .cs_constants import SECURITY_CONFIG
-from models.audit_log import AuditLog
+from models.security import AuditLog
 from extensions import db, metrics, get_redis_client
 
 
@@ -191,6 +191,58 @@ def log_model_event(
         object_type=model_name,
         object_id=object_id
     )
+
+
+def log_error(message: str) -> None:
+    """
+    Log an error message using the security logger.
+
+    Args:
+        message: Error message to log
+    """
+    if has_app_context():
+        security_logger.error(message)
+    else:
+        logger.error(message)
+
+
+def log_warning(message: str) -> None:
+    """
+    Log a warning message using the security logger.
+
+    Args:
+        message: Warning message to log
+    """
+    if has_app_context():
+        security_logger.warning(message)
+    else:
+        logger.warning(message)
+
+
+def log_info(message: str) -> None:
+    """
+    Log an info message using the security logger.
+
+    Args:
+        message: Info message to log
+    """
+    if has_app_context():
+        security_logger.info(message)
+    else:
+        logger.info(message)
+
+
+def log_debug(message: str) -> None:
+    """
+    Log a debug message using the security logger.
+
+    Args:
+        message: Debug message to log
+    """
+    if has_app_context():
+        security_logger.debug(message)
+    else:
+        logger.debug(message)
 
 
 def _prepare_log_details(details: Optional[Union[str, Dict[str, Any]]]) -> Optional[str]:

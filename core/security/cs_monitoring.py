@@ -24,12 +24,11 @@ from flask import current_app, request, g, has_request_context, session, has_app
 # Internal imports
 from extensions import db, metrics
 from extensions import get_redis_client
-from .cs_audit import log_security_event
+from .cs_audit import log_security_event, log_error, log_warning, log_info, log_debug
 from .cs_authentication import is_valid_ip
 from .cs_constants import SECURITY_CONFIG
 from .cs_file_integrity import get_last_integrity_status
-from core.utils import log_error, log_warning, log_info, log_debug
-from models.audit_log import AuditLog
+from models.security import AuditLog
 
 
 def get_suspicious_ips(hours: int = 24, min_attempts: int = 5) -> List[Dict[str, Any]]:
