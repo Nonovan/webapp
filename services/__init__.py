@@ -14,15 +14,19 @@ Key services in this package:
 - EmailService: Email template rendering and delivery
 - NewsletterService: Subscription management and newsletter distribution
 - SecurityService: Security operations including file integrity monitoring
+- WebhookService: Management of webhooks, subscriptions, and event delivery
 """
 
 import logging
-from typing import Dict, List, Any, Optional, Tuple
+import os
+from datetime import datetime
+from typing import Dict, List, Any, Optional, Tuple, Union, Set, Callable
 
 from .auth_service import AuthService
 from .email_service import EmailService, send_email, send_template_email, validate_email_address, test_email_configuration
 from .newsletter_service import NewsletterService
 from .security_service import SecurityService
+from .webhook_service import WebhookService
 
 # Initialize logger for service package
 logger = logging.getLogger(__name__)
@@ -34,6 +38,7 @@ __all__ = [
     'EmailService',
     'NewsletterService',
     'SecurityService',
+    'WebhookService',
 
     # Utility functions
     'send_email',
@@ -44,9 +49,21 @@ __all__ = [
     # Security functions
     'check_integrity',
     'update_security_baseline',
+    'verify_file_hash',
+    'calculate_file_hash',
+    'get_integrity_status',
+    'schedule_integrity_check',
+
+    # Webhook functions
+    'trigger_webhook_event',
+    'create_webhook_subscription',
+    'get_webhook_subscription',
+    'update_webhook_subscription',
+    'delete_webhook_subscription',
+    'check_subscription_health'
 ]
 
-# Version information - incremented to reflect security service integration
+# Version information - incremented to reflect security service enhancements
 __version__ = '0.1.0'
 
 def check_integrity(paths: Optional[List[str]] = None) -> Tuple[bool, List[Dict[str, Any]]]:
@@ -65,7 +82,7 @@ def check_integrity(paths: Optional[List[str]] = None) -> Tuple[bool, List[Dict[
     """
     return SecurityService.check_file_integrity(paths)
 
-def update_security_baseline(paths: Optional[Dict[str, str]] = None,
+def update_security_baseline(paths_to_update: Optional[List[str]] = None,
                            remove_missing: bool = False) -> Tuple[bool, str]:
     """
     Update the security baseline with new file hashes.
@@ -73,13 +90,196 @@ def update_security_baseline(paths: Optional[Dict[str, str]] = None,
     This is a convenience function that delegates to SecurityService.
 
     Args:
-        paths: Optional dictionary of {path: hash} entries to update
+        paths_to_update: Optional list of specific file paths to update in the baseline.
+                       If None, re-scans all files in the current baseline.
         remove_missing: Whether to remove entries for files that no longer exist
 
     Returns:
         Tuple of (success, message)
     """
-    return SecurityService.update_baseline(paths, remove_missing)
+    return SecurityService.update_baseline(paths_to_update, remove_missing)
+
+def verify_file_hash(filepath: str, expected_hash: Optional[str] = None) -> Tuple[bool, Dict[str, Any]]:
+    """
+    Verify the hash of a specific file against baseline or provided hash.
+
+    Args:
+        filepath: Path to the file to verify
+        expected_hash: Optional expected hash. If None, uses hash from baseline
+
+    Returns:
+        Tuple of (match_status, details)
+        - match_status: True if hash matches, False otherwise
+        - details: Dictionary with verification details
+    """
+    return SecurityService.verify_file_hash(filepath, expected_hash)
+
+def calculate_file_hash(filepath: str, algorithm: str = "sha256") -> Optional[str]:
+    """
+    Calculate cryptographic hash for a file.
+
+    Args:
+        filepath: Path to the file
+        algorithm: Hash algorithm to use (sha256, sha512, etc.)
+
+    Returns:
+        Calculated hash string or None if file cannot be read
+    """
+    return SecurityService._calculate_hash(filepath, algorithm)
+
+def get_integrity_status() -> Dict[str, Any]:
+    """
+    Get the current integrity status of the system.
+
+    Returns:
+        Dictionary with integrity status information:
+        - last_check_time: DateTime of the last integrity check
+        - baseline_status: Status of the baseline file
+        - file_count: Number of files monitored
+        - changes_detected: Number of changes since last baseline update
+        - critical_changes: List of critical file changes
+    """
+    return SecurityService.get_integrity_status()
+
+def schedule_integrity_check(interval_seconds: int = 3600,
+                           callback: Optional[Callable[[bool, List[Dict[str, Any]]], None]] = None) -> bool:
+    """
+    Schedule periodic integrity checks.
+
+    Args:
+        interval_seconds: Time between checks in seconds (default: 1 hour)
+        callback: Optional function to call with check results
+
+    Returns:
+        Boolean indicating if scheduling was successful
+    """
+    return SecurityService.schedule_integrity_check(interval_seconds, callback)
+
+def trigger_webhook_event(event_type: str, payload: Dict[str, Any],
+                        user_id: Optional[int] = None,
+                        tags: Optional[List[str]] = None) -> int:
+    """
+    Trigger a webhook event to be delivered to all relevant subscribers.
+
+    This is a convenience function that delegates to WebhookService.
+
+    Args:
+        event_type: The type of event that occurred (e.g., 'resource.created')
+        payload: The data associated with the event
+        user_id: Optional user ID associated with the event
+        tags: Optional list of tags to include with the event
+
+    Returns:
+        The number of webhook deliveries initiated
+    """
+    return WebhookService.trigger_event(event_type, payload, user_id, tags)
+
+def create_webhook_subscription(user_id: int, target_url: str, event_types: List[str],
+                              description: Optional[str] = None,
+                              headers: Optional[Dict[str, str]] = None,
+                              is_active: bool = True,
+                              max_retries: int = 3,
+                              group_id: Optional[int] = None,
+                              rate_limit: Optional[Dict[str, int]] = None) -> Tuple[Optional[Any], Optional[str], Optional[str]]:
+    """
+    Create a new webhook subscription.
+
+    This is a convenience function that delegates to WebhookService.
+
+    Args:
+        user_id: The ID of the user creating the subscription
+        target_url: URL where webhook events will be sent
+        event_types: List of event types to subscribe to
+        description: Optional description for this subscription
+        headers: Optional custom HTTP headers to include in requests
+        is_active: Whether the subscription is active
+        max_retries: Maximum number of delivery attempts
+        group_id: Optional ID of a webhook group to associate with
+        rate_limit: Optional rate limiting settings
+
+    Returns:
+        Tuple containing (subscription object, secret, error message)
+    """
+    return WebhookService.create_subscription(
+        user_id=user_id,
+        target_url=target_url,
+        event_types=event_types,
+        description=description,
+        headers=headers,
+        is_active=is_active,
+        max_retries=max_retries,
+        group_id=group_id,
+        rate_limit=rate_limit
+    )
+
+def get_webhook_subscription(subscription_id: str, user_id: int) -> Optional[Any]:
+    """
+    Get a webhook subscription by ID.
+
+    This is a convenience function that delegates to WebhookService.
+
+    Args:
+        subscription_id: The ID of the subscription
+        user_id: The ID of the user requesting the subscription
+
+    Returns:
+        The webhook subscription object or None if not found
+    """
+    return WebhookService.get_subscription_by_id(subscription_id, user_id)
+
+def update_webhook_subscription(subscription_id: str, user_id: int, **kwargs) -> Tuple[Optional[Any], Optional[str]]:
+    """
+    Update an existing webhook subscription.
+
+    This is a convenience function that delegates to WebhookService.
+
+    Args:
+        subscription_id: The ID of the subscription to update
+        user_id: The ID of the user requesting the update
+        **kwargs: Fields to update (target_url, event_types, description, etc.)
+
+    Returns:
+        Tuple containing (updated subscription object, error message)
+    """
+    return WebhookService.update_subscription(subscription_id, user_id, **kwargs)
+
+def delete_webhook_subscription(subscription_id: str, user_id: int) -> Tuple[bool, Optional[str]]:
+    """
+    Delete a webhook subscription.
+
+    This is a convenience function that delegates to WebhookService.
+
+    Args:
+        subscription_id: The ID of the subscription to delete
+        user_id: The ID of the user requesting the deletion
+
+    Returns:
+        Tuple containing (success status, error message)
+    """
+    return WebhookService.delete_subscription(subscription_id, user_id)
+
+def check_subscription_health(subscription_id: str, user_id: int, lookback_hours: int = 24) -> Optional[Dict[str, Any]]:
+    """
+    Check the health and delivery statistics for a webhook subscription.
+
+    This is a convenience function that delegates to WebhookService.
+
+    Args:
+        subscription_id: The ID of the subscription to check
+        user_id: The ID of the user requesting the health check
+        lookback_hours: Number of hours of history to analyze
+
+    Returns:
+        Dictionary with health metrics or None if access denied
+    """
+    return WebhookService.get_subscription_health(subscription_id, user_id, lookback_hours)
+
+# Determine if security service has all required functionality
+try:
+    SECURITY_SERVICE_AVAILABLE = hasattr(SecurityService, 'check_file_integrity') and callable(SecurityService.check_file_integrity)
+except (ImportError, AttributeError):
+    SECURITY_SERVICE_AVAILABLE = False
+    logger.warning("SecurityService functionality may be limited or unavailable")
 
 # Log initialization status
-logger.debug(f"Services package initialized - version {__version__}")
+logger.debug(f"Services package initialized - version {__version__} - Security service available: {SECURITY_SERVICE_AVAILABLE}")

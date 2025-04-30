@@ -49,9 +49,11 @@ Services encapsulate complex operations and provide clean APIs for controllers/r
   - **Usage**: Use this service to check system health, gather metrics, and potentially trigger alerts.
   - **Features**:
     - System resource monitoring (CPU, memory, disk)
-    - Health checks for critical components (database, cache)
+    - Health checks for critical components (database, cache, filesystem)
+    - Network connectivity validation
+    - Real-time alerting for system issues
     - Integration with Prometheus metrics
-    - Basic security metric collection (optional)
+    - Security posture monitoring integration
 
 - **`NewsletterService`**: Subscription management and newsletter distribution
   - **Usage**: Use this service to handle newsletter subscriptions and send newsletters to subscribers
@@ -78,6 +80,8 @@ Services encapsulate complex operations and provide clean APIs for controllers/r
     - Security baseline management
     - File hash calculation with multiple algorithms
     - Change detection for security-critical files
+    - Secure baseline updates with validation
+    - File integrity status reporting
     - Comprehensive security logging and metrics
 
 - **`WebhookService`**: Management of webhook subscriptions and deliveries
@@ -88,6 +92,7 @@ Services encapsulate complex operations and provide clean APIs for controllers/r
     - Triggering webhook deliveries for specific events
     - Test webhook functionality
     - Delivery history tracking
+    - Subscription groups and rate limiting
 
 ## Directory Structure
 
@@ -116,6 +121,8 @@ services/
 - Log sensitive operations for audit purposes (using `AuditService`)
 - Avoid hardcoding credentials in service files
 - Create unit tests for all service functions
+- Implement circuit breakers for external service calls
+- Verify file integrity for security-critical files
 
 ## Common Features
 
@@ -127,6 +134,8 @@ services/
 - Cache integration for performance optimization
 - Rate limiting for public-facing endpoints
 - Defensive programming patterns
+- Security event monitoring and alerting
+- Health checks with automatic administrator notifications
 
 ## Usage
 
@@ -238,13 +247,24 @@ logs, total_count = AuditService.get_logs(severity='critical', limit=10)
 from services import MonitoringService
 
 # Get current system status
-status_data = MonitoringService.get_system_status()
-print(f"CPU Usage: {status_data.get('system', {}).get('cpu_percent')}%")
+status_data = MonitoringService.get_system_status(include_security=True)
+print(f"CPU Usage: {status_data['system']['cpu_percent']}%")
+print(f"Memory Usage: {status_data['system']['memory_percent']}%")
+print(f"Disk Usage: {status_data['system']['disk_percent']}%")
 
-# Perform a health check
+# Perform a comprehensive health check
 is_healthy, health_details = MonitoringService.perform_health_check()
 if not is_healthy:
-    print(f"System health check failed: {health_details}")
+    print(f"System health check failed: {health_details['components']}")
+
+# Get snapshot of system metrics
+metrics_snapshot = MonitoringService.get_metrics_snapshot(categories=['system', 'application'])
+print(f"Network connections: {metrics_snapshot['system']['network']['connections']}")
+
+# Check specific network connectivity
+network_ok, network_details = MonitoringService.check_network_connectivity()
+if not network_ok:
+    print(f"Network issues detected: {network_details}")
 ```
 
 ### Notifications
@@ -297,18 +317,15 @@ WebhookService.trigger_event(event_type='resource.created', payload=payload)
 - Authentication Guide (docs/security/authentication-standards.md)
 - Audit Log Reference (docs/api/reference/audit.md)
 - Email Templates Guide (admin/templates/email/README.md)
-- File Integrity Monitoring Guide (docs/security/README.md) # Placeholder, specific doc needed
-- Monitoring Strategy (docs/operations/operations-overview.md) # Placeholder, specific doc needed
-- Notification System Design # Placeholder, specific doc needed
+- File Integrity Monitoring Guide (docs/security/file-integrity-monitoring.md)
+- Health Check Implementation (docs/operations/health-checks.md)
+- Monitoring Strategy (docs/operations/monitoring-overview.md)
+- Notification System Design (docs/api/notifications.md)
 - Security Baseline Management (admin/security/assessment_tools/config_files/security_baselines/README.md)
 - Security Policies (docs/security/README.md)
+- System Health Metrics (docs/operations/system-metrics.md)
 - Webhook Implementation Guide (docs/api/guides/webhooks.md)
 
 ## Version History
 
-- **1.6.0 (YYYY-MM-DD)**: Added `AuditService`, `MonitoringService`, `NotificationService`, `WebhookService`.
-- **1.5.0 (2024-07-05)**: Added SecurityService with file integrity monitoring
-- **1.3.0 (2024-06-10)**: Added newsletter analytics and statistics
-- **1.2.0 (2024-04-22)**: Enhanced email delivery with attachments and tracking
-- **1.1.0 (2023-12-15)**: Added JWT authentication for API endpoints
-- **1.0.0 (2023-09-01)**: Initial implementation of core service classes
+- **0.1.0 (2023-09-01)**: Initial implementation of core service classes
