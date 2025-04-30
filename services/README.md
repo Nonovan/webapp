@@ -46,6 +46,15 @@ Services encapsulate complex operations and provide clean APIs for controllers/r
     - Subscription analytics and reporting
     - Batch sending with configurable limits
 
+- **`SecurityService`**: Security operations including file integrity monitoring
+  - **Usage**: Use this service for security-related operations including file integrity verification
+  - **Features**:
+    - File integrity monitoring and verification
+    - Security baseline management
+    - File hash calculation with multiple algorithms
+    - Change detection for security-critical files
+    - Comprehensive security logging and metrics
+
 ## Directory Structure
 
 ```plaintext
@@ -54,6 +63,7 @@ services/
 ├── auth_service.py       # Authentication and authorization service
 ├── email_service.py      # Email sending and templating service
 ├── newsletter_service.py # Newsletter management service
+├── security_service.py   # Security operations and file integrity services
 └── README.md             # This documentation
 ```
 
@@ -144,15 +154,39 @@ result = NewsletterService.send_newsletter(
 stats = NewsletterService.get_stats()
 ```
 
+### Security Operations
+
+```python
+from services import check_integrity, update_security_baseline
+
+# Check file integrity
+integrity_status, changes = check_integrity()
+if not integrity_status:
+    print(f"File integrity check failed with {len(changes)} changes detected")
+    for change in changes:
+        print(f"File: {change['path']}, Status: {change['status']}")
+
+# Update security baseline for specific paths
+paths_to_update = ['/path/to/critical/file.py', '/path/to/config.json']
+success, message = update_security_baseline(paths_to_update)
+if success:
+    print(f"Baseline updated successfully: {message}")
+else:
+    print(f"Baseline update failed: {message}")
+```
+
 ## Related Documentation
 
 - API Documentation
 - Authentication Guide
 - Email Templates Guide
 - Security Policies
+- File Integrity Monitoring Guide
+- Security Baseline Management
 
 ## Version History
 
+- **1.5.0 (2024-07-05)**: Added SecurityService with file integrity monitoring
 - **1.3.0 (2024-06-10)**: Added newsletter analytics and statistics
 - **1.2.0 (2024-04-22)**: Enhanced email delivery with attachments and tracking
 - **1.1.0 (2023-12-15)**: Added JWT authentication for API endpoints
