@@ -47,14 +47,64 @@ The evidence analysis documentation templates provide structured formats for doc
   - Chain of custody maintenance
   - Technical and legal limitations
 
+- **`memory_analysis_report.md`**: Memory forensics documentation template
+  - Process analysis findings
+  - Network connection documentation
+  - Memory artifact extraction
+  - Malware indicators in memory
+  - Timeline of memory events
+  - String analysis findings
+  - Registry artifacts in memory
+
+- **`static_analysis_report.md`**: File analysis documentation template
+  - File metadata documentation
+  - Structural analysis findings
+  - Signature analysis results
+  - Entropy analysis visualization
+  - Embedded resource documentation
+  - YARA rule matches
+  - Behavioral indicators identification
+
+- **`timeline_template.md`**: Chronological event analysis template
+  - Event correlation framework
+  - Timeline visualization guidance
+  - Source attribution mapping
+  - Confidence level indicators
+  - Gap analysis documentation
+  - Timestamp normalization process
+  - Supporting evidence linkage
+
+- **`artifact_analysis.md`**: Individual artifact analysis template
+  - Artifact categorization framework
+  - Technical description standards
+  - Forensic significance assessment
+  - Related artifact correlation
+  - Contextual interpretation guide
+  - Attribution confidence metrics
+  - Technical impact evaluation
+
+- **`malware_report.md`**: Malware analysis documentation template
+  - Static analysis methodology
+  - Dynamic analysis procedures
+  - Behavioral indicator mapping
+  - Capability assessment framework
+  - Persistence mechanism documentation
+  - MITRE ATT&CK correlation
+  - Indicator extraction guidance
+
 ## Directory Structure
 
 ```plaintext
-admin/security/forensics/templates/evidence_handling/analysis_docs/
-├── README.md                   # This documentation
-├── evidence_examination.md     # Initial evidence examination template
-├── forensic_imaging_analysis.md # Forensic image analysis template
-└── data_extraction_report.md   # Data extraction documentation template
+admin/security/forensics/templates/analysis_docs/
+├── README.md                     # This documentation
+├── artifact_analysis.md          # Individual artifact analysis template
+├── data_extraction_report.md     # Data extraction documentation template
+├── evidence_examination.md       # Initial evidence examination template
+├── forensic_imaging_analysis.md  # Forensic image analysis template
+├── malware_report.md             # Malware analysis documentation template
+├── memory_analysis_report.md     # Memory forensics documentation template
+├── static_analysis_report.md     # File analysis documentation template
+└── timeline_template.md          # Chronological event analysis template
 ```
 
 ## Usage
@@ -63,7 +113,7 @@ These templates are designed to be used by forensic analysts when documenting ev
 
 ```bash
 # Copy a template to a case-specific evidence directory
-cp admin/security/forensics/templates/evidence_handling/analysis_docs/evidence_examination.md \
+cp admin/security/forensics/templates/analysis_docs/evidence_examination.md \
    /secure/evidence/case-2024-042/evidence/E001/examination.md
 
 # Generate an analysis report using data extraction results
@@ -74,6 +124,15 @@ cp admin/security/forensics/templates/evidence_handling/analysis_docs/evidence_e
    --case-id "case-2024-042" \
    --evidence-id "E001" \
    --analyst "Jane Smith"
+
+# Generate a static analysis report for a suspicious file
+../../../utils/report_builder.py \
+   --static-analysis /secure/evidence/case-2024-042/analysis/file_analyzer_results.json \
+   --template static_analysis_report.md \
+   --output /secure/evidence/case-2024-042/reports/static_analysis.md \
+   --case-id "case-2024-042" \
+   --evidence-id "E001" \
+   --analyst "John Doe"
 ```
 
 ## Template Variables
@@ -90,6 +149,8 @@ The templates use standardized variables that are replaced during document gener
 - `{{evidence_id}}` - Related evidence identifier
 - `{{acquisition_date}}` - Date evidence was acquired
 - `{{examination_date}}` - Date evidence was examined
+- `{{reviewer_name}}` - Name of reviewing analyst
+- `{{review_date}}` - Date of peer review
 
 ### Evidence Examination Variables
 
@@ -111,6 +172,7 @@ The templates use standardized variables that are replaced during document gener
 - `{{total_sectors}}` - Total sectors in the image
 - `{{sector_size}}` - Sector size in bytes
 - `{{compression_used}}` - Compression method if any
+- `{{acquisition_method}}` - Method used to acquire the image
 
 ### Data Extraction Variables
 
@@ -121,6 +183,49 @@ The templates use standardized variables that are replaced during document gener
 - `{{extraction_filters}}` - Filters applied during extraction
 - `{{legal_authority}}` - Legal authority for extraction
 - `{{scope_limitations}}` - Scope limitations for extraction
+
+### Static Analysis Variables
+
+- `{{file_name}}` - Name of analyzed file
+- `{{file_size}}` - Size of analyzed file
+- `{{file_type}}` - Identified file type
+- `{{file_hash_md5}}` - MD5 hash of the file
+- `{{file_hash_sha1}}` - SHA1 hash of the file
+- `{{file_hash_sha256}}` - SHA256 hash of the file
+- `{{analysis_tools}}` - Tools used for static analysis
+- `{{yara_rules_used}}` - YARA rules applied in analysis
+
+### Memory Analysis Variables
+
+- `{{memory_acquisition_tool}}` - Tool used to acquire memory
+- `{{memory_image_size}}` - Size of memory image
+- `{{system_profile}}` - System profile used for analysis
+- `{{os_version}}` - Operating system version identified
+- `{{kernel_version}}` - Kernel version identified
+- `{{memory_analysis_tools}}` - Tools used for memory analysis
+- `{{plugin_list}}` - List of plugins/modules used
+
+### Malware Analysis Variables
+
+- `{{malware_name}}` - Identified malware name if known
+- `{{malware_family}}` - Malware family classification
+- `{{malware_type}}` - Type of malicious code
+- `{{malware_capabilities}}` - Identified capabilities
+- `{{c2_servers}}` - Command and control server information
+- `{{persistence_mechanism}}` - Persistence mechanisms used
+- `{{sandbox_environment}}` - Analysis environment details
+- `{{evasion_techniques}}` - Identified evasion techniques
+
+### Timeline Analysis Variables
+
+- `{{event_source}}` - Source of timeline event data
+- `{{time_window_start}}` - Start of timeline analysis period
+- `{{time_window_end}}` - End of timeline analysis period
+- `{{timezone}}` - Timezone used for analysis
+- `{{normalization_method}}` - Timestamp normalization method
+- `{{correlation_method}}` - Event correlation methodology
+- `{{significant_events}}` - Key events in timeline
+- `{{confidence_metric}}` - Confidence in timeline accuracy
 
 ## Customization Guidelines
 
@@ -154,6 +259,13 @@ When customizing these templates for specific evidence analysis:
    - Note confidence levels for findings
    - Document limitations of analysis techniques
 
+5. **Standardize Technical Documentation**
+   - Use consistent naming conventions for artifacts
+   - Document command line arguments precisely
+   - Include version information for all tools
+   - Create tables for structured findings
+   - Cross-reference related evidence items
+
 ## Best Practices & Security
 
 - **Chain of Custody**: Maintain and document chain of custody throughout analysis
@@ -168,6 +280,8 @@ When customizing these templates for specific evidence analysis:
 - **Evidence Storage**: Document proper evidence storage during analysis periods
 - **Technical Limitations**: Acknowledge and document technical limitations of tools and methods
 - **Legal Constraints**: Document compliance with legal and jurisdictional requirements
+- **Malware Safety**: Document precautions taken when analyzing malicious code
+- **Cross-Validation**: Verify significant findings with multiple tools when possible
 
 ## Common Features
 
@@ -185,6 +299,8 @@ All evidence analysis templates share these common elements:
 - **Findings Section**: Structured presentation of analysis findings
 - **Peer Review Documentation**: Information on independent review
 - **Document Control**: Version tracking and management
+- **Classification Headers**: Security classification markings
+- **Reference Links**: Links to relevant standards and procedures
 
 ## Related Documentation
 
@@ -198,3 +314,6 @@ All evidence analysis templates share these common elements:
 - Expert Witness Guidelines
 - Evidence Handling Manual
 - Digital Forensics Standard Operating Procedures
+- NIST SP 800-86: Guide to Integrating Forensic Techniques into Incident Response
+- File Signature Analysis Procedures
+- Memory Forensics Methodology Guide

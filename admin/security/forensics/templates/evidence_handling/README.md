@@ -47,64 +47,14 @@ The evidence handling templates provide structured formats for documenting the a
   - Hash verification records
   - System state documentation
 
-- **`executive_summary.md`**: Evidence collection summary template
-  - Collection scope overview
-  - Key evidence items summary
-  - Initial findings presentation
-  - Collection challenges documentation
-  - Next steps planning
-  - Resource requirements documentation
-  - Timeline and milestones tracking
-
-- **`affidavit_template.md`**: Formal sworn statement for evidence
-  - Professional qualifications documentation
-  - Evidence handling methodology
-  - Chain of custody attestation
-  - Evidence preservation documentation
-  - Legal certification elements
-  - Notarization framework
-  - Document control information
-
-- **`preservation_notice.md`**: Legal preservation notice template
-  - Legal obligation notification
-  - Scope of preservation
-  - Data types enumeration
-  - Preservation methodology
-  - Compliance requirements
-  - Point of contact information
-  - Legal consequences section
-
-- **`subpoena_response.md`**: Legal subpoena response template
-  - Request interpretation section
-  - Evidence collection methodology
-  - Chain of custody documentation
-  - Data extraction procedures
-  - Findings presentation
-  - Compliance certification
-  - Responsive materials inventory
-
-- **`expert_witness.md`**: Expert witness documentation template
-  - Forensic expert qualifications
-  - Case background summary
-  - Evidence examination methodology
-  - Technical findings presentation
-  - Opinion formulation framework
-  - Supporting evidence references
-  - Testimony preparation notes
-
 ## Directory Structure
 
 ```plaintext
 admin/security/forensics/templates/evidence_handling/
-├── README.md                # This documentation
-├── affidavit_template.md    # Formal sworn statement template
-├── chain_of_custody.md      # Evidence transfer documentation template
-├── evidence_inventory.md    # Evidence cataloging template
-├── evidence_log.md          # Evidence collection documentation template
-├── executive_summary.md     # Evidence collection summary template
-├── preservation_notice.md   # Legal preservation notice template
-├── subpoena_response.md     # Subpoena response documentation
-├── expert_witness.md        # Expert witness documentation template
+├── README.md              # This documentation
+├── chain_of_custody.md    # Evidence transfer documentation template
+├── evidence_inventory.md  # Evidence cataloging template
+└── evidence_log.md        # Evidence collection documentation template
 ```
 
 ## Usage
@@ -196,18 +146,6 @@ The templates use standardized variables that are replaced during document gener
 - `{{evidence_type}}` - Type of evidence collected
 - `{{location}}` - Location where evidence was collected
 - `{{system_state}}` - System state at collection time
-
-### Analysis Documentation Variables
-
-- `{{evidence_description}}` - Description of the evidence item
-- `{{examination_environment}}` - Evidence examination environment
-- `{{hash_algorithm}}` - Hash algorithm used for verification
-- `{{original_hash}}` - Original acquisition hash value
-- `{{verification_hash}}` - Verification hash value
-- `{{chain_of_custody_ref}}` - Reference to chain of custody document
-- `{{examination_methodology}}` - Methodology used for analysis
-- `{{tool_name}}` - Analysis tool used
-- `{{tool_version}}` - Version of analysis tool
 
 ## Customization Guidelines
 

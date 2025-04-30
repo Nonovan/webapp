@@ -21,6 +21,16 @@ The incident documentation templates provide structured formats for capturing cr
 
 ## Key Templates
 
+- **`executive_summary.md`**: Management-level incident overview
+  - Business impact assessment
+  - Critical timeline milestones
+  - Key findings summary
+  - Resource allocation summary
+  - Risk assessment overview
+  - Strategic recommendations
+  - Technical details abstraction
+  - Executive action items
+
 - **`incident_report.md`**: Comprehensive incident documentation
   - Affected assets inventory
   - Attacker methodology analysis
