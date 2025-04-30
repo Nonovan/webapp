@@ -48,6 +48,27 @@ The communication models enable seamless interactions between the platform and i
   - Offers filtering by event types
   - Supports rate limiting and error management
 
+- **`CommunicationLog`**: Message delivery tracking
+  - Records all sent communications across channels
+  - Provides audit trail for compliance purposes
+  - Supports delivery status tracking and analytics
+  - Implements automatic cleanup for data retention
+  - Securely handles sensitive communication data
+
+- **`CommunicationChannel`**: Channel configuration
+  - Supports multiple communication providers
+  - Manages channel-specific configurations and credentials
+  - Implements security level classifications
+  - Provides connectivity testing and monitoring
+  - Tracks delivery success and failure rates
+
+- **`CommunicationScheduler`**: Scheduled messaging
+  - Supports one-time and recurring communications
+  - Implements timezone-aware scheduling
+  - Provides targeting capabilities for recipients
+  - Tracks execution history and performance
+  - Handles secure handling of message templates
+
 ## Directory Structure
 
 ```plaintext
@@ -57,6 +78,9 @@ models/communication/
 ├── notification.py       # Notification management model
 ├── subscriber.py         # Subscriber management model
 ├── webhook.py            # Webhook subscription and delivery models
+├── comm_log.py           # Communication logging model
+├── comm_channel.py       # Channel configuration model
+├── comm_scheduler.py     # Communication scheduling model
 └── README.md             # This documentation
 ```
 
@@ -95,6 +119,9 @@ Communication models are designed with these principles:
 - **Rate Control**: Prevention of notification flooding
 - **Unsubscribe Management**: One-click unsubscribe with token validation
 - **Analytics Integration**: Hooks for tracking communication effectiveness
+- **Message Logging**: Complete audit trail for all outgoing communications
+- **Channel Configuration**: Centralized management of delivery providers
+- **Security Classification**: Differentiated handling for sensitive communications
 
 ## Usage Examples
 
@@ -292,6 +319,118 @@ newsletter.create_segment(
 engaged_subscribers = newsletter.get_segment_subscribers("Highly Engaged")
 ```
 
+### Configuring Communication Channels
+
+```python
+from models.communication import CommunicationChannel
+
+# Set up an email channel
+email_channel = CommunicationChannel(
+    name="Transactional Email",
+    channel_type=CommunicationChannel.TYPE_EMAIL,
+    provider=CommunicationChannel.PROVIDER_SENDGRID,
+    config={
+        "api_key": "SG.xxxxx",
+        "from_email": "noreply@example.com",
+        "from_name": "Cloud Infrastructure Platform",
+        "reply_to": "support@example.com"
+    },
+    security_level=CommunicationChannel.SECURITY_LEVEL_HIGH
+)
+db.session.add(email_channel)
+db.session.commit()
+
+# Test the channel connection
+if email_channel.test_connection():
+    print("Email channel connected successfully")
+else:
+    print("Email channel connection failed")
+
+# Get channel success rate
+success_rate = email_channel.get_success_rate()
+print(f"Channel success rate: {success_rate}%")
+
+# Validate configuration completeness
+is_valid, missing_keys = email_channel.validate_config()
+if not is_valid:
+    print(f"Channel configuration incomplete. Missing: {', '.join(missing_keys)}")
+```
+
+### Logging Communications
+
+```python
+from models.communication import CommunicationLog
+
+# Log a sent email
+log_entry = CommunicationLog(
+    channel_type=CommunicationLog.CHANNEL_EMAIL,
+    recipient_type=CommunicationLog.RECIPIENT_USER,
+    recipient_address="user@example.com",
+    recipient_id=user_id,
+    message_type=CommunicationLog.TYPE_VERIFICATION,
+    subject="Verify Your Email Address",
+    content_snippet="Please click the link to verify your email...",
+    sender_id=system_user_id,
+    message_id="SG.message.123456"
+)
+db.session.add(log_entry)
+db.session.commit()
+
+# Update status when delivered
+log_entry.status = CommunicationLog.STATUS_DELIVERED
+log_entry.delivered_at = datetime.now(timezone.utc)
+db.session.commit()
+
+# Get communication statistics
+stats = CommunicationLog.get_communication_stats(days=30)
+print(f"Total messages: {stats['total']}")
+print(f"Error rate: {stats['error_rate']}%")
+print(f"By channel: {stats['by_channel']}")
+```
+
+### Scheduling Communications
+
+```python
+from models.communication import CommunicationScheduler
+
+# Schedule a weekly newsletter
+newsletter_schedule = CommunicationScheduler(
+    name="Weekly Tech Newsletter",
+    channel_id=email_channel.id,
+    recipient_type=CommunicationScheduler.RECIPIENT_SUBSCRIPTION,
+    schedule_type=CommunicationScheduler.TYPE_RECURRING,
+    schedule_data={
+        "frequency": "weekly",
+        "day_of_week": "monday",
+        "time": "09:00"
+    },
+    template_id=newsletter_template_id,
+    subject="Weekly Technology Updates",
+    recipient_data={
+        "list_id": tech_newsletter_id,
+        "include_segments": ["active", "engaged"]
+    },
+    context_data={
+        "include_top_stories": True,
+        "personalize": True
+    },
+    timezone="America/New_York"
+)
+db.session.add(newsletter_schedule)
+db.session.commit()
+
+# Activate the schedule
+newsletter_schedule.status = CommunicationScheduler.STATUS_ACTIVE
+db.session.commit()
+
+# Record execution
+newsletter_schedule.record_execution(
+    success=True,
+    message_count=1250,
+    execution_time=62.5
+)
+```
+
 ## Security Considerations
 
 - **Email Validation**: All subscriber email addresses are validated with standard patterns
@@ -305,6 +444,11 @@ engaged_subscribers = newsletter.get_segment_subscribers("Highly Engaged")
 - **Audit Trails**: Comprehensive logging of communication events and changes
 - **Subscription Control**: Clear unsubscribe mechanism with token validation
 - **User Preferences**: Granular control over communication channels and content
+- **Credential Protection**: Communication channel credentials are masked in all outputs
+- **Security Classifications**: Communications are classified by sensitivity level
+- **Enhanced Auditing**: Security-critical fields trigger additional audit logging
+- **PII Handling**: Personal information is handled according to privacy requirements
+- **Content Snippets**: Limited storage of message content to reduce exposure risk
 
 ## Best Practices
 
@@ -321,6 +465,11 @@ engaged_subscribers = newsletter.get_segment_subscribers("Highly Engaged")
 - Include engagement tracking in notification metadata
 - Use consistent templates for professional communication
 - Respect user preferences for communication channels and frequency
+- Implement appropriate data retention policies for communications
+- Use the designated logging mechanisms rather than direct logging
+- Handle security-sensitive communications with higher security levels
+- Follow the principle of least privilege for communication operations
+- Validate all recipient addresses before sending communications
 
 ## Related Documentation
 
@@ -336,3 +485,6 @@ engaged_subscribers = newsletter.get_segment_subscribers("Highly Engaged")
 - Campaign Analytics Integration
 - Notification Channel Configuration
 - SMS Gateway Integration
+- Communication Auditing Framework
+- Message Templating System
+- Security Classification Guide

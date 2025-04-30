@@ -62,6 +62,7 @@ from .cloud.cloud_alert import CloudAlert
 
 # Storage models
 from .storage.file_upload import FileUpload
+from .storage.file_metadata import FileMetadata
 
 # ICS models
 from .ics.ics_device import ICSDevice
@@ -90,7 +91,7 @@ __all__ = [
     'CloudProvider', 'CloudResource', 'CloudMetric', 'CloudAlert',
 
     # Storage models
-    'FileUpload',
+    'FileUpload', 'FileMetadata',
 
     # ICS models
     'ICSDevice', 'ICSReading', 'ICSControlLog',
