@@ -17,7 +17,7 @@ from sqlalchemy import desc, func, and_, or_, not_, case
 from extensions import db, metrics
 from models.base import BaseModel, AuditableMixin
 from models.security.audit_log import AuditLog
-from core.security_utils import log_security_event
+from core.security.cs_audit import log_security_event
 
 
 class SecurityIncident(BaseModel, AuditableMixin):

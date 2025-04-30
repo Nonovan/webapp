@@ -47,6 +47,107 @@ def is_valid_ip(ip: str) -> bool:
         return False
 
 
+def is_valid_domain(domain: str) -> bool:
+    """
+    Validate if the given string is a valid domain name.
+
+    This function checks if a string represents a valid domain name
+    by verifying it follows DNS naming rules.
+
+    Args:
+        domain: The domain name string to validate
+
+    Returns:
+        bool: True if valid, False otherwise
+    """
+    if not domain or len(domain) > 253:
+        return False
+
+    # Domain validation pattern
+    # - Allows standard domain names with alphanumeric characters, hyphens, and dots
+    # - Requires at least one dot (for TLD)
+    # - Domain parts must start and end with alphanumeric characters
+    # - Domain parts must be 1-63 characters
+    pattern = r'^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]$'
+
+    try:
+        if re.match(pattern, domain):
+            # Track successful validation
+            metrics.increment('security.domain_validation_success')
+            return True
+
+        # Track validation failure
+        metrics.increment('security.domain_validation_failure')
+        return False
+    except Exception as e:
+        log_error(f"Error validating domain: {e}")
+        metrics.increment('security.domain_validation_error')
+        return False
+
+
+def is_valid_hash(hash_value: str, algorithm: Optional[str] = None) -> bool:
+    """
+    Validate if the given string is a valid cryptographic hash.
+
+    This function verifies that a string matches the expected format
+    for common cryptographic hash algorithms.
+
+    Args:
+        hash_value: The hash string to validate
+        algorithm: Optional specific algorithm to validate against
+                  (md5, sha1, sha256, sha512)
+
+    Returns:
+        bool: True if valid, False otherwise
+    """
+    if not hash_value:
+        return False
+
+    # Define patterns for common hash algorithms
+    hash_patterns = {
+        'md5': r'^[a-fA-F0-9]{32}$',
+        'sha1': r'^[a-fA-F0-9]{40}$',
+        'sha256': r'^[a-fA-F0-9]{64}$',
+        'sha384': r'^[a-fA-F0-9]{96}$',
+        'sha512': r'^[a-fA-F0-9]{128}$',
+        'blake2b': r'^[a-fA-F0-9]{128}$',
+        'blake2s': r'^[a-fA-F0-9]{64}$'
+    }
+
+    try:
+        # If algorithm is specified, check only that pattern
+        if algorithm:
+            algorithm = algorithm.lower()
+            if algorithm not in hash_patterns:
+                log_warning(f"Unknown hash algorithm specified: {algorithm}")
+                metrics.increment('security.hash_validation_unknown_algorithm')
+                return False
+
+            is_valid = bool(re.match(hash_patterns[algorithm], hash_value))
+
+            if is_valid:
+                metrics.increment('security.hash_validation_success')
+            else:
+                metrics.increment('security.hash_validation_failure')
+
+            return is_valid
+
+        # If no algorithm specified, check against all known patterns
+        for algo, pattern in hash_patterns.items():
+            if re.match(pattern, hash_value):
+                metrics.increment('security.hash_validation_success')
+                return True
+
+        # No matches found
+        metrics.increment('security.hash_validation_failure')
+        return False
+
+    except Exception as e:
+        log_error(f"Error validating hash: {e}")
+        metrics.increment('security.hash_validation_error')
+        return False
+
+
 def verify_token(token: str, secret_key: Optional[str] = None) -> Optional[TokenPayload]:
     """
     Verify JWT token and return payload if valid.

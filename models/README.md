@@ -17,12 +17,21 @@ This package defines the application's data model layer with a focus on:
 models/
 ├── __init__.py              # Package exports and event listeners
 ├── base.py                  # Base model classes and mixins
-├── README.md                # Documentation (this file)
+├── README.md                # This documentation
 ├── auth/                    # Authentication and user management
 │   ├── __init__.py          # Auth module exports
+│   ├── api_key.py           # API key model for programmatic authentication
+│   ├── login_attempt.py     # Login attempt tracking and brute force protection
+│   ├── mfa_backup_code.py   # Backup codes for multi-factor authentication
+│   ├── mfa_method.py        # Multi-factor authentication methods
+│   ├── mfa_verification.py  # MFA verification attempt tracking
+│   ├── oath_provider.py     # OAuth provider and connection models
 │   ├── permission.py        # Permission model for RBAC
+│   ├── permission_context.py # Context-based permission evaluation rules
+│   ├── permission_delegation.py # Temporary permission delegation
 │   ├── README.md            # Auth module documentation
 │   ├── role.py              # Role model for access control
+│   ├── role_assignment.py   # Role assignment and management
 │   ├── user.py              # User account model
 │   ├── user_activity.py     # User activity logging
 │   └── user_session.py      # User session tracking
@@ -41,7 +50,13 @@ models/
 ├── content/                 # Content management models
 │   ├── __init__.py          # Content module exports
 │   ├── category.py          # Content categorization
+│   ├── comment.py           # User feedback and interactions
+│   ├── content_revision.py  # Version history tracking
+│   ├── media.py             # Media file management
+│   ├── menu.py              # Navigation structure
 │   ├── post.py              # Blog/news post content
+│   ├── post_media.py        # Media associations for posts
+│   ├── README.md            # Content module documentation
 │   └── tag.py               # Content tagging
 ├── ics/                     # Industrial Control Systems
 │   ├── __init__.py          # ICS module exports
@@ -56,7 +71,6 @@ models/
 └── storage/                 # Storage-related models
     ├── __init__.py          # Storage module exports
     └── file_upload.py       # File upload tracking
-
 ```
 
 ## Key Components
@@ -71,6 +85,10 @@ models/
     - Permission management
     - Session tracking and management
     - User activity logging
+    - Multi-factor authentication
+    - OAuth integration
+    - API key management
+    - Temporary permission delegation
 3. **Cloud Infrastructure (`cloud/`)**:
     - Cloud provider configurations (AWS, Azure, GCP)
     - Resource management (VMs, storage, etc.)
@@ -86,6 +104,10 @@ models/
     - Content categorization
     - Hierarchical category structure
     - Content tagging
+    - Media management
+    - Revision history tracking
+    - Comment systems
+    - Navigation menus
 6. **Industrial Control Systems (`ics/`)**:
     - Device inventory management
     - Sensor reading collection
@@ -105,7 +127,10 @@ models/
 - **`base.py`**: Contains the core base classes and mixins
 - **`auth/permission.py`**: Fine-grained permission model for RBAC
 - **`auth/role.py`**: Role model with permission inheritance
+- **`auth/permission_delegation.py`**: Temporary permission transfers between users
+- **`auth/mfa_method.py`**: Multi-factor authentication implementation
 - **`security/audit_log.py`**: Comprehensive security auditing system
+- **`content/content_revision.py`**: Version history tracking for content
 - **`cloud/cloud_resource.py`**: Cloud resource management with cost tracking
 - **`security/system_config.py`**: System-wide configuration storage
 
@@ -131,6 +156,9 @@ models/
 - **Serialization**: Standard `to_dict()` methods for API responses
 - **Event Listeners**: Automatic timestamp tracking and audit logging
 - **Role-Based Access Control**: Complete RBAC implementation with roles and permissions
+- **Multi-Factor Authentication**: Support for multiple MFA methods
+- **Content Versioning**: Revision history for content changes
+- **Security Incident Management**: Full workflow for security incidents
 
 ## RBAC System
 
@@ -141,6 +169,7 @@ The Role-Based Access Control system implemented in the `auth/` module provides 
 3. **Context-Based Permission Evaluation**: Permissions can be evaluated with contextual data for attribute-based access control.
 4. **System vs. Custom Roles/Permissions**: Distinction between core system components and user-defined components.
 5. **Time-Limited Permission Assignments**: Support for temporary access elevation without permanent permission changes.
+6. **Permission Delegation**: Temporary transfer of permissions between users with approval workflows.
 
 ## Base Model Structure
 
@@ -161,7 +190,6 @@ class MyModel(BaseModel):
     # Define fields...
 
     # Define relationships...
-
 ```
 
 ## Usage Examples
@@ -186,7 +214,6 @@ post.save()
 # Delete a model instance
 user_session = UserSession.query.get(session_id)
 user_session.delete()
-
 ```
 
 ### Working with Relationships
@@ -207,7 +234,6 @@ tech_posts = Post.query.join(Category).filter(
 # Using relationship properties
 for subscriber in newsletter_list.subscribers:
     print(f"Sending to: {subscriber.email}")
-
 ```
 
 ### Role-Based Access Control
@@ -240,7 +266,6 @@ context = {
 if user.has_permission_with_context("resources:modify", context):
     # Allow modification
     pass
-
 ```
 
 ### User Activity and Session Management
@@ -270,7 +295,6 @@ db.session.commit()
 suspicious_sessions = UserSession.detect_suspicious_sessions(user_id)
 for session in suspicious_sessions:
     session.flag_as_suspicious("Unusual access pattern detected")
-
 ```
 
 ### Security-Enhanced Models
@@ -321,7 +345,6 @@ incident.close(
     reason="All countermeasures validated and no further suspicious activity detected",
     user_id=5
 )
-
 ```
 
 ### Working with Audit Logs
@@ -363,7 +386,70 @@ event_counts = db.session.query(
 
 summary = {event_type: count for event_type, count in event_counts}
 print(f"Found {summary.get(AuditLog.EVENT_LOGIN_FAILED, 0)} failed login attempts")
+```
 
+### Multi-Factor Authentication
+
+```python
+# Set up TOTP-based MFA for a user
+mfa_method = MFAMethod(
+    user_id=user.id,
+    method_type=MFAMethod.METHOD_TYPE_TOTP,
+    is_primary=True
+)
+
+# Generate secret and save
+totp_secret = pyotp.random_base32()
+mfa_method.set_secret(totp_secret)
+db.session.add(mfa_method)
+db.session.commit()
+
+# Generate backup codes
+backup_codes = MFABackupCode.generate_codes(user.id)
+
+# Verify a TOTP code during login
+if mfa_method.verify_code(submitted_code):
+    # Log successful verification
+    MFAVerification.log_verification(
+        user_id=user.id,
+        verification_type="totp",
+        success=True,
+        mfa_method_id=mfa_method.id
+    )
+    # Complete login process
+else:
+    # Log failed attempt
+    MFAVerification.log_verification(
+        user_id=user.id,
+        verification_type="totp",
+        success=False,
+        mfa_method_id=mfa_method.id
+    )
+```
+
+### Permission Delegation
+
+```python
+# Delegate a permission temporarily to another user
+delegation = PermissionDelegation.create_standard_delegation(
+    delegator_id=manager.id,
+    delegate_id=substitute.id,
+    permissions=["invoices:approve", "payments:view"],
+    valid_days=14,
+    reason="Vacation coverage",
+    context_constraints={"department_id": 42}
+)
+
+# Check if user has delegated permissions
+delegated_permissions = PermissionDelegation.get_active_for_user(user.id)
+for delegation in delegated_permissions:
+    print(f"Delegated: {delegation.permissions} (until {delegation.end_time})")
+
+# Revoke a delegation early
+delegation.revoke(
+    revoker_id=manager.id,
+    reason="Returned from vacation early"
+)
 ```
 
 ## Security Considerations
@@ -377,6 +463,8 @@ print(f"Found {summary.get(AuditLog.EVENT_LOGIN_FAILED, 0)} failed login attempt
 - **Session Management**: Secure session handling with proper timeout and rotation
 - **Permission Model**: Fine-grained permission system with resource:action pattern
 - **Role Hierarchy**: Supports role inheritance for complex permission structures
+- **MFA Support**: Multiple authentication factors for sensitive operations
+- **Delegated Access**: Temporary, auditable permission transfers between users
 
 ## Contributing New Models
 
@@ -398,3 +486,8 @@ When adding new models:
 - API Documentation
 - Authentication Guide
 - RBAC Implementation Guide
+- Content Management System Guide
+- Multi-Factor Authentication Setup Guide
+- OAuth Integration Guide
+- API Key Management
+- Security Monitoring and Auditing
