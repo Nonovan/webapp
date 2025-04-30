@@ -15,6 +15,7 @@ from user_agents import parse
 from geoip2.errors import AddressNotFoundError
 
 from extensions import db, redis_client, geoip
+from sqlalchemy.exc import SQLAlchemyError
 from models.base import BaseModel
 from core.security_utils import log_security_event
 
@@ -191,8 +192,129 @@ class LoginAttempt(BaseModel):
         if not redis_client:
             return False, None
 
-        ip_key = f"{cls.IP_ATTEMPT_PREFIX}{ip_address}"
-        attempts = redis_client.get(ip_key)
+        ip_lockout_key = f"{cls.IP_LOCKOUT_PREFIX}{ip_address}"
+        lockout_time = redis_client.get(ip_lockout_key)
 
-        if attempts and int(attempts) > cls.DEFAULT_IP_MAX_ATTEMPTS:
-            ip_lockout_key = f"{cls.IP_LOCK
+        if lockout_time:
+            # Get the TTL to determine unlock time
+            ttl = redis_client.ttl(ip_lockout_key)
+            if ttl > 0:
+                unlock_time = datetime.now(timezone.utc) + timedelta(seconds=ttl)
+                return True, unlock_time
+
+        return False, None
+
+    @classmethod
+    def get_attempt_stats(cls, username: Optional[str] = None,
+                         ip_address: Optional[str] = None,
+                         hours: int = 24) -> Dict[str, Any]:
+        """
+        Get statistics about login attempts for a username or IP address.
+
+        Args:
+            username: Filter by username (optional)
+            ip_address: Filter by IP address (optional)
+            hours: How many hours back to analyze
+
+        Returns:
+            Dict: Statistics about login attempts
+        """
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+            result = {
+                'total_attempts': 0,
+                'failed_attempts': 0,
+                'successful_attempts': 0,
+                'unique_ip_addresses': set(),
+                'unique_usernames': set(),
+                'last_attempt_time': None,
+                'last_successful_attempt': None,
+                'last_failed_attempt': None
+            }
+
+            # Build query based on filters
+            query = cls.query.filter(cls.timestamp >= cutoff)
+
+            if username:
+                query = query.filter(cls.username == username.lower())
+
+            if ip_address:
+                query = query.filter(cls.ip_address == ip_address)
+
+            # Execute query and build stats
+            attempts = query.order_by(cls.timestamp.desc()).all()
+
+            for attempt in attempts:
+                result['total_attempts'] += 1
+
+                if attempt.success:
+                    result['successful_attempts'] += 1
+                    if not result['last_successful_attempt']:
+                        result['last_successful_attempt'] = attempt.timestamp
+                else:
+                    result['failed_attempts'] += 1
+                    if not result['last_failed_attempt']:
+                        result['last_failed_attempt'] = attempt.timestamp
+
+                if attempt.ip_address:
+                    result['unique_ip_addresses'].add(attempt.ip_address)
+
+                if attempt.username:
+                    result['unique_usernames'].add(attempt.username)
+
+                if not result['last_attempt_time']:
+                    result['last_attempt_time'] = attempt.timestamp
+
+            # Convert sets to counts for serialization
+            result['unique_ip_count'] = len(result['unique_ip_addresses'])
+            result['unique_username_count'] = len(result['unique_usernames'])
+            result['unique_ip_addresses'] = list(result['unique_ip_addresses'])
+            result['unique_usernames'] = list(result['unique_usernames'])
+
+            # Add rate limiting information
+            if username:
+                result['is_account_locked'], unlock_time = cls.is_account_locked(username)
+                if unlock_time:
+                    result['account_unlock_time'] = unlock_time.isoformat()
+                result['remaining_attempts'] = cls.DEFAULT_USERNAME_MAX_ATTEMPTS - result['failed_attempts']
+                result['remaining_attempts'] = max(0, result['remaining_attempts'])
+
+            if ip_address:
+                result['is_ip_blocked'], unlock_time = cls.is_ip_blocked(ip_address)
+                if unlock_time:
+                    result['ip_unlock_time'] = unlock_time.isoformat()
+
+            return result
+
+        except SQLAlchemyError as e:
+            if hasattr(current_app, 'logger'):
+                current_app.logger.error(f"Database error getting attempt stats: {str(e)}")
+            return {
+                'error': 'Database error fetching login statistics',
+                'total_attempts': 0,
+                'failed_attempts': 0,
+                'successful_attempts': 0
+            }
+
+    @classmethod
+    def clear_old_attempts(cls, days: int = 90) -> int:
+        """
+        Delete old login attempts from the database.
+
+        Args:
+            days: Remove records older than this many days
+
+        Returns:
+            int: Number of records deleted
+        """
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+            count = cls.query.filter(cls.timestamp < cutoff).delete(synchronize_session=False)
+            db.session.commit()
+
+            return count
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            if hasattr(current_app, 'logger'):
+                current_app.logger.error(f"Error clearing old login attempts: {str(e)}")
+            return 0

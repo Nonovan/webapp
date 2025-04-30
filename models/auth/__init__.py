@@ -9,6 +9,13 @@ Modules:
 - user_activity: Defines the UserActivity model for auditing user actions.
 - role: Defines the Role model and role-based access control (RBAC) utilities.
 - permission: Defines the Permission model and permission management utilities.
+- login_attempt: Defines the LoginAttempt model for tracking and limiting login attempts.
+- api_key: Provides APIKey model for programmatic authentication.
+- mfa_method: Multi-factor authentication methods implementation.
+- mfa_backup_code: Backup codes for multi-factor authentication.
+- mfa_verification: Tracks MFA verification attempts.
+- permission_delegation: Temporary delegation of permissions between users.
+- permission_context: Context-based permission evaluation rules.
 
 The authentication and authorization system implements a comprehensive RBAC approach with:
 - Hierarchical roles that can inherit permissions from parent roles
@@ -54,6 +61,15 @@ Examples:
     )
     db.session.add(session)
     db.session.commit()
+
+    # Delegate permission temporarily
+    delegation = PermissionDelegation.create_delegation(
+        delegator_id=manager.id,
+        delegate_id=substitute.id,
+        permission_id=permission.id,
+        valid_until=datetime.now(timezone.utc) + timedelta(days=7),
+        reason="Temporary access during team member absence"
+    )
 """
 
 # Import core models
@@ -63,23 +79,62 @@ from .permission import Permission
 from .user_session import UserSession
 from .user_activity import UserActivity
 
-# Import additional auth-related models if they exist
+# Import security and authentication models
+from .login_attempt import LoginAttempt
+
+# Import additional auth-related models with graceful fallbacks
+# for models that might not be available in all deployments
+__all__ = [
+    "User",
+    "Role",
+    "Permission",
+    "UserSession",
+    "UserActivity",
+    "LoginAttempt"
+]
+
+# Optional authentication models
+try:
+    from .api_key import APIKey
+    __all__.append("APIKey")
+except ImportError:
+    pass
+
+# Multi-factor authentication models
+try:
+    from .mfa_method import MFAMethod
+    __all__.append("MFAMethod")
+except ImportError:
+    pass
+
+try:
+    from .mfa_backup_code import MFABackupCode
+    __all__.append("MFABackupCode")
+except ImportError:
+    pass
+
+try:
+    from .mfa_verification import MFAVerification
+    __all__.append("MFAVerification")
+except ImportError:
+    pass
+
+# Permission enhancement models
 try:
     from .permission_delegation import PermissionDelegation
-    __all__ = [
-        "User",
-        "Role",
-        "Permission",
-        "UserSession",
-        "UserActivity",
-        "PermissionDelegation"
-    ]
+    __all__.append("PermissionDelegation")
 except ImportError:
-    # Define exports without PermissionDelegation if not available
-    __all__ = [
-        "User",
-        "Role",
-        "Permission",
-        "UserSession",
-        "UserActivity"
-    ]
+    pass
+
+try:
+    from .permission_context import PermissionContextRule
+    __all__.append("PermissionContextRule")
+except ImportError:
+    pass
+
+# OAuth provider model
+try:
+    from .oath_provider import OAuthProvider, OAuthConnection
+    __all__.extend(["OAuthProvider", "OAuthConnection"])
+except ImportError:
+    pass

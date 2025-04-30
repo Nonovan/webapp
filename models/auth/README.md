@@ -43,19 +43,68 @@ The authentication system provides robust security features including password m
   - Time-limited permission transfers
   - Delegation audit trail
   - Revocation capabilities
+  - Context-based permission constraints
+  - Approval workflows for delegation requests
+
+- **`MFAMethod`**: Multi-factor authentication method management
+  - Support for multiple MFA types (TOTP, backup codes, WebAuthn)
+  - Secure storage of MFA secrets
+  - Enrollment and verification workflows
+  - Device identification and management
+
+- **`MFABackupCode`**: Recovery mechanism for MFA
+  - Secure generation and storage of backup codes
+  - One-time use validation
+  - Tracking of backup code usage
+
+- **`MFAVerification`**: Tracking of MFA verification attempts
+  - Security event logging for MFA activities
+  - Failed verification tracking
+  - MFA bypass attempt detection
+
+- **`OAuthProvider`** and **`OAuthConnection`**: Third-party authentication support
+  - Integration with external identity providers
+  - Secure token management and storage
+  - User profile synchronization
+  - Connection management and refreshing
+
+- **`LoginAttempt`**: Authentication attempt tracking
+  - Brute force protection through rate limiting
+  - IP-based and account-based lockout mechanisms
+  - Risk scoring for authentication attempts
+  - Suspicious behavior detection
+
+- **`PermissionContextRule`**: Context-based access control
+  - Dynamic permission evaluation based on request context
+  - Attribute-based access control implementation
+  - Rule-based permission handling
+  - Fine-grained access control beyond basic RBAC
+
+- **`APIKey`**: Programmatic authentication for systems and applications
+  - Secure key generation and verification
+  - Scoped permissions for limited access
+  - IP and referer restrictions
+  - Usage tracking and monitoring
 
 ## Directory Structure
 
 ```plaintext
 models/auth/
-├── __init__.py           # Package initialization and exports
-├── permission.py         # Permission model and related utilities
-├── README.md             # This documentation
-├── role.py               # Role model with permission inheritance
-├── user.py               # User model with authentication features
-├── user_activity.py      # User activity tracking for audit purposes
-└── user_session.py       # Session tracking and management
-
+├── __init__.py             # Package initialization and exports
+├── api_key.py              # API key model for programmatic authentication
+├── login_attempt.py        # Login attempt tracking and brute force protection
+├── mfa_backup_code.py      # Backup codes for multi-factor authentication
+├── mfa_method.py           # Multi-factor authentication methods
+├── mfa_verification.py     # MFA verification attempt tracking
+├── oath_provider.py        # OAuth provider and connection models
+├── permission.py           # Permission model and related utilities
+├── permission_context.py   # Context-based permission evaluation rules
+├── permission_delegation.py # Permission delegation between users
+├── README.md               # This documentation
+├── role.py                 # Role model with permission inheritance
+├── user.py                 # User model with authentication features
+├── user_activity.py        # User activity tracking for audit purposes
+└── user_session.py         # Session tracking and management
 ```
 
 ## RBAC System in Detail
@@ -72,7 +121,6 @@ Admin
 │   └── Regional Operator
 └── Security Admin
     └── Security Analyst
-
 ```
 
 Each child role automatically receives all permissions from its parent while being able to have its own specific permissions. The system enforces maximum hierarchy depth to prevent performance issues.
@@ -103,7 +151,6 @@ context = {
     "resource_type": "vm"
 }
 user.has_permission_with_context("resources:modify", context)
-
 ```
 
 This enables dynamic rules like "users can only modify resources they own" or "operators can only access resources in their assigned regions."
@@ -121,6 +168,27 @@ System roles (like 'admin', 'user') cannot be deleted or deactivated, ensuring s
 
 Roles can be assigned permissions with expiration dates, enabling temporary access elevation without permanent permission changes.
 
+### 6. Permission Context Rules
+
+Fine-grained access control is implemented through context rules that evaluate request attributes:
+
+```python
+# Rule definition stored in PermissionContextRule
+rule = {
+    "resource_owner_id": {"$eq": "${user.id}"},  # User can only access their own resources
+    "resource_type": {"$in": ["vm", "storage"]}, # Only applies to VMs and storage
+    "region": {"$eq": "us-west-2"}               # Only resources in us-west-2
+}
+
+# Rule evaluation happens during has_permission_with_context
+if PermissionContextRule.evaluate_permission(
+    permission_id=permission.id,
+    context=context,
+    user_data=user.to_dict()
+):
+    # Grant access
+```
+
 ## Configuration
 
 The authentication system uses several configuration settings that can be adjusted in the application config:
@@ -131,6 +199,9 @@ The authentication system uses several configuration settings that can be adjust
 - **`PASSWORD_ROTATION_DAYS`**: Days before password change is required (default: 90)
 - **`MAX_SESSIONS_PER_USER`**: Maximum concurrent sessions per user (default: 5)
 - **`LOCKOUT_THRESHOLD`**: Failed attempts before lockout (default: varies by severity)
+- **`MFA_REQUIRED_ROLES`**: Roles that require MFA enrollment (e.g., "admin", "security")
+- **`OAUTH_PROVIDERS`**: Configuration for OAuth providers
+- **`API_KEY_RATE_LIMITS`**: Default rate limits for API keys
 
 ## Best Practices & Security
 
@@ -142,6 +213,8 @@ The authentication system uses several configuration settings that can be adjust
 - Always validate ownership before allowing resource access
 - Leverage the `AuditableMixin` for security-critical models to enable access tracking
 - Use proper transaction management with commit/rollback patterns
+- Implement MFA for administrative and sensitive operations
+- Regularly audit active sessions and API keys
 
 ## Common Features
 
@@ -153,6 +226,9 @@ The authentication system uses several configuration settings that can be adjust
 - Permission delegation with time limitations
 - User profile management and status control
 - JWT token generation for API authentication
+- Multi-factor authentication with multiple methods
+- OAuth integration for third-party authentication
+- API key management for programmatic access
 
 ## Usage Examples
 
@@ -202,7 +278,6 @@ else:
     )
 
     return {"error": "Invalid credentials"}, 401
-
 ```
 
 ### Permission Checking
@@ -223,7 +298,6 @@ context = {
 if user.has_permission_with_context("resources:modify", context):
     # Allow modification
     pass
-
 ```
 
 ### Role Management
@@ -253,7 +327,6 @@ db.session.commit()
 
 # Assign role to user
 user.assign_role(admin_role)
-
 ```
 
 ### Implementing RBAC in Views
@@ -302,7 +375,6 @@ def update_resource(resource_id):
     )
 
     return jsonify({"message": "Resource updated successfully"})
-
 ```
 
 ### Activity Tracking
@@ -327,7 +399,6 @@ activity_trends = UserActivity.get_activity_trend(
 
 # Find security hotspots
 hotspots = UserActivity.get_activity_hotspots(days=7)
-
 ```
 
 ### Session Management
@@ -347,32 +418,147 @@ UserSession.revoke_all_sessions_for_user(
 if suspicious_behavior_detected:
     session.flag_as_suspicious("Unusual access pattern detected")
     security_alert("Suspicious session", session.to_dict())
-
 ```
 
 ### Permission Delegation
 
 ```python
 # Delegate a permission temporarily to another user
-delegation = PermissionDelegation.create_delegation(
+delegation = PermissionDelegation.create_standard_delegation(
     delegator_id=manager.id,
     delegate_id=substitute.id,
-    permission_id=approve_invoices_permission.id,
-    valid_until=datetime.now(timezone.utc) + timedelta(days=14),
-    reason="Vacation coverage"
+    permissions=["invoices:approve", "payments:view"],
+    valid_days=14,
+    reason="Vacation coverage",
+    context_constraints={"department_id": 42}
 )
 
 # Check if user has delegated permissions
 delegated_permissions = PermissionDelegation.get_active_for_user(user.id)
 for delegation in delegated_permissions:
-    print(f"Delegated: {delegation.permission.name} (until {delegation.valid_until})")
+    print(f"Delegated: {delegation.permissions} (until {delegation.end_time})")
 
 # Revoke a delegation early
 delegation.revoke(
-    revoked_by_id=manager.id,
+    revoker_id=manager.id,
     reason="Returned from vacation early"
 )
+```
 
+### Multi-Factor Authentication
+
+```python
+# Set up TOTP-based MFA for a user
+mfa_method = MFAMethod(
+    user_id=user.id,
+    method_type=MFAMethod.METHOD_TYPE_TOTP,
+    is_primary=True
+)
+
+# Generate secret and save
+totp_secret = pyotp.random_base32()
+mfa_method.set_secret(totp_secret)
+db.session.add(mfa_method)
+db.session.commit()
+
+# Generate backup codes
+backup_codes = MFABackupCode.generate_codes(user.id)
+
+# Verify a TOTP code during login
+if mfa_method.verify_code(submitted_code):
+    # Log successful verification
+    MFAVerification.log_verification(
+        user_id=user.id,
+        verification_type="totp",
+        success=True,
+        mfa_method_id=mfa_method.id
+    )
+    # Complete login process
+else:
+    # Log failed attempt
+    MFAVerification.log_verification(
+        user_id=user.id,
+        verification_type="totp",
+        success=False,
+        mfa_method_id=mfa_method.id
+    )
+    # Handle failed verification
+```
+
+### OAuth Authentication
+
+```python
+# Find OAuth connection
+oauth_connection = OAuthConnection.get_by_provider_user_id(
+    provider_id=GITHUB_PROVIDER_ID,
+    provider_user_id=github_user_id
+)
+
+if oauth_connection:
+    # User exists, log them in
+    user = User.query.get(oauth_connection.user_id)
+    # Create session, etc.
+else:
+    # New user, create account
+    user = User(
+        username=github_username,
+        email=github_email,
+        status=User.STATUS_ACTIVE
+    )
+    db.session.add(user)
+    db.session.flush()  # Get user ID before creating connection
+
+    # Create OAuth connection
+    oauth_connection = OAuthConnection(
+        user_id=user.id,
+        provider_id=GITHUB_PROVIDER_ID,
+        provider_user_id=github_user_id,
+        provider_username=github_username,
+        provider_email=github_email,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_expiry=expiry_time
+    )
+    db.session.add(oauth_connection)
+    db.session.commit()
+```
+
+### API Key Management
+
+```python
+# Create a new API key for a user
+api_key = APIKey(
+    name="My Service Integration",
+    user_id=current_user.id,
+    scopes=["resources:read", "metrics:read"],
+    expires_at=datetime.now(timezone.utc) + timedelta(days=90),
+    allowed_ips=["192.168.1.100", "10.0.0.0/24"],
+    rate_limit=200  # requests per minute
+)
+db.session.add(api_key)
+db.session.commit()
+
+# The raw key is available once
+raw_key = api_key.get_raw_key()  # e.g., "cip-key-v1-abcdef123456..."
+
+# Later, validate an API key from request
+received_key = request.headers.get('X-API-Key')
+api_key = APIKey.find_by_key(received_key)
+
+if not api_key:
+    return jsonify({"error": "Invalid API key"}), 401
+
+# Validate the request is allowed
+is_valid, error_reason = api_key.validate_request(
+    request_ip=request.remote_addr,
+    referer=request.headers.get('Referer')
+)
+
+if not is_valid:
+    return jsonify({"error": error_reason}), 403
+
+# Record usage and proceed
+api_key.record_usage(ip_address=request.remote_addr)
 ```
 
 ## Related Documentation
@@ -381,3 +567,7 @@ delegation.revoke(
 - API Authentication
 - RBAC Implementation Guide
 - User Management API
+- Multi-Factor Authentication Setup Guide
+- OAuth Integration Guide
+- API Key Management
+- Security Monitoring and Auditing
