@@ -16,7 +16,7 @@ promoting code reuse and ensuring consistent behavior across the data layer.
 
 from datetime import datetime, timezone
 import logging
-from typing import Dict, Any, Optional, List, Type, TypeVar, Union, ClassVar, cast
+from typing import Dict, Any, Optional, List, Type, TypeVar, Union, ClassVar, cast, Tuple
 from flask import current_app, abort, g, has_request_context, request
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -500,3 +500,401 @@ class BaseModel(db.Model, TimestampMixin):
 
         column = getattr(cls, date_column)
         return cast(List[T_Model], cls.query.filter(column >= start_date, column <= end_date).all())
+
+    @classmethod
+    def bulk_create(cls: Type[T_Model], items: List[Dict[str, Any]],
+                   return_instances: bool = False,
+                   commit: bool = True) -> Union[int, List[T_Model]]:
+        """
+        Create multiple model instances in bulk.
+
+        Args:
+            items: List of dictionaries containing attributes for each instance
+            return_instances: Whether to return the created instances (default: False)
+            commit: Whether to commit the transaction immediately (default: True)
+
+        Returns:
+            Union[int, List[T_Model]]: Count of created instances or list of instances
+
+        Raises:
+            SQLAlchemyError: If database error occurs during creation
+        """
+        try:
+            instances = [cls(**item) for item in items]
+            db.session.add_all(instances)
+
+            if commit:
+                db.session.commit()
+
+                # Log bulk creation if the model supports it
+                if instances and isinstance(instances[0], AuditableMixin):
+                    try:
+                        from core.security_utils import log_security_event
+
+                        model_name = cls.__name__.lower()
+                        user_id = g.get('user_id') if has_request_context() and hasattr(g, 'user_id') else None
+                        ip_address = request.remote_addr if has_request_context() else None
+
+                        log_security_event(
+                            event_type=f"{model_name}_bulk_created",
+                            description=f"Created {len(instances)} {model_name} records",
+                            severity='info',
+                            user_id=user_id,
+                            ip_address=ip_address,
+                            details={
+                                "count": len(instances)
+                            }
+                        )
+                    except (ImportError, AttributeError) as e:
+                        logger = current_app.logger if current_app else logging.getLogger(__name__)
+                        logger.error("Failed to log bulk creation: %s", str(e))
+
+            if return_instances:
+                return instances
+            return len(instances)
+
+        except SQLAlchemyError as e:
+            if commit:
+                db.session.rollback()
+            logger = current_app.logger if current_app else logging.getLogger(__name__)
+            logger.error("Failed to bulk create %s: %s", cls.__name__, str(e))
+            raise
+
+    @classmethod
+    def bulk_update(cls: Type[T_Model], items: Dict[Union[int, str], Dict[str, Any]],
+                   commit: bool = True) -> Dict[str, Any]:
+        """
+        Update multiple model instances in bulk.
+
+        Args:
+            items: Dictionary mapping primary keys to attribute dictionaries
+            commit: Whether to commit the transaction immediately (default: True)
+
+        Returns:
+            Dict[str, Any]: Result statistics with updated_count, skipped_ids, etc.
+
+        Raises:
+            SQLAlchemyError: If database error occurs during update
+        """
+        result = {
+            "updated_count": 0,
+            "skipped_ids": [],
+            "error": None
+        }
+
+        try:
+            # Get all instances at once to reduce database roundtrips
+            instance_ids = list(items.keys())
+            instances = cls.query.filter(cls.id.in_(instance_ids)).all()
+            found_instances = {instance.id: instance for instance in instances}
+
+            # Track changed fields for audit logging
+            all_changed_fields = set()
+
+            # Update each instance with the provided attributes
+            for instance_id, attributes in items.items():
+                instance = found_instances.get(instance_id)
+                if not instance:
+                    result["skipped_ids"].append(instance_id)
+                    continue
+
+                # Track changes for this instance
+                fields_changed = []
+                old_values = {}
+
+                for key, value in attributes.items():
+                    if hasattr(instance, key):
+                        current_value = getattr(instance, key)
+                        # Only update if value has changed
+                        if current_value != value:
+                            fields_changed.append(key)
+                            old_values[key] = current_value
+                            setattr(instance, key, value)
+                            all_changed_fields.add(key)
+
+                # Count as updated only if changes were made
+                if fields_changed:
+                    result["updated_count"] += 1
+
+                    # Log individual changes if the model supports it
+                    if isinstance(instance, AuditableMixin) and fields_changed:
+                        changes_detail = ", ".join([f"{field}: {old_values[field]} → {getattr(instance, field)}"
+                                                for field in fields_changed[:5]])
+                        if len(fields_changed) > 5:
+                            changes_detail += f" and {len(fields_changed) - 5} more fields"
+
+                        instance.log_change(fields_changed, f"Updated fields: {changes_detail}")
+
+            # Commit all changes at once if requested
+            if commit and result["updated_count"] > 0:
+                db.session.commit()
+
+                # Log bulk update if any instances were updated and they support auditing
+                if instances and isinstance(instances[0], AuditableMixin):
+                    try:
+                        from core.security_utils import log_security_event
+
+                        model_name = cls.__name__.lower()
+                        user_id = g.get('user_id') if has_request_context() and hasattr(g, 'user_id') else None
+                        ip_address = request.remote_addr if has_request_context() else None
+
+                        log_security_event(
+                            event_type=f"{model_name}_bulk_updated",
+                            description=f"Updated {result['updated_count']} {model_name} records",
+                            severity='info',
+                            user_id=user_id,
+                            ip_address=ip_address,
+                            details={
+                                "count": result["updated_count"],
+                                "fields": list(all_changed_fields),
+                                "skipped": result["skipped_ids"]
+                            }
+                        )
+                    except (ImportError, AttributeError) as e:
+                        logger = current_app.logger if current_app else logging.getLogger(__name__)
+                        logger.error("Failed to log bulk update: %s", str(e))
+
+            return result
+
+        except SQLAlchemyError as e:
+            if commit:
+                db.session.rollback()
+            error_message = str(e)
+            result["error"] = error_message
+            logger = current_app.logger if current_app else logging.getLogger(__name__)
+            logger.error("Failed to bulk update %s: %s", cls.__name__, error_message)
+            return result
+
+    @classmethod
+    def bulk_delete(cls: Type[T_Model], instance_ids: List[Union[int, str]],
+                   commit: bool = True) -> Dict[str, Any]:
+        """
+        Delete multiple model instances in bulk.
+
+        Args:
+            instance_ids: List of primary keys to delete
+            commit: Whether to commit the transaction immediately (default: True)
+
+        Returns:
+            Dict[str, Any]: Result statistics with deleted_count, skipped_ids, etc.
+
+        Raises:
+            SQLAlchemyError: If database error occurs during deletion
+        """
+        result = {
+            "deleted_count": 0,
+            "skipped_ids": [],
+            "error": None
+        }
+
+        try:
+            # Get instances for audit logging before deletion
+            if hasattr(AuditableMixin, '__subclasses__') and cls in AuditableMixin.__subclasses__():
+                # For auditable models, fetch instances first to log details
+                instances = cls.query.filter(cls.id.in_(instance_ids)).all()
+                found_ids = {instance.id for instance in instances}
+                result["skipped_ids"] = [id for id in instance_ids if id not in found_ids]
+
+                # Log deletions individually
+                for instance in instances:
+                    if isinstance(instance, AuditableMixin):
+                        try:
+                            from core.security_utils import log_security_event
+
+                            model_name = cls.__name__.lower()
+                            instance_id = getattr(instance, 'id', 'unknown')
+
+                            user_id = g.get('user_id') if has_request_context() and hasattr(g, 'user_id') else None
+                            ip_address = request.remote_addr if has_request_context() else None
+
+                            log_security_event(
+                                event_type=f"{model_name}_deleted",
+                                description=f"{model_name.capitalize()} ID {instance_id} deleted",
+                                severity='warning',
+                                user_id=user_id,
+                                ip_address=ip_address
+                            )
+                        except (ImportError, AttributeError) as e:
+                            logger = current_app.logger if current_app else logging.getLogger(__name__)
+                            logger.error("Failed to log model deletion: %s", str(e))
+
+                # Perform the deletion
+                delete_query = cls.__table__.delete().where(cls.id.in_(found_ids))
+                result["deleted_count"] = db.session.execute(delete_query).rowcount
+            else:
+                # For non-auditable models, use the more efficient direct delete
+                delete_query = cls.__table__.delete().where(cls.id.in_(instance_ids))
+                result["deleted_count"] = db.session.execute(delete_query).rowcount
+
+            if commit:
+                db.session.commit()
+
+                # Log bulk deletion
+                try:
+                    from core.security_utils import log_security_event
+
+                    model_name = cls.__name__.lower()
+                    user_id = g.get('user_id') if has_request_context() and hasattr(g, 'user_id') else None
+                    ip_address = request.remote_addr if has_request_context() else None
+
+                    log_security_event(
+                        event_type=f"{model_name}_bulk_deleted",
+                        description=f"Deleted {result['deleted_count']} {model_name} records",
+                        severity='warning',
+                        user_id=user_id,
+                        ip_address=ip_address,
+                        details={
+                            "count": result["deleted_count"],
+                            "skipped": result["skipped_ids"]
+                        }
+                    )
+                except (ImportError, AttributeError) as e:
+                    logger = current_app.logger if current_app else logging.getLogger(__name__)
+                    logger.error("Failed to log bulk deletion: %s", str(e))
+
+            return result
+
+        except SQLAlchemyError as e:
+            if commit:
+                db.session.rollback()
+            error_message = str(e)
+            result["error"] = error_message
+            logger = current_app.logger if current_app else logging.getLogger(__name__)
+            logger.error("Failed to bulk delete %s: %s", cls.__name__, error_message)
+            return result
+
+    @classmethod
+    def paginate(cls: Type[T_Model], page: int = 1, per_page: int = 20,
+                filters: Optional[Dict[str, Any]] = None,
+                order_by: Optional[str] = None,
+                order_direction: str = 'asc') -> Dict[str, Any]:
+        """
+        Get a paginated list of instances with filtering and sorting.
+
+        Args:
+            page: Page number (1-indexed)
+            per_page: Number of items per page
+            filters: Dictionary of field-value pairs to filter by
+            order_by: Field name to sort by
+            order_direction: Sort direction ('asc' or 'desc')
+
+        Returns:
+            Dict[str, Any]: Paginated results with items and metadata
+
+        Raises:
+            AttributeError: If the specified order_by field doesn't exist
+            ValueError: If invalid pagination parameters are provided
+        """
+        if page < 1:
+            raise ValueError("Page number must be 1 or greater")
+        if per_page < 1:
+            raise ValueError("Items per page must be 1 or greater")
+
+        # Enforce upper limit to prevent excessive queries
+        per_page = min(per_page, 100)
+
+        # Build the base query
+        query = cls.query
+
+        # Apply filters if provided
+        if filters:
+            for field, value in filters.items():
+                if hasattr(cls, field):
+                    query = query.filter(getattr(cls, field) == value)
+                else:
+                    logger = current_app.logger if current_app else logging.getLogger(__name__)
+                    logger.warning("Ignoring filter on non-existent field %s on %s",
+                                  field, cls.__name__)
+
+        # Apply ordering if provided
+        if order_by:
+            if not hasattr(cls, order_by):
+                raise AttributeError(f"{cls.__name__} has no attribute '{order_by}'")
+
+            column = getattr(cls, order_by)
+            if order_direction.lower() == 'desc':
+                column = column.desc()
+            query = query.order_by(column)
+
+        # Get the total count of items matching the filters
+        total_items = query.count()
+        total_pages = (total_items + per_page - 1) // per_page
+
+        # Get the items for the requested page
+        offset = (page - 1) * per_page
+        items = query.offset(offset).limit(per_page).all()
+
+        # Return pagination metadata along with the items
+        return {
+            "items": items,
+            "meta": {
+                "page": page,
+                "per_page": per_page,
+                "total_items": total_items,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_prev": page > 1,
+                "next_page": page + 1 if page < total_pages else None,
+                "prev_page": page - 1 if page > 1 else None
+            }
+        }
+
+    @classmethod
+    def get_or_create(cls: Type[T_Model], defaults: Optional[Dict[str, Any]] = None,
+                     commit: bool = True, **kwargs) -> Tuple[T_Model, bool]:
+        """
+        Get an instance matching the given criteria or create it if it doesn't exist.
+
+        Args:
+            defaults: Dictionary of default values for creating a new instance
+            commit: Whether to commit the transaction immediately (default: True)
+            **kwargs: Search criteria used both to find and create the instance
+
+        Returns:
+            Tuple[T_Model, bool]: The instance and a boolean indicating if it was created
+
+        Raises:
+            SQLAlchemyError: If database error occurs during creation
+        """
+        instance = cls.query.filter_by(**kwargs).first()
+        created = False
+
+        if instance is None:
+            # Create new instance with the provided kwargs and defaults
+            create_kwargs = dict(kwargs)
+            if defaults:
+                create_kwargs.update(defaults)
+
+            instance = cls(**create_kwargs)
+            db.session.add(instance)
+            created = True
+
+            if commit:
+                db.session.commit()
+
+                # Log creation if the model supports it
+                if isinstance(instance, AuditableMixin):
+                    try:
+                        from core.security_utils import log_security_event
+
+                        model_name = cls.__name__.lower()
+                        instance_id = getattr(instance, 'id', 'unknown')
+
+                        user_id = g.get('user_id') if has_request_context() and hasattr(g, 'user_id') else None
+                        ip_address = request.remote_addr if has_request_context() else None
+
+                        log_security_event(
+                            event_type=f"{model_name}_created",
+                            description=f"New {model_name} created with ID {instance_id}",
+                            severity='info',
+                            user_id=user_id,
+                            ip_address=ip_address,
+                            details={
+                                "method": "get_or_create"
+                            }
+                        )
+                    except (ImportError, AttributeError) as e:
+                        logger = current_app.logger if current_app else logging.getLogger(__name__)
+                        logger.error("Failed to log model creation: %s", str(e))
+
+        return instance, created

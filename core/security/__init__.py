@@ -17,7 +17,8 @@ from .cs_audit import (
     detect_security_anomalies,
     get_recent_security_events,
     get_security_event_counts,
-    get_critical_security_events
+    get_critical_security_events,
+    audit_log
 )
 
 from .cs_authentication import (
@@ -55,7 +56,10 @@ from .cs_file_integrity import (
     verify_file_signature,
     create_file_hash_baseline,
     initialize_file_monitoring,
-    get_last_integrity_status
+    get_last_integrity_status,
+    update_file_integrity_baseline,
+    verify_baseline_update,
+    format_timestamp
 )
 
 from .cs_metrics import (
@@ -65,7 +69,9 @@ from .cs_metrics import (
     get_risk_trend,
     get_threat_intelligence_summary,
     update_daily_risk_score,
-    get_ip_geolocation
+    get_ip_geolocation,
+    setup_security_metrics,
+    setup_auth_metrics
 )
 
 from .cs_monitoring import (
@@ -93,7 +99,8 @@ from .cs_session import (
     mark_mfa_verified,
     is_mfa_verified,
     revoke_all_user_sessions,
-    revoke_session
+    revoke_session,
+    initialize_session_security
 )
 
 from .cs_utils import (
@@ -112,4 +119,4 @@ from .cs_utils import (
 from .cs_constants import SECURITY_CONFIG
 
 # Version information
-__version__ = '0.0.0'
+__version__ = '0.1.1'

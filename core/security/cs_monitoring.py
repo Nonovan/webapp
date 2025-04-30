@@ -1001,6 +1001,173 @@ def get_security_anomalies(hours: int = 24) -> List[Dict[str, Any]]:
         return []
 
 
+def detect_suspicious_activity(hours: int = 24) -> Dict[str, Any]:
+    """
+    Detect suspicious activities across the system for security scanning.
+
+    This function integrates multiple security detection mechanisms to provide
+    a comprehensive view of potential security incidents across the platform.
+    It's designed to work with the security scanning pipeline in app.py.
+
+    Args:
+        hours: Number of hours to analyze
+
+    Returns:
+        Dict[str, Any]: Dictionary containing categorized suspicious activities
+    """
+    try:
+        result = {
+            'suspicious_ips': [],
+            'anomalies': [],
+            'integrity_violations': [],
+            'suspicious_sessions': [],
+            'permission_issues': [],
+            'blocked_ips': []
+        }
+
+        # Get suspicious IPs with their details
+        suspicious_ips = get_suspicious_ips(hours=hours)
+        if suspicious_ips:
+            # Filter to include only relevant information
+            result['suspicious_ips'] = [{
+                'ip': ip.get('ip'),
+                'threat_score': ip.get('threat_score', 0),
+                'count': ip.get('count', 0),
+                'location': ip.get('geolocation', {}).get('location'),
+                'is_blocked': ip.get('is_blocked', False),
+                'targeted_users': ip.get('targeted_users', []),
+                'latest_attempt': ip.get('latest_attempt')
+            } for ip in suspicious_ips]
+
+        # Get security anomalies
+        anomalies = get_security_anomalies(hours=hours)
+        if anomalies:
+            result['anomalies'] = anomalies
+
+        # Get file integrity status
+        integrity_status = get_last_integrity_status()
+        if integrity_status and integrity_status.get('has_violations'):
+            result['integrity_violations'] = integrity_status.get('violations', [])
+
+        # Get suspicious sessions
+        suspicious_sessions = get_suspicious_sessions()
+        if suspicious_sessions:
+            result['suspicious_sessions'] = suspicious_sessions
+
+        # Get permission issues
+        permission_issues = detect_permission_issues()
+        if permission_issues:
+            result['permission_issues'] = permission_issues
+
+        # Get blocked IPs
+        blocked_ips = list(get_blocked_ips())
+        if blocked_ips:
+            result['blocked_ips'] = blocked_ips
+
+        # Calculate overall threat score (0-100)
+        threat_score = _calculate_overall_threat_score(result)
+        result['threat_score'] = threat_score
+
+        # Track metrics
+        metrics.gauge('security.suspicious_activity_score', threat_score)
+
+        # Log high threat situations
+        if threat_score >= 75:
+            log_security_event(
+                event_type=AuditLog.EVENT_SECURITY_THREAT_DETECTED,
+                description=f"High threat level detected (score: {threat_score}/100)",
+                severity='high',
+                details={
+                    'suspicious_ip_count': len(result['suspicious_ips']),
+                    'anomaly_count': len(result['anomalies']),
+                    'integrity_violation_count': len(result['integrity_violations']),
+                    'suspicious_session_count': len(result['suspicious_sessions'])
+                }
+            )
+
+        return result
+    except Exception as e:
+        log_error(f"Error detecting suspicious activity: {e}")
+        return {
+            'error': str(e),
+            'threat_score': 0
+        }
+
+
+def _calculate_overall_threat_score(data: Dict[str, Any]) -> int:
+    """
+    Calculate an overall threat score based on detected suspicious activities.
+
+    Args:
+        data: Dictionary of suspicious activity data
+
+    Returns:
+        int: Overall threat score from 0-100
+    """
+    score = 0
+
+    # Suspicious IPs contribute up to 25 points
+    suspicious_ips = data.get('suspicious_ips', [])
+    if suspicious_ips:
+        # Count high threat IPs (threat score >= 75)
+        high_threat_count = sum(1 for ip in suspicious_ips if ip.get('threat_score', 0) >= 75)
+
+        if high_threat_count >= 3:
+            score += 25
+        elif high_threat_count >= 1:
+            score += 15
+        elif len(suspicious_ips) >= 5:
+            score += 10
+        elif len(suspicious_ips) > 0:
+            score += 5
+
+    # Security anomalies contribute up to 30 points
+    anomalies = data.get('anomalies', [])
+    if anomalies:
+        # Count critical and high severity anomalies
+        critical_count = sum(1 for a in anomalies if a.get('severity') == 'critical')
+        high_count = sum(1 for a in anomalies if a.get('severity') == 'high')
+
+        if critical_count >= 1:
+            score += 30
+        elif high_count >= 2:
+            score += 20
+        elif high_count >= 1:
+            score += 15
+        elif len(anomalies) > 0:
+            score += 10
+
+    # File integrity violations contribute up to 25 points
+    violations = data.get('integrity_violations', [])
+    if violations:
+        # Count critical and high severity violations
+        critical_count = sum(1 for v in violations if v.get('severity') in ('critical', 'high'))
+
+        if critical_count >= 1:
+            score += 25
+        elif len(violations) >= 3:
+            score += 15
+        elif len(violations) > 0:
+            score += 10
+
+    # Suspicious sessions contribute up to 10 points
+    suspicious_sessions = data.get('suspicious_sessions', [])
+    if len(suspicious_sessions) >= 3:
+        score += 10
+    elif len(suspicious_sessions) > 0:
+        score += 5
+
+    # Permission issues contribute up to 10 points
+    permission_issues = data.get('permission_issues', [])
+    if len(permission_issues) >= 3:
+        score += 10
+    elif len(permission_issues) > 0:
+        score += 5
+
+    # Cap at 100
+    return min(100, score)
+
+
 # Helper functions
 
 def _get_from_cache(key: str, as_int: bool = False) -> Any:

@@ -32,7 +32,7 @@ from werkzeug.exceptions import HTTPException
 
 from extensions import db, metrics
 from models.security import AuditLog
-from models.security.audit_log import log_audit_event
+from core.security.cs_audit import log_security_event
 from core.factory import create_app
 from core.seeder import seed_database, seed_development_data
 from core.security import (
@@ -221,18 +221,19 @@ def _handle_session_expiration(event_type: str, description: str, severity: str,
 
     # Log the session termination for audit
     try:
-        log_audit_event(
-            action="session_terminated",
-            actor_id=user_id,
-            actor_type="user",
-            target_id=username,
-            target_type="session",
-            status="success",
+        log_security_event(
+            event_type="session_terminated",
+            description=f"Session terminated for {username}",
+            severity=severity,
+            user_id=user_id,
+            ip_address=request.remote_addr,
             details={
                 "reason": event_type,
                 "ip_address": request.remote_addr,
                 "user_agent": request.headers.get('User-Agent', 'unknown')
-            }
+            },
+            object_type="session",
+            object_id=username
         )
     except Exception as e:
         current_app.logger.error(f"Failed to log audit event: {e}")
@@ -462,19 +463,19 @@ def register_cli_commands(app: Flask) -> None:
 
                 # Log scan completion to audit log
                 try:
-                    log_audit_event(
-                        action="security_scan",
-                        actor_id=0,  # System user
-                        actor_type="system",
-                        target_id="application",
-                        target_type="security",
-                        status="completed",
+                    log_security_event(
+                        event_type="security_scan",
+                        description="Security scan completed",
+                        severity="info",
+                        user_id=0,  # System user
                         details={
                             "duration_seconds": duration,
                             "issues_found": len(issues) if issues else 0,
                             "scan_mode": "detailed" if detailed else "summary",
                             "auto_fix": fix
-                        }
+                        },
+                        object_type="security",
+                        object_id="application"
                     )
                 except Exception as e:
                     app.logger.error(f"Failed to log security scan completion: {e}")

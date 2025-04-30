@@ -48,10 +48,13 @@ models/
 │   └── cloud_resource.py    # Infrastructure resources
 ├── communication/           # Communication-related models
 │   ├── __init__.py          # Communication module exports
+│   ├── comm_channel.py      # Channel configuration model
+│   ├── comm_log.py          # Communication logging model
+│   ├── comm_scheduler.py    # Communication scheduling model
 │   ├── newsletter.py        # Newsletter subscribers and lists
 │   ├── notification.py      # User notifications
 │   ├── subscriber.py        # Subscriber management
-│   └── webhook.py           # Webhook subscriptions
+│   └── webhook.py           # Webhook subscriptions and delivery
 ├── content/                 # Content management models
 │   ├── __init__.py          # Content module exports
 │   ├── category.py          # Content categorization
@@ -83,12 +86,12 @@ models/
 └── storage/                 # Storage-related models
     ├── __init__.py          # Storage module exports
     ├── file_metadata.py     # File metadata management
+    ├── file_share.py        # File sharing permissions
     ├── file_upload.py       # File upload tracking
     ├── file_version.py      # File version history tracking
-    ├── file_share.py        # File sharing permissions
+    ├── README.md            # Storage module documentation
     ├── storage_policy.py    # Retention and lifecycle policies
-    ├── storage_quota.py     # Storage quota management
-    └── README.md            # Storage module documentation
+    └── storage_quota.py     # Storage quota management
 ```
 
 ## Key Components
