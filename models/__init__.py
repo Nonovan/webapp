@@ -29,6 +29,13 @@ from extensions import db
 # Import base classes first to avoid circular imports
 from .base import BaseModel, TimestampMixin, AuditableMixin
 
+# Export bulk operations directly from BaseModel
+bulk_create = BaseModel.bulk_create
+bulk_update = BaseModel.bulk_update
+bulk_delete = BaseModel.bulk_delete
+paginate = BaseModel.paginate
+get_or_create = BaseModel.get_or_create
+
 # Import models by domain
 # Auth models
 from .auth.user import User
@@ -72,7 +79,8 @@ from .ics.ics_control_log import ICSControlLog
 # Build the __all__ list for proper exports
 __all__ = [
     # Core components
-    'db', 'BaseModel', 'TimestampMixin', 'AuditableMixin', 'bulk_update_models',
+    'db', 'BaseModel', 'TimestampMixin', 'AuditableMixin',
+    'bulk_update_models', 'bulk_create', 'bulk_update', 'bulk_delete', 'paginate', 'get_or_create',
 
     # Auth models
     'User', 'Role', 'Permission', 'UserSession', 'UserActivity',

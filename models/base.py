@@ -20,6 +20,7 @@ from typing import Dict, Any, Optional, List, Type, TypeVar, Union, ClassVar, ca
 from flask import current_app, abort, g, has_request_context, request
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.hybrid import hybrid_property
+from sqlalchemy.inspection import inspect
 from extensions import db
 
 # Define TypeVar with proper constraints for type hinting
@@ -429,12 +430,13 @@ class BaseModel(db.Model, TimestampMixin):
             logger.error("Failed to delete %s: %s", self.__class__.__name__, str(e))
             raise
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self, include_relationships: bool = False, max_depth: int = 1) -> Dict[str, Any]:
         """
         Convert the instance to a dictionary for serialization.
 
-        This provides a default implementation that includes all columns.
-        Subclasses should override this to customize the serialization.
+        Args:
+            include_relationships: Whether to include relationships in the output
+            max_depth: Maximum depth for nested relationship serialization
 
         Returns:
             Dict[str, Any]: Dictionary representation of the instance
@@ -449,6 +451,30 @@ class BaseModel(db.Model, TimestampMixin):
                 value = value.isoformat()
 
             result[column.name] = value
+
+        # Include relationships if requested and depth allows
+        if include_relationships and max_depth > 0:
+            for relationship in inspect(self.__class__).relationships:
+                # Skip back-references to avoid circular references
+                if relationship.back_populates or relationship.backref:
+                    continue
+
+                rel_obj = getattr(self, relationship.key)
+
+                # Handle collections (one-to-many, many-to-many)
+                if hasattr(rel_obj, '__iter__'):
+                    result[relationship.key] = [
+                        item.to_dict(include_relationships=True, max_depth=max_depth-1)
+                        for item in rel_obj
+                    ] if rel_obj else []
+                # Handle scalar relationships (many-to-one, one-to-one)
+                elif rel_obj is not None:
+                    result[relationship.key] = rel_obj.to_dict(
+                        include_relationships=True,
+                        max_depth=max_depth-1
+                    )
+                else:
+                    result[relationship.key] = None
 
         return result
 

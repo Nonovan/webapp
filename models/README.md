@@ -11,6 +11,8 @@ This package defines the application's data model layer with a focus on:
 - Comprehensive type annotations and documentation
 - Security and audit features
 - Automated logging for security-critical operations
+- Bulk operations for efficient data manipulation
+- Advanced query capabilities with pagination and filtering
 
 The models implement the Active Record pattern through SQLAlchemy, where each model instance represents a row in the database and provides methods for CRUD operations. This approach encapsulates database operations within the models themselves, promoting code organization and reusability.
 
@@ -80,7 +82,13 @@ models/
 │   └── vulnerability_record.py # Vulnerability management
 └── storage/                 # Storage-related models
     ├── __init__.py          # Storage module exports
-    └── file_upload.py       # File upload tracking
+    ├── file_metadata.py     # File metadata management
+    ├── file_upload.py       # File upload tracking
+    ├── file_version.py      # File version history tracking
+    ├── file_share.py        # File sharing permissions
+    ├── storage_policy.py    # Retention and lifecycle policies
+    ├── storage_quota.py     # Storage quota management
+    └── README.md            # Storage module documentation
 ```
 
 ## Key Components
@@ -134,12 +142,18 @@ models/
     - Security scanning
 8. **Storage (`storage/`)**:
     - File upload tracking and management
-    - File scanning and validation
+    - Comprehensive file metadata management
+    - File security scanning and classification
+    - File integrity verification through hashing
+    - Version control for files
+    - Secure file sharing with access controls
+    - Storage quota management and enforcement
+    - File retention and lifecycle policies
 
 ## Notable Files
 
 - **`__init__.py`**: Main package initialization with event listeners for audit logging
-- **`base.py`**: Contains the core base classes and mixins
+- **`base.py`**: Contains the core base classes and mixins with bulk operations support
 - **`auth/permission.py`**: Fine-grained permission model for RBAC
 - **`auth/role.py`**: Role model with permission inheritance
 - **`auth/permission_delegation.py`**: Temporary permission transfers between users
@@ -149,6 +163,8 @@ models/
 - **`content/content_revision.py`**: Version history tracking for content
 - **`cloud/cloud_resource.py`**: Cloud resource management with cost tracking
 - **`security/system_config.py`**: System-wide configuration storage
+- **`storage/file_metadata.py`**: File metadata and classification management
+- **`storage/file_upload.py`**: File upload processing and security validation
 
 ## Implementation Notes
 
@@ -162,6 +178,8 @@ models/
   - Content models support hierarchical structures
   - Storage models include file validation and security scanning
   - Auth models implement full RBAC with permission inheritance
+- Bulk operations provide efficient data manipulation for large datasets
+- Advanced query methods support pagination, filtering, and contextual operations
 
 ## Key Features
 
@@ -178,6 +196,11 @@ models/
 - **Vulnerability Management**: Comprehensive vulnerability lifecycle handling
 - **Threat Intelligence**: Tracking of security threats and indicators
 - **Sanitization**: Automatic removal of sensitive data from logs
+- **File Integrity**: Cryptographic hash verification for uploaded files
+- **Security Scanning**: Malware and threat scanning for file uploads
+- **Bulk Operations**: Efficient creation, updating, and deletion of multiple records
+- **Advanced Queries**: Pagination, date range filtering, and contextual lookups
+- **Get-or-Create Pattern**: Simplified retrieval with fallback to creation
 
 ## RBAC System
 
@@ -199,6 +222,8 @@ All models inherit from the `BaseModel` class, which provides:
 - Type annotations for better IDE support
 - Common query methods
 - JSON serialization via `to_dict()`
+- Bulk operations for efficient data manipulation
+- Pagination and filtering capabilities
 
 ```python
 from models.base import BaseModel
@@ -446,6 +471,64 @@ else:
     )
 ```
 
+### File Storage Management
+
+```python
+from models.storage import FileUpload, FileMetadata
+import hashlib
+
+# Create a file upload record
+file_upload = FileUpload(
+    filename="security_whitepaper.pdf",
+    original_filename="CompanyName-Security-Whitepaper-2023.pdf",
+    file_size=1024 * 1024,  # 1MB
+    mime_type="application/pdf",
+    user_id=current_user.id,
+    storage_path="uploads/2023/07/security_whitepaper.pdf"
+)
+file_upload.save()
+
+# Create detailed file metadata
+metadata = FileMetadata(
+    file_id=file_upload.id,
+    filename=file_upload.filename,
+    mime_type=file_upload.mime_type,
+    file_size=file_upload.file_size,
+    path=file_upload.storage_path,
+    user_id=current_user.id,
+    media_type=FileMetadata.TYPE_DOCUMENT
+)
+
+# Calculate hash for integrity verification
+with open(file_upload.storage_path, 'rb') as f:
+    file_hash = hashlib.sha256(f.read()).hexdigest()
+metadata.file_hash = file_hash
+
+metadata.save()
+
+# Run security scan on the file
+metadata.update_security_scan(
+    result=FileMetadata.SCAN_RESULT_CLEAN,
+    scan_details={
+        "scanner": "MalwareScanner v3.4",
+        "definitions_date": "2023-07-15",
+        "scan_id": "scan-20230715-123456"
+    }
+)
+
+# Mark file as sensitive if it contains confidential information
+if contains_sensitive_data(file_upload.storage_path):
+    metadata.mark_sensitive(
+        is_sensitive=True,
+        reason="Contains personally identifiable information"
+    )
+
+# Find duplicate files based on hash
+duplicates = FileMetadata.find_duplicates()
+for hash_value, files in duplicates.items():
+    print(f"Found {len(files)} duplicate files with hash {hash_value}")
+```
+
 ### Vulnerability Management
 
 ```python
@@ -518,6 +601,81 @@ delegation.revoke(
 )
 ```
 
+### Bulk Operations
+
+```python
+from models import User, Role, Post
+
+# Create multiple users at once
+new_users = [
+    {"username": "user1", "email": "user1@example.com", "status": User.STATUS_ACTIVE},
+    {"username": "user2", "email": "user2@example.com", "status": User.STATUS_ACTIVE},
+    {"username": "user3", "email": "user3@example.com", "status": User.STATUS_PENDING}
+]
+
+# Create all users in a single transaction
+created_count = User.bulk_create(new_users, return_instances=False)
+print(f"Created {created_count} users")
+
+# Update multiple records with the same attributes
+post_ids = [1, 2, 3, 4, 5]
+update_result = Post.bulk_update({
+    post_id: {"status": Post.STATUS_PUBLISHED, "published_at": datetime.now(timezone.utc)}
+    for post_id in post_ids
+})
+print(f"Updated {update_result['updated_count']} posts")
+
+# Delete multiple records efficiently
+delete_result = Role.bulk_delete([5, 6, 7])
+print(f"Deleted {delete_result['deleted_count']} roles, skipped {len(delete_result['skipped_ids'])}")
+
+# Use the generic model updater for flexibility
+from models import bulk_update_models
+
+result = bulk_update_models(
+    User,
+    [10, 11, 12],
+    {"is_active": True, "last_login_reminder": datetime.now(timezone.utc)}
+)
+```
+
+### Advanced Query Methods
+
+```python
+from models import Post, User
+
+# Get paginated results with filtering and sorting
+page_result = Post.paginate(
+    page=2,
+    per_page=15,
+    filters={"status": Post.STATUS_PUBLISHED, "category_id": 5},
+    order_by="published_at",
+    order_direction="desc"
+)
+
+# Access paginated data
+posts = page_result["items"]
+metadata = page_result["meta"]
+print(f"Showing page {metadata['page']} of {metadata['total_pages']} ({metadata['total_items']} total posts)")
+
+# Filter records by date range
+recent_users = User.filter_by_date_range(
+    start_date=datetime.now(timezone.utc) - timedelta(days=7),
+    end_date=datetime.now(timezone.utc),
+    date_column="created_at"
+)
+
+# Get a record or create it if it doesn't exist
+tag, created = Tag.get_or_create(
+    name="security",
+    defaults={"description": "Security-related content"}
+)
+if created:
+    print(f"Created new tag: {tag.name}")
+else:
+    print(f"Found existing tag: {tag.name}")
+```
+
 ## Security Considerations
 
 - **Encrypted Fields**: Sensitive fields are encrypted at rest using AES-256
@@ -534,6 +692,11 @@ delegation.revoke(
 - **Sensitive Data Protection**: Automatic redaction of sensitive data in logs
 - **Vulnerability Management**: Full vulnerability lifecycle tracking and remediation
 - **Threat Intelligence**: Storage and processing of threat indicators
+- **File Integrity**: Cryptographic hashing to verify file integrity
+- **Content Security**: Security scanning for uploaded files with flagging capabilities
+- **Metadata Sanitization**: Removal of sensitive metadata from uploaded files
+- **Bulk Operation Auditing**: Security logging for bulk operations to track mass changes
+- **Transaction Management**: Proper transaction handling with automatic rollbacks on errors
 
 ## Contributing New Models
 
@@ -547,6 +710,8 @@ When adding new models:
 6. Add the model to **init**.py exports
 7. Consider security implications and add to audit listeners if needed
 8. Write unit tests for the model's functionality
+9. Implement bulk operations for models that require batch processing
+10. Add pagination support for models with potentially large result sets
 
 ## Related Documentation
 
@@ -562,3 +727,8 @@ When adding new models:
 - Security Monitoring and Auditing
 - Vulnerability Management Policy
 - Threat Intelligence Integration Guide
+- File Storage Management Guide
+- Secure File Handling Best Practices
+- Bulk Operations Guide
+- Query Performance Optimization
+- Pagination Implementation
