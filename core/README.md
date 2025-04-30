@@ -67,10 +67,12 @@ The core package serves as the backbone of the Cloud Infrastructure Platform, pr
   - Includes file integrity verification and baseline management
 
 - **`utils/`**: Specialized utility modules
-  - Provides modular, reusable functionality across the application
-  - Implements standardized patterns for common operations
-  - Includes specialized formatting and string manipulation
-  - Ensures consistent handling of common data types
+  - Contains modular, reusable functionality across the application
+  - Provides string manipulation utilities for text processing
+  - Implements date/time handling with timezone support
+  - Offers file operations with security features
+  - Includes collection manipulation and data validation tools
+  - Provides basic security utilities for common operations
 
 ## Directory Structure
 
@@ -113,9 +115,15 @@ core/
 │       ├── base.html     # Core layout template
 │       ├── minimal.html  # Minimal layout without navigation
 │       └── secure.html   # Security-enhanced layout
-└── utils/              # Specialized utilities
-    ├── __init__.py     # Utility package initialization
-    └── string.py       # String manipulation utilities
+└── utils/                # Specialized utilities
+    ├── __init__.py       # Utility package initialization
+    ├── collection.py     # Collection data structure manipulation
+    ├── date_time.py      # Date and time handling utilities
+    ├── file.py           # File handling utilities
+    ├── README.md         # Utility modules documentation
+    ├── security.py       # Basic security utilities
+    ├── string.py         # String manipulation utilities
+    └── validation.py     # Input validation utilities
 ```
 
 ## Configuration
@@ -168,6 +176,8 @@ The core package uses the following configuration settings:
 - **Secure Baseline Management**: Secure handling of integrity baselines with controlled updates
 - **Secure Headers**: HTTP security headers are enforced on all responses
 - **String Manipulation Safety**: Secure string handling with proper encoding
+- **Timezone Awareness**: Date/time handling properly manages timezone information
+- **Thread Safety**: Utilities designed for concurrent environment safety
 
 ## Common Features
 
@@ -183,6 +193,10 @@ The core package uses the following configuration settings:
 - Structured metrics collection
 - Common string utilities for consistent text processing
 - URL-safe slug generation for content management
+- Date/time utilities with timezone support
+- Collection manipulation for complex data structures
+- Input validation with comprehensive schema support
+- Secure file operations with atomic writing
 
 ## Usage Examples
 
@@ -295,6 +309,52 @@ post_slug = slugify("My Blog Post Title!")  # Output: "my-blog-post-title"
 excerpt = truncate_text(long_content, length=150)  # Truncates at word boundary
 ```
 
+### Date/Time Utilities
+
+```python
+from core.utils.date_time import utcnow, format_relative_time, parse_iso_datetime
+
+# Get current UTC time
+current_time = utcnow()
+
+# Format relative time string
+relative = format_relative_time(event_date)  # e.g., "2 hours ago"
+
+# Parse ISO format date
+event_date = parse_iso_datetime("2024-07-15T14:30:00Z")
+```
+
+### Collection Utilities
+
+```python
+from core.utils.collection import deep_get, deep_set, flatten_dict
+
+# Safely access nested dictionary values
+user_name = deep_get(data, "user.profile.name", default="Unknown User")
+
+# Set value in nested structure
+deep_set(config, "security.headers.content_security_policy.enabled", True)
+
+# Convert nested dictionary to flat structure
+flat_data = flatten_dict(nested_data, separator=".")
+```
+
+### File Utilities
+
+```python
+from core.utils.file import compute_file_hash, save_json_file, is_path_safe
+
+# Compute secure hash of file
+file_hash = compute_file_hash("/path/to/file.txt", algorithm="sha256")
+
+# Safely save JSON data atomically
+save_json_file("/path/to/output.json", {"key": "value"}, indent=2)
+
+# Validate path safety to prevent path traversal
+if is_path_safe(user_path, allowed_base_dirs=["/allowed/path"]):
+    process_file(user_path)
+```
+
 ## Related Documentation
 
 - Application Architecture
@@ -304,10 +364,14 @@ excerpt = truncate_text(long_content, length=150)  # Truncates at word boundary
 - Monitoring and Metrics
 - Security Architecture
 - String Utility Reference
+- Date/Time Utility Reference
+- Collection Utility Reference
+- File Utility Reference
 - URL Generation Guidelines
+- Validation Framework Guide
 
 ## Version Information
 
-- **Version**: 0.1.0
-- **Last Updated**: 2024-07-15
+- **Version**: 0.1.1
+- **Last Updated**: 2024-07-16
 - **Maintainers**: Platform Engineering Team

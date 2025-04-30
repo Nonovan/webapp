@@ -1,0 +1,198 @@
+"""
+Login attempt tracking model for the Cloud Infrastructure Platform.
+
+This module tracks login attempts, supports IP and account-based rate limiting,
+and implements sophisticated brute force detection with progressive lockout
+strategies.
+"""
+
+from datetime import datetime, timezone, timedelta
+from typing import Dict, Any, Optional, Tuple, Union, List
+from flask import current_app
+import json
+import ipaddress
+from user_agents import parse
+from geoip2.errors import AddressNotFoundError
+
+from extensions import db, redis_client, geoip
+from models.base import BaseModel
+from core.security_utils import log_security_event
+
+class LoginAttempt(BaseModel):
+    """Model for tracking login attempts and implementing brute force protection."""
+
+    __tablename__ = 'login_attempts'
+
+    # Core fields
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), nullable=True, index=True)  # May be null for loginless auth methods
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
+    ip_address = db.Column(db.String(45), nullable=True, index=True)  # IPv6 compatible
+    user_agent = db.Column(db.String(255), nullable=True)
+    success = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    timestamp = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc),
+                          nullable=False, index=True)
+
+    # Additional security metadata
+    geo_location = db.Column(db.String(255), nullable=True)
+    device_info = db.Column(db.JSON, nullable=True)  # Store device fingerprint, os, browser, etc.
+    auth_method = db.Column(db.String(20), nullable=True)  # 'password', 'sso', 'api_key', etc.
+    failure_reason = db.Column(db.String(64), nullable=True)  # Why the login failed
+    request_id = db.Column(db.String(64), nullable=True)  # Link to request logs
+    risk_score = db.Column(db.Float, nullable=True)  # Calculated risk score
+
+    # Redis key prefixes for rate limiting
+    USERNAME_ATTEMPT_PREFIX = "login:attempts:username:"
+    USERNAME_LOCKOUT_PREFIX = "login:lockout:username:"
+    IP_ATTEMPT_PREFIX = "login:attempts:ip:"
+    IP_LOCKOUT_PREFIX = "login:lockout:ip:"
+
+    # Default configuration values (can be overridden in application config)
+    DEFAULT_USERNAME_MAX_ATTEMPTS = 5
+    DEFAULT_IP_MAX_ATTEMPTS = 10
+    DEFAULT_LOCKOUT_MINUTES = 15
+    DEFAULT_IP_LOCKOUT_MINUTES = 30
+    DEFAULT_ATTEMPT_WINDOW_HOURS = 24
+
+    # Progressive lockout timeouts (in minutes) for repeated failures
+    PROGRESSIVE_LOCKOUT_MINUTES = [5, 15, 30, 60, 240, 1440]  # 5min, 15min, 30min, 1hr, 4hr, 24hr
+
+    def __init__(self, username: Optional[str] = None, ip_address: Optional[str] = None,
+                 user_agent: Optional[str] = None, user_id: Optional[int] = None,
+                 success: bool = False, **kwargs):
+        """Initialize a new login attempt record."""
+        self.username = username
+        self.ip_address = ip_address
+        self.user_agent = user_agent
+        self.user_id = user_id
+        self.success = success
+
+        # Process user agent to extract device info
+        if user_agent:
+            try:
+                ua_object = parse(user_agent)
+                self.device_info = {
+                    'browser': ua_object.browser.family,
+                    'browser_version': ua_object.browser.version_string,
+                    'os': ua_object.os.family,
+                    'os_version': ua_object.os.version_string,
+                    'device': ua_object.device.family,
+                    'is_mobile': ua_object.is_mobile,
+                    'is_tablet': ua_object.is_tablet,
+                    'is_bot': ua_object.is_bot
+                }
+            except:
+                # Handle parsing errors gracefully
+                self.device_info = {'raw': user_agent[:255] if user_agent else None}
+
+        # Try to determine geo_location from IP
+        if ip_address and hasattr(current_app, 'geoip_reader'):
+            try:
+                location = current_app.geoip_reader.city(ip_address)
+                if location:
+                    self.geo_location = f"{location.city.name}, {location.country.iso_code}" if location.city.name else location.country.name
+            except (AddressNotFoundError, Exception):
+                # Handle private IPs, etc.
+                pass
+
+        # Set additional attributes from kwargs
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+
+    @classmethod
+    def log_attempt(cls, username: Optional[str] = None, ip_address: Optional[str] = None,
+                   user_agent: Optional[str] = None, user_id: Optional[int] = None,
+                   success: bool = False, failure_reason: Optional[str] = None,
+                   **kwargs) -> 'LoginAttempt':
+        """Log a login attempt and update rate limiting counters."""
+        attempt = cls(
+            username=username,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            user_id=user_id,
+            success=success,
+            failure_reason=failure_reason,
+            **kwargs
+        )
+
+        # Save the attempt
+        db.session.add(attempt)
+        db.session.commit()
+
+        # If this was a failure, update rate limiting counters
+        if not success and redis_client:
+            now = datetime.now(timezone.utc)
+            expiry = int(timedelta(hours=cls.DEFAULT_ATTEMPT_WINDOW_HOURS).total_seconds())
+
+            # Update username-based counter
+            if username:
+                username_key = f"{cls.USERNAME_ATTEMPT_PREFIX}{username.lower()}"
+                redis_client.incr(username_key)
+                redis_client.expire(username_key, expiry)
+
+            # Update IP-based counter
+            if ip_address:
+                ip_key = f"{cls.IP_ATTEMPT_PREFIX}{ip_address}"
+                redis_client.incr(ip_key)
+                redis_client.expire(ip_key, expiry)
+
+            # Log security event for repeated failures
+            if username:
+                attempts = redis_client.get(username_key)
+                if attempts:
+                    attempts = int(attempts)
+                    if attempts >= cls.DEFAULT_USERNAME_MAX_ATTEMPTS:
+                        # Log enhanced security event for potential brute force
+                        log_security_event(
+                            'repeated_login_failures',
+                            f"Multiple login failures for username: {username}",
+                            username=username,
+                            attempts=attempts,
+                            ip_address=ip_address,
+                            severity="warning"
+                        )
+
+                        # Apply progressive lockout if configured
+                        lockout_index = min(attempts // cls.DEFAULT_USERNAME_MAX_ATTEMPTS - 1,
+                                           len(cls.PROGRESSIVE_LOCKOUT_MINUTES) - 1)
+                        if lockout_index >= 0:
+                            lockout_mins = cls.PROGRESSIVE_LOCKOUT_MINUTES[lockout_index]
+                            username_lockout_key = f"{cls.USERNAME_LOCKOUT_PREFIX}{username.lower()}"
+                            redis_client.set(
+                                username_lockout_key,
+                                int(now.timestamp()),
+                                ex=int(timedelta(minutes=lockout_mins).total_seconds())
+                            )
+
+        return attempt
+
+    @classmethod
+    def is_account_locked(cls, username: str) -> Tuple[bool, Optional[datetime]]:
+        """Check if an account is locked due to too many failed attempts."""
+        if not redis_client:
+            return False, None
+
+        username_lockout_key = f"{cls.USERNAME_LOCKOUT_PREFIX}{username.lower()}"
+        lockout_time = redis_client.get(username_lockout_key)
+
+        if lockout_time:
+            # Get the TTL to determine unlock time
+            ttl = redis_client.ttl(username_lockout_key)
+            if ttl > 0:
+                unlock_time = datetime.now(timezone.utc) + timedelta(seconds=ttl)
+                return True, unlock_time
+
+        return False, None
+
+    @classmethod
+    def is_ip_blocked(cls, ip_address: str) -> Tuple[bool, Optional[datetime]]:
+        """Check if an IP is blocked due to too many failed attempts."""
+        if not redis_client:
+            return False, None
+
+        ip_key = f"{cls.IP_ATTEMPT_PREFIX}{ip_address}"
+        attempts = redis_client.get(ip_key)
+
+        if attempts and int(attempts) > cls.DEFAULT_IP_MAX_ATTEMPTS:
+            ip_lockout_key = f"{cls.IP_LOCK
