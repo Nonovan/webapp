@@ -28,6 +28,14 @@ Services encapsulate complex operations and provide clean APIs for controllers/r
     - JWT token generation for API authentication
     - Two-factor authentication support
 
+- **`AuditService`**: Logging and retrieval of audit trail information
+  - **Usage**: Use this service to log significant events and retrieve audit logs for compliance and analysis.
+  - **Features**:
+    - Event logging with user context, action, target, status, and details
+    - Flexible log retrieval with filtering and pagination
+    - Severity levels for events (info, warning, error, critical)
+    - Integration with database models for persistent storage
+
 - **`EmailService`**: Email template rendering and delivery
   - **Usage**: Use this service to send emails using templates or raw content
   - **Features**:
@@ -36,6 +44,14 @@ Services encapsulate complex operations and provide clean APIs for controllers/r
     - File attachment support
     - Email delivery tracking
     - Batch email operations
+
+- **`MonitoringService`**: System health monitoring and metrics collection
+  - **Usage**: Use this service to check system health, gather metrics, and potentially trigger alerts.
+  - **Features**:
+    - System resource monitoring (CPU, memory, disk)
+    - Health checks for critical components (database, cache)
+    - Integration with Prometheus metrics
+    - Basic security metric collection (optional)
 
 - **`NewsletterService`**: Subscription management and newsletter distribution
   - **Usage**: Use this service to handle newsletter subscriptions and send newsletters to subscribers
@@ -46,6 +62,15 @@ Services encapsulate complex operations and provide clean APIs for controllers/r
     - Subscription analytics and reporting
     - Batch sending with configurable limits
 
+- **`NotificationService`**: Centralized notification delivery
+  - **Usage**: Use this service to send notifications via multiple channels (in-app, email).
+  - **Features**:
+    - Multi-channel notification dispatch (in-app, email)
+    - User-specific notification targeting
+    - Notification types and priorities
+    - Integration with `EmailService`
+    - Marking notifications as read
+
 - **`SecurityService`**: Security operations including file integrity monitoring
   - **Usage**: Use this service for security-related operations including file integrity verification
   - **Features**:
@@ -55,15 +80,28 @@ Services encapsulate complex operations and provide clean APIs for controllers/r
     - Change detection for security-critical files
     - Comprehensive security logging and metrics
 
+- **`WebhookService`**: Management of webhook subscriptions and deliveries
+  - **Usage**: Use this service to manage webhook subscriptions and trigger event deliveries.
+  - **Features**:
+    - Webhook subscription creation, update, and deletion
+    - Secure secret generation for signature verification
+    - Triggering webhook deliveries for specific events
+    - Test webhook functionality
+    - Delivery history tracking
+
 ## Directory Structure
 
 ```plaintext
 services/
 ├── __init__.py           # Package initialization with exported components
+├── audit_service.py      # Audit logging service
 ├── auth_service.py       # Authentication and authorization service
 ├── email_service.py      # Email sending and templating service
+├── monitoring_service.py # System monitoring and health check service
 ├── newsletter_service.py # Newsletter management service
+├── notification_service.py # Multi-channel notification service
 ├── security_service.py   # Security operations and file integrity services
+├── webhook_service.py    # Webhook management and delivery service
 └── README.md             # This documentation
 ```
 
@@ -75,7 +113,7 @@ services/
 - Implement proper transaction management with rollbacks on errors
 - Store sensitive data securely using appropriate encryption
 - Use rate limiting for public-facing services
-- Log sensitive operations for audit purposes
+- Log sensitive operations for audit purposes (using `AuditService`)
 - Avoid hardcoding credentials in service files
 - Create unit tests for all service functions
 
@@ -175,17 +213,100 @@ else:
     print(f"Baseline update failed: {message}")
 ```
 
+### Audit Logging
+
+```python
+from services import AuditService
+from flask import request
+
+# Log a user login attempt
+AuditService.log_event(
+    user_id=user.id if user else None,
+    action='user.login.attempt',
+    status='success' if success else 'failure',
+    ip_address=request.remote_addr,
+    details={'username': 'attempted_user'}
+)
+
+# Retrieve recent critical audit logs
+logs, total_count = AuditService.get_logs(severity='critical', limit=10)
+```
+
+### Monitoring
+
+```python
+from services import MonitoringService
+
+# Get current system status
+status_data = MonitoringService.get_system_status()
+print(f"CPU Usage: {status_data.get('system', {}).get('cpu_percent')}%")
+
+# Perform a health check
+is_healthy, health_details = MonitoringService.perform_health_check()
+if not is_healthy:
+    print(f"System health check failed: {health_details}")
+```
+
+### Notifications
+
+```python
+from services import NotificationService, send_security_alert
+
+# Send an informational in-app notification
+NotificationService.send_in_app_notification(
+    user_ids=[123, 456],
+    message="Your report is ready for download.",
+    action_url="/reports/download/xyz"
+)
+
+# Send a critical security alert via in-app and email
+send_security_alert(
+    user_ids=789,
+    message="Suspicious login detected on your account.",
+    email_subject="Security Alert: Suspicious Login",
+    email_template="security_alert",
+    email_template_data={'ip_address': '192.168.1.100', 'time': '2024-07-26 10:00 UTC'}
+)
+```
+
+### Webhook Management
+
+```python
+from services import WebhookService
+
+# Create a webhook subscription
+subscription, secret, error = WebhookService.create_subscription(
+    user_id=123,
+    target_url='https://example.com/webhook-receiver',
+    event_types=['resource.created', 'resource.deleted'],
+    description='Notify on resource changes'
+)
+if subscription:
+    print(f"Subscription created. Secret: {secret}") # Store the secret securely!
+else:
+    print(f"Failed to create subscription: {error}")
+
+# Trigger an event
+payload = {'resource_id': 'res-abc', 'type': 'vm', 'status': 'created'}
+WebhookService.trigger_event(event_type='resource.created', payload=payload)
+```
+
 ## Related Documentation
 
-- API Documentation
-- Authentication Guide
-- Email Templates Guide
-- Security Policies
-- File Integrity Monitoring Guide
-- Security Baseline Management
+- API Documentation (docs/api/README.md)
+- Authentication Guide (docs/security/authentication-standards.md)
+- Audit Log Reference (docs/api/reference/audit.md)
+- Email Templates Guide (admin/templates/email/README.md)
+- File Integrity Monitoring Guide (docs/security/README.md) # Placeholder, specific doc needed
+- Monitoring Strategy (docs/operations/operations-overview.md) # Placeholder, specific doc needed
+- Notification System Design # Placeholder, specific doc needed
+- Security Baseline Management (admin/security/assessment_tools/config_files/security_baselines/README.md)
+- Security Policies (docs/security/README.md)
+- Webhook Implementation Guide (docs/api/guides/webhooks.md)
 
 ## Version History
 
+- **1.6.0 (YYYY-MM-DD)**: Added `AuditService`, `MonitoringService`, `NotificationService`, `WebhookService`.
 - **1.5.0 (2024-07-05)**: Added SecurityService with file integrity monitoring
 - **1.3.0 (2024-06-10)**: Added newsletter analytics and statistics
 - **1.2.0 (2024-04-22)**: Enhanced email delivery with attachments and tracking
