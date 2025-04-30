@@ -11,7 +11,7 @@ import os
 import platform
 import sys
 from datetime import datetime, timezone
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, current_app
 from jinja2 import TemplateNotFound
 from flask_wtf.csrf import CSRFError
 from werkzeug.exceptions import HTTPException
@@ -60,6 +60,36 @@ def create_app(config_name=None) -> Flask:
     # Set up logging early to capture initialization issues
     setup_app_logging(app)
 
+    # Perform early integrity check before initializing other components
+    # This provides a security baseline before the app starts processing requests
+    if app.config.get('ENABLE_FILE_INTEGRITY_MONITORING', True):
+        try:
+            from core.security import check_critical_file_integrity
+            integrity_status, changes = check_critical_file_integrity(app)
+
+            if not integrity_status:
+                critical_changes = [c for c in changes if c.get('severity') == 'critical']
+                if critical_changes:
+                    logger.critical("Critical file integrity violations detected during startup", extra={
+                        'changes': critical_changes,
+                        'violation_count': len(critical_changes)
+                    })
+
+                    # In production, we might want to prevent startup for critical violations
+                    if app.config.get('ENVIRONMENT') in Config.SECURE_ENVIRONMENTS and not app.config.get('IGNORE_INTEGRITY_FAILURES', False):
+                        raise RuntimeError("Application startup aborted due to critical file integrity violations")
+
+                high_changes = [c for c in changes if c.get('severity') == 'high']
+                if high_changes:
+                    logger.error("High severity file integrity violations detected", extra={
+                        'changes': high_changes,
+                        'violation_count': len(high_changes)
+                    })
+        except ImportError as e:
+            logger.warning(f"File integrity check module not available: {e}")
+        except Exception as e:
+            logger.error(f"Error during startup integrity check: {e}")
+
     # Initialize extensions
     init_extensions(app)
 
@@ -107,8 +137,17 @@ def configure_app(app: Flask, config_object=None) -> None:
     # Override with instance config if it exists
     instance_config = os.path.join(app.instance_path, 'config.py')
     if os.path.exists(instance_config):
-        app.config.from_pyfile(instance_config)
-        logger.info(f"Loaded instance configuration from {instance_config}")
+        try:
+            # Check file permissions before loading - instance config may contain sensitive data
+            if sys.platform != 'win32':  # Skip permission check on Windows
+                stat_info = os.stat(instance_config)
+                if stat_info.st_mode & 0o077:  # Check if group or others have any permissions
+                    logger.warning(f"Insecure permissions on instance config file: {instance_config}")
+
+            app.config.from_pyfile(instance_config)
+            logger.info(f"Loaded instance configuration from {instance_config}")
+        except Exception as e:
+            logger.error(f"Failed to load instance configuration: {e}")
 
     # Override with provided config if any
     if config_object:
@@ -288,6 +327,23 @@ def register_error_handlers(app: Flask) -> None:
                             'error_type': e.__class__.__name__
                         }
                     )
+
+                    # Log to the audit system if available
+                    try:
+                        from models.security.audit_log import AuditLog
+                        from core.security.cs_audit import log_security_event
+
+                        log_security_event(
+                            event_type=AuditLog.EVENT_FILE_INTEGRITY,
+                            description="Critical file integrity violation detected after exception",
+                            severity="critical",
+                            details={
+                                'changes': [c.get('path') for c in critical_changes],
+                                'error_context': str(e)
+                            }
+                        )
+                    except ImportError:
+                        pass
         except (ImportError, Exception) as integrity_error:
             # Log but don't let this cause additional errors
             app.logger.error(f"Failed to check file integrity after exception: {integrity_error}")
@@ -414,6 +470,14 @@ def validate_configuration(app: Flask) -> None:
 
         if not app.config.get('API_REQUIRE_HTTPS', True):
             insecure_settings.append('API_REQUIRE_HTTPS should be True')
+
+        # Check that file integrity monitoring is enabled
+        if not app.config.get('ENABLE_FILE_INTEGRITY_MONITORING', True):
+            insecure_settings.append('ENABLE_FILE_INTEGRITY_MONITORING should be True')
+
+        # Check password policy requirements
+        if app.config.get('PASSWORD_MIN_LENGTH', 12) < 12:
+            insecure_settings.append('PASSWORD_MIN_LENGTH should be at least 12')
 
         # If any insecure settings are found, log and raise an error
         if insecure_settings:

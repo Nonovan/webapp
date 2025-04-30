@@ -1,28 +1,95 @@
 """
-Data validation schemas for the Security API module.
+Core schema definitions for data validation across the application.
 
-This module defines Marshmallow schemas used for validating incoming request data
-and serializing outgoing responses for security-related endpoints, including
-incidents, vulnerabilities, scans, and threats.
+This module provides base schema classes and utilities for consistent data
+validation throughout the Cloud Infrastructure Platform. It implements common
+validation patterns, custom field types, and security-focused validation rules.
 """
 
 import logging
-from marshmallow import Schema, fields, validate, ValidationError, validates_schema
+import re
+import ipaddress
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Union, Tuple
+
+from marshmallow import (
+    Schema, fields, validate, validates, validates_schema,
+    ValidationError, pre_load, post_load, EXCLUDE
+)
 
 # Initialize module logger
 logger = logging.getLogger(__name__)
 
-# --- Common Schemas ---
+# --- Base Schema Classes ---
 
 class BaseSchema(Schema):
-    """Base schema with common settings."""
+    """
+    Base schema with common settings and security-focused validation patterns.
+
+    This schema provides foundational behaviors for all schemas in the system:
+    - Excludes unknown fields to prevent data injection attacks
+    - Implements sanitization hooks for input data
+    - Provides common utility methods for validation
+    """
     class Meta:
-        # Default behavior: exclude unknown fields
-        unknown = 'exclude'
+        # Default behavior: exclude unknown fields for security
+        unknown = EXCLUDE
+        # Ensure ordered output for consistent API responses
+        ordered = True
+
+    @pre_load
+    def sanitize_input(self, data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+        """
+        Pre-process and sanitize input data before validation.
+
+        Args:
+            data: The input data dictionary
+
+        Returns:
+            Sanitized input data
+        """
+        # Strip whitespace from string fields to prevent whitespace-based attacks
+        sanitized = {}
+        for key, value in data.items():
+            if isinstance(value, str):
+                sanitized[key] = value.strip()
+            else:
+                sanitized[key] = value
+        return sanitized
+
+    def validate_string_security(self, value: str, field_name: str) -> None:
+        """
+        Validate a string field for common security issues.
+
+        Args:
+            value: String value to validate
+            field_name: Name of the field for error messages
+
+        Raises:
+            ValidationError: If the string contains potentially malicious content
+        """
+        if not value:
+            return
+
+        # Check for potential XSS or injection patterns
+        dangerous_patterns = [
+            r'<script', r'javascript:', r'onerror=', r'onclick=',
+            r'eval\(', r'document\.', r'window\.', r'\balert\(',
+        ]
+
+        for pattern in dangerous_patterns:
+            if re.search(pattern, value, re.IGNORECASE):
+                raise ValidationError(f"Value contains potentially unsafe content", field_name)
+
 
 class PaginationSchema(BaseSchema):
-    """Schema for pagination parameters."""
-    page = fields.Int(missing=1, validate=validate.Range(min=1))
+    """
+    Schema for standardized pagination parameters.
+
+    This schema handles pagination parameters consistently across all API endpoints
+    that return collections, with secure defaults and validation.
+    """
+    page = fields.Int(missing=1, validate=validate.Range(min=1, max=10000))
     per_page = fields.Int(missing=20, validate=validate.Range(min=1, max=100))
     sort_by = fields.Str(missing='created_at')
     sort_direction = fields.Str(
@@ -30,253 +97,275 @@ class PaginationSchema(BaseSchema):
         validate=validate.OneOf(['asc', 'desc'])
     )
 
-# --- Security Incident Schemas ---
+    @validates('sort_by')
+    def validate_sort_field(self, value: str) -> None:
+        """
+        Validate sort field to prevent SQL injection via sorting parameters.
 
-class IncidentSchema(BaseSchema):
-    """Schema for representing a security incident."""
-    id = fields.Int(dump_only=True)
-    title = fields.Str(required=True, validate=validate.Length(min=3, max=128))
-    incident_type = fields.Str(
-        required=True,
-        validate=validate.OneOf(['malware', 'phishing', 'unauthorized_access', 'data_breach', 'dos', 'other'])
-    )
-    description = fields.Str(required=True, validate=validate.Length(min=10, max=1024))
-    details = fields.Dict(required=False, missing={})
-    severity = fields.Str(
+        Args:
+            value: Sort field name
+
+        Raises:
+            ValidationError: If the field contains SQL injection attempts
+        """
+        # Only allow alphanumeric characters and underscores
+        if not re.match(r'^[a-zA-Z0-9_]+$', value):
+            raise ValidationError("Sort field can only contain alphanumeric characters and underscores")
+
+        # Additional security check - prevent common SQL injection patterns
+        dangerous_sort_patterns = [
+            'delete', 'insert', 'update', 'drop', 'select', 'union', '--'
+        ]
+
+        if any(pattern in value.lower() for pattern in dangerous_sort_patterns):
+            raise ValidationError("Invalid sort field")
+
+
+class DateRangeSchema(BaseSchema):
+    """Schema mixin for date range filtering."""
+    start_date = fields.DateTime()
+    end_date = fields.DateTime()
+
+    @validates_schema
+    def validate_date_range(self, data: Dict[str, Any], **kwargs) -> None:
+        """
+        Validate that start date is before end date.
+
+        Args:
+            data: The input data dictionary
+
+        Raises:
+            ValidationError: If start_date is after end_date
+        """
+        start_date = data.get('start_date')
+        end_date = data.get('end_date')
+
+        if start_date and end_date and start_date > end_date:
+            raise ValidationError("Start date must be before end date", "start_date")
+
+        # Ensure dates are not too far in the past or future
+        now = datetime.now(timezone.utc)
+        max_future = datetime(now.year + 10, now.month, now.day, tzinfo=timezone.utc)
+
+        if end_date and end_date > max_future:
+            raise ValidationError("End date cannot be more than 10 years in the future", "end_date")
+
+
+# --- Custom Field Types ---
+
+class SanitizedString(fields.String):
+    """String field that sanitizes input to prevent XSS and injection attacks."""
+
+    def _deserialize(self, value: Any, attr: str, data: Dict[str, Any], **kwargs) -> str:
+        """
+        Deserialize and sanitize string input.
+
+        Args:
+            value: Input value
+            attr: Field name
+            data: Full input data
+
+        Returns:
+            Sanitized string value
+        """
+        result = super()._deserialize(value, attr, data, **kwargs)
+        if result:
+            # Basic sanitization
+            result = result.strip()
+
+            # Replace potentially dangerous characters
+            dangerous_chars = {
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#x27;',
+                '/': '&#x2F;'
+            }
+
+            for char, replacement in dangerous_chars.items():
+                result = result.replace(char, replacement)
+
+        return result
+
+
+class IPAddressField(fields.String):
+    """Field for validating IP addresses."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Initialize with IP version validation."""
+        self.ip_version = kwargs.pop('ip_version', None)  # 4, 6, or None for both
+        super().__init__(*args, **kwargs)
+
+    def _deserialize(self, value: Any, attr: str, data: Dict[str, Any], **kwargs) -> str:
+        """
+        Deserialize and validate IP address.
+
+        Args:
+            value: Input value
+            attr: Field name
+            data: Full input data
+
+        Returns:
+            Validated IP address string
+
+        Raises:
+            ValidationError: If input is not a valid IP address
+        """
+        if value is None:
+            return None
+
+        result = super()._deserialize(value, attr, data, **kwargs)
+
+        try:
+            ip = ipaddress.ip_address(result)
+
+            if self.ip_version == 4 and not isinstance(ip, ipaddress.IPv4Address):
+                raise ValidationError("Not a valid IPv4 address")
+            elif self.ip_version == 6 and not isinstance(ip, ipaddress.IPv6Address):
+                raise ValidationError("Not a valid IPv6 address")
+
+        except ValueError:
+            raise ValidationError("Not a valid IP address")
+
+        return result
+
+
+class CVEField(fields.String):
+    """Field for validating CVE IDs with proper format."""
+
+    def _deserialize(self, value: Any, attr: str, data: Dict[str, Any], **kwargs) -> str:
+        """
+        Deserialize and validate CVE ID format.
+
+        Args:
+            value: Input value
+            attr: Field name
+            data: Full input data
+
+        Returns:
+            Validated CVE ID string
+
+        Raises:
+            ValidationError: If input is not a valid CVE ID format
+        """
+        result = super()._deserialize(value, attr, data, **kwargs)
+
+        # Validate CVE format (CVE-YEAR-DIGITS where YEAR is 4 digits and DIGITS is 4+ digits)
+        if not re.match(r'^CVE-\d{4}-\d{4,}$', result):
+            raise ValidationError("Not a valid CVE ID format (should be CVE-YYYY-NNNNN...)")
+
+        return result
+
+
+# --- Security-Related Schemas ---
+
+class SecurityEventSchema(BaseSchema):
+    """Schema for security events in the system."""
+
+    event_type = fields.String(required=True)
+    severity = fields.String(
         required=True,
         validate=validate.OneOf(['critical', 'high', 'medium', 'low', 'info'])
     )
-    status = fields.Str(
-        required=True,
-        validate=validate.OneOf(['new', 'investigating', 'contained', 'resolved', 'closed'])
+    source = fields.String(required=True)
+    description = fields.String(required=True)
+    details = fields.Dict(missing={})
+    ip_address = IPAddressField()
+    user_agent = fields.String()
+    user_id = fields.Integer(allow_none=True)
+    resource_id = fields.String(allow_none=True)
+    resource_type = fields.String(allow_none=True)
+    timestamp = fields.DateTime(missing=lambda: datetime.now(timezone.utc))
+
+    @validates('details')
+    def validate_details(self, value: Dict[str, Any]) -> None:
+        """
+        Validate the details dictionary to prevent oversized objects.
+
+        Args:
+            value: Details dictionary to validate
+
+        Raises:
+            ValidationError: If the details are too large or complex
+        """
+        # Prevent DoS by limiting the size of the details object
+        serialized = str(value)
+        if len(serialized) > 10000:  # Limit to 10KB
+            raise ValidationError("Security event details exceed maximum allowed size")
+
+        # Limit nesting depth to prevent complex objects that could cause
+        # performance issues when processing
+        self._check_nesting_depth(value)
+
+    def _check_nesting_depth(self, obj: Any, current_depth: int = 0, max_depth: int = 5) -> None:
+        """
+        Check the nesting depth of an object to prevent DoS attacks.
+
+        Args:
+            obj: Object to check
+            current_depth: Current nesting depth
+            max_depth: Maximum allowed nesting depth
+
+        Raises:
+            ValidationError: If the nesting depth exceeds the maximum
+        """
+        if current_depth > max_depth:
+            raise ValidationError("Security event details exceed maximum allowed nesting depth")
+
+        if isinstance(obj, dict):
+            for val in obj.values():
+                self._check_nesting_depth(val, current_depth + 1, max_depth)
+        elif isinstance(obj, list):
+            for item in obj:
+                self._check_nesting_depth(item, current_depth + 1, max_depth)
+
+
+class SecurityConfigSchema(BaseSchema):
+    """Schema for security configuration validation."""
+
+    file_integrity_enabled = fields.Boolean(required=True)
+    file_hash_algorithm = fields.String(
+        validate=validate.OneOf(['sha256', 'sha512']),
+        missing='sha256'
     )
-    source = fields.Str(required=False, validate=validate.Length(max=50))
-    ip_address = fields.Str(required=False, validate=validate.Regexp(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$'))
-    resolution = fields.Str(required=False, validate=validate.Length(max=1024))
-    assigned_to_id = fields.Int(required=False, allow_none=True)
-    resolved_at = fields.DateTime(dump_only=True, allow_none=True)
-    created_at = fields.DateTime(dump_only=True)
-    updated_at = fields.DateTime(dump_only=True)
-
-class IncidentCreateSchema(IncidentSchema):
-    """Schema for creating a new security incident."""
-    class Meta(IncidentSchema.Meta):
-        # Exclude fields generated by the server
-        exclude = ('id', 'resolved_at', 'created_at', 'updated_at')
-
-class IncidentUpdateSchema(BaseSchema):
-    """Schema for updating an existing security incident."""
-    title = fields.Str(validate=validate.Length(min=3, max=128))
-    description = fields.Str(validate=validate.Length(min=10, max=1024))
-    details = fields.Dict()
-    severity = fields.Str(validate=validate.OneOf(['critical', 'high', 'medium', 'low', 'info']))
-    status = fields.Str(validate=validate.OneOf(['investigating', 'contained', 'resolved', 'closed']))
-    resolution = fields.Str(validate=validate.Length(max=1024))
-    assigned_to_id = fields.Int(allow_none=True)
-
-class IncidentFilterSchema(PaginationSchema):
-    """Schema for filtering security incidents."""
-    incident_type = fields.Str(validate=validate.OneOf(['malware', 'phishing', 'unauthorized_access', 'data_breach', 'dos', 'other']))
-    severity = fields.Str(validate=validate.OneOf(['critical', 'high', 'medium', 'low', 'info']))
-    status = fields.Str(validate=validate.OneOf(['new', 'investigating', 'contained', 'resolved', 'closed']))
-    assigned_to_id = fields.Int()
-    start_date = fields.DateTime()
-    end_date = fields.DateTime()
-
-    @validates_schema
-    def validate_dates(self, data, **kwargs):
-        if data.get('start_date') and data.get('end_date') and data['start_date'] > data['end_date']:
-            raise ValidationError("Start date must be before end date.", "start_date")
-
-# --- Vulnerability Schemas ---
-
-class VulnerabilitySchema(BaseSchema):
-    """Schema for representing a vulnerability."""
-    id = fields.Int(dump_only=True)
-    title = fields.Str(required=True, validate=validate.Length(min=5, max=255))
-    description = fields.Str(required=True, validate=validate.Length(min=10))
-    cve_id = fields.Str(required=False, validate=validate.Regexp(r'^CVE-\d{4}-\d{4,}$'))
-    cvss_score = fields.Float(required=False, validate=validate.Range(min=0.0, max=10.0))
-    severity = fields.Str(
-        required=True,
-        validate=validate.OneOf(['critical', 'high', 'medium', 'low', 'info'])
+    audit_log_retention_days = fields.Integer(
+        validate=validate.Range(min=30, max=3650),  # 30 days to 10 years
+        missing=90
     )
-    status = fields.Str(
-        required=True,
-        validate=validate.OneOf(['open', 'confirmed', 'remediating', 'resolved', 'false_positive'])
+    session_timeout_minutes = fields.Integer(
+        validate=validate.Range(min=5, max=1440),  # 5 minutes to 24 hours
+        missing=60
     )
-    affected_resources = fields.List(fields.Str(), required=False, missing=[])
-    remediation_steps = fields.Str(required=False)
-    discovered_at = fields.DateTime(required=False, allow_none=True)
-    resolved_at = fields.DateTime(dump_only=True, allow_none=True)
-    created_at = fields.DateTime(dump_only=True)
-    updated_at = fields.DateTime(dump_only=True)
-
-class VulnerabilityCreateSchema(VulnerabilitySchema):
-    """Schema for creating a new vulnerability."""
-    class Meta(VulnerabilitySchema.Meta):
-        exclude = ('id', 'resolved_at', 'created_at', 'updated_at')
-
-class VulnerabilityUpdateSchema(BaseSchema):
-    """Schema for updating an existing vulnerability."""
-    title = fields.Str(validate=validate.Length(min=5, max=255))
-    description = fields.Str(validate=validate.Length(min=10))
-    cvss_score = fields.Float(validate=validate.Range(min=0.0, max=10.0))
-    severity = fields.Str(validate=validate.OneOf(['critical', 'high', 'medium', 'low', 'info']))
-    status = fields.Str(validate=validate.OneOf(['confirmed', 'remediating', 'resolved', 'false_positive']))
-    affected_resources = fields.List(fields.Str())
-    remediation_steps = fields.Str()
-
-class VulnerabilityFilterSchema(PaginationSchema):
-    """Schema for filtering vulnerabilities."""
-    severity = fields.Str(validate=validate.OneOf(['critical', 'high', 'medium', 'low', 'info']))
-    status = fields.Str(validate=validate.OneOf(['open', 'confirmed', 'remediating', 'resolved', 'false_positive']))
-    cve_id = fields.Str(validate=validate.Regexp(r'^CVE-\d{4}-\d{4,}$'))
-    resource = fields.Str() # Filter by affected resource identifier
-    start_date = fields.DateTime()
-    end_date = fields.DateTime()
-
-    @validates_schema
-    def validate_dates(self, data, **kwargs):
-        if data.get('start_date') and data.get('end_date') and data['start_date'] > data['end_date']:
-            raise ValidationError("Start date must be before end date.", "start_date")
-
-# --- Security Scan Schemas ---
-
-class ScanSchema(BaseSchema):
-    """Schema for representing a security scan."""
-    id = fields.Int(dump_only=True)
-    scan_type = fields.Str(
-        required=True,
-        validate=validate.OneOf(['vulnerability', 'compliance', 'configuration', 'full'])
+    password_expiry_days = fields.Integer(
+        validate=validate.Range(min=0, max=365),  # 0 = never expire
+        missing=90
     )
-    status = fields.Str(
-        required=True,
-        validate=validate.OneOf(['queued', 'in_progress', 'completed', 'failed', 'cancelled'])
+    max_failed_logins = fields.Integer(
+        validate=validate.Range(min=3, max=10),
+        missing=5
     )
-    targets = fields.List(fields.Str(), required=True, validate=validate.Length(min=1))
-    profile_id = fields.Int(required=False, allow_none=True) # Optional scan profile/template
-    initiated_by_id = fields.Int(dump_only=True, allow_none=True)
-    start_time = fields.DateTime(dump_only=True, allow_none=True)
-    end_time = fields.DateTime(dump_only=True, allow_none=True)
-    findings_summary = fields.Dict(dump_only=True, missing={}) # e.g., {'critical': 1, 'high': 5}
-    created_at = fields.DateTime(dump_only=True)
-    updated_at = fields.DateTime(dump_only=True)
+    mfa_required = fields.Boolean(missing=True)
+    api_rate_limit = fields.String(missing="100 per minute")
+    sensitive_data_encryption = fields.Boolean(missing=True)
 
-class ScanCreateSchema(BaseSchema):
-    """Schema for creating/initiating a new security scan."""
-    scan_type = fields.Str(
-        required=True,
-        validate=validate.OneOf(['vulnerability', 'compliance', 'configuration', 'full'])
-    )
-    targets = fields.List(fields.Str(), required=True, validate=validate.Length(min=1))
-    profile_id = fields.Int(required=False, allow_none=True)
-    # Add other potential creation parameters like schedule, specific options, etc.
-    options = fields.Dict(required=False, missing={})
+    @validates('api_rate_limit')
+    def validate_rate_limit(self, value: str) -> None:
+        """
+        Validate rate limit format.
 
-class ScanUpdateSchema(BaseSchema):
-    """Schema for updating scan status (e.g., cancelling)."""
-    status = fields.Str(required=True, validate=validate.OneOf(['cancelled']))
+        Args:
+            value: Rate limit string to validate
 
-class ScanFilterSchema(PaginationSchema):
-    """Schema for filtering security scans."""
-    scan_type = fields.Str(validate=validate.OneOf(['vulnerability', 'compliance', 'configuration', 'full']))
-    status = fields.Str(validate=validate.OneOf(['queued', 'in_progress', 'completed', 'failed', 'cancelled']))
-    initiated_by_id = fields.Int()
-    target = fields.Str() # Filter by a specific target
-    start_date = fields.DateTime()
-    end_date = fields.DateTime()
+        Raises:
+            ValidationError: If the rate limit format is invalid
+        """
+        if not re.match(r'^\d+ per (second|minute|hour|day)$', value):
+            raise ValidationError("Rate limit must be in format 'N per [second|minute|hour|day]'")
 
-    @validates_schema
-    def validate_dates(self, data, **kwargs):
-        if data.get('start_date') and data.get('end_date') and data['start_date'] > data['end_date']:
-            raise ValidationError("Start date must be before end date.", "start_date")
 
-# --- Threat Intelligence Schemas ---
+# Export schema instances for direct use
+security_event_schema = SecurityEventSchema()
+security_config_schema = SecurityConfigSchema()
+pagination_schema = PaginationSchema()
 
-class ThreatIndicatorSchema(BaseSchema):
-    """Schema for representing a threat indicator (IOC)."""
-    id = fields.Int(dump_only=True)
-    indicator_type = fields.Str(
-        required=True,
-        validate=validate.OneOf(['ip_address', 'domain', 'url', 'file_hash', 'email_address'])
-    )
-    value = fields.Str(required=True, validate=validate.Length(min=1))
-    description = fields.Str(required=False)
-    source = fields.Str(required=False)
-    severity = fields.Str(
-        required=False,
-        validate=validate.OneOf(['high', 'medium', 'low', 'info']),
-        missing='medium'
-    )
-    confidence = fields.Int(required=False, validate=validate.Range(min=0, max=100), missing=50)
-    tags = fields.List(fields.Str(), required=False, missing=[])
-    first_seen = fields.DateTime(required=False, allow_none=True)
-    last_seen = fields.DateTime(required=False, allow_none=True)
-    is_active = fields.Bool(missing=True)
-    created_at = fields.DateTime(dump_only=True)
-    updated_at = fields.DateTime(dump_only=True)
-
-class ThreatIndicatorCreateSchema(ThreatIndicatorSchema):
-    """Schema for creating a new threat indicator."""
-    class Meta(ThreatIndicatorSchema.Meta):
-        exclude = ('id', 'created_at', 'updated_at')
-
-class ThreatIndicatorUpdateSchema(BaseSchema):
-    """Schema for updating an existing threat indicator."""
-    description = fields.Str()
-    severity = fields.Str(validate=validate.OneOf(['high', 'medium', 'low', 'info']))
-    confidence = fields.Int(validate=validate.Range(min=0, max=100))
-    tags = fields.List(fields.Str())
-    last_seen = fields.DateTime(allow_none=True)
-    is_active = fields.Bool()
-
-class ThreatIndicatorFilterSchema(PaginationSchema):
-    """Schema for filtering threat indicators."""
-    indicator_type = fields.Str(validate=validate.OneOf(['ip_address', 'domain', 'url', 'file_hash', 'email_address']))
-    value = fields.Str()
-    severity = fields.Str(validate=validate.OneOf(['high', 'medium', 'low', 'info']))
-    source = fields.Str()
-    tag = fields.Str() # Filter by tag
-    is_active = fields.Bool()
-    min_confidence = fields.Int(validate=validate.Range(min=0, max=100))
-    start_date = fields.DateTime(data_key="first_seen_after")
-    end_date = fields.DateTime(data_key="last_seen_before")
-
-    @validates_schema
-    def validate_dates(self, data, **kwargs):
-        if data.get('start_date') and data.get('end_date') and data['start_date'] > data['end_date']:
-            raise ValidationError("Start date must be before end date.", "start_date")
-
-# --- Schema Instantiations ---
-# Instantiate schemas for easy import and use in routes
-
-# Incident Schemas
-incident_schema = IncidentSchema()
-incidents_schema = IncidentSchema(many=True)
-incident_create_schema = IncidentCreateSchema()
-incident_update_schema = IncidentUpdateSchema()
-incident_filter_schema = IncidentFilterSchema()
-
-# Vulnerability Schemas
-vulnerability_schema = VulnerabilitySchema()
-vulnerabilities_schema = VulnerabilitySchema(many=True)
-vulnerability_create_schema = VulnerabilityCreateSchema()
-vulnerability_update_schema = VulnerabilityUpdateSchema()
-vulnerability_filter_schema = VulnerabilityFilterSchema()
-
-# Scan Schemas
-scan_schema = ScanSchema()
-scans_schema = ScanSchema(many=True)
-scan_create_schema = ScanCreateSchema()
-scan_update_schema = ScanUpdateSchema()
-scan_filter_schema = ScanFilterSchema()
-
-# Threat Indicator Schemas
-threat_indicator_schema = ThreatIndicatorSchema()
-threat_indicators_schema = ThreatIndicatorSchema(many=True)
-threat_indicator_create_schema = ThreatIndicatorCreateSchema()
-threat_indicator_update_schema = ThreatIndicatorUpdateSchema()
-threat_indicator_filter_schema = ThreatIndicatorFilterSchema()
-
-logger.debug("Security API schemas initialized.")
+logger.debug("Core schemas initialized")

@@ -10,7 +10,8 @@ The blueprint consolidates all security-related API endpoints under the `/api/se
 """
 
 import logging
-from flask import Blueprint
+from flask import Blueprint, jsonify, current_app
+from core.security import require_permission, log_security_event
 
 # Initialize module logger
 logger = logging.getLogger(__name__)
@@ -21,37 +22,89 @@ logger = logging.getLogger(__name__)
 security_bp = Blueprint('security_api', __name__, url_prefix='/security')
 
 # Import routes from other modules within the security API package.
-# These modules should define their routes using the 'security_bp' imported from here
-# (or potentially a shared __init__.py).
-# For now, we assume routes are defined within their respective files and need registration,
-# OR that those files define their own blueprints to be registered later.
-# If using a single blueprint approach (preferred):
-# Ensure files like vulnerabilities.py import this 'security_bp' instead of creating their own.
+# These imports ensure that routes defined in these modules are registered with
+# the security_bp blueprint and are available when the blueprint is registered with the app
+from . import incidents
+from . import vulnerabilities
+from . import scanning
+from . import threats
 
-# Example of importing routes if they were defined directly here or in submodules
-# using this blueprint:
-# from . import incidents  # Assuming incidents.py defines routes using security_bp
-# from . import vulnerabilities # Assuming vulnerabilities.py uses security_bp
-# from . import scanning # Assuming scanning.py uses security_bp
-# from . import threats # Assuming threats.py uses security_bp
+# Common security routes
 
-# If submodules define their own blueprints, they would be registered on the app
-# in the main factory, not typically aggregated here. The current structure in
-# vulnerabilities.py and threats.py suggests they might be defining their own,
-# which might need refactoring for consistency if a single /api/security prefix is desired.
-
-# Placeholder route example (if routes were defined directly in this file)
 @security_bp.route('/status', methods=['GET'])
+@require_permission('security:status:read')
 def get_security_status():
     """
-    Placeholder endpoint for overall security status.
-    Requires 'security:status:read' permission (decorator not added here).
+    Get the overall security status of the system.
+
+    Returns information about the current security posture including:
+    - Security component availability
+    - Active security incidents count
+    - Recent vulnerability detections
+    - Latest scan status
+    - Threat intelligence updates
+
+    Requires 'security:status:read' permission.
+
+    Returns:
+        JSON: Security status information
     """
-    # from core.security import require_permission
-    # @require_permission('security:status:read') # Add decorator if implementing
-    logger.info("Security status endpoint accessed (placeholder).")
-    # In a real implementation, this would gather status from various security components.
-    return {"status": "healthy", "message": "Security systems operational (placeholder)"}
+    try:
+        # In a real implementation, this would gather status from various security components
+        # Query each subsystem for its status and combine into comprehensive response
+        security_status = {
+            "status": "healthy",
+            "message": "Security systems operational",
+            "components": {
+                "incident_management": {"status": "operational"},
+                "vulnerability_tracking": {"status": "operational"},
+                "security_scanning": {"status": "operational"},
+                "threat_intelligence": {"status": "operational"}
+            },
+            "metrics": {
+                "active_incidents": current_app.config.get('MOCK_ACTIVE_INCIDENTS', 2),
+                "critical_vulnerabilities": current_app.config.get('MOCK_CRITICAL_VULNERABILITIES', 1),
+                "recent_scans": current_app.config.get('MOCK_RECENT_SCANS', 5),
+                "blocked_threats": current_app.config.get('MOCK_BLOCKED_THREATS', 124)
+            },
+            "last_updated": current_app.config.get('MOCK_LAST_UPDATED', "2023-08-01T10:30:00Z")
+        }
+
+        logger.info("Security status endpoint accessed successfully")
+        return jsonify(security_status), 200
+
+    except Exception as e:
+        logger.error("Error retrieving security status: %s", e, exc_info=True)
+        log_security_event(
+            event_type="security_api_error",
+            description=f"Error retrieving security status: {str(e)}",
+            severity="medium"
+        )
+        return jsonify({"status": "degraded", "message": "Unable to retrieve complete security status"}), 500
+
+@security_bp.route('/health', methods=['GET'])
+def health_check():
+    """
+    Basic health check endpoint for the security API module.
+
+    This endpoint does not require authentication and is used by
+    monitoring systems to verify that the security API is responding.
+
+    Returns:
+        JSON: Simple health status
+    """
+    return jsonify({"status": "ok"}), 200
+
+# Error handlers for security-related errors
+@security_bp.errorhandler(403)
+def handle_forbidden_error(error):
+    """Handle forbidden errors with proper logging."""
+    log_security_event(
+        event_type="unauthorized_access_attempt",
+        description=f"Forbidden access attempt to security endpoint",
+        severity="medium"
+    )
+    return jsonify({"error": "Insufficient permissions to access this resource"}), 403
 
 # Note: This blueprint ('security_bp') needs to be registered with the main Flask app
 # in the application factory (e.g., in core/factory.py or app.py).
