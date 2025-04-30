@@ -144,6 +144,55 @@ def log_security_event(
         return False
 
 
+def log_model_event(
+    model_name: str,
+    event_type: str,
+    object_id: Optional[Union[int, str]] = None,
+    user_id: Optional[int] = None,
+    details: Optional[Dict[str, Any]] = None,
+    severity: str = 'info'
+) -> bool:
+    """
+    Log an event related to a model object.
+
+    This is a convenience wrapper around log_security_event that provides
+    standardized formatting for model-related events.
+
+    Args:
+        model_name: Name of the model being logged
+        event_type: Type of event (e.g., 'status_change', 'permission_update')
+        object_id: ID of the object being acted upon
+        user_id: ID of the user performing the action (optional)
+        details: Additional details about the event
+        severity: Event severity (info, warning, error, critical)
+
+    Returns:
+        bool: True if logging was successful, False otherwise
+    """
+    # Automatically detect user ID from context if not provided
+    if user_id is None and has_request_context() and hasattr(g, 'user_id'):
+        user_id = g.user_id
+
+    # Create a standardized event_type format
+    full_event_type = f"{model_name.lower()}_{event_type}"
+
+    # Generate a descriptive message
+    description = f"{model_name} {event_type}"
+    if object_id is not None:
+        description = f"{model_name} {event_type} for ID {object_id}"
+
+    # Pass to the main security event logging function
+    return log_security_event(
+        event_type=full_event_type,
+        description=description,
+        severity=severity,
+        user_id=user_id,
+        details=details,
+        object_type=model_name,
+        object_id=object_id
+    )
+
+
 def _prepare_log_details(details: Optional[Union[str, Dict[str, Any]]]) -> Optional[str]:
     """
     Prepare details for logging by converting to a string format.
