@@ -50,7 +50,6 @@ try:
         display_review,
         fetch_admin_logs,
         format_report_data,
-        generate_report,
         get_time_range,
         run_anomaly_detection,
         run_integrity_checks,
@@ -93,7 +92,44 @@ try:
 except ImportError as e:
     logger.debug(f"System lockdown script not fully available: {e}")
 
-# Add imports for other script modules as needed
+# Try importing system_health_check functionality
+try:
+    from .system_health_check import (
+        run_health_check,
+        generate_health_report,
+        check_system_resources,
+        verify_services_status,
+        check_security_compliance
+    )
+    HEALTH_CHECK_AVAILABLE = True
+except ImportError as e:
+    logger.debug(f"Health check script not fully available: {e}")
+
+# Try importing compliance_report_generator functionality
+try:
+    from .compliance_report_generator import (
+        generate_compliance_report,
+        validate_compliance,
+        get_compliance_status,
+        export_compliance_evidence,
+        check_regulatory_requirements
+    )
+    COMPLIANCE_REPORTING_AVAILABLE = True
+except ImportError as e:
+    logger.debug(f"Compliance reporting script not fully available: {e}")
+
+# Try importing backup_verification functionality
+try:
+    from .backup_verification import (
+        verify_backup_integrity,
+        test_backup_restore,
+        verify_backup_encryption,
+        generate_verification_report,
+        check_backup_completeness
+    )
+    BACKUP_VERIFICATION_AVAILABLE = True
+except ImportError as e:
+    logger.debug(f"Backup verification script not fully available: {e}")
 
 def get_available_scripts() -> Dict[str, bool]:
     """Returns a dictionary of available scripts within this package."""
@@ -124,7 +160,6 @@ if ADMIN_AUDIT_AVAILABLE:
     __all__.extend([
         "fetch_admin_logs",
         "format_report_data",
-        "generate_report",
         "display_review",
         "run_anomaly_detection",
         "run_integrity_checks"
@@ -149,6 +184,33 @@ if SYSTEM_LOCKDOWN_AVAILABLE:
     __all__.extend([
         "apply_security_controls",
         "verify_security_controls"
+    ])
+
+if HEALTH_CHECK_AVAILABLE:
+    __all__.extend([
+        "run_health_check",
+        "generate_health_report",
+        "check_system_resources",
+        "verify_services_status",
+        "check_security_compliance"
+    ])
+
+if COMPLIANCE_REPORTING_AVAILABLE:
+    __all__.extend([
+        "generate_compliance_report",
+        "validate_compliance",
+        "get_compliance_status",
+        "export_compliance_evidence",
+        "check_regulatory_requirements"
+    ])
+
+if BACKUP_VERIFICATION_AVAILABLE:
+    __all__.extend([
+        "verify_backup_integrity",
+        "test_backup_restore",
+        "verify_backup_encryption",
+        "generate_verification_report",
+        "check_backup_completeness"
     ])
 
 # Log initialization status
