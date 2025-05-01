@@ -17,6 +17,8 @@ The Audit API module provides secure endpoints for managing, querying, and analy
 
 The Audit API implements RESTful endpoints following security best practices including strict access controls, comprehensive logging, and proper error handling. It provides programmatic access to the platform's audit log system, allowing authorized users to query events across the system, generate compliance reports, and monitor security-relevant activities.
 
+The API is designed for high performance, with efficient querying capabilities that support filtering by multiple criteria, time ranges, and event types. It includes comprehensive security controls to ensure that sensitive audit data is properly protected while remaining accessible to authorized personnel.
+
 ## Key Components
 
 - **`routes.py`**: Implements RESTful API endpoints for audit log operations
@@ -25,6 +27,7 @@ The Audit API implements RESTful endpoints following security best practices inc
   - Compliance report generation
   - Audit log export and archival
   - Trend analysis and visualization data
+  - Real-time event correlation
 
 - **`filters.py`**: Audit log filtering and search capabilities
   - Complex query construction
@@ -32,12 +35,14 @@ The Audit API implements RESTful endpoints following security best practices inc
   - Time range processing
   - Security-focused search patterns
   - Result pagination
+  - Advanced pattern matching
 
 - **`exporters.py`**: Audit log export functionalities
   - CSV/JSON/PDF export formats
   - Compliance-ready report generation
   - Data sanitization for exports
   - Scheduled export configuration
+  - Compression for large exports
 
 - **`analyzers.py`**: Audit data analysis utilities
   - Event correlation algorithms
@@ -45,24 +50,28 @@ The Audit API implements RESTful endpoints following security best practices inc
   - User behavior analytics
   - Pattern recognition for security incidents
   - Trend analysis functions
+  - Security posture assessment
 
 - **`__init__.py`**: Module initialization and configuration
   - Blueprint registration
   - Access control setup
   - Rate limit configuration
   - Authorization checks
+  - Metrics registration
 
 - **`schemas.py`**: Data validation schemas
   - Input validation for search parameters
   - Response formatting for consistent output
   - Export format validation
   - Report generation parameters
+  - Compliance framework schemas
 
 - **`views/`**: Specialized view helpers
   - Report generation and formatting
   - Dashboard data aggregation
   - Compliance report preparation
   - Security metrics calculation
+  - Interactive visualization data
 
 ## Directory Structure
 
@@ -95,6 +104,8 @@ api/audit/
 | `/api/audit/search/advanced` | POST | Perform advanced log searches | Security Analyst, Admin |
 | `/api/audit/dashboard` | GET | Get dashboard data for audit activity | Auditor, Admin |
 | `/api/audit/events/correlate` | POST | Correlate related security events | Security Analyst, Admin |
+| `/api/audit/file-integrity` | GET | Get file integrity monitoring events | Security Analyst, Admin |
+| `/api/audit/user-activity` | GET | Get user activity reports | Auditor, Admin |
 
 ## Configuration
 
@@ -108,11 +119,26 @@ The audit system uses several configuration settings that can be adjusted in the
 'AUDIT_AUTO_ARCHIVE_ENABLED': True,      # Enable automatic archiving of old logs
 'AUDIT_CRITICAL_EVENT_CATEGORIES': ['security', 'authentication', 'access_control'],
 'AUDIT_DASHBOARD_DATA_TTL': 3600,        # Cache TTL for dashboard data in seconds
+'AUDIT_LOG_INTEGRITY_CHECK_ENABLED': True, # Enable integrity checking for audit logs
+'AUDIT_LOG_BACKUP_ENABLED': True,        # Enable automated log backups
+'AUDIT_MAX_QUERY_TIMESPAN_DAYS': 90,     # Maximum timespan for a single query
+
+# Compliance frameworks enabled
+'COMPLIANCE_FRAMEWORKS': {
+    'pci-dss': True,
+    'hipaa': True,
+    'gdpr': True,
+    'iso27001': True,
+    'soc2': True,
+    'fedramp': True
+},
 
 # Rate limiting settings
 'RATELIMIT_AUDIT_DEFAULT': "60 per minute",
 'RATELIMIT_AUDIT_EXPORT': "10 per hour",
 'RATELIMIT_AUDIT_REPORTS': "20 per hour",
+'RATELIMIT_AUDIT_SEARCH': "100 per minute",
+'RATELIMIT_AUDIT_CORRELATE': "30 per minute"
 ```
 
 ## Security Features
@@ -125,6 +151,10 @@ The audit system uses several configuration settings that can be adjusted in the
 - **Comprehensive Logging**: Records all audit API usage (meta-auditing)
 - **Field-Level Security**: Restricts access to sensitive audit fields based on user roles
 - **Secure Export Handling**: Ensures secure generation and delivery of exports
+- **Integrity Verification**: Cryptographic verification of log integrity
+- **Tamper Detection**: Identifies potential gaps or modifications in the audit trail
+- **Chain of Custody**: Maintains verifiable record of all access to audit data
+- **Privileged Access Controls**: Special controls for privileged operations
 
 ## Usage Examples
 
@@ -227,6 +257,50 @@ Response:
 }
 ```
 
+### Perform Advanced Security Event Analysis
+
+```http
+POST /api/audit/search/advanced
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+{
+  "time_range": {
+    "start": "2023-06-01T00:00:00Z",
+    "end": "2023-06-30T23:59:59Z"
+  },
+  "any_of": [
+    {"event_type": "file_integrity_violation", "severity": "critical"},
+    {"event_type": "privilege_escalation"}
+  ],
+  "all_of": [
+    {"category": "security"}
+  ],
+  "sequential_events": {
+    "event_type": "login_failed",
+    "threshold": 5,
+    "window_minutes": 10
+  },
+  "sort_by": "created_at",
+  "sort_dir": "desc"
+}
+```
+
+### Correlate Security Events
+
+```http
+POST /api/audit/events/correlate
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+{
+  "event_id": 12345,
+  "correlation_depth": 2,
+  "time_window_minutes": 60,
+  "include_categories": ["authentication", "access_control", "file_integrity"]
+}
+```
+
 ## Related Documentation
 
 - Audit System Architecture
@@ -235,3 +309,6 @@ Response:
 - Audit Log Structure
 - API Reference
 - Audit API Integration Guide
+- File Integrity Monitoring Guide
+- Security Analytics Framework
+- Anomaly Detection Guide
