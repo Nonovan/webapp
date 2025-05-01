@@ -4,14 +4,14 @@ The Audit API module provides secure endpoints for managing, querying, and analy
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- API Endpoints
-- Configuration
-- Security Features
-- Usage Examples
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [API Endpoints](#api-endpoints)
+- [Configuration](#configuration)
+- [Security Features](#security-features)
+- [Usage Examples](#usage-examples)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
@@ -57,6 +57,12 @@ The Audit API implements RESTful endpoints following security best practices inc
   - Response formatting for consistent output
   - Export format validation
   - Report generation parameters
+
+- **`views/`**: Specialized view helpers
+  - Report generation and formatting
+  - Dashboard data aggregation
+  - Compliance report preparation
+  - Security metrics calculation
 
 ## Directory Structure
 

@@ -578,6 +578,88 @@ def obfuscate_sensitive_data(
     return data[:prefix_visible] + (mask_char * masked_length) + data[-suffix_visible:] if suffix_visible else data[:prefix_visible] + (mask_char * masked_length)
 
 
+def format_time_period(period_seconds: int) -> str:
+    """
+    Format a time period in seconds into a human-readable string.
+
+    Args:
+        period_seconds: Period in seconds
+
+    Returns:
+        Human-readable time period (e.g., "2 hours", "3 days")
+    """
+    if period_seconds < 60:
+        return f"{period_seconds} second{'s' if period_seconds != 1 else ''}"
+    elif period_seconds < 3600:
+        minutes = period_seconds // 60
+        return f"{minutes} minute{'s' if minutes != 1 else ''}"
+    elif period_seconds < 86400:
+        hours = period_seconds // 3600
+        return f"{hours} hour{'s' if hours != 1 else ''}"
+    elif period_seconds < 604800:
+        days = period_seconds // 86400
+        return f"{days} day{'s' if days != 1 else ''}"
+    elif period_seconds < 2592000:
+        weeks = period_seconds // 604800
+        return f"{weeks} week{'s' if weeks != 1 else ''}"
+    elif period_seconds < 31536000:
+        months = period_seconds // 2592000
+        return f"{months} month{'s' if months != 1 else ''}"
+    else:
+        years = period_seconds // 31536000
+        return f"{years} year{'s' if years != 1 else ''}"
+
+
+def parse_time_period(period_str: str) -> int:
+    """
+    Parse a human-readable time period into seconds.
+
+    Args:
+        period_str: Time period string (e.g., "2h", "3d", "1w")
+
+    Returns:
+        Time period in seconds
+
+    Raises:
+        ValueError: If the time period format is invalid
+    """
+    if not period_str:
+        raise ValueError("Time period cannot be empty")
+
+    # Get the numeric part and the unit
+    period_str = period_str.lower().strip()
+
+    # Check format first
+    if not any(period_str.endswith(unit) for unit in ['s', 'm', 'h', 'd', 'w']):
+        try:
+            # Try to parse as an integer (assumed to be seconds)
+            return int(period_str)
+        except ValueError:
+            raise ValueError(f"Invalid time period format: {period_str}. "
+                             f"Expected format: <number><unit> (e.g., 30s, 5m, 2h, 7d, 1w)")
+
+    try:
+        value = int(period_str[:-1])
+        unit = period_str[-1]
+
+        if unit == 's':
+            return value
+        elif unit == 'm':
+            return value * 60
+        elif unit == 'h':
+            return value * 3600
+        elif unit == 'd':
+            return value * 86400
+        elif unit == 'w':
+            return value * 604800
+        else:
+            raise ValueError(f"Invalid time unit: {unit}. Expected s, m, h, d, or w.")
+
+    except (ValueError, IndexError) as e:
+        raise ValueError(f"Invalid time period format: {period_str}. "
+                         f"Expected format: <number><unit> (e.g., 30s, 5m, 2h, 7d, 1w)")
+
+
 # Private helper functions
 
 def _setup_security_headers(app: Flask) -> None:

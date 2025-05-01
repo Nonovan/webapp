@@ -1147,3 +1147,43 @@ def initialize_audit_logging(app) -> None:
         logger.info(f"Security audit logging initialized (level: {log_level})")
     except Exception as e:
         logger.error(f"Failed to initialize audit logging: {e}")
+
+
+def get_critical_event_categories() -> List[str]:
+    """
+    Get a list of event categories that are considered critical for security metrics.
+
+    This function returns a list of audit log categories that are considered critical
+    for security monitoring and metrics calculation. It first tries to get the list
+    from application configuration, and falls back to sensible defaults if not configured.
+
+    Returns:
+        List[str]: List of critical event category names
+    """
+    try:
+        # Try to get critical categories from configuration
+        if has_app_context() and current_app.config:
+            # Try application config first
+            config_categories = current_app.config.get('AUDIT_CRITICAL_EVENT_CATEGORIES')
+            if config_categories and isinstance(config_categories, list):
+                return config_categories
+
+            # Try security config from constants
+            security_config_categories = SECURITY_CONFIG.get('CRITICAL_EVENT_CATEGORIES')
+            if security_config_categories and isinstance(security_config_categories, list):
+                return security_config_categories
+
+        # Default categories if not configured
+        return [
+            'security',
+            'authentication',
+            'authorization',
+            'admin',
+            'audit',
+            'compliance',
+            'access_control'
+        ]
+    except Exception as e:
+        logger.error(f"Error retrieving critical event categories: {e}", exc_info=True)
+        # Return safe defaults on error
+        return ['security', 'authentication', 'admin']

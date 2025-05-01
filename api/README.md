@@ -74,6 +74,8 @@ The API package implements REST principles using Flask blueprints, with JSON as 
   - Vulnerability tracking
   - Security scanning
   - Threat intelligence
+  - File integrity monitoring
+  - Security baseline management
 
 - **`webhooks/`**: External integration hooks
   - Webhook registration
@@ -162,7 +164,9 @@ api/
 │   └── ...                 # Newsletter API components
 ├── security/               # Security operations
 │   ├── __init__.py         # Module initialization
+│   ├── baseline.py         # File integrity baseline management
 │   ├── incidents.py        # Security incident management
+│   ├── models.py           # Security data models and schemas
 │   ├── README.md           # Security API documentation
 │   ├── routes.py           # API endpoint implementations
 │   ├── scanning.py         # Security scanning configuration
@@ -280,6 +284,7 @@ Each API endpoint implements appropriate rate limiting:
 - Administrative endpoints: Stricter limits (e.g., 10-30 per minute)
 - Metrics endpoints: 30-60 requests per minute
 - Control operations: 10-20 operations per minute
+- Security baseline operations: 5 baseline updates per hour, 30 verification checks per minute
 
 Rate limit headers are included in all responses:
 
@@ -298,6 +303,7 @@ X-RateLimit-Reset: 1605572738
 - **CSRF Protection**: Anti-CSRF tokens for browser-based requests
 - **Data Validation**: Thorough validation of all input parameters
 - **Error Handling**: Security-conscious error messages preventing information leakage
+- **File Integrity Monitoring**: Detection of unauthorized file modifications
 - **IP Restrictions**: Critical endpoints can be restricted to approved IPs
 - **JWT Security**: Secure token handling with proper signing and expiration
 - **Rate Limiting**: Endpoint-specific limits to prevent abuse
@@ -355,6 +361,7 @@ GET /api/alerts?q=server+outage
 - API Reference Guide
 - Authentication Integration Guide
 - Error Codes Reference
+- File Integrity Monitoring Guide
 - OpenAPI/Swagger Documentation
 - Rate Limiting Guidelines
 - Security Best Practices
