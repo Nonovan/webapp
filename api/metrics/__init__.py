@@ -13,11 +13,14 @@ database operations, security events, and cloud resources.
 Exports:
     metrics_bp: Flask Blueprint for metrics routes
     init_app: Function to initialize the metrics module with a Flask app
+    export_metrics_prometheus: Function for exporting metrics in Prometheus format
+    export_metrics_csv: Function for exporting metrics in CSV format
+    export_metrics_json: Function for exporting metrics in JSON format
 """
 
 import logging
 from flask import Blueprint, Flask
-from typing import Optional
+from typing import Optional, Dict, Any
 from extensions import metrics as metrics_registry
 
 # Create blueprint with URL prefix
@@ -116,5 +119,23 @@ def _register_custom_metrics(app: Flask) -> None:
     except Exception as e:
         logger.error(f"Failed to register custom metrics: {e}")
 
+# Import exporters for direct access
+from .exporters import (
+    export_metrics_prometheus,
+    export_metrics_csv,
+    export_metrics_json,
+    format_help_text,
+    flatten_metrics,
+    sanitize_metric_name,
+    filter_sensitive_metrics
+)
+
 # Explicitly define what is available for import
-__all__ = ['metrics_bp', 'init_app']
+__all__ = [
+    'metrics_bp',
+    'init_app',
+    'export_metrics_prometheus',
+    'export_metrics_csv',
+    'export_metrics_json',
+    'filter_sensitive_metrics'
+]

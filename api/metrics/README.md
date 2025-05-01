@@ -71,13 +71,6 @@ The API Metrics module implements RESTful endpoints following security best prac
   - Authorization requirements and permission mapping
   - Security headers and monitoring setup
 
-- **`schemas.py`**: Data validation schemas
-  - Input parameter validation
-  - Response structure enforcement
-  - Consistent error formatting
-  - Secure parsing of user input
-  - Documentation generation support
-
 ## Directory Structure
 
 ```plaintext
@@ -88,8 +81,7 @@ api/metrics/
 ├── collectors.py       # Metric collection functionality
 ├── exporters.py        # Export format handlers
 ├── analyzers.py        # Analysis and anomaly detection
-├── aggregators.py      # Metric aggregation functionality
-└── schemas.py          # Data validation schemas
+└── aggregators.py      # Metric aggregation functionality
 ```
 
 ## API Endpoints
@@ -246,17 +238,40 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 Response:
 
 ```plaintext
-# HELP cpu_usage Current CPU utilization percentage
-# TYPE cpu_usage gauge
-cpu_usage{instance="app-server-01",environment="production"} 34.2 1623767545000
+# HELP app_cpu_usage Current CPU utilization percentage
+# TYPE app_cpu_usage gauge
+app_cpu_usage{instance="app-server-01",environment="production"} 34.2 1623767545000
 
-# HELP memory_usage Memory utilization percentage
-# TYPE memory_usage gauge
-memory_usage{instance="app-server-01",environment="production"} 68.7 1623767545000
+# HELP app_memory_usage Memory utilization percentage
+# TYPE app_memory_usage gauge
+app_memory_usage{instance="app-server-01",environment="production"} 68.7 1623767545000
 
-# HELP disk_usage Disk utilization percentage
-# TYPE disk_usage gauge
-disk_usage{instance="app-server-01",environment="production"} 42.5 1623767545000
+# HELP app_disk_usage Disk utilization percentage
+# TYPE app_disk_usage gauge
+app_disk_usage{instance="app-server-01",environment="production"} 42.5 1623767545000
+```
+
+### Export Metrics in CSV Format
+
+```http
+GET /api/metrics/export?format=csv
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+Response:
+
+```csv
+Category,Metric,Value,Unit
+Metadata,timestamp,2023-06-15T14:32:25Z,
+system,cpu_usage,34.2,%
+system,memory_usage,68.7,%
+system,disk_usage,42.5,%
+application,request_rate,42.3,count
+application,response_time_avg,128.4,ms
+application,error_rate,0.12,%
+database,query_time_avg,3.2,ms
+database,connections,12,count
+security,failed_logins_24h,23,count
 ```
 
 ### Get System Health Summary
@@ -339,6 +354,80 @@ Response:
 }
 ```
 
+## Implementation Details
+
+### Exporters
+
+The exporters.py module provides the following functionality:
+
+- **Prometheus Export**: Converts metrics to the Prometheus exposition format with proper metadata
+
+  ```python
+  export_metrics_prometheus(metrics_data, prefix='app_')
+  ```
+
+- **CSV Export**: Converts metrics to CSV format with categories, names, values, and units
+
+  ```python
+  export_metrics_csv(metrics_data)
+  ```
+
+- **JSON Export**: Formats metrics as structured JSON with optional metadata enrichment
+
+  ```python
+  export_metrics_json(metrics_data, include_metadata=True)
+  ```
+
+### Aggregators
+
+The `aggregators.py` module provides time series data processing:
+
+- **Time Series Aggregation**: Groups metrics into consistent intervals
+
+  ```python
+  aggregate_time_series(data_points, interval='hour', aggregation_method='avg')
+  ```
+
+- **Percentile Calculation**: Statistical analysis for performance metrics
+
+  ```python
+  calculate_percentiles(data_points, percentiles=[50, 90, 95, 99])
+  ```
+
+- **Time Series Resampling**: Handles data gaps and normalization
+
+  ```python
+  resample_time_series(data_points, interval='hour', start_time=start, end_time=end)
+  ```
+
+### Analyzers
+
+The `analyzers.py` module provides advanced analytics:
+
+- **Anomaly Detection**: Identifies unusual patterns in metrics data
+
+  ```python
+  detect_anomalies(metric_name, data_points, sensitivity='medium')
+  ```
+
+- **Trend Analysis**: Determines directional patterns in metrics
+
+  ```python
+  analyze_trends(metric_name, period='7d')
+  ```
+
+- **Statistics Calculation**: Comprehensive statistical measures
+
+  ```python
+  calculate_statistics(data_points)
+  ```
+
+- **Metric Forecasting**: Predicts future metric values
+
+  ```python
+  forecast_metrics(metric_name, trend_data)
+  ```
+
 ## Integration Points
 
 The Metrics API integrates with several other system components:
@@ -398,3 +487,4 @@ When working with the Metrics API:
 - Prometheus Integration Guide
 - Alerting Configuration
 - Dashboard Development
+- File Integrity Monitoring Guide
