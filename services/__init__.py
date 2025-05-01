@@ -20,6 +20,7 @@ Key services in this package:
 import logging
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple, Union, Set, Callable
 
 from .auth_service import AuthService
@@ -54,6 +55,7 @@ __all__ = [
     'get_integrity_status',
     'schedule_integrity_check',
     'update_file_integrity_baseline',
+    'update_file_baseline',
 
     # Webhook functions
     'trigger_webhook_event',
@@ -176,7 +178,7 @@ def update_file_integrity_baseline(app, baseline_path: str, changes: List[Dict[s
     """
     try:
         # Import required security functions
-        from core.security.cs_file_integrity import update_file_integrity_baseline
+        from core.security.cs_file_integrity import update_file_integrity_baseline as core_update_baseline
 
         # Filter changes to include only those that should be updated
         # Typically exclude critical and high severity changes
@@ -190,13 +192,27 @@ def update_file_integrity_baseline(app, baseline_path: str, changes: List[Dict[s
         if not non_critical:
             return True, "No non-critical changes to update"
 
+        # Format the changes for the core function
+        # The core function expects updates with 'path' and 'current_hash' keys
+        formatted_updates = []
+        for change in non_critical:
+            if 'path' in change and 'actual_hash' in change:
+                formatted_updates.append({
+                    'path': change['path'],
+                    'current_hash': change['actual_hash']
+                })
+
+        if not formatted_updates:
+            logger.warning("No valid changes found to update baseline")
+            return False, "No valid changes to update"
+
         # Update the baseline with these non-critical changes
-        logger.info(f"Auto-updating baseline for {len(non_critical)} non-critical changes")
-        result = update_file_integrity_baseline(app, baseline_path, non_critical)
+        logger.info(f"Auto-updating baseline for {len(formatted_updates)} non-critical changes")
+        result = core_update_baseline(app, baseline_path, formatted_updates)
 
         if result:
             logger.info("File integrity baseline updated successfully")
-            return True, f"Updated baseline with {len(non_critical)} changes"
+            return True, f"Updated baseline with {len(formatted_updates)} changes"
         else:
             logger.error("Failed to update file integrity baseline")
             return False, "Failed to update baseline"
@@ -207,6 +223,51 @@ def update_file_integrity_baseline(app, baseline_path: str, changes: List[Dict[s
     except Exception as e:
         logger.error(f"Error auto-updating baseline: {str(e)}")
         return False, f"Error updating baseline: {str(e)}"
+
+def update_file_baseline(baseline_path: str,
+                        updates: Dict[str, str],
+                        remove_missing: bool = False) -> Tuple[bool, str]:
+    """
+    Update file integrity baseline with new hashes.
+
+    This function provides a direct way to update the file baseline with explicit
+    hash values without requiring a Flask application context.
+
+    Args:
+        baseline_path: Path to the baseline JSON file
+        updates: Dictionary mapping file paths to new hashes
+        remove_missing: Whether to remove entries for files that no longer exist
+
+    Returns:
+        Tuple of (success, message)
+    """
+    try:
+        # Try to use the utility from core
+        from core.utils import update_file_integrity_baseline as core_update_baseline
+        return core_update_baseline(baseline_path, updates, remove_missing)
+    except ImportError:
+        logger.debug("Core utility not available, using SecurityService directly")
+
+        # Format updates for SecurityService
+        paths = list(updates.keys())
+
+        # First update the baseline with the specified paths
+        success, message = SecurityService.update_baseline(paths_to_update=paths,
+                                                         remove_missing=remove_missing)
+
+        # If successful and we need to verify hashes match exactly what was provided
+        if success and paths:
+            # Load the baseline again to ensure consistency
+            baseline = SecurityService._load_baseline(Path(baseline_path))
+            files = baseline.get("files", {})
+
+            # Check if hashes match what was requested
+            mismatched = [p for p in paths if p in files and files[p] != updates.get(p)]
+            if mismatched:
+                logger.warning(f"Hash mismatch after baseline update for: {mismatched}")
+                # Could force update here if needed
+
+        return success, message
 
 def trigger_webhook_event(event_type: str, payload: Dict[str, Any],
                         user_id: Optional[int] = None,

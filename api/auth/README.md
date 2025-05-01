@@ -10,6 +10,7 @@ The Authentication API module provides secure endpoints for user authentication,
 - API Endpoints
 - Configuration
 - Security Features
+- Authentication Decorators
 - Usage Examples
 - Related Documentation
 
@@ -31,6 +32,8 @@ The Authentication API implements RESTful endpoints following security best prac
   - Permission checking
   - Role verification
   - Token validation
+  - API activity tracking
+  - Security event auditing
 
 - **`extend_session.py`**: Session management implementation with security features
   - Device fingerprinting for client verification
@@ -138,6 +141,98 @@ The authentication system uses several configuration settings that can be adjust
 - **Secure Token Handling**: Implements JWT token validation and secure storage
 - **Session Protection**: Regenerates session IDs periodically to prevent session fixation
 - **Suspicious IP Detection**: Flags and logs suspicious IP addresses
+
+## Authentication Decorators
+
+The decorators.py module provides powerful security decorators that can be applied to API endpoints to enforce various security controls:
+
+### `token_required`
+
+Enforces JWT token authentication for API routes.
+
+```python
+@token_required
+def protected_api_endpoint():
+    # Only accessible with valid JWT token
+    pass
+```
+
+### `require_api_role`
+
+Restricts access based on user roles.
+
+```python
+@require_api_role('admin')  # Single role
+def admin_only_endpoint():
+    pass
+
+@require_api_role(['admin', 'security'])  # Multiple roles
+def security_endpoint():
+    pass
+```
+
+### `require_api_permission`
+
+Restricts access based on specific permissions.
+
+```python
+@require_api_permission('users:write')
+def user_update_endpoint():
+    pass
+```
+
+### `require_api_mfa`
+
+Enforces multi-factor authentication for sensitive operations.
+
+```python
+@require_api_mfa
+def sensitive_operation():
+    pass
+```
+
+### `validate_session`
+
+Validates web sessions for hybrid endpoints supporting both web and API access.
+
+```python
+@validate_session
+def hybrid_endpoint():
+    pass
+```
+
+### `track_api_activity`
+
+Records detailed API activity for security auditing.
+
+```python
+@track_api_activity('user_management', description="User profile modification")
+def update_user_profile():
+    pass
+```
+
+### `audit_api_action`
+
+Creates security audit logs for sensitive operations.
+
+```python
+@audit_api_action('security_configuration', severity="critical")
+def update_security_settings():
+    pass
+```
+
+### Combined Decorator Usage
+
+Decorators can be combined for layered security:
+
+```python
+@require_api_role('admin')
+@require_api_mfa
+@audit_api_action('security_change', severity="high")
+def update_security_policy():
+    # Protected by role checks, MFA requirement, and security auditing
+    pass
+```
 
 ## Usage Examples
 

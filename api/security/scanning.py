@@ -34,7 +34,7 @@ from .schemas import (
 try:
     # Use package-level imports
     from models.security import SecurityScan, AuditLog, Vulnerability
-    from services.security.scanning import ScanningService
+    from services import ScanningService
     MODELS_AVAILABLE = True
 except ImportError:
     MODELS_AVAILABLE = False
