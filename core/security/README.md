@@ -45,9 +45,13 @@ The security module implements a defense-in-depth security approach with multipl
   - File signature verification
   - Change detection with severity classification
   - Automated baseline updating with security controls
-  - Permission security validation
-  - Suspicious file detection
+  - Permission security validation (world-writable, world-executable, setuid/setgid)
+  - Suspicious file detection with pattern matching
   - Baseline comparison and reporting
+  - File permission security checks
+  - Directory traversal prevention
+  - Security event logging for violations
+  - Redis-based caching of integrity status
 
 - **`cs_metrics.py`**: Security metrics collection
   - Security posture measurement
@@ -181,7 +185,14 @@ plaintext = decrypt_sensitive_data(encrypted)
 ### File Integrity Verification
 
 ```python
-from core.security import check_critical_file_integrity, get_last_integrity_status, update_file_integrity_baseline
+from core.security import check_critical_file_integrity, get_last_integrity_status, update_file_integrity_baseline, create_file_hash_baseline
+
+# Create initial baseline for file integrity monitoring
+baseline = create_file_hash_baseline(
+    directory="./",
+    patterns=["*.py", "config/*", "*.json"],
+    output_file="instance/file_baseline.json"
+)
 
 # Check integrity of critical configuration files
 is_intact, changes = check_critical_file_integrity()
@@ -191,15 +202,24 @@ if not is_intact:
         if change['severity'] == 'critical':
             # Handle critical change
             notify_security_team(change)
+        elif change['status'] == 'world_writable':
+            # Handle permission issues
+            fix_file_permissions(change['path'])
 
 # Get the latest integrity status report
 status = get_last_integrity_status()
 if status['has_violations']:
     # Take appropriate action
-    pass
+    if status['status'] == 'critical':
+        trigger_incident_response()
 
 # Update the integrity baseline with approved changes
-update_file_integrity_baseline(app, baseline_path, changes)
+update_file_integrity_baseline(
+    app,
+    baseline_path="instance/file_baseline.json",
+    updates=changes,
+    remove_missing=True
+)
 ```
 
 ### Session Security
@@ -295,6 +315,9 @@ def configure_metrics(app):
 - Review security metrics and alerts daily
 - Monitor and respond to security recommendations
 - Regularly test security controls through automated checks
+- Use atomic file operations for baseline updates to prevent corruption
+- Create and verify file integrity baselines after system updates
+- Ensure proper permissions on security baseline files themselves
 
 ## Related Documentation
 
@@ -308,6 +331,6 @@ def configure_metrics(app):
 
 ## Version Information
 
-- **Version**: 0.1.1
-- **Last Updated**: 2024-07-17
+- **Version**: 0.1.2
+- **Last Updated**: 2024-07-24
 - **Maintainers**: Security Engineering Team

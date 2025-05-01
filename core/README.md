@@ -12,7 +12,6 @@ This directory contains core components and utilities that provide the foundatio
 - Common Features
 - Usage Examples
 - Related Documentation
-- Version Information
 
 ## Overview
 
@@ -74,6 +73,13 @@ The core package serves as the backbone of the Cloud Infrastructure Platform, pr
   - Includes collection manipulation and data validation tools
   - Provides basic security utilities for common operations
 
+- **`security/cs_file_integrity.py`**: File integrity monitoring system
+  - Detects unauthorized changes to critical system files
+  - Compares file hashes against known good baselines
+  - Supports permission change detection for critical files
+  - Implements configurable severity classification for changes
+  - Provides baseline management with secure update mechanisms
+
 ## Directory Structure
 
 ```plaintext
@@ -121,7 +127,6 @@ core/
     ├── date_time.py      # Date and time handling utilities
     ├── file.py           # File handling utilities
     ├── README.md         # Utility modules documentation
-    ├── security.py       # Basic security utilities
     ├── string.py         # String manipulation utilities
     └── validation.py     # Input validation utilities
 ```
@@ -229,6 +234,45 @@ if not is_valid:
     log_security_event("file_integrity_violation", f"Detected {len(changes)} modified files")
 ```
 
+### Updating Integrity Baseline
+
+```python
+from core.security.cs_file_integrity import update_file_integrity_baseline
+
+# Update the file integrity baseline with new or changed files
+update_file_integrity_baseline(
+    app,
+    baseline_path="instance/file_baseline.json",
+    updates=[
+        {"path": "config.py", "current_hash": "5d41402abc4b2a76b9719d911017c592"},
+        {"path": "app.py", "current_hash": "7d793037a0760186574b0282f2f435e7"}
+    ],
+    remove_missing=True
+)
+```
+
+### Checking for Modified Files
+
+```python
+from core.security.cs_file_integrity import _detect_file_changes
+
+# Detect changes in critical files
+changes = _detect_file_changes(
+    basedir="/app",
+    reference_hashes=app.config["CRITICAL_FILE_HASHES"],
+    critical_patterns=["*.py", "*.config"],
+    detect_permissions=True,
+    check_signatures=True
+)
+
+# Process detected changes
+for change in changes:
+    if change["severity"] == "critical":
+        handle_critical_change(change)
+    elif change["severity"] == "high":
+        handle_high_severity_change(change)
+```
+
 ### Health Checks
 
 ```python
@@ -254,13 +298,17 @@ logger.info("Operation completed", extra={"operation": "user_login", "user_id": 
 ```python
 from core.loggings import log_file_integrity_event
 
-# Log a file integrity event
-log_file_integrity_event(
-    file_path='config.py',
-    status='modified',
-    severity='critical',
-    details={'old_hash': 'abc123', 'new_hash': 'def456'}
-)
+# Log file integrity violations with appropriate severity levels
+log_file_integrity_event([
+    {
+        'path': 'config.py',
+        'status': 'modified',
+        'severity': 'critical',
+        'expected_hash': 'abc123',
+        'current_hash': 'def456',
+        'timestamp': '2024-07-25T14:22:10Z'
+    }
+])
 ```
 
 ### Metrics Collection
@@ -282,19 +330,6 @@ from core.middleware import init_middleware
 
 app = Flask(__name__)
 init_middleware(app)  # Sets up security headers, CSP, etc.
-```
-
-### Updating Integrity Baseline
-
-```python
-from core.utils import update_file_integrity_baseline
-
-# Create or update a file integrity baseline
-success, message = update_file_integrity_baseline(
-    'instance/baseline.json',
-    {'app.py': '5d41402abc4b2a76b9719d911017c592'},
-    remove_missing=True
-)
 ```
 
 ### String Utilities
@@ -370,8 +405,7 @@ if is_path_safe(user_path, allowed_base_dirs=["/allowed/path"]):
 - URL Generation Guidelines
 - Validation Framework Guide
 
-## Version Information
+## Version History
 
 - **Version**: 0.1.1
-- **Last Updated**: 2024-07-16
-- **Maintainers**: Platform Engineering Team
+- **Last Updated**: 2024-07-25
