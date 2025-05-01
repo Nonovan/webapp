@@ -89,6 +89,83 @@ from .date_time import (
     from_timestamp
 )
 
+# Import collection utilities
+from .collection import (
+    # Dictionary operations
+    deep_get,
+    deep_set,
+    merge_dicts,
+    flatten_dict,
+    unflatten_dict,
+
+    # List and array operations
+    chunk_list,
+    find_duplicates,
+    group_by,
+    unique_by,
+
+    # Filtering and transformation
+    filter_none,
+    filter_empty,
+    filter_dict_by_keys,
+    transform_keys,
+    transform_values
+)
+
+# Import file utilities
+from .file import (
+    # File operations
+    read_file,
+    write_file,
+    append_to_file,
+    ensure_directory_exists,
+
+    # File security and integrity
+    compute_file_hash,
+    is_path_safe,
+    sanitize_filename,
+
+    # File formats
+    read_json_file,
+    save_json_file,
+    read_yaml_file,
+    save_yaml_file
+)
+
+# Import validation utilities
+from .validation import (
+    # Schema validation
+    validate_with_schema,
+    validate_dict,
+
+    # Input validation
+    is_valid_ip_address,
+    is_valid_hostname,
+    is_valid_port,
+    is_valid_uuid,
+
+    # Type checking
+    is_iterable,
+    is_mapping,
+    is_sequence,
+    is_numeric
+)
+
+# Import security utilities
+from .security import (
+    # Security tokens
+    generate_secure_token,
+    validate_secure_token,
+
+    # Password security
+    check_password_strength,
+    mask_password,
+
+    # URL security
+    is_safe_redirect_url,
+    sanitize_url
+)
+
 __all__ = [
     # String utilities
     'slugify',
@@ -139,4 +216,53 @@ __all__ = [
     'to_timestamp',
     'from_timestamp',
     'format_timestamp',
+
+    # Collection utilities
+    'deep_get',
+    'deep_set',
+    'merge_dicts',
+    'flatten_dict',
+    'unflatten_dict',
+    'chunk_list',
+    'find_duplicates',
+    'group_by',
+    'unique_by',
+    'filter_none',
+    'filter_empty',
+    'filter_dict_by_keys',
+    'transform_keys',
+    'transform_values',
+
+    # File utilities
+    'read_file',
+    'write_file',
+    'append_to_file',
+    'ensure_directory_exists',
+    'compute_file_hash',
+    'is_path_safe',
+    'sanitize_filename',
+    'read_json_file',
+    'save_json_file',
+    'read_yaml_file',
+    'save_yaml_file',
+
+    # Validation utilities
+    'validate_with_schema',
+    'validate_dict',
+    'is_valid_ip_address',
+    'is_valid_hostname',
+    'is_valid_port',
+    'is_valid_uuid',
+    'is_iterable',
+    'is_mapping',
+    'is_sequence',
+    'is_numeric',
+
+    # Security utilities
+    'generate_secure_token',
+    'validate_secure_token',
+    'check_password_strength',
+    'mask_password',
+    'is_safe_redirect_url',
+    'sanitize_url'
 ]

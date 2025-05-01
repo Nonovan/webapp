@@ -25,6 +25,7 @@ The utility modules provide standardized implementations of common operations ne
   - HTML sanitization and handling
   - Case conversion (snake_case, camelCase, etc.)
   - String validation and classification
+  - Secure text normalization and encoding
 
 - **`file.py`**: File operation utilities
   - Secure file handling with appropriate permissions
@@ -32,6 +33,7 @@ The utility modules provide standardized implementations of common operations ne
   - Atomic file operations to prevent corruption
   - File format handling and validation
   - Path manipulation and normalization
+  - Secure temporary file management
 
 - **`collection.py`**: Collection data structure manipulation
   - Deep dictionary operations (get, set, merge)
@@ -39,6 +41,7 @@ The utility modules provide standardized implementations of common operations ne
   - Group by and other collection manipulations
   - Nested structure flattening and reconstruction
   - Collection validation and filtering
+  - Efficient batch operations
 
 - **`validation.py`**: Input validation and sanitation
   - Type checking and validation
@@ -46,6 +49,7 @@ The utility modules provide standardized implementations of common operations ne
   - Range and constraint checking
   - Input sanitization for security
   - Format validation (emails, URLs, etc.)
+  - Validation pipeline composition
 
 - **`security.py`**: Basic security utilities
   - Data obfuscation and masking
@@ -53,6 +57,7 @@ The utility modules provide standardized implementations of common operations ne
   - Password strength checking
   - Redirect URL validation
   - Secure random string generation
+  - Input/output sanitization
 
 - **`date_time.py`**: Date and time handling utilities
   - Timezone-aware datetime operations
@@ -63,6 +68,7 @@ The utility modules provide standardized implementations of common operations ne
   - Date comparison and validation with business logic support
   - ISO 8601 compliant timestamp handling
   - Timestamp conversions (epoch, ISO, custom formats)
+  - Business calendar operations
 
 ## Directory Structure
 
@@ -93,12 +99,22 @@ excerpt = truncate_text(long_content, length=150)  # Truncates at word boundary
 
 # Sanitize potentially dangerous user input
 safe_html = sanitize_text(user_input, allowed_tags=["p", "a", "strong", "em"])
+
+# Convert between case styles
+camel_case = snake_to_camel("user_profile_data")  # Output: "userProfileData"
+snake_case = camel_to_snake("userProfileData")    # Output: "user_profile_data"
+
+# Get text excerpt with ellipsis
+short_description = generate_excerpt(article_content, max_length=200)
+
+# Create secure filename
+filename = generate_secure_filename(user_supplied_filename)
 ```
 
 ### File Utilities
 
 ```python
-from core.utils.file import compute_file_hash, save_json_file, is_path_safe
+from core.utils.file import compute_file_hash, save_json_file, is_path_safe, read_yaml_file
 
 # Compute hash of file content
 file_hash = compute_file_hash("/path/to/file.txt", algorithm="sha256")
@@ -111,12 +127,21 @@ if is_path_safe(user_supplied_path, allowed_base_dirs=["/allowed/path"]):
     # Safe to use the path
     with open(user_supplied_path, 'r') as f:
         content = f.read()
+
+# Read YAML configuration file
+config = read_yaml_file("/path/to/config.yaml", default={})
+
+# Ensure directory exists before writing
+ensure_directory_exists("/path/to/output/directory")
+
+# Read file with proper encoding handling
+content = read_file("/path/to/file.txt", encoding="utf-8")
 ```
 
 ### Collection Utilities
 
 ```python
-from core.utils.collection import deep_get, deep_set, flatten_dict
+from core.utils.collection import deep_get, deep_set, flatten_dict, group_by, filter_none
 
 # Safely navigate nested dictionaries
 user_name = deep_get(data, "user.profile.name", default="Unknown User")
@@ -126,12 +151,29 @@ deep_set(config, "security.headers.content_security_policy.enabled", True)
 
 # Flatten nested dictionary to single level
 flat_data = flatten_dict(nested_data, separator=".")
+
+# Group items by attribute
+users_by_role = group_by(users, key=lambda user: user.role)
+for role, users in users_by_role.items():
+    print(f"{role}: {len(users)} users")
+
+# Filter out None values from dictionary
+clean_data = filter_none(user_input)
+
+# Merge dictionaries with customizable conflict resolution
+merged_config = merge_dicts(base_config, user_config,
+                           conflict_resolver=lambda k, v1, v2: v2)
+
+# Find duplicate items in a list
+duplicates = find_duplicates(items, key=lambda x: x.id)
 ```
 
 ### Validation Utilities
 
 ```python
-from core.utils.validation import is_valid_email, validate_with_schema
+from core.utils.validation import (
+    validate_with_schema, is_valid_email, is_valid_ip_address, is_valid_uuid
+)
 
 # Validate email format
 if is_valid_email(user_email):
@@ -151,30 +193,68 @@ user_schema = {
 is_valid, errors = validate_with_schema(user_data, user_schema)
 if not is_valid:
     raise ValidationError(f"Invalid user data: {errors}")
+
+# Validate IP address
+if is_valid_ip_address(client_ip):
+    # Process valid IP
+    pass
+
+# Check if string is valid UUID
+if is_valid_uuid(resource_id):
+    # Use UUID in database query
+    pass
+
+# Check if port number is valid
+if is_valid_port(port_number):
+    # Configure service with port
+    pass
 ```
 
 ### Security Utilities
 
 ```python
-from core.utils.security import generate_random_token, is_safe_redirect_url
+from core.utils.security import generate_secure_token, is_safe_redirect_url, check_password_strength
 
 # Generate secure random token
-reset_token = generate_random_token(length=32)
+reset_token = generate_secure_token(length=32)
 
 # Validate URL safety for redirects
 if is_safe_redirect_url(redirect_url, allowed_hosts=["example.com", "api.example.org"]):
     return redirect(redirect_url)
 else:
     return redirect(default_url)
+
+# Verify password strength
+is_strong, feedback = check_password_strength(password)
+if not is_strong:
+    return {"error": f"Password too weak. {feedback}"}
+
+# Mask sensitive data for logging
+masked_data = mask_sensitive_data(
+    request_data,
+    sensitive_fields=["password", "credit_card", "ssn"]
+)
+logger.info(f"Processing request: {masked_data}")
+
+# Validate secure token
+if validate_secure_token(received_token, expected_token, max_age_seconds=3600):
+    # Token is valid and not expired
+    grant_access()
 ```
 
 ### Date and Time Utilities
 
 ```python
-from core.utils.date_time import utcnow, parse_iso_datetime, format_relative_time, date_range
+from core.utils.date_time import (
+    utcnow, now_with_timezone, format_datetime, parse_iso_datetime,
+    format_relative_time, date_range, calculate_time_difference
+)
 
 # Get current UTC time with timezone information
 current_time = utcnow()
+
+# Get current time in specific timezone
+local_time = now_with_timezone(get_timezone("America/New_York"))
 
 # Parse ISO 8601 date string
 event_date = parse_iso_datetime("2024-07-15T14:30:00Z")
@@ -185,19 +265,30 @@ time_display = format_relative_time(event_date)  # e.g., "2 hours ago" or "in 3 
 # Format with specific format string
 formatted_date = format_datetime(event_date, "%Y-%m-%d %H:%M", use_utc=True)
 
-# Check if date is within business hours
-is_business_hour = is_business_hours(current_time)
-
 # Generate a date range for the next week
 next_week = date_range(utcnow(), utcnow() + timedelta(days=7))
+
+# Calculate time difference with proper timezone handling
+time_diff = calculate_time_difference(start_time, end_time)
+duration_str = format_duration(time_diff)  # e.g., "2 hours 30 minutes"
+
+# Check if a date is in the future
+if is_future_date(event_date):
+    # Schedule event
+    pass
+
+# Check if two dates are on the same day
+if is_same_day(date1, date2):
+    # Combine events
+    pass
+
+# Get start and end of business day
+day_start = beginning_of_day(current_time)
+day_end = end_of_day(current_time)
 
 # Convert between timestamp formats
 epoch_time = to_timestamp(current_time)  # Get Unix timestamp
 datetime_obj = from_timestamp(epoch_time)  # Convert back to datetime
-
-# Get start and end of day
-day_start = beginning_of_day(current_time)
-day_end = end_of_day(current_time)
 ```
 
 ## Best Practices & Security
@@ -216,6 +307,9 @@ day_end = end_of_day(current_time)
 - **Path Traversal Protection**: File operations validate paths to prevent directory traversal attacks
 - **Timezone Awareness**: Date/time functions properly handle timezone information
 - **Thread Safety**: Utilities are designed to be thread-safe where appropriate
+- **Parameter Validation**: Functions validate parameters before processing
+- **Secure Defaults**: Conservative defaults that prioritize security
+- **Atomic Operations**: File operations use atomic patterns to prevent partial writes
 
 ## Common Features
 
@@ -231,6 +325,11 @@ All utility modules share these common features:
 - **Performance Awareness**: Implementations consider performance implications
 - **Immutable Operations**: Non-destructive operations by default
 - **Proper Encapsulation**: Implementation details hidden when appropriate
+- **Consistent Error Handling**: Standardized error patterns across modules
+- **Docstring Examples**: Example usage in function docstrings
+- **Edge Case Handling**: Graceful handling of boundary conditions
+- **PEP 8 Compliance**: Adherence to Python style guidelines
+- **Backward Compatibility**: Careful consideration of API changes
 
 ## Related Documentation
 
@@ -249,5 +348,5 @@ All utility modules share these common features:
 ## Version Information
 
 - **Version**: 0.1.1
-- **Last Updated**: 2024-07-16
+- **Last Updated**: 2024-07-18
 - **Maintainers**: Platform Engineering Team
