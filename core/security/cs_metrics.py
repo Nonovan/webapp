@@ -14,16 +14,15 @@ from sqlalchemy.sql import func
 from typing import List, Dict, Any, Optional, Tuple, Union, Set, TypeVar, cast
 
 # Flask imports
-from flask import current_app, request, g, has_request_context, session, has_app_context
+from flask import current_app, request, g, has_request_context, session, has_app_context, Flask
 
 # Internal imports
-from models.security_incident import SecurityIncident
+from models.security import SecurityIncident
 from extensions import db, metrics
 from extensions import get_redis_client
-from core.utils import log_error, log_warning, log_info, log_debug
 from .cs_constants import SECURITY_CONFIG
 from .cs_file_integrity import check_config_integrity, check_critical_file_integrity
-from .cs_audit import log_security_event
+from .cs_audit import log_security_event, log_error, log_warning, log_info, log_debug
 from .cs_monitoring import (
     get_suspicious_ips, get_failed_login_count, get_account_lockout_count,
     get_active_session_count, get_blocked_ips, get_security_anomalies,
@@ -34,6 +33,160 @@ from .cs_monitoring import (
 SecurityMetrics = Dict[str, Any]
 SecurityRecommendation = Dict[str, str]
 
+
+def setup_security_metrics(app: Flask) -> bool:
+    """
+    Initialize security metrics collection for the Flask application.
+
+    This function sets up security-related metrics collectors including risk scores,
+    suspicious activity tracking, and integrity monitoring.
+
+    Args:
+        app: Flask application instance
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        # Register metrics
+        with app.app_context():
+            # Risk score gauge
+            metrics.gauge(
+                'security.risk_score_gauge',
+                'Current security risk score (1-10)',
+                labels={
+                    'environment': lambda: app.config.get('ENVIRONMENT', 'production')
+                }
+            )
+
+            # Security events counter
+            metrics.counter(
+                'security.events_total',
+                'Total security events by type and severity',
+                labels={
+                    'event_type': lambda: g.get('security_event_type', 'unknown'),
+                    'severity': lambda: g.get('security_event_severity', 'info')
+                }
+            )
+
+            # File integrity metrics
+            metrics.gauge(
+                'security.file_integrity_status',
+                'File integrity check status (1=ok, 0=violation)',
+                labels={
+                    'check_type': lambda: g.get('integrity_check_type', 'critical')
+                }
+            )
+
+            # Suspicious IP tracking
+            metrics.gauge(
+                'security.suspicious_ips_count',
+                'Number of suspicious IP addresses detected',
+                labels={
+                    'time_window': lambda: g.get('time_window', '24h')
+                }
+            )
+
+            # Schedule daily risk score updates if using APScheduler
+            if 'scheduler' in app.extensions:
+                scheduler = app.extensions['scheduler']
+                scheduler.add_job(
+                    'update_daily_risk_score',
+                    update_daily_risk_score,
+                    trigger='cron',
+                    hour=0,
+                    minute=5,  # Run at 00:05 every day
+                    id='daily_risk_score_update'
+                )
+                log_info("Scheduled daily risk score update job")
+
+            # Log setup completion
+            log_info("Security metrics setup completed successfully")
+            metrics.increment('security.metrics_initialized')
+            return True
+
+    except Exception as e:
+        log_error(f"Failed to set up security metrics: {e}")
+        return False
+
+
+def setup_auth_metrics(app: Flask) -> bool:
+    """
+    Initialize authentication metrics collection for the Flask application.
+
+    This function sets up authentication-related metrics collectors including
+    login attempts, MFA usage, and session tracking.
+
+    Args:
+        app: Flask application instance
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        # Register metrics
+        with app.app_context():
+            # Authentication attempt counter
+            metrics.counter(
+                'auth.attempts_total',
+                'Authentication attempts (success/failure)',
+                labels={
+                    'result': lambda: g.get('auth_result', 'unknown'),
+                    'method': lambda: g.get('auth_method', 'password')
+                }
+            )
+
+            # Login failure counter
+            metrics.counter(
+                'auth.failures_total',
+                'Failed login attempts by reason',
+                labels={
+                    'reason': lambda: g.get('auth_failure_reason', 'invalid_credentials'),
+                    'with_valid_username': lambda: g.get('valid_username', False)
+                }
+            )
+
+            # MFA usage metrics
+            metrics.counter(
+                'auth.mfa_attempts_total',
+                'Multi-factor authentication attempts',
+                labels={
+                    'method': lambda: g.get('mfa_method', 'unknown'),
+                    'success': lambda: g.get('mfa_success', False)
+                }
+            )
+
+            # Session metrics
+            metrics.gauge(
+                'auth.active_sessions',
+                'Number of active user sessions',
+                labels={
+                    'session_type': lambda: g.get('session_type', 'standard')
+                }
+            )
+
+            # Account lockout tracking
+            metrics.counter(
+                'auth.account_lockouts',
+                'Account lockout events',
+                labels={
+                    'reason': lambda: g.get('lockout_reason', 'failed_attempts')
+                }
+            )
+
+            # Hook into request cycle for auth metrics
+            @app.before_request
+            def track_session_metrics():
+                if has_request_context() and hasattr(session, '__contains__') and 'user_id' in session:
+                    metrics.increment('auth.authenticated_requests')
+
+            log_info("Authentication metrics setup completed successfully")
+            metrics.increment('auth.metrics_initialized')
+            return True
+
+    except Exception as e:
+        log_error(f"Failed to set up authentication metrics: {e}")
+        return False
 
 def get_security_metrics(hours: int = 24) -> SecurityMetrics:
     """

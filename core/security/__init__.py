@@ -9,16 +9,22 @@ This module provides security-related functionality including:
 - Anomaly detection and threat assessment
 - Security metrics and reporting
 - Security configuration management
+- Baseline security management
 """
 
 # Import and expose key functions for backward compatibility
 from .cs_audit import (
     log_security_event,
+    log_model_event,
+    log_error,
+    log_warning,
+    log_info,
+    log_debug,
     detect_security_anomalies,
     get_recent_security_events,
     get_security_event_counts,
     get_critical_security_events,
-    audit_log
+    _record_in_audit_log
 )
 
 from .cs_authentication import (
@@ -27,7 +33,8 @@ from .cs_authentication import (
     validate_password_strength,
     generate_secure_token,
     regenerate_session,
-    invalidate_user_sessions
+    invalidate_user_sessions,
+    validate_url
 )
 
 from .cs_authorization import (
@@ -87,7 +94,8 @@ from .cs_monitoring import (
     detect_permission_issues,
     get_security_anomalies,
     get_threat_summary,
-    analyze_location_change
+    analyze_location_change,
+    detect_suspicious_activity
 )
 
 from .cs_session import (

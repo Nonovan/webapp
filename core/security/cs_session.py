@@ -27,11 +27,10 @@ from flask import session, request, current_app, has_request_context, has_app_co
 
 # Internal imports
 from extensions import db, metrics, get_redis_client
-from models.audit_log import AuditLog
+from models.security import AuditLog
 from models.auth.user_session import UserSession
 from .cs_constants import SECURITY_CONFIG
-from .cs_audit import log_security_event
-from core.utils import log_error, log_warning, log_info, log_debug
+from .cs_audit import log_security_event, log_error, log_warning, log_info, log_debug
 
 # Set up module-level logger
 logger = logging.getLogger(__name__)

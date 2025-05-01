@@ -33,14 +33,12 @@ from cryptography.hazmat.primitives.asymmetric import padding as asymmetric_padd
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
 
 # Internal imports
-from models.audit_log import AuditLog
+from models.security import AuditLog
 from extensions import db, metrics, get_redis_client
-from .cs_audit import log_security_event
+from .cs_audit import log_security_event, log_error, log_warning, log_info, log_debug
 from .cs_constants import SECURITY_CONFIG
-from core.utils import (
-    calculate_file_hash, format_timestamp,
-    log_error, log_warning, log_info, log_debug
-)
+from services import calculate_file_hash
+from core.utils import format_timestamp
 
 
 def check_file_integrity(file_path: str, expected_hash: str, algorithm: str = None) -> bool:
@@ -711,6 +709,134 @@ def initialize_file_monitoring(app, basedir: str = None,
         return True
     except Exception as e:
         log_error(f"Error initializing file monitoring: {e}")
+        return False
+
+
+def update_file_integrity_baseline(
+        app=None,
+        baseline_path: Optional[str] = None,
+        updates: Optional[List[Dict[str, Any]]] = None,
+        remove_missing: bool = False) -> bool:
+    """
+    Update the file integrity baseline with new hash values.
+
+    This function updates the baseline file with new hash values from detected changes
+    or explicitly provided updates. It can also optionally remove entries for missing files.
+
+    Args:
+        app: Flask application instance (uses current_app if None)
+        baseline_path: Path to the baseline file (uses app config if None)
+        updates: List of change dictionaries to incorporate into baseline
+        remove_missing: Whether to remove entries for files that no longer exist
+
+    Returns:
+        bool: True if the baseline was successfully updated, False otherwise
+    """
+    try:
+        app = app or current_app
+
+        # Determine baseline path
+        if not baseline_path:
+            baseline_path = app.config.get('FILE_BASELINE_PATH')
+            if not baseline_path:
+                baseline_path = os.path.join(app.instance_path, 'file_baseline.json')
+
+        # Load existing baseline
+        if os.path.exists(baseline_path):
+            with open(baseline_path, 'r') as f:
+                baseline = json.load(f)
+        else:
+            baseline = {}
+
+        # Create a backup of the current baseline
+        backup_path = f"{baseline_path}.bak.{int(time.time())}"
+        try:
+            with open(backup_path, 'w') as f:
+                json.dump(baseline, f, indent=2)
+            log_info(f"Created baseline backup at {backup_path}")
+        except (IOError, OSError) as e:
+            log_warning(f"Failed to create baseline backup: {e}")
+
+        # Process updates
+        changes_applied = 0
+        if updates:
+            for change in updates:
+                path = change.get('path')
+                current_hash = change.get('current_hash')
+
+                # Skip entries without necessary information
+                if not path or not current_hash:
+                    continue
+
+                # Ensure path is relative to project root if needed
+                if not os.path.isabs(path) and app:
+                    basedir = os.path.dirname(os.path.abspath(app.root_path))
+                    abs_path = os.path.join(basedir, path)
+                else:
+                    abs_path = path
+
+                # Only update if file exists
+                if os.path.exists(abs_path):
+                    baseline[path] = current_hash
+                    changes_applied += 1
+
+        # Remove missing files if requested
+        removed = 0
+        if remove_missing:
+            to_remove = []
+            for path in baseline.keys():
+                if not os.path.isabs(path) and app:
+                    basedir = os.path.dirname(os.path.abspath(app.root_path))
+                    abs_path = os.path.join(basedir, path)
+                else:
+                    abs_path = path
+
+                if not os.path.exists(abs_path):
+                    to_remove.append(path)
+
+            for path in to_remove:
+                del baseline[path]
+                removed += 1
+
+        # Save updated baseline
+        os.makedirs(os.path.dirname(baseline_path), exist_ok=True)
+        with open(baseline_path, 'w') as f:
+            json.dump(baseline, f, indent=2)
+
+        # Update application config
+        app.config['CRITICAL_FILE_HASHES'] = baseline
+
+        # Log the update operation
+        log_info(f"Updated file integrity baseline: {changes_applied} changes applied, {removed} entries removed")
+        metrics.gauge('security.baseline.files_updated', changes_applied)
+        if removed > 0:
+            metrics.gauge('security.baseline.files_removed', removed)
+
+        # Log security event
+        if changes_applied > 0 or removed > 0:
+            try:
+                log_security_event(
+                    event_type='baseline_updated',
+                    description=f"File integrity baseline updated: {changes_applied} new/changed files, {removed} removed",
+                    severity='info',
+                    details={
+                        'changes_applied': changes_applied,
+                        'entries_removed': removed,
+                        'timestamp': format_timestamp()
+                    }
+                )
+            except Exception as e:
+                log_error(f"Failed to log baseline update event: {e}")
+
+        return True
+
+    except (IOError, OSError) as e:
+        log_error(f"Error updating file integrity baseline: {e}")
+        metrics.increment('security.baseline.update_error')
+        return False
+    except Exception as e:
+        log_error(f"Unexpected error updating file integrity baseline: {e}")
+        metrics.increment('security.baseline.update_error')
         return False
 
 

@@ -19,6 +19,7 @@ The security module implements a defense-in-depth security approach with multipl
   - Password strength validation
   - Session management functions
   - IP validation utilities
+  - URL validation and security checks
 
 - **`cs_authorization.py`**: Permission and access control
   - Role-based permission decorators
@@ -46,6 +47,7 @@ The security module implements a defense-in-depth security approach with multipl
   - Automated baseline updating with security controls
   - Permission security validation
   - Suspicious file detection
+  - Baseline comparison and reporting
 
 - **`cs_metrics.py`**: Security metrics collection
   - Security posture measurement
@@ -53,6 +55,10 @@ The security module implements a defense-in-depth security approach with multipl
   - Security recommendation generation
   - Threat intelligence metrics
   - Geolocation-based risk analysis
+  - Security trend analysis
+  - Metrics initialization and setup
+  - Authentication metrics tracking
+  - Customizable security dashboards
 
 - **`cs_monitoring.py`**: Security monitoring capabilities
   - Failed login tracking
@@ -61,6 +67,7 @@ The security module implements a defense-in-depth security approach with multipl
   - Session monitoring
   - Location change analysis
   - Permission violation detection
+  - Security anomaly detection
 
 - **`cs_session.py`**: Session security management
   - Session timeout enforcement
@@ -80,6 +87,7 @@ The security module implements a defense-in-depth security approach with multipl
   - Security dependency verification
   - Security status reporting
   - Security headers management
+  - CSP nonce generation
 
 ## Directory Structure
 
@@ -97,7 +105,6 @@ core/security/
 ├── cs_session.py            # Session security management
 ├── cs_utils.py              # Security utility functions
 └── README.md                # This documentation
-
 ```
 
 ## Usage
@@ -105,7 +112,7 @@ core/security/
 ### Authentication
 
 ```python
-from core.security import verify_token, validate_password_strength, generate_secure_token
+from core.security import verify_token, validate_password_strength, generate_secure_token, validate_url
 
 # Verify JWT token
 token_data = verify_token(token)
@@ -116,6 +123,8 @@ is_strong, requirements = validate_password_strength(password)
 # Generate secure random token
 token = generate_secure_token(length=64)
 
+# Validate URL safety
+is_valid, error = validate_url("https://example.com/page", required_schemes=["https"])
 ```
 
 ### Authorization
@@ -134,13 +143,12 @@ def get_resources():
 def update_user_permissions():
     # Only accessible after MFA verification
     pass
-
 ```
 
 ### Security Logging
 
 ```python
-from core.security import log_security_event
+from core.security import log_security_event, log_error, log_warning, log_info, log_debug
 
 # Log security events for audit and compliance
 log_security_event(
@@ -151,6 +159,11 @@ log_security_event(
     details={'ip_address': request.remote_addr}
 )
 
+# Log different severity levels
+log_error("Failed to validate security token")
+log_warning("Multiple failed login attempts detected")
+log_info("User password updated successfully")
+log_debug("Authentication process started")
 ```
 
 ### Cryptographic Operations
@@ -163,13 +176,12 @@ encrypted = encrypt_sensitive_data(plaintext)
 
 # Decrypt sensitive data
 plaintext = decrypt_sensitive_data(encrypted)
-
 ```
 
 ### File Integrity Verification
 
 ```python
-from core.security import check_critical_file_integrity, get_last_integrity_status
+from core.security import check_critical_file_integrity, get_last_integrity_status, update_file_integrity_baseline
 
 # Check integrity of critical configuration files
 is_intact, changes = check_critical_file_integrity()
@@ -186,6 +198,8 @@ if status['has_violations']:
     # Take appropriate action
     pass
 
+# Update the integrity baseline with approved changes
+update_file_integrity_baseline(app, baseline_path, changes)
 ```
 
 ### Session Security
@@ -219,24 +233,49 @@ if is_mfa_verified():
 else:
     # Redirect to MFA verification
     pass
-
 ```
 
 ### Security Metrics and Monitoring
 
 ```python
-from core.security import get_security_metrics, get_threat_intelligence_summary
+from core.security import get_security_metrics, get_threat_intelligence_summary, calculate_risk_score, generate_security_recommendations
 
 # Get comprehensive security metrics
 metrics = get_security_metrics(hours=24)
 risk_score = metrics['risk_score']
 
+# Calculate risk score from custom metrics
+custom_risk_score = calculate_risk_score(custom_metrics)
+
+# Get actionable security recommendations
+recommendations = generate_security_recommendations(metrics)
+for rec in recommendations:
+    if rec['priority'] == 'high':
+        # Address high-priority recommendations first
+        create_task(rec['title'], rec['description'])
+
 # Get threat intelligence summary
 threat_summary = get_threat_intelligence_summary()
 if threat_summary['overall_threat_level'] == 'critical':
     # Implement emergency security measures
-    pass
+    activate_emergency_response(threat_summary['threats'])
+```
 
+### Metrics Setup
+
+```python
+from core.security import setup_security_metrics, setup_auth_metrics
+
+# Initialize security metrics in your Flask application
+def configure_metrics(app):
+    # Set up security metrics collectors
+    setup_security_metrics(app)
+
+    # Set up authentication metrics collectors
+    setup_auth_metrics(app)
+
+    # Additional metrics configuration
+    # ...
 ```
 
 ## Best Practices & Security
@@ -254,6 +293,8 @@ if threat_summary['overall_threat_level'] == 'critical':
 - Enforce MFA for all administrative and sensitive operations
 - Implement proper rate limiting for authentication endpoints
 - Review security metrics and alerts daily
+- Monitor and respond to security recommendations
+- Regularly test security controls through automated checks
 
 ## Related Documentation
 
@@ -267,6 +308,6 @@ if threat_summary['overall_threat_level'] == 'critical':
 
 ## Version Information
 
-- **Version**: 0.0.1
-- **Last Updated**: 2024-07-10
+- **Version**: 0.1.1
+- **Last Updated**: 2024-07-17
 - **Maintainers**: Security Engineering Team

@@ -33,12 +33,9 @@ from flask_wtf.csrf import CSRFProtect
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 
 from extensions import db, cache, limiter
-from models.security_incident import SecurityIncident
-from models.audit_log import AuditLog
-from models.user import User
-from models.notification import Notification
+from models import AuditLog, Notification, SecurityIncident, User
 from services.email_service import send_email
-from core.security_utils import (
+from core.security import (
     check_for_anomalies,
     log_security_event,
     validate_admin_access,

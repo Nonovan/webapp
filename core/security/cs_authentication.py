@@ -22,8 +22,7 @@ from flask import current_app, request, g, has_request_context, session, has_app
 from extensions import db, metrics
 from extensions import get_redis_client
 from .cs_constants import SECURITY_CONFIG
-from .cs_audit import log_security_event
-from core.utils import log_error, log_warning, log_info, log_debug
+from .cs_audit import log_security_event, log_error, log_warning, log_info, log_debug
 
 # Type definitions
 TokenPayload = Dict[str, Any]
@@ -806,3 +805,101 @@ def validate_path(path: str, base_dir: Optional[str] = None, allow_absolute: boo
         log_error(f"Error validating path: {e}")
         metrics.increment('security.path_validation_error')
         return False
+
+
+def validate_url(url: str, required_schemes: Optional[List[str]] = None) -> Tuple[bool, Optional[str]]:
+    """
+    Validate if the given string is a valid and safe URL.
+
+    This function checks URLs for security concerns including proper format,
+    unsafe schemes, and optionally restricts to specific URI schemes.
+
+    Args:
+        url: The URL string to validate
+        required_schemes: List of allowed schemes (e.g., ['http', 'https'])
+                         If None, common safe schemes are allowed
+
+    Returns:
+        Tuple[bool, Optional[str]]: (is_valid, error_message)
+        - First element is True if valid, False if invalid
+        - Second element contains error message if invalid, None if valid
+
+    Example:
+        >>> validate_url("https://example.com/page")
+        (True, None)
+        >>> validate_url("javascript:alert(1)")
+        (False, "URL uses unsafe scheme: javascript")
+        >>> validate_url("ftp://example.com", required_schemes=["http", "https"])
+        (False, "URL scheme must be one of: http, https")
+    """
+    if not url:
+        metrics.increment('security.url_validation_failure')
+        return False, "URL cannot be empty"
+
+    try:
+        # Try to parse the URL to validate its format
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+
+        # Check if URL has both scheme and netloc for absolute URLs, or path for relative
+        if not parsed.scheme and not parsed.netloc and not parsed.path:
+            metrics.increment('security.url_validation_failure')
+            return False, "URL is malformed"
+
+        # Block unsafe schemes
+        unsafe_schemes = ['javascript', 'data', 'vbscript', 'file']
+        if parsed.scheme and parsed.scheme.lower() in unsafe_schemes:
+            metrics.increment('security.unsafe_url_blocked')
+            log_warning(f"Blocked unsafe URL scheme: {parsed.scheme}")
+
+            # Log security event if in request context
+            if has_request_context():
+                try:
+                    log_security_event(
+                        event_type="unsafe_url_blocked",
+                        description=f"Blocked unsafe URL scheme: {parsed.scheme}",
+                        severity="warning",
+                        ip_address=request.remote_addr,
+                        details={"url": url[:100]}  # Limit URL length in logs
+                    )
+                except Exception as e:
+                    log_warning(f"Failed to log security event for unsafe URL: {e}")
+
+            return False, f"URL uses unsafe scheme: {parsed.scheme}"
+
+        # If specific schemes are required, enforce them
+        if required_schemes and parsed.scheme:
+            if parsed.scheme.lower() not in [s.lower() for s in required_schemes]:
+                metrics.increment('security.url_validation_failure')
+                schemes_str = ", ".join(required_schemes)
+                return False, f"URL scheme must be one of: {schemes_str}"
+
+        # Check for relative URLs
+        if not parsed.scheme and not parsed.netloc:
+            # For relative URLs, enforce they start with / to prevent path traversal
+            if not parsed.path.startswith('/'):
+                metrics.increment('security.unsafe_path_blocked')
+                return False, "Relative URL must start with /"
+
+        # Additional validation based on project's security policies
+        if SECURITY_CONFIG.get('STRICT_URL_VALIDATION', False):
+            # In strict mode, apply additional rules from config
+            allowed_domains = []
+            if has_app_context():
+                allowed_domains = current_app.config.get('ALLOWED_REDIRECT_DOMAINS', [])
+
+            # If URL has host and we have domain restrictions
+            if parsed.netloc and allowed_domains:
+                host = parsed.netloc.lower()
+                if not any(host == domain.lower() or host.endswith('.' + domain.lower()) for domain in allowed_domains):
+                    metrics.increment('security.url_validation_failure')
+                    return False, "Domain not in allowed list"
+
+        # URL validation passed
+        metrics.increment('security.url_validation_success')
+        return True, None
+
+    except Exception as e:
+        log_error(f"Error validating URL: {e}")
+        metrics.increment('security.url_validation_error')
+        return False, f"Error validating URL: {str(e)}"

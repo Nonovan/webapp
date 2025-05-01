@@ -408,3 +408,36 @@ def format_duration(seconds: float) -> str:
         parts.append(f"{seconds}s")
 
     return ' '.join(parts[:2])  # Show at most 2 units
+
+
+def format_timestamp(dt: Optional[datetime] = None, use_utc: bool = True) -> str:
+    """
+    Format datetime as ISO 8601 timestamp string.
+
+    This function standardizes timestamp formatting throughout the application,
+    ensuring all timestamps are consistently formatted with timezone information.
+    It's particularly useful for audit logging, API responses, and data exports.
+
+    Args:
+        dt: Datetime to format (defaults to current time if None)
+        use_utc: Whether to convert to UTC before formatting
+
+    Returns:
+        ISO 8601 formatted timestamp string with timezone information
+
+    Example:
+        >>> format_timestamp()  # Current time in UTC
+        '2023-10-27T14:30:00.123456+00:00'
+        >>> format_timestamp(datetime(2023, 10, 27, 14, 30), use_utc=True)
+        '2023-10-27T14:30:00+00:00'
+    """
+    if dt is None:
+        dt = utcnow() if use_utc else localnow()
+
+    # Ensure datetime has timezone info
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc if use_utc else None)
+    elif use_utc and dt.tzinfo is not timezone.utc:
+        dt = dt.astimezone(timezone.utc)
+
+    return dt.isoformat()

@@ -36,7 +36,7 @@ from .schemas import (
 # Adjust import path based on actual model location
 try:
     # Use package-level imports
-    from models.security import SecurityIncident, AuditLog, User
+    from models import SecurityIncident, AuditLog, User
     from extensions import db, metrics # Assuming db and metrics are initialized in extensions
     MODELS_AVAILABLE = True
 except ImportError as e:

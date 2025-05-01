@@ -28,12 +28,7 @@ import click
 from sqlalchemy.exc import SQLAlchemyError
 
 from extensions import db
-from models.user import User
-from models.audit_log import AuditLog
-from models.security_incident import SecurityIncident
-from models.system_config import SystemConfig
-from models.role import Role
-from models.permission import Permission
+from models import AuditLog, Permission, Role, SecurityIncident, SystemConfig, User
 
 
 def seed_database(force: bool = False, verbose: bool = False) -> bool:

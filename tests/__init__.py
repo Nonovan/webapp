@@ -34,13 +34,12 @@ import jwt
 
 from app import create_app
 from extensions import db, cache, metrics
-from models.user import User
+from models import User
 from models.cloud_resource import CloudResource
 from models.cloud_provider import CloudProvider
 from models.cloud_metric import CloudMetric
 from models.cloud_alert import CloudAlert
-from models.security_incident import SecurityIncident
-from models.audit_log import AuditLog
+from models.security import AuditLog, SecurityIncident
 
 # Application Fixtures
 @pytest.fixture
@@ -73,7 +72,7 @@ def app() -> Flask:
         'CACHE_TYPE': 'simple',  # Use simple cache for testing
         'MAIL_SUPPRESS_SEND': True  # Don't actually send emails during tests
     })
-    
+
     with test_app.app_context():
         db.create_all()
         yield test_app

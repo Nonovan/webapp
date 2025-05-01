@@ -62,6 +62,7 @@ from .date_time import (
     now_with_timezone,
     format_datetime,
     parse_iso_datetime,
+    format_timestamp,
 
     # Timezone operations
     get_timezone,
@@ -137,4 +138,5 @@ __all__ = [
     'end_of_day',
     'to_timestamp',
     'from_timestamp'
+    'format_timestamp'
 ]

@@ -23,7 +23,7 @@ from extensions import db, metrics, get_redis_client
 from .cs_audit import log_security_event
 from .cs_constants import SECURITY_CONFIG
 from .cs_session import is_mfa_verified, mark_requiring_mfa
-from models.audit_log import AuditLog
+from models.security import AuditLog
 
 
 def require_permission(permission: str, audit_access: bool = True):

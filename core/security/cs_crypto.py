@@ -35,10 +35,9 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.backends import default_backend
 
 # Internal imports
-from core.utils import log_error, log_warning, log_info, log_debug
 from extensions import metrics, get_redis_client
 from .cs_constants import SECURITY_CONFIG
-from .cs_audit import log_security_event
+from .cs_audit import log_security_event, log_error, log_warning, log_info, log_debug
 
 # Set up module-level logger
 logger = logging.getLogger(__name__)

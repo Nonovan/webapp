@@ -20,8 +20,7 @@ try:
     from flask import current_app, has_app_context
     from extensions import db, cache, metrics
     from core.security.cs_utils import get_security_config
-    from core.security.cs_audit import log_security_event
-    from core.utils import log_error, log_info, log_warning, log_debug
+    from core.security.cs_audit import log_security_event, log_error, log_info, log_warning, log_debug
     from models.security.audit_log import AuditLog
     from services.notification_service import send_system_notification
     CORE_AVAILABLE = True

@@ -53,6 +53,7 @@ __all__ = [
     'calculate_file_hash',
     'get_integrity_status',
     'schedule_integrity_check',
+    'update_file_integrity_baseline',
 
     # Webhook functions
     'trigger_webhook_event',
@@ -154,6 +155,58 @@ def schedule_integrity_check(interval_seconds: int = 3600,
         Boolean indicating if scheduling was successful
     """
     return SecurityService.schedule_integrity_check(interval_seconds, callback)
+
+def update_file_integrity_baseline(app, baseline_path: str, changes: List[Dict[str, Any]],
+                                 auto_update_limit: int = 10) -> Tuple[bool, str]:
+    """
+    Update the file integrity baseline with changes.
+
+    This function is used to update the baseline when non-critical changes are detected.
+    It incorporates new file hashes into the baseline, typically used in development
+    or controlled update scenarios.
+
+    Args:
+        app: Flask application instance
+        baseline_path: Path to the baseline JSON file
+        changes: List of change dictionaries from integrity check
+        auto_update_limit: Maximum number of files to auto-update (safety limit)
+
+    Returns:
+        Tuple containing (success, message)
+    """
+    try:
+        # Import required security functions
+        from core.security.cs_file_integrity import update_file_integrity_baseline
+
+        # Filter changes to include only those that should be updated
+        # Typically exclude critical and high severity changes
+        non_critical = [c for c in changes if c.get('severity') not in ('critical', 'high')]
+
+        # Safety check - don't update if too many files changed
+        if len(non_critical) > auto_update_limit and not app.config.get('BYPASS_UPDATE_LIMITS', False):
+            logger.warning(f"Too many files to update: {len(non_critical)} exceeds limit of {auto_update_limit}")
+            return False, f"Too many files to update: {len(non_critical)} exceeds safety limit"
+
+        if not non_critical:
+            return True, "No non-critical changes to update"
+
+        # Update the baseline with these non-critical changes
+        logger.info(f"Auto-updating baseline for {len(non_critical)} non-critical changes")
+        result = update_file_integrity_baseline(app, baseline_path, non_critical)
+
+        if result:
+            logger.info("File integrity baseline updated successfully")
+            return True, f"Updated baseline with {len(non_critical)} changes"
+        else:
+            logger.error("Failed to update file integrity baseline")
+            return False, "Failed to update baseline"
+
+    except ImportError as e:
+        logger.warning(f"Could not auto-update baseline: cs_file_integrity module not available - {e}")
+        return False, "File integrity module not available"
+    except Exception as e:
+        logger.error(f"Error auto-updating baseline: {str(e)}")
+        return False, f"Error updating baseline: {str(e)}"
 
 def trigger_webhook_event(event_type: str, payload: Dict[str, Any],
                         user_id: Optional[int] = None,

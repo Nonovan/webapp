@@ -645,15 +645,20 @@ def audit_log(event_type: str, description: str, incident_id: Optional[str] = No
     """
     if AUDIT_AVAILABLE and log_security_event:
         try:
+            # Create a combined details dictionary with all the info
+            combined_details = details or {}
+            if incident_id:
+                combined_details['incident_id'] = incident_id
+            combined_details['outcome'] = "success" if success else "failure"
+            combined_details['source_component'] = "service_restoration.py"
+
             log_security_event(
                 event_type=event_type,
                 description=description,
                 severity="info" if success else "warning",
                 user_id=get_user_identity(),
-                incident_id=incident_id,
-                metadata=details or {},
-                outcome="success" if success else "failure",
-                source_component="service_restoration.py"
+                details=combined_details,
+                object_type="incident_response"  # Optional: can be used to categorize the event
             )
         except Exception as e:
             logger.warning(f"Failed to log audit event: {e}")

@@ -25,7 +25,7 @@ from models.communication.webhook import WebhookSubscription, WebhookDelivery, W
 from api.webhooks import EventType, DeliveryStatus, EVENT_TYPES, EVENT_CATEGORIES, generate_webhook_signature
 # Assuming delivery logic might be moved here or called from here
 from api.webhooks.delivery import deliver_webhook as trigger_delivery_process
-from core.security import log_security_event, validate_url # Assuming security functions exist
+from core.security import log_security_event, validate_url
 from services.notification_service import send_system_notification
 
 logger = logging.getLogger(__name__)
