@@ -11,6 +11,7 @@ The Authentication API module provides secure endpoints for user authentication,
 - Configuration
 - Security Features
 - Authentication Decorators
+- File Integrity Monitoring
 - Usage Examples
 - Related Documentation
 
@@ -25,6 +26,7 @@ The Authentication API implements RESTful endpoints following security best prac
   - Event handler registration
   - Security metrics integration
   - Session manager configuration
+  - File integrity baseline management
 
 - **`decorators.py`**: Authentication-specific decorator functions
   - Authorization enforcement
@@ -127,6 +129,12 @@ The authentication system uses several configuration settings that can be adjust
 # Password reset settings
 'PASSWORD_RESET_EXPIRATION_MINUTES': 15,      # Reset link expiration
 'PASSWORD_RESET_EMAIL_THROTTLE': 5,           # Minutes between reset emails
+
+# File integrity settings
+'FILE_INTEGRITY_CHECK_ENABLED': True,         # Enable file integrity checking
+'FILE_BASELINE_PATH': 'instance/file_baseline.json',  # Integrity baseline path
+'FILE_INTEGRITY_AUTO_UPDATE_LIMIT': 10,       # Maximum number of files to auto-update
+'AUTH_VERIFY_INTEGRITY_ON_STARTUP': True,     # Verify file integrity on startup
 ```
 
 ## Security Features
@@ -134,6 +142,7 @@ The authentication system uses several configuration settings that can be adjust
 - **Brute Force Protection**: Implements progressive lockouts for failed attempts
 - **Comprehensive Audit Logging**: Records all authentication events for security monitoring
 - **Device Fingerprinting**: Validates session requests against browser fingerprints
+- **File Integrity Monitoring**: Detects unauthorized modifications to critical authentication files
 - **Input Validation**: Validates all inputs before processing
 - **Multi-Factor Authentication**: Supports TOTP and hardware security keys
 - **Rate Limiting**: Prevents brute force attacks with endpoint-specific limits
@@ -233,6 +242,55 @@ def update_security_policy():
     # Protected by role checks, MFA requirement, and security auditing
     pass
 ```
+
+## File Integrity Monitoring
+
+The Authentication module includes built-in file integrity monitoring to detect unauthorized modifications to critical authentication files. This helps prevent tampering with authentication logic and security controls.
+
+### Baseline Management
+
+The `update_auth_module_baseline` function maintains a secure integrity baseline for critical authentication files:
+
+```python
+def update_auth_module_baseline(app=None, auto_update_limit: int = 10) -> Tuple[bool, str]:
+    """
+    Update the file integrity baseline for authentication module files.
+
+    Args:
+        app: Flask application instance (uses current_app if None)
+        auto_update_limit: Maximum number of files to auto-update (safety limit)
+
+    Returns:
+        Tuple containing (success, message)
+    """
+```
+
+### Critical Files Monitored
+
+The following authentication module files are monitored for integrity:
+
+- `init.py` - Module initialization and core functionality
+- `decorators.py` - Security enforcement decorators
+- `extend_session.py` - Session management implementation
+- `password_reset.py` - Password reset workflow
+- `mfa.py` - Multi-factor authentication handling
+- `session_status.py` - Session validation and status
+
+### Severity Classification
+
+Files are classified by security severity:
+
+- **Medium**: Most authentication files (default)
+- **High**: Password reset and module initialization files
+
+### Integration with Core Security
+
+The authentication module automatically registers with the core security module during initialization to:
+
+1. Set up authentication-specific security metrics
+2. Register audit event handlers for authentication operations
+3. Schedule periodic integrity checks based on configuration
+4. Perform initial baseline verification on startup (if enabled)
 
 ## Usage Examples
 
@@ -391,6 +449,7 @@ Response:
 
 - API Reference
 - Authentication Service
+- File Integrity Monitoring Guide
 - Password Policy Documentation
 - Security Best Practices
 - Security Module

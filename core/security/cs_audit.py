@@ -598,6 +598,129 @@ def _add_to_event_correlation(
         logger.error(f"Failed to add event to correlation database: {e}")
 
 
+def register_event_handlers():
+    """
+    Register event handlers for authentication events.
+
+    This function sets up listeners for authentication-related events
+    to ensure they are properly logged in the security audit system.
+    Events include login attempts, logouts, password changes, MFA events,
+    and other security-relevant authentication operations.
+
+    Returns:
+        bool: True if registration was successful
+    """
+    try:
+        from flask import current_app
+        logger.info("Registering authentication event handlers")
+
+        # Track security metrics if available
+        if hasattr(metrics, 'counter'):
+            metrics.counter('security.auth.handlers_registered').inc()
+
+        # Import authentication event listeners
+        from models.auth import User, LoginAttempt, UserSession
+        from sqlalchemy import event
+
+        # Set up event listeners for authentication events
+        event.listen(LoginAttempt, 'after_insert', _handle_login_attempt)
+        event.listen(UserSession, 'after_insert', _handle_session_created)
+        event.listen(UserSession, 'after_update', _handle_session_updated)
+        event.listen(UserSession, 'after_delete', _handle_session_terminated)
+
+        # Set up handlers for authentication-related operations
+        # These will be triggered by the respective operations in the auth module
+
+        logger.info("Authentication event handlers registered successfully")
+        return True
+
+    except ImportError as e:
+        logger.error(f"Failed to import necessary components for auth event handlers: {e}")
+        return False
+    except Exception as e:
+        logger.error(f"Failed to register authentication event handlers: {e}")
+        return False
+
+def _handle_login_attempt(mapper, connection, login_attempt):
+    """Handle login attempt events for security audit."""
+    try:
+        # Extract relevant information
+        success = login_attempt.success
+        event_type = AuditLog.EVENT_LOGIN_SUCCESS if success else AuditLog.EVENT_LOGIN_FAILED
+        severity = 'info' if success else 'warning'
+
+        # Log the security event
+        log_security_event(
+            event_type=event_type,
+            description=f"User login {'succeeded' if success else 'failed'} for {login_attempt.username}",
+            severity=severity,
+            user_id=login_attempt.user_id if hasattr(login_attempt, 'user_id') else None,
+            ip_address=login_attempt.ip_address,
+            details={
+                'username': login_attempt.username,
+                'success': success,
+                'user_agent': login_attempt.user_agent if hasattr(login_attempt, 'user_agent') else None,
+                'location': login_attempt.location if hasattr(login_attempt, 'location') else None,
+                'failure_reason': login_attempt.failure_reason if hasattr(login_attempt, 'failure_reason') and not success else None
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error handling login attempt event: {e}")
+
+def _handle_session_created(mapper, connection, session):
+    """Handle session creation events for security audit."""
+    try:
+        log_security_event(
+            event_type="session_created",
+            description=f"User session created for user ID {session.user_id}",
+            severity='info',
+            user_id=session.user_id,
+            ip_address=session.ip_address if hasattr(session, 'ip_address') else None,
+            details={
+                'session_id': session.session_id if hasattr(session, 'session_id') else None,
+                'user_agent': session.user_agent if hasattr(session, 'user_agent') else None,
+                'expires_at': session.expires_at.isoformat() if hasattr(session, 'expires_at') else None
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error handling session created event: {e}")
+
+def _handle_session_updated(mapper, connection, session):
+    """Handle session update events for security audit."""
+    try:
+        if hasattr(session, 'is_extended') and session.is_extended:
+            log_security_event(
+                event_type="session_extended",
+                description=f"User session extended for user ID {session.user_id}",
+                severity='info',
+                user_id=session.user_id,
+                ip_address=session.ip_address if hasattr(session, 'ip_address') else None,
+                details={
+                    'session_id': session.session_id if hasattr(session, 'session_id') else None,
+                    'new_expiry': session.expires_at.isoformat() if hasattr(session, 'expires_at') else None
+                }
+            )
+    except Exception as e:
+        logger.error(f"Error handling session updated event: {e}")
+
+def _handle_session_terminated(mapper, connection, session):
+    """Handle session termination events for security audit."""
+    try:
+        log_security_event(
+            event_type="session_terminated",
+            description=f"User session terminated for user ID {session.user_id}",
+            severity='info',
+            user_id=session.user_id,
+            ip_address=session.ip_address if hasattr(session, 'ip_address') else None,
+            details={
+                'session_id': session.session_id if hasattr(session, 'session_id') else None,
+                'reason': session.termination_reason if hasattr(session, 'termination_reason') else 'logout'
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error handling session terminated event: {e}")
+
+
 def get_recent_security_events(
     limit: int = 50,
     severity: Optional[str] = None,
