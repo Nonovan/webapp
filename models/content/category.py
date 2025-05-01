@@ -14,8 +14,7 @@ from sqlalchemy.orm import relationship, validates
 from sqlalchemy.exc import SQLAlchemyError
 from flask import current_app, g
 
-from models.base import BaseModel
-from core.database import db
+from .. import db, BaseModel
 from core.utils.string import slugify
 from core.security.cs_audit import log_model_event
 

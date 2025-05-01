@@ -29,7 +29,7 @@ from sqlalchemy import desc, and_, or_, text, func
 from sqlalchemy.orm import joinedload
 
 from .. import db, BaseModel
-from ..content import Category  # Import Category model
+from ..content import Category
 from ..security.audit_log import AuditLog
 from core.security.cs_audit import log_model_event
 

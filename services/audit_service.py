@@ -17,7 +17,7 @@ try:
     from flask import current_app, has_app_context, request
     from extensions import db, cache
     from models.security.audit_log import AuditLog
-    from models.user import User # Assuming a User model exists
+    from models import User
     CORE_AVAILABLE = True
 except ImportError as e:
     CORE_AVAILABLE = False

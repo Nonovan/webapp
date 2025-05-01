@@ -33,9 +33,8 @@ from werkzeug.exceptions import HTTPException
 from functools import wraps
 
 from extensions import db, metrics, cache
-from models.audit_log import AuditLog
-from models.user_activity import UserActivity
-from core.utils import log_security_event
+from models import AuditLog, UserActivity
+from core.security.cs_audit import log_security_event
 
 # Create main API blueprint
 api_bp = Blueprint('api', __name__, url_prefix='/api')

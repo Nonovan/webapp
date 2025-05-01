@@ -18,7 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from extensions import db, metrics, cache
 from models.communication.notification import Notification
 from services.email_service import EmailService, send_email, send_template_email
-from models.user import User  # Assuming User model exists for fetching recipients
+from models import User
 from core.security import sanitize_url, log_security_event
 
 logger = logging.getLogger(__name__)

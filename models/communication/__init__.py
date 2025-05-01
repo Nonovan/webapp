@@ -36,7 +36,8 @@ __all__ = [
     "WebhookSubscription",
     "WebhookDelivery",
 
-    # Subscriber models (from subscriber.py)
+    # Subscriber models (from subscriber.py
+    "SubscriberModel",
     "SubscriberCategory",
 
     # Communication logging

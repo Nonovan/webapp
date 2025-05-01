@@ -23,7 +23,7 @@ from flask import current_app
 
 from extensions import db, cache, metrics
 from models.base import BaseModel
-from core.security_utils import generate_secure_token
+from core.security.cs_authentication import generate_secure_token
 
 
 class Subscriber(BaseModel):

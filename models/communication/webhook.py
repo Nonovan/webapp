@@ -15,7 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from flask import current_app
 
 from models import db, BaseModel, TimestampMixin, AuditableMixin
-from core.security_utils import log_security_event
+from core.security.cs_audit import log_security_event
 from extensions import cache, metrics
 
 

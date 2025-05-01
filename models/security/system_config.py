@@ -17,8 +17,8 @@ from flask import current_app
 
 from extensions import db, cache
 from models.base import BaseModel
-from models.audit_log import AuditLog
-from core.security_utils import encrypt_sensitive_data, decrypt_sensitive_data, log_security_event
+from core.security.cs_audit import AuditLog, log_security_event
+from core.security.cs_crypto import encrypt_sensitive_data, decrypt_sensitive_data
 
 
 class SystemConfig(BaseModel):
