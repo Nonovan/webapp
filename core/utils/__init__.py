@@ -137,6 +137,6 @@ __all__ = [
     'beginning_of_day',
     'end_of_day',
     'to_timestamp',
-    'from_timestamp'
-    'format_timestamp'
+    'from_timestamp',
+    'format_timestamp',
 ]

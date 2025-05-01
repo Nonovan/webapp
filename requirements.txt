@@ -255,6 +255,8 @@ validators==0.22.0   # Input validation utilities
 #unbound bs4
 #unbound beautifulsoup4
 
+#unbound pytz
+
 # Add after existing Utilities section
 # String manipulation and utilities (for core.utils.string module)
 python-slugify==8.0.1  # Already present - URL friendly slugs

@@ -37,6 +37,174 @@ def localnow() -> datetime:
     return datetime.now()
 
 
+def now_with_timezone(tz=None) -> datetime:
+    """
+    Get current datetime with specified timezone.
+
+    If no timezone is specified, returns the current datetime with the system's
+    local timezone.
+
+    Args:
+        tz: Timezone object (e.g., ZoneInfo('America/New_York')) or None for local
+
+    Returns:
+        Current datetime with the specified timezone
+
+    Example:
+        >>> from zoneinfo import ZoneInfo
+        >>> now_with_timezone(ZoneInfo('Europe/London'))
+        datetime.datetime(2023, 7, 15, 14, 30, 15, 123456, tzinfo=ZoneInfo('Europe/London'))
+    """
+    try:
+        import zoneinfo
+        if tz is None:
+            # Try to get the system timezone
+            try:
+                system_tz = zoneinfo.ZoneInfo.from_system()
+                return datetime.now(system_tz)
+            except (zoneinfo.ZoneInfoNotFoundError, OSError):
+                # Fall back to naive datetime if system timezone can't be determined
+                return datetime.now()
+        else:
+            # Use the provided timezone
+            return datetime.now(tz)
+    except ImportError:
+        # Fall back to UTC or naive time if zoneinfo is not available (Python < 3.9)
+        if tz is None:
+            return datetime.now()
+        return datetime.now(tz)
+
+
+def get_timezone(timezone_name: Optional[str] = None) -> Optional[timezone]:
+    """
+    Get a timezone object by name.
+
+    Args:
+        timezone_name: IANA timezone name (e.g., 'America/New_York') or None for system timezone
+
+    Returns:
+        Timezone object or None if the timezone name is invalid
+
+    Example:
+        >>> tz = get_timezone('Europe/London')
+        >>> dt = datetime.now(tz)
+    """
+    # First try zoneinfo from standard library (Python 3.9+)
+    try:
+        import zoneinfo
+
+        if timezone_name is None:
+            try:
+                return zoneinfo.ZoneInfo.from_system()
+            except (zoneinfo.ZoneInfoNotFoundError, OSError):
+                return timezone.utc
+
+        try:
+            return zoneinfo.ZoneInfo(timezone_name)
+        except (zoneinfo.ZoneInfoNotFoundError, ValueError):
+            # Invalid timezone name
+            return None
+    except ImportError:
+        # For Python < 3.9, try pytz as a fallback
+        try:
+            import pytz
+            if timezone_name is None:
+                # Local timezone detection with pytz is complex and often wrong
+                return timezone.utc
+
+            try:
+                return pytz.timezone(timezone_name)
+            except pytz.exceptions.UnknownTimeZoneError:
+                return None
+        except ImportError:
+            # If neither zoneinfo nor pytz is available, return UTC
+            # or None for invalid timezone names
+            if timezone_name is None or timezone_name.upper() in ('UTC', 'GMT'):
+                return timezone.utc
+            return None
+
+
+def convert_timezone(dt: datetime, target_timezone: Union[str, timezone]) -> datetime:
+    """
+    Convert datetime to a different timezone.
+
+    Args:
+        dt: Datetime object to convert
+        target_timezone: Target timezone (name or timezone object)
+
+    Returns:
+        Datetime object in the target timezone
+
+    Raises:
+        ValueError: If the target timezone is invalid or datetime has no timezone
+
+    Example:
+        >>> dt_utc = datetime.now(timezone.utc)
+        >>> dt_ny = convert_timezone(dt_utc, 'America/New_York')
+    """
+    # Ensure input datetime has a timezone
+    if dt.tzinfo is None:
+        raise ValueError("Input datetime must have timezone information")
+
+    # Convert string timezone to timezone object if needed
+    if isinstance(target_timezone, str):
+        tz_obj = get_timezone(target_timezone)
+        if tz_obj is None:
+            raise ValueError(f"Invalid timezone name: {target_timezone}")
+        target_timezone = tz_obj
+
+    # Convert to target timezone
+    return dt.astimezone(target_timezone)
+
+
+def to_timestamp(dt: datetime) -> float:
+    """
+    Convert a datetime object to Unix timestamp (seconds since epoch).
+
+    This function handles both timezone-aware and naive datetime objects.
+    For naive datetime objects, it assumes UTC.
+
+    Args:
+        dt: Datetime object to convert
+
+    Returns:
+        Unix timestamp as float
+
+    Example:
+        >>> dt = datetime(2023, 7, 15, 12, 0, 0, tzinfo=timezone.utc)
+        >>> to_timestamp(dt)
+        1689422400.0
+    """
+    if dt.tzinfo is None:
+        # For naive datetime, assume it's in UTC
+        dt = dt.replace(tzinfo=timezone.utc)
+
+    return dt.timestamp()
+
+
+def from_timestamp(timestamp: float, tz: Optional[timezone] = None) -> datetime:
+    """
+    Convert a Unix timestamp to a datetime object.
+
+    Args:
+        timestamp: Unix timestamp (seconds since epoch)
+        tz: Target timezone (defaults to UTC if None)
+
+    Returns:
+        Datetime object with requested timezone
+
+    Example:
+        >>> from_timestamp(1689422400.0)
+        datetime.datetime(2023, 7, 15, 12, 0, 0, tzinfo=timezone.utc)
+        >>> from_timestamp(1689422400.0, get_timezone('America/New_York'))
+        datetime.datetime(2023, 7, 15, 8, 0, 0, tzinfo=ZoneInfo('America/New_York'))
+    """
+    if tz is None:
+        tz = timezone.utc
+
+    return datetime.fromtimestamp(timestamp, tz=tz)
+
+
 def format_datetime(
     dt: datetime,
     format_str: str = "%Y-%m-%d %H:%M:%S",
@@ -441,3 +609,226 @@ def format_timestamp(dt: Optional[datetime] = None, use_utc: bool = True) -> str
         dt = dt.astimezone(timezone.utc)
 
     return dt.isoformat()
+
+
+def calculate_time_difference(dt1: datetime, dt2: datetime) -> timedelta:
+    """
+    Calculate the time difference between two datetime objects.
+
+    This function handles timezone differences by normalizing both
+    datetimes to the same timezone before calculation.
+
+    Args:
+        dt1: First datetime
+        dt2: Second datetime
+
+    Returns:
+        The time difference as a timedelta object
+
+    Example:
+        >>> start = datetime(2023, 1, 1, 10, 0, tzinfo=timezone.utc)
+        >>> end = datetime(2023, 1, 1, 12, 30, tzinfo=timezone.utc)
+        >>> diff = calculate_time_difference(start, end)
+        >>> diff.total_seconds() / 3600  # hours
+        2.5
+    """
+    # Make sure the datetimes have compatible timezones
+    if dt1.tzinfo is not None and dt2.tzinfo is not None:
+        # Both have timezone info, convert dt2 to dt1's timezone
+        dt2 = dt2.astimezone(dt1.tzinfo)
+    elif dt1.tzinfo is not None and dt2.tzinfo is None:
+        # dt1 has timezone but dt2 doesn't, remove timezone info for comparison
+        dt1 = dt1.replace(tzinfo=None)
+    elif dt1.tzinfo is None and dt2.tzinfo is not None:
+        # dt2 has timezone but dt1 doesn't, remove timezone info for comparison
+        dt2 = dt2.replace(tzinfo=None)
+
+    # Calculate difference
+    return dt2 - dt1
+
+
+def is_future_date(dt: datetime, reference_dt: Optional[datetime] = None) -> bool:
+    """
+    Check if a datetime is in the future.
+
+    Args:
+        dt: Datetime to check
+        reference_dt: Reference datetime to compare against (default: current time)
+
+    Returns:
+        True if dt is in the future, False otherwise
+
+    Example:
+        >>> tomorrow = datetime.now(timezone.utc) + timedelta(days=1)
+        >>> is_future_date(tomorrow)
+        True
+    """
+    if reference_dt is None:
+        reference_dt = datetime.now(timezone.utc)
+
+    # Ensure consistent timezone usage
+    if dt.tzinfo is not None and reference_dt.tzinfo is not None:
+        # Both have timezone info, normalize
+        dt_tz = dt.astimezone(reference_dt.tzinfo)
+        return dt_tz > reference_dt
+    elif dt.tzinfo is None and reference_dt.tzinfo is not None:
+        # Reference has timezone but dt doesn't, convert reference to naive
+        reference_naive = reference_dt.replace(tzinfo=None)
+        return dt > reference_naive
+    elif dt.tzinfo is not None and reference_dt.tzinfo is None:
+        # dt has timezone but reference doesn't, convert dt to naive
+        dt_naive = dt.replace(tzinfo=None)
+        return dt_naive > reference_dt
+    else:
+        # Both are naive
+        return dt > reference_dt
+
+
+def is_past_date(dt: datetime, reference_dt: Optional[datetime] = None) -> bool:
+    """
+    Check if a datetime is in the past.
+
+    Args:
+        dt: Datetime to check
+        reference_dt: Reference datetime to compare against (default: current time)
+
+    Returns:
+        True if dt is in the past, False otherwise
+
+    Example:
+        >>> yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+        >>> is_past_date(yesterday)
+        True
+    """
+    if reference_dt is None:
+        reference_dt = datetime.now(timezone.utc)
+
+    # Ensure consistent timezone usage
+    if dt.tzinfo is not None and reference_dt.tzinfo is not None:
+        # Both have timezone info, normalize
+        dt_tz = dt.astimezone(reference_dt.tzinfo)
+        return dt_tz < reference_dt
+    elif dt.tzinfo is None and reference_dt.tzinfo is not None:
+        # Reference has timezone but dt doesn't, convert reference to naive
+        reference_naive = reference_dt.replace(tzinfo=None)
+        return dt < reference_naive
+    elif dt.tzinfo is not None and reference_dt.tzinfo is None:
+        # dt has timezone but reference doesn't, convert dt to naive
+        dt_naive = dt.replace(tzinfo=None)
+        return dt_naive < reference_dt
+    else:
+        # Both are naive
+        return dt < reference_dt
+
+
+def add_time_interval(
+    dt: datetime,
+    years: int = 0,
+    months: int = 0,
+    days: int = 0,
+    hours: int = 0,
+    minutes: int = 0,
+    seconds: int = 0
+) -> datetime:
+    """
+    Add a time interval to a datetime.
+
+    This function handles adding years and months correctly, accounting for
+    varying month lengths and leap years.
+
+    Args:
+        dt: The datetime to modify
+        years: Years to add
+        months: Months to add
+        days: Days to add
+        hours: Hours to add
+        minutes: Minutes to add
+        seconds: Seconds to add
+
+    Returns:
+        New datetime with interval added
+
+    Example:
+        >>> dt = datetime(2023, 1, 15)
+        >>> add_time_interval(dt, months=1, days=5)
+        datetime.datetime(2023, 2, 20, 0, 0)
+    """
+    result = dt
+
+    # Add years and months (special handling for month lengths)
+    if years or months:
+        month = result.month - 1 + months
+        year = result.year + years + month // 12
+        month = month % 12 + 1
+
+        # Check if we need to adjust the day (e.g., Jan 31 -> Feb 28)
+        day = result.day
+
+        # Calculate the last day of the target month
+        if day > 28:
+            last_day = (datetime(year, month + 1, 1) if month < 12
+                      else datetime(year + 1, 1, 1)) - timedelta(days=1)
+            day = min(day, last_day.day)
+
+        result = result.replace(year=year, month=month, day=day)
+
+    # Add days, hours, minutes, seconds
+    if days or hours or minutes or seconds:
+        result += timedelta(
+            days=days,
+            hours=hours,
+            minutes=minutes,
+            seconds=seconds
+        )
+
+    return result
+
+
+def beginning_of_day(dt: Optional[datetime] = None, use_utc: bool = False) -> datetime:
+    """
+    Get the beginning of the day (00:00:00) for a given datetime.
+
+    Args:
+        dt: Input datetime (defaults to current datetime if None)
+        use_utc: Whether to use UTC timezone
+
+    Returns:
+        Datetime representing the start of the day (00:00:00)
+
+    Example:
+        >>> dt = datetime(2023, 5, 15, 14, 30, 45)
+        >>> beginning_of_day(dt)
+        datetime.datetime(2023, 5, 15, 0, 0, 0)
+    """
+    if dt is None:
+        dt = utcnow() if use_utc else localnow()
+
+    if use_utc and dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc)
+
+    return dt.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def end_of_day(dt: Optional[datetime] = None, use_utc: bool = False) -> datetime:
+    """
+    Get the end of the day (23:59:59.999999) for a given datetime.
+
+    Args:
+        dt: Input datetime (defaults to current datetime if None)
+        use_utc: Whether to use UTC timezone
+
+    Returns:
+        Datetime representing the end of the day (23:59:59.999999)
+
+    Example:
+        >>> dt = datetime(2023, 5, 15, 14, 30, 45)
+        >>> end_of_day(dt)
+        datetime.datetime(2023, 5, 15, 23, 59, 59, 999999)
+    """
+    if dt is None:
+        dt = utcnow() if use_utc else localnow()
+
+    if use_utc and dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc)
+
+    return dt.replace(hour=23, minute=59, second=59, microsecond=999999)
