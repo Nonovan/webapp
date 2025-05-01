@@ -37,6 +37,38 @@ The alert models enable real-time monitoring and response to critical events whi
   - Maintains relationship information between alerts
   - Provides visualization-ready correlation data
 
+- **`AlertNotification`**: Alert delivery across channels
+  - Manages multi-channel notification delivery (email, SMS, webhook, etc.)
+  - Tracks notification delivery status and attempts
+  - Supports templated content formatting by channel
+  - Implements retry logic for failed notifications
+  - Provides notification analytics and statistics
+  - Handles channel-specific formatting requirements
+
+- **`AlertEscalation`**: Alert severity and ownership escalation
+  - Manages time-based alert escalation policies
+  - Tracks escalation history and notifications
+  - Supports multiple escalation reasons and triggers
+  - Enables severity promotion based on configurable thresholds
+  - Maintains a complete audit trail of escalation actions
+  - Integrates with notification system for escalation alerts
+
+- **`AlertSuppression`**: Alert silencing and throttling
+  - Allows creation of time-bound suppression rules
+  - Supports criteria-based alert filtering
+  - Implements different suppression types (silence, throttle, deduplicate)
+  - Tracks the impact of suppression rules
+  - Prevents alert storms during maintenance periods
+  - Maintains statistics on suppressed alerts
+
+- **`AlertMetrics`**: Alert statistics and trends
+  - Aggregates alert data for reporting and analysis
+  - Tracks alert volume by severity, status, and service
+  - Calculates average response and resolution times
+  - Provides trending data over configurable time periods
+  - Identifies top alert sources and patterns
+  - Enables SLA compliance reporting and monitoring
+
 ## Directory Structure
 
 ```plaintext
@@ -44,6 +76,10 @@ models/alerts/
 ├── __init__.py           # Package exports
 ├── alert.py              # Core alert model
 ├── alert_correlation.py  # Alert correlation functionality
+├── alert_notification.py # Alert delivery functionality
+├── alert_escalation.py   # Severity escalation management
+├── alert_suppression.py  # Alert filtering and silencing
+├── alert_metrics.py      # Alert statistics and trends
 └── README.md             # This documentation
 ```
 
@@ -238,6 +274,103 @@ if new_alert:
 # Auto-acknowledge alerts that have been open too long
 acknowledged_count = Alert.auto_acknowledge_stale_alerts()
 print(f"Auto-acknowledged {acknowledged_count} stale alerts")
+```
+
+### Managing Alert Notifications
+
+```python
+from models.alerts import AlertNotification
+
+# Create a notification for an alert
+notification = AlertNotification.create_notification(
+    alert=alert,
+    channel='email',
+    recipient='ops-team@example.com',
+    template='critical_alert',
+    extra_context={'escalation_level': 'urgent'}
+)
+
+# Get pending notifications for processing
+pending = AlertNotification.get_pending_notifications(limit=50)
+for notification in pending:
+    # Process and send the notification
+    success = send_notification(notification)
+    if success:
+        notification.mark_delivered()
+    else:
+        notification.mark_failed("Delivery failed: recipient not found")
+```
+
+### Setting Up Alert Suppression
+
+```python
+from models.alerts import AlertSuppression
+
+# Create a maintenance suppression window
+suppression = AlertSuppression.create_maintenance_suppression(
+    service_name='database',
+    environment='production',
+    duration_hours=4,
+    created_by='jane.smith',
+    description='Database maintenance window'
+)
+
+# Create a throttling rule to limit alert volume
+throttle_rule = AlertSuppression.create_throttle_rule(
+    name='High CPU Throttle',
+    criteria={'alert_type': 'high_cpu', 'service_name': 'web'},
+    environment='production',
+    created_by='admin',
+    max_alerts=3,
+    time_period_minutes=15,
+    description='Limit high CPU alerts to prevent storms'
+)
+
+# Check if an alert should be suppressed
+suppression_info = AlertSuppression.should_alert_be_suppressed(alert)
+if suppression_info.get('suppressed'):
+    print(f"Alert suppressed by rule: {suppression_info['rule_name']}")
+```
+
+### Working with Alert Metrics
+
+```python
+from models.alerts import AlertMetrics
+
+# Calculate daily metrics for yesterday
+yesterday = datetime.now(timezone.utc) - timedelta(days=1)
+metrics = AlertMetrics.calculate_daily_metrics(
+    target_date=yesterday,
+    environment='production'
+)
+
+# Get trend data for the last 30 days
+trends = AlertMetrics.get_trend_data(
+    days=30,
+    environment='production'
+)
+
+# Calculate any missing daily metrics
+calculated_count = AlertMetrics.calculate_missing_daily_metrics(days_back=7)
+print(f"Calculated metrics for {calculated_count} missing days")
+```
+
+### Escalating an Alert
+
+```python
+from models.alerts import AlertEscalation
+
+# Escalate an alert due to timeout
+escalation = AlertEscalation.create(
+    alert=alert,
+    new_severity='critical',
+    reason=AlertEscalation.REASON_TIME,
+    escalated_by='system'
+)
+
+# Check for alerts that need time-based escalation
+escalated_count = AlertEscalation.check_for_escalations()
+print(f"Automatically escalated {escalated_count} alerts")
 ```
 
 ## Security Considerations

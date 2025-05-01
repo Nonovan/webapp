@@ -4,15 +4,16 @@ The Security API module provides RESTful endpoints for security incident managem
 
 ## Contents
 
-- [Overview](#overview)
-- [Key Components](#key-components)
-- [Directory Structure](#directory-structure)
-- [API Endpoints](#api-endpoints)
-- [Configuration](#configuration)
-- [Security Features](#security-features)
-- [Usage Examples](#usage-examples)
-- [Integration with Platform Services](#integration-with-platform-services)
-- [Related Documentation](#related-documentation)
+- Overview
+- Key Components
+- Directory Structure
+- API Endpoints
+- Configuration
+- Security Features
+- Usage Examples
+- Integration with Platform Services
+- Related Documentation
+- File Integrity Monitoring API
 
 ## Overview
 
@@ -68,6 +69,25 @@ This module serves as the central interface for all security operations in the C
   - Detection metrics
   - Integration with the `SecurityIncident` model
 
+- **`baseline.py`**: File integrity baseline management
+  - Baseline status reporting
+  - Secure baseline updating
+  - Integrity verification
+  - Change validation
+  - Baseline versioning
+  - Approved update workflow
+
+- **`schemas.py`**: Data validation and serialization schemas
+  - Security event validation
+  - CVE field validation with standard format enforcement
+  - File integrity baseline validation
+  - Vulnerability data validation and serialization
+  - Security scan request/response validation
+  - Security incident schema validation
+  - Security configuration validation
+  - DoS protection with size and nesting limits
+  - Comprehensive input validation
+
 - **`__init__.py`**: Module initialization and configuration
   - Blueprint registration
   - Security metrics integration
@@ -88,6 +108,7 @@ api/security/
 ├── vulnerabilities.py  # Vulnerability tracking functionality
 ├── scanning.py         # Security scanning configuration
 ├── threats.py          # Threat detection and intelligence
+├── baseline.py         # File integrity baseline management
 └── schemas.py          # Data validation schemas
 ```
 
@@ -130,6 +151,9 @@ api/security/
 | `/api/security/threats/detection` | GET | List threat detections | Security Analyst, Admin |
 | `/api/security/threats/integrity` | GET | Get file integrity status | Security Analyst, Admin |
 | `/api/security/threats/status` | GET | Get threat status summary | Security Analyst, Admin |
+| `/api/security/baseline` | GET | Get file integrity baseline status | Security Analyst, Admin |
+| `/api/security/baseline` | PUT | Update file integrity baseline | Security Admin |
+| `/api/security/baseline/verify` | POST | Verify files against integrity baseline | Security Analyst, Admin |
 
 ## Configuration
 
@@ -157,11 +181,18 @@ The security API system uses several configuration settings that can be adjusted
 'FILE_INTEGRITY_BASELINE_PATH': 'instance/file_baseline.json',  # Path to integrity baseline
 'FILE_INTEGRITY_AUTO_UPDATE_LIMIT': 10,    # Maximum files to auto-update in baseline
 'FILE_INTEGRITY_AUTO_NOTIFICATION': True,  # Auto-notify on integrity violations
+'FILE_HASH_ALGORITHM': 'sha256',          # Algorithm used for file hashing
+'FILE_INTEGRITY_CHECK_INTERVAL': 3600,    # Seconds between automated checks
+'FILE_INTEGRITY_CHECK_PERMISSIONS': True, # Check for unsafe file permissions
+'BASELINE_MAX_CHANGES_PER_UPDATE': 100,   # Maximum changes allowed in one update
+'BASELINE_BACKUP_ENABLED': True,          # Enable baseline backups before updates
 
 # Rate limiting settings
 'RATELIMIT_SECURITY_DEFAULT': "60 per minute",
 'RATELIMIT_SECURITY_SCAN': "10 per hour",
 'RATELIMIT_SECURITY_INCIDENT_CREATE': "30 per minute",
+'RATELIMIT_SECURITY_BASELINE_UPDATE': "5 per hour",
+'RATELIMIT_SECURITY_BASELINE_CHECK': "30 per minute",
 ```
 
 ## Security Features
@@ -182,6 +213,13 @@ The security API system uses several configuration settings that can be adjusted
 - **Customizable Scan Profiles**: Template-based security scan configurations
 - **File Integrity Baseline Management**: Maintain and verify file integrity baselines
 - **Exception Handling**: Robust error management with appropriate logging
+- **Schema Validation**: Strong schema-based validation for all API inputs
+- **Data Sanitization**: Automatic sanitization of untrusted input
+- **Deep Object Validation**: Protection against nested object attacks
+- **Size Limitation**: Enforcement of size limits to prevent DoS
+- **Baseline Versioning**: Track and manage baseline versions with rollback capability
+- **Integrity Verification**: Verify the integrity of the baseline itself
+- **Security Headers**: Comprehensive set of HTTP security headers
 
 ## Usage Examples
 
@@ -467,6 +505,38 @@ Response:
 }
 ```
 
+### Update File Integrity Baseline
+
+```http
+PUT /api/security/baseline
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+{
+  "changes": [
+    {
+      "path": "/etc/config/app.conf",
+      "current_hash": "a1b2c3d4e5f6...",
+      "expected_hash": null,
+      "status": "modified"
+    }
+  ],
+  "remove_missing": false,
+  "auto_update_limit": 5
+}
+```
+
+Response:
+
+```json
+{
+  "message": "Baseline updated successfully",
+  "updated_files": 1,
+  "removed_files": 0,
+  "baseline_version": "2024-08-15T14:30:00Z"
+}
+```
+
 ## Integration with Platform Services
 
 The Security API integrates with several platform services:
@@ -489,6 +559,8 @@ The Security API integrates with several platform services:
 
 9. **Threat Intelligence Integration**: Correlates security incidents with known threat indicators
 
+10. **Schema Validation**: Uses centralized schemas for consistent data validation across all security endpoints
+
 ## Related Documentation
 
 - Security Architecture Overview
@@ -500,3 +572,86 @@ The Security API integrates with several platform services:
 - Threat Intelligence Framework
 - File Baseline Management
 - Incident Lifecycle Management
+- Schema Validation Guide
+
+## File Integrity Monitoring API
+
+The File Integrity Monitoring API provides specialized endpoints for maintaining and verifying the integrity of critical system files.
+
+### Available Endpoints
+
+| Endpoint | Method | Description | Access Level |
+|----------|--------|-------------|-------------|
+| `/api/security/threats/integrity` | GET | Get current file integrity status | Security Analyst, Admin |
+| `/api/security/baseline` | GET | Get file integrity baseline status | Security Analyst, Admin |
+| `/api/security/baseline` | PUT | Update file integrity baseline | Security Admin |
+| `/api/security/baseline/verify` | POST | Verify files against integrity baseline | Security Analyst, Admin |
+| `/api/security/incidents/create-from-integrity` | POST | Create incident from integrity violations | Security Analyst, Admin |
+
+### Key Features
+
+- **Real-time Integrity Verification**: Detect unauthorized file modifications
+- **Baseline Management**: Securely maintain and update file integrity baselines
+- **Automatic Incident Creation**: Convert integrity violations to security incidents
+- **Granular Permission Controls**: Role-based access to integrity operations
+- **Change Classification**: Categorize changes by severity (critical, high, medium)
+- **Comprehensive Reporting**: Generate reports on file integrity status
+- **Secure Baseline Updates**: Validation of baseline modifications with backups
+
+### Usage Example: Verify Files Against Baseline
+
+```http
+POST /api/security/baseline/verify
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+{
+  "paths": ["/etc/nginx/", "/etc/config/app.conf"]
+}
+```
+
+Response:
+
+```json
+{
+  "timestamp": "2024-08-16T09:45:22Z",
+  "status": "failed",
+  "baseline_path": "instance/file_baseline.json",
+  "changes_detected": 1,
+  "changes": [
+    {
+      "path": "/etc/config/app.conf",
+      "status": "modified",
+      "severity": "high",
+      "expected_hash": "a1b2c3d4e5f6...",
+      "current_hash": "f6e5d4c3b2a1..."
+    }
+  ]
+}
+```
+
+### Configuration Options
+
+```python
+# File Integrity Monitoring settings
+'FILE_INTEGRITY_CHECK_ENABLED': True,     # Enable file integrity monitoring
+'FILE_INTEGRITY_CRITICAL_PATHS': ['/etc/config', '/var/lib/app'], # Critical paths to monitor
+'FILE_INTEGRITY_BASELINE_PATH': 'instance/file_baseline.json',  # Path to integrity baseline
+'FILE_INTEGRITY_AUTO_UPDATE_LIMIT': 10,    # Maximum files to auto-update in baseline
+'FILE_INTEGRITY_AUTO_NOTIFICATION': True,  # Auto-notify on integrity violations
+'FILE_HASH_ALGORITHM': 'sha256',          # Algorithm used for file hashing
+'FILE_INTEGRITY_CHECK_INTERVAL': 3600,    # Seconds between automated checks
+'FILE_INTEGRITY_CHECK_PERMISSIONS': True, # Check for unsafe file permissions
+'FILE_INTEGRITY_CHECK_SIGNATURES': False, # Verify digital signatures on executables
+'BASELINE_CHECK_LIMIT': "30 per minute",  # Rate limiting for baseline verification
+```
+
+### Integration Points
+
+The File Integrity Monitoring API integrates with these platform components:
+
+- **Monitoring System**: Produces metrics for dashboards
+- **Alerting Framework**: Generates alerts on critical file changes
+- **Incident Management**: Creates incidents from integrity violations
+- **Audit Logging**: Records all baseline modifications
+- **Redis Cache**: Caches integrity status for performance

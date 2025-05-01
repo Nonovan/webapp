@@ -37,6 +37,11 @@ class EventType:
     ALERT_RESOLVED = "alert.resolved"
     ALERT_ESCALATED = "alert.escalated"
     ALERT_COMMENT = "alert.comment"
+    ALERT_SUPPRESSED = "alert.suppressed"
+    ALERT_CORRELATED = "alert.correlated"
+    ALERT_METRIC_THRESHOLD = "alert.metric_threshold"
+    ALERT_NOTIFICATION_SENT = "alert.notification_sent"
+    ALERT_NOTIFICATION_FAILED = "alert.notification_failed"
 
     # Security events
     SECURITY_INCIDENT = "security.incident"
@@ -86,7 +91,9 @@ EVENT_CATEGORIES = {
 
     "alerts": [
         EventType.ALERT_TRIGGERED, EventType.ALERT_ACKNOWLEDGED,
-        EventType.ALERT_RESOLVED, EventType.ALERT_ESCALATED, EventType.ALERT_COMMENT
+        EventType.ALERT_RESOLVED, EventType.ALERT_ESCALATED, EventType.ALERT_COMMENT,
+        EventType.ALERT_SUPPRESSED, EventType.ALERT_CORRELATED, EventType.ALERT_METRIC_THRESHOLD,
+        EventType.ALERT_NOTIFICATION_SENT, EventType.ALERT_NOTIFICATION_FAILED
     ],
 
     "security": [
@@ -117,7 +124,8 @@ EVENT_CATEGORIES = {
 
     "critical": [
         EventType.SECURITY_INCIDENT, EventType.RESOURCE_ERROR, EventType.ICS_ALARM,
-        EventType.SYSTEM_LOW_DISK_SPACE, EventType.SECURITY_VULNERABILITY
+        EventType.SYSTEM_LOW_DISK_SPACE, EventType.SECURITY_VULNERABILITY,
+        EventType.ALERT_ESCALATED
     ]
 }
 
@@ -271,6 +279,19 @@ def register_webhook_metrics(metrics):
             'webhook_subscriptions_active',
             'Number of active webhook subscriptions',
             []
+        )
+
+        # Add alert-specific webhook metrics
+        metrics.counter(
+            'webhook_alert_events_total',
+            'Total number of alert-related webhook events',
+            ['alert_type', 'severity']
+        )
+
+        metrics.gauge(
+            'webhook_alert_delivery_success_rate',
+            'Success rate percentage for alert webhook deliveries',
+            ['alert_type']
         )
     except Exception as e:
         current_app.logger.warning(f"Failed to register webhook metrics: {e}")

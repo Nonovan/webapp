@@ -29,7 +29,7 @@ from .schemas import (
     vulnerability_bulk_update_schema
 )
 
-# Models (assuming a Vulnerability model exists)
+# Models
 # Adjust import path based on actual model location
 try:
     from models.security.vulnerability import Vulnerability # Assuming this path

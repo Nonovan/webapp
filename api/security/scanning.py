@@ -29,7 +29,7 @@ from .schemas import (
     scan_findings_schema
 )
 
-# Models (assuming a SecurityScan model exists)
+# Models
 # Adjust import path based on actual model location
 try:
     # Use package-level imports

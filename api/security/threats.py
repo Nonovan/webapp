@@ -38,7 +38,7 @@ from .schemas import (
     threat_detection_filter_schema
 )
 
-# Models (assuming a ThreatIndicator model exists)
+# Models
 # Adjust import path based on actual model location
 try:
     # Use package-level imports

@@ -76,6 +76,14 @@ from .ics.ics_device import ICSDevice
 from .ics.ics_reading import ICSReading
 from .ics.ics_control_log import ICSControlLog
 
+# Alert models
+from .alerts.alert import Alert
+from .alerts.alert_correlation import AlertCorrelation
+from .alerts.alert_notification import AlertNotification
+from .alerts.alert_escalation import AlertEscalation
+from .alerts.alert_suppression import AlertSuppression
+from .alerts.alert_metrics import AlertMetrics
+
 # Build the __all__ list for proper exports
 __all__ = [
     # Core components
@@ -103,6 +111,9 @@ __all__ = [
 
     # ICS models
     'ICSDevice', 'ICSReading', 'ICSControlLog',
+
+    # Alert models
+    'Alert', 'AlertCorrelation', 'AlertNotification', 'AlertEscalation', 'AlertSuppression', 'AlertMetrics',
 ]
 
 # Define constants for security-sensitive fields

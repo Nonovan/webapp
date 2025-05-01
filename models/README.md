@@ -152,6 +152,17 @@ models/
     - Secure file sharing with access controls
     - Storage quota management and enforcement
     - File retention and lifecycle policies
+9. **Alerts (`alerts/`)**:
+    - Alert lifecycle management from creation to resolution
+    - Severity-based prioritization and routing
+    - Multi-channel notification delivery (email, SMS, webhook, Slack, Teams)
+    - Alert correlation to identify related issues
+    - Auto-acknowledgement for stale alerts
+    - Time-based severity escalation
+    - Alert suppression for maintenance periods and throttling
+    - Alert metrics and trend analysis
+    - Environment and service-specific alerting
+    - SLA compliance tracking
 
 ## Notable Files
 
