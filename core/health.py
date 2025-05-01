@@ -27,7 +27,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from redis.exceptions import RedisError
 
 from extensions import db, cache
-from models.system_config import SystemConfig
+from models import SystemConfig
 from core.utils import get_critical_file_hashes, format_timestamp
 
 # Initialize logger

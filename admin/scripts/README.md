@@ -9,6 +9,9 @@ This directory contains command-line scripts for administrative tasks in the Clo
 - [Directory Structure](#directory-structure)
 - [Usage](#usage)
   - [Administrative Auditing](#administrative-auditing)
+  - [Audit Log Rotation](#audit-log-rotation)
+  - [Backup Verification](#backup-verification)
+  - [Compliance Report Generation](#compliance-report-generation)
   - [Emergency Access Management](#emergency-access-management)
   - [Privilege Management](#privilege-management)
   - [System Security](#system-security)
@@ -31,6 +34,30 @@ The administrative scripts provide command-line tools for performing critical ad
   - Anomaly detection in admin actions
   - Audit log integrity verification
 
+- **`audit_log_rotator.py`**: Audit log rotation and archival
+  - Automatic archiving of aged audit logs
+  - Configurable retention periods
+  - Flexible export formats (JSON, CSV)
+  - Compression capabilities
+  - Database cleanup with safeguards
+  - Secure storage of archived logs
+
+- **`backup_verification.sh`**: Backup integrity verification
+  - Validates the integrity of system and database backups
+  - Performs CRC and cryptographic verification
+  - Validates structure and completeness
+  - Tests restore capabilities in isolated environment
+  - Ensures recoverability of critical data
+  - Generates detailed verification reports
+
+- **`compliance_report_generator.py`**: Compliance reporting tool
+  - Generates compliance reports for standards like PCI DSS, HIPAA, and ISO 27001
+  - Maps system configurations to compliance requirements
+  - Supports multiple output formats (PDF, JSON, HTML)
+  - Provides remediation recommendations
+  - Includes evidence collection and verification
+  - Generates executive summaries and detailed technical reports
+
 - **`emergency_access.py`**: Emergency access management system
   - Break-glass account activation
   - Temporary privilege escalation
@@ -39,6 +66,12 @@ The administrative scripts provide command-line tools for performing critical ad
   - Automated notifications for emergency access
   - Detailed audit logging of all emergency access
 
+- **`incident_response.sh`**: Incident response automation
+  - Automates key steps in incident response workflows
+  - Collects forensic evidence
+  - Isolates compromised systems
+  - Notifies relevant stakeholders
+
 - **`privilege_management.sh`**: Privilege control management
   - Role-based access control management
   - Permission assignment and revocation
@@ -46,30 +79,6 @@ The administrative scripts provide command-line tools for performing critical ad
   - Temporary privilege grant with expiration
   - Permission inheritance management
   - Least privilege enforcement
-
-- **`system_lockdown.sh`**: System security hardening script
-  - Comprehensive security configuration
-  - Non-essential service disablement
-  - Security control enforcement
-  - Network access restriction
-  - Security patch verification
-  - System isolation capabilities
-
-- **`backup_verification.sh`**: Backup integrity verification
-  - Validates the integrity of system and database backups
-  - Ensures recoverability of critical data
-  - Generates detailed verification reports
-
-- **`compliance_report_generator.py`**: Compliance reporting tool
-  - Generates compliance reports for standards like PCI DSS, HIPAA, and ISO 27001
-  - Maps system configurations to compliance requirements
-  - Supports multiple output formats (PDF, JSON, HTML)
-
-- **`incident_response.sh`**: Incident response automation
-  - Automates key steps in incident response workflows
-  - Collects forensic evidence
-  - Isolates compromised systems
-  - Notifies relevant stakeholders
 
 - **`security_baseline_validator.py`**: Security baseline validation tool
   - Validates system configurations against predefined security baselines
@@ -81,21 +90,30 @@ The administrative scripts provide command-line tools for performing critical ad
   - Monitors resource usage, service status, and security configurations
   - Generates health reports for administrators
 
+- **`system_lockdown.sh`**: System security hardening script
+  - Comprehensive security configuration
+  - Non-essential service disablement
+  - Security control enforcement
+  - Network access restriction
+  - Security patch verification
+  - System isolation capabilities
+
 ## Directory Structure
 
 ```plaintext
 admin/scripts/
-├── README.md                # This documentation
-├── admin_audit.py           # Administrative audit utility
-├── audit_log_exporter.py    # Export audit logs to external systems
-├── backup_verification.sh   # Backup integrity verification
+├── README.md                      # This documentation
+├── __init__.py                    # Package initialization
+├── admin_audit.py                 # Administrative audit utility
+├── audit_log_rotator.py           # Export audit logs to external systems
+├── backup_verification.sh         # Backup integrity verification
 ├── compliance_report_generator.py # Compliance reporting tool
-├── emergency_access.py      # Emergency access management
-├── incident_response.sh     # Incident response automation
-├── privilege_management.sh  # Privilege control management
+├── emergency_access.py            # Emergency access management
+├── incident_response.sh           # Incident response automation
+├── privilege_management.sh        # Privilege control management
 ├── security_baseline_validator.py # Security baseline validation
-├── system_health_check.sh   # System health monitoring
-├── system_lockdown.sh       # System security hardening
+├── system_health_check.sh         # System health monitoring
+└── system_lockdown.sh             # System security hardening
 ```
 
 ## Usage
@@ -111,6 +129,54 @@ python admin_audit.py --user admin.username --days 30 --action-type configuratio
 
 # Find anomalies in administrative actions
 python admin_audit.py --detect-anomalies --threshold medium --notify security@example.com
+```
+
+### Audit Log Rotation
+
+```bash
+# Default settings: archive logs older than 90 days, delete from database
+python admin/scripts/audit_log_rotator.py
+
+# Archive but don't delete logs from database
+python admin/scripts/audit_log_rotator.py --no-delete
+
+# Set different time periods for archival
+python admin/scripts/audit_log_rotator.py --archive-days 30 --retention-days 180
+
+# Export to CSV instead of JSON, with compression
+python admin/scripts/audit_log_rotator.py --format csv --compress
+```
+
+### Backup Verification
+
+```bash
+# Verify the integrity of a specific backup file
+./backup_verification.sh --file backup_20231115_120000.tar.gz --verify-checksum --verify-structure
+
+# Perform a test restore in an isolated environment
+./backup_verification.sh --file backup_20231115_120000.tar.gz --test-restore --isolated
+
+# Verify all backups from the last 7 days
+./backup_verification.sh --days 7 --verify-all
+
+# Generate a comprehensive verification report
+./backup_verification.sh --file backup_20231115_120000.tar.gz --format pdf --output verification-report.pdf
+```
+
+### Compliance Report Generation
+
+```bash
+# Generate a PCI-DSS compliance report in HTML format
+python admin/scripts/compliance_report_generator.py --standard pci-dss --format html
+
+# Generate a HIPAA compliance report with remediation plan in JSON format
+python admin/scripts/compliance_report_generator.py --standard hipaa --format json --remediation-plan
+
+# Generate a specific category report for GDPR with a custom output path
+python admin/scripts/compliance_report_generator.py --standard gdpr --categories data-protection --output gdpr-report.pdf
+
+# Generate a comprehensive ISO 27001 report with evidence
+python admin/scripts/compliance_report_generator.py --standard iso27001 --include-evidence --evidence-dir /path/to/evidence --detailed
 ```
 
 ### Emergency Access Management
@@ -202,3 +268,5 @@ All administrative scripts share these common features:
 - Emergency Access Procedures
 - System Hardening Guidelines
 - Administrative Audit Requirements
+- Backup Verification Procedures
+- Compliance Report Templates

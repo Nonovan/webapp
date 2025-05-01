@@ -319,7 +319,87 @@ if hasattr(metrics, 'register'):
     except (ImportError, AttributeError) as e:
         current_app.logger.warning(f"Failed to register webhook metrics: {e}")
 
-# Define application initialization function
+def register_api_routes(app: Flask) -> None:
+    """
+    Register all API routes with appropriate error handling.
+
+    This function centralizes the registration of all API blueprints,
+    providing consistent error handling and logging during the
+    registration process. It ensures that a failure to register
+    one blueprint doesn't prevent others from being registered.
+
+    Args:
+        app: The Flask application instance
+
+    Returns:
+        None
+    """
+    # Define all blueprints to register with their URL prefixes
+    blueprint_configs = [
+        (api_bp, '/api'),
+        (auth_api, None),  # None means use the blueprint's url_prefix
+        (cloud_routes, None),
+        (metrics_routes, None),
+        (alerts_api, None),
+        (ics_routes, None),
+        (security_routes, None),
+        (audit_routes, None),
+        (newsletter_routes, None),
+        (webhooks_api, None),
+        (admin_api, None)
+    ]
+
+    # Track successful registrations for logging
+    registered_count = 0
+    failed_count = 0
+
+    # Register each blueprint with error handling
+    for blueprint, url_prefix in blueprint_configs:
+        try:
+            if url_prefix:
+                app.register_blueprint(blueprint, url_prefix=url_prefix)
+            else:
+                app.register_blueprint(blueprint)
+
+            app.logger.debug(f"Registered API blueprint: {blueprint.name}")
+            registered_count += 1
+
+        except Exception as e:
+            app.logger.error(f"Failed to register API blueprint {getattr(blueprint, 'name', 'unknown')}: {str(e)}")
+            failed_count += 1
+
+            # Log security event for blueprint registration failure
+            try:
+                if hasattr(log_security_event, '__call__'):
+                    log_security_event(
+                        event_type="api_initialization_error",
+                        description=f"Failed to register API blueprint: {getattr(blueprint, 'name', 'unknown')}",
+                        severity="high",
+                        details={"error": str(e)}
+                    )
+            except Exception as log_error:
+                app.logger.error(f"Failed to log security event for blueprint registration failure: {str(log_error)}")
+
+    # Register metrics if available
+    if hasattr(metrics, 'register'):
+        try:
+            from api.webhooks import register_webhook_metrics
+            register_webhook_metrics(metrics)
+            app.logger.debug("Registered webhook metrics")
+        except (ImportError, AttributeError) as e:
+            app.logger.warning(f"Failed to register webhook metrics: {e}")
+
+    # Log summary of registration
+    total = len(blueprint_configs)
+    if failed_count > 0:
+        app.logger.warning(
+            f"API initialization completed with issues: {registered_count}/{total} blueprints registered successfully, {failed_count} failed"
+        )
+    else:
+        app.logger.info(f"API initialization completed: All {total} blueprints registered successfully")
+
+
+# Update the init_app function to use register_api_routes
 def init_app(app: Flask) -> None:
     """
     Initialize the API module within the Flask application.
@@ -327,8 +407,8 @@ def init_app(app: Flask) -> None:
     Args:
         app: The Flask application instance
     """
-    # Register the API blueprint
-    app.register_blueprint(api_bp)
+    # Register the API blueprint with all routes
+    register_api_routes(app)
 
     # Log successful initialization
     app.logger.info("API module initialized successfully")

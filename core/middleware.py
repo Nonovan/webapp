@@ -14,6 +14,7 @@ in the Flask application. It handles cross-cutting concerns such as:
 - ICS/SCADA traffic monitoring
 - File integrity verification
 - Access control enforcement
+- Audit logging for security events
 
 The middleware functions are registered with the Flask application during initialization
 and execute for every request/response cycle, ensuring consistent handling across
@@ -28,9 +29,9 @@ import uuid
 import re
 from datetime import datetime, timezone
 from urllib.parse import urlparse
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple, List, Pattern
 
-from flask import g, request, current_app, abort, session, has_app_context
+from flask import g, request, current_app, abort, session, has_app_context, has_request_context
 from werkzeug.useragents import UserAgent
 from werkzeug.wrappers import Response
 
@@ -38,7 +39,8 @@ from werkzeug.wrappers import Response
 try:
     from core.security import (
         log_security_event, generate_csp_nonce as security_generate_csp_nonce,
-        check_critical_file_integrity, apply_security_headers
+        check_critical_file_integrity, apply_security_headers,
+        detect_suspicious_activity
     )
     USE_SECURITY_MODULE = True
 except ImportError:
@@ -60,9 +62,41 @@ except ImportError:
             EVENT_PERMISSION_DENIED = "permission_denied"
             EVENT_ICS_ACCESS = "ics_access"
             EVENT_FILE_INTEGRITY = "file_integrity"
+            EVENT_SUSPICIOUS_ACTIVITY = "suspicious_activity"
+            EVENT_API_ABUSE = "api_abuse"
 
 
-def setup_security_headers(response):
+# Precompile regular expressions for performance
+SQL_INJECTION_PATTERNS = [
+    re.compile(r'(?i)(\%27)|(\')|(\-\-)|(\%23)|(#)'),
+    re.compile(r'(?i)((\%3D)|(=))[^\n]*((\%27)|(\')|(\-\-)|(\%3B)|(:))'),
+    re.compile(r'(?i)\w*((\%27)|(\'))((\%6F)|o|(\%4F))((\%72)|r|(\%52))'),
+    re.compile(r'(?i)select\s+.*\s+from'),
+    re.compile(r'(?i)insert\s+into\s+.*\s+values'),
+    re.compile(r'(?i)delete\s+from'),
+    re.compile(r'(?i)drop\s+(table|database)'),
+    re.compile(r'(?i)union\s+select')
+]
+
+XSS_PATTERNS = [
+    re.compile(r'(?i)<[^\w<>]*script'),
+    re.compile(r'(?i)javascript\s*:'),
+    re.compile(r'(?i)on\w+\s*='),
+    re.compile(r'(?i)(?:document|window)\s*\.'),
+    re.compile(r'(?i)(alert|confirm|prompt)\s*\('),
+    re.compile(r'(?i)eval\s*\(')
+]
+
+PATH_TRAVERSAL_PATTERNS = [
+    re.compile(r'(?i)\.{2,}[\/\\]'),
+    re.compile(r'(?i)\/etc\/(passwd|shadow|hosts)'),
+    re.compile(r'(?i)c:\\windows\\system32'),
+    re.compile(r'(?i)\/proc\/(self|cpuinfo|meminfo)'),
+    re.compile(r'(?i)\/dev\/(null|zero|random)')
+]
+
+
+def setup_security_headers(response: Response) -> Response:
     """
     Apply security headers to HTTP responses.
 
@@ -114,11 +148,11 @@ def setup_security_headers(response):
     response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=(), payment=()"
 
     # HSTS: Strict Transport Security - only in production and if using HTTPS
-    if not current_app.debug and not current_app.testing and request.is_secure:
+    if has_app_context() and not current_app.debug and not current_app.testing and request.is_secure:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
 
     # Add Cache-Control directives for security-sensitive pages
-    if request.path.startswith(('/admin', '/profile', '/account', '/auth', '/api/auth')):
+    if request.path.startswith(('/admin', '/profile', '/account', '/auth', '/api/auth', '/settings')):
         response.headers["Cache-Control"] = "no-store, max-age=0"
     elif not response.cache_control:
         # Default cache control for static assets
@@ -131,7 +165,7 @@ def setup_security_headers(response):
     return response
 
 
-def generate_csp_nonce():
+def generate_csp_nonce() -> str:
     """
     Generate a random nonce for Content Security Policy.
 
@@ -155,7 +189,7 @@ def generate_csp_nonce():
     return nonce
 
 
-def track_request_timing():
+def track_request_timing() -> None:
     """
     Track request timing and store in Flask g object.
 
@@ -170,14 +204,44 @@ def track_request_timing():
     g.request_timestamp = datetime.now(timezone.utc)
 
     # Make request ID available in templates
-    if hasattr(g, 'request_id'):
-        g.template_context = {
-            'request_id': g.request_id,
-            'csp_nonce': getattr(g, 'csp_nonce', generate_csp_nonce())
-        }
+    g.template_context = {
+        'request_id': g.request_id,
+        'csp_nonce': getattr(g, 'csp_nonce', generate_csp_nonce())
+    }
 
 
-def check_security_risks():
+def _check_pattern_match(value: str, patterns: List[Pattern], key: str, pattern_name: str) -> bool:
+    """
+    Check if a string matches any of the given patterns.
+
+    Args:
+        value: The string to check
+        patterns: List of compiled regex patterns
+        key: Parameter name for logging
+        pattern_name: Type of pattern for logging (e.g. "SQL injection")
+
+    Returns:
+        bool: True if a pattern is matched (and security event is logged), False otherwise
+    """
+    for pattern in patterns:
+        if pattern.search(value):
+            log_security_event(
+                event_type=AuditLog.EVENT_SECURITY_BREACH_ATTEMPT,
+                description=f"Potential {pattern_name} attempt detected",
+                severity="critical",
+                ip_address=request.remote_addr,
+                details={
+                    "parameter": key,
+                    "pattern": pattern.pattern,
+                    "path": request.path,
+                    "method": request.method
+                }
+            )
+            return True
+    return False
+
+
+def check_security_risks() -> None:
     """
     Check for security risks in the request.
 
@@ -192,101 +256,31 @@ def check_security_risks():
     if request.path.startswith(('/static/', '/favicon.ico')):
         return
 
-    # Define patterns that might indicate attacks - improved patterns
-    sql_injection_patterns = [
-        r'(?i)(\%27)|(\')|(\-\-)|(\%23)|(#)',
-        r'(?i)((\%3D)|(=))[^\n]*((\%27)|(\')|(\-\-)|(\%3B)|(:))',
-        r'(?i)\w*((\%27)|(\'))((\%6F)|o|(\%4F))((\%72)|r|(\%52))',
-        r'(?i)select\s+.*\s+from',
-        r'(?i)insert\s+into\s+.*\s+values',
-        r'(?i)delete\s+from',
-        r'(?i)drop\s+(table|database)',
-        r'(?i)union\s+select'
-    ]
-
-    xss_patterns = [
-        r'(?i)<[^\w<>]*script',
-        r'(?i)javascript\s*:',
-        r'(?i)on\w+\s*=',
-        r'(?i)(?:document|window)\s*\.',
-        r'(?i)(alert|confirm|prompt)\s*\(',
-        r'(?i)eval\s*\('
-    ]
-
-    path_traversal_patterns = [
-        r'(?i)\.{2,}[\/\\]',
-        r'(?i)\/etc\/(passwd|shadow|hosts)',
-        r'(?i)c:\\windows\\system32',
-        r'(?i)\/proc\/(self|cpuinfo|meminfo)',
-        r'(?i)\/dev\/(null|zero|random)'
-    ]
-
-    # Check URL parameters (optimized to compile patterns once)
+    # Check URL parameters
     args = request.args.to_dict()
     for key, value in args.items():
         if not isinstance(value, str):
             continue
 
-        # Check for SQL injection with compiled patterns
-        for pattern in sql_injection_patterns:
-            if re.search(pattern, value):
-                log_security_event(
-                    event_type=AuditLog.EVENT_SECURITY_BREACH_ATTEMPT,
-                    description="Potential SQL injection attempt detected",
-                    severity="critical",
-                    ip_address=request.remote_addr,
-                    details={"parameter": key, "value": value, "pattern": pattern}
-                )
-                abort(403)
+        # Check for various attack patterns
+        if (_check_pattern_match(value, SQL_INJECTION_PATTERNS, key, "SQL injection") or
+            _check_pattern_match(value, XSS_PATTERNS, key, "XSS") or
+            _check_pattern_match(value, PATH_TRAVERSAL_PATTERNS, key, "path traversal")):
+            abort(403)
 
-        # Check for XSS attempts with compiled patterns
-        for pattern in xss_patterns:
-            if re.search(pattern, value):
-                log_security_event(
-                    event_type=AuditLog.EVENT_SECURITY_BREACH_ATTEMPT,
-                    description="Potential XSS attempt detected",
-                    severity="critical",
-                    ip_address=request.remote_addr,
-                    details={"parameter": key, "value": value, "pattern": pattern}
-                )
-                abort(403)
-
-        # Check for path traversal with compiled patterns
-        for pattern in path_traversal_patterns:
-            if re.search(pattern, value):
-                log_security_event(
-                    event_type=AuditLog.EVENT_SECURITY_BREACH_ATTEMPT,
-                    description="Potential path traversal attempt detected",
-                    severity="critical",
-                    ip_address=request.remote_addr,
-                    details={"parameter": key, "value": value, "pattern": pattern}
-                )
-                abort(403)
-
-    # Check form data for POST requests (new)
+    # Check form data for POST requests
     if request.method == 'POST' and request.form:
         form_data = request.form.to_dict()
         for key, value in form_data.items():
-            if not isinstance(value, str) or key in ('password', 'token', 'csrf_token'):
-                continue  # Skip passwords and tokens, non-string values
+            # Skip password fields, tokens, and non-string values
+            if not isinstance(value, str) or key in ('password', 'token', 'csrf_token', 'new_password', 'current_password'):
+                continue
 
-            # Apply the same pattern checks as for URL parameters
-            for pattern in sql_injection_patterns:
-                if re.search(pattern, value):
-                    log_security_event(
-                        event_type=AuditLog.EVENT_SECURITY_BREACH_ATTEMPT,
-                        description="Potential SQL injection attempt in form data",
-                        severity="critical",
-                        ip_address=request.remote_addr,
-                        details={"parameter": key, "pattern": pattern}
-                    )
-                    abort(403)
+            # Check for SQL injection in form data
+            if _check_pattern_match(value, SQL_INJECTION_PATTERNS, key, "SQL injection in form data"):
+                abort(403)
 
-            # Similar checks for XSS and path traversal could be added here
-            # but are omitted for brevity
-
-    # Check referer for CSRF risk (when not using the CSRF protection)
-    # This is a secondary check in addition to CSRF tokens
+    # Check referer for CSRF risk (secondary check in addition to CSRF tokens)
     if request.method in ['POST', 'PUT', 'DELETE', 'PATCH']:
         referer = request.headers.get('Referer')
         if referer:
@@ -308,8 +302,24 @@ def check_security_risks():
                 # We don't abort here as the CSRF protection will handle it
                 # This is just for logging suspicious activity
 
+    # Look for other suspicious activity patterns
+    if USE_SECURITY_MODULE and hasattr(detect_suspicious_activity, '__call__'):
+        try:
+            is_suspicious, activity_type, details = detect_suspicious_activity(request)
+            if is_suspicious:
+                log_security_event(
+                    event_type=AuditLog.EVENT_SUSPICIOUS_ACTIVITY,
+                    description=f"Suspicious activity detected: {activity_type}",
+                    severity="warning",
+                    ip_address=request.remote_addr,
+                    details=details
+                )
+        except Exception:
+            # Ignore errors in suspicious activity detection
+            pass
 
-def track_user_for_metrics():
+
+def track_user_for_metrics() -> None:
     """
     Track user metrics for the current request.
 
@@ -349,8 +359,12 @@ def track_user_for_metrics():
     else:
         g.client_ip = request.remote_addr
 
+    # Track API version if specified
+    if g.is_api_request and 'X-API-Version' in request.headers:
+        g.api_version = request.headers.get('X-API-Version')
 
-def compress_response(response):
+
+def compress_response(response: Response) -> Response:
     """
     Compress HTTP responses to reduce bandwidth usage.
 
@@ -395,7 +409,7 @@ def compress_response(response):
     return response
 
 
-def check_ics_traffic():
+def check_ics_traffic() -> None:
     """
     Specialized industrial control system (ICS) traffic monitoring.
 
@@ -431,7 +445,7 @@ def check_ics_traffic():
         abort(403)
 
     # Check source IP constraints for production
-    if not current_app.debug and not current_app.testing:
+    if has_app_context() and not current_app.debug and not current_app.testing:
         # Get allowed ICS IPs from config, default to empty list
         allowed_ips = current_app.config.get('ICS_RESTRICTED_IPS', [])
 
@@ -446,6 +460,30 @@ def check_ics_traffic():
                 details={"path": request.path, "role": user_role, "method": request.method}
             )
             abort(403)
+
+    # Check if MFA is required for ICS operations in production or staging
+    if has_app_context() and current_app.config.get('ENVIRONMENT') in ['production', 'staging']:
+        if not session.get('mfa_verified', False):
+            log_security_event(
+                event_type=AuditLog.EVENT_PERMISSION_DENIED,
+                description="MFA required for ICS access",
+                severity="warning",
+                user_id=session.get('user_id'),
+                ip_address=request.remote_addr,
+                details={"path": request.path, "role": user_role, "method": request.method}
+            )
+            # Determine if this is an API or web request for appropriate response
+            if getattr(g, 'is_api_request', False):
+                abort(403, description="MFA verification required for ICS access")
+            else:
+                from flask import redirect, url_for, flash
+                try:
+                    flash("Multi-factor authentication required for ICS access", "warning")
+                except RuntimeError:
+                    pass
+                # Store the original URL to redirect back after MFA
+                session['mfa_redirect'] = request.full_path
+                abort(redirect(url_for('auth.mfa_verify')))
 
     # Log ICS access as a security event
     log_security_event(
@@ -479,7 +517,7 @@ def check_file_integrity() -> None:
     check_frequency = current_app.config.get('FILE_INTEGRITY_CHECK_FREQUENCY', 100)
 
     # Use a pseudo-random approach based on request ID
-    request_id_int = int(getattr(g, 'request_id', uuid.uuid4()).replace('-', '')[0:8], 16)
+    request_id_int = int(getattr(g, 'request_id', uuid.uuid4()).hex[:8], 16)
     if request_id_int % check_frequency != 0:
         return
 
@@ -495,6 +533,14 @@ def check_file_integrity() -> None:
                     severity="critical",
                     details={"changes": changes[:5]}  # Include only first 5 for brevity
                 )
+
+                # Update metrics if available
+                if has_app_context() and hasattr(current_app, 'metrics'):
+                    try:
+                        current_app.metrics.gauge('security.integrity.violations', len(changes))
+                        current_app.metrics.gauge('security.integrity.status', 0)  # 0 = bad
+                    except Exception:
+                        pass
             # Don't interfere with the request, just log the event
         except Exception as e:
             # Log errors but don't interrupt the request
@@ -518,7 +564,7 @@ def check_file_integrity() -> None:
             pass
 
 
-def log_request_completion(response):
+def log_request_completion(response: Response) -> Response:
     """
     Log request completion with timing information.
 
@@ -541,47 +587,163 @@ def log_request_completion(response):
     if start_time:
         duration_ms = int((time.time() - start_time) * 1000)
 
-        # Log slow requests for investigation with threshold from config
-        slow_threshold = current_app.config.get('SLOW_REQUEST_THRESHOLD_MS', 500)
-        if duration_ms > slow_threshold:
-            # Get user information for context
-            user_id = getattr(g, 'user_id', None)
-            if not user_id and 'user_id' in session:
-                user_id = session.get('user_id')
-
-            # Create detailed log entry for slow requests
-            current_app.logger.warning(
-                f"Slow request: {request.method} {request.path} took {duration_ms}ms",
-                extra={
-                    'duration_ms': duration_ms,
-                    'method': request.method,
-                    'path': request.path,
-                    'user_id': user_id,
-                    'request_id': getattr(g, 'request_id', None),
-                    'status_code': response.status_code
-                }
-            )
-
         # Add timing header for the client (useful for debugging)
         response.headers['X-Request-Time-Ms'] = str(duration_ms)
 
-        # Add response metrics for monitoring
-        try:
-            if hasattr(current_app, 'metrics'):
-                current_app.metrics.histogram(
-                    'http.response.time_ms',
-                    duration_ms,
-                    tags={
-                        'path': request.path,
+        # Log slow requests for investigation with threshold from config
+        if has_app_context():
+            slow_threshold = current_app.config.get('SLOW_REQUEST_THRESHOLD_MS', 500)
+            if duration_ms > slow_threshold:
+                # Get user information for context
+                user_id = getattr(g, 'user_id', None)
+                if not user_id and 'user_id' in session:
+                    user_id = session.get('user_id')
+
+                # Create detailed log entry for slow requests
+                current_app.logger.warning(
+                    f"Slow request: {request.method} {request.path} took {duration_ms}ms",
+                    extra={
+                        'duration_ms': duration_ms,
                         'method': request.method,
-                        'status': response.status_code
+                        'path': request.path,
+                        'user_id': user_id,
+                        'request_id': getattr(g, 'request_id', None),
+                        'status_code': response.status_code
                     }
                 )
-        except Exception:
-            # Silently ignore metrics errors
-            pass
+
+            # Add response metrics for monitoring
+            if hasattr(current_app, 'metrics'):
+                try:
+                    endpoint = request.endpoint or 'unknown'
+
+                    # Track response time metrics
+                    current_app.metrics.histogram(
+                        'http.response.time_ms',
+                        duration_ms,
+                        tags={
+                            'path': request.path,
+                            'method': request.method,
+                            'status': response.status_code,
+                            'endpoint': endpoint
+                        }
+                    )
+
+                    # Track response status code counts
+                    current_app.metrics.counter(
+                        'http.responses_total',
+                        1,
+                        tags={
+                            'status': response.status_code,
+                            'method': request.method,
+                            'endpoint': endpoint
+                        }
+                    )
+
+                except Exception:
+                    # Silently ignore metrics errors
+                    pass
 
     return response
+
+
+def check_api_rate_limits() -> None:
+    """
+    Check and enforce rate limits for API requests.
+
+    This middleware tracks API usage patterns and triggers alerts or blocks
+    requests when abnormal usage patterns are detected.
+
+    Raises:
+        Abort: 429 error if rate limit is exceeded
+    """
+    # Only apply to API requests
+    if not getattr(g, 'is_api_request', False):
+        return
+
+    # Skip if rate limiting is disabled
+    if has_app_context() and not current_app.config.get('API_RATE_LIMIT_ENABLED', True):
+        return
+
+    # Get client IP and authenticated user (if available)
+    client_ip = getattr(g, 'client_ip', request.remote_addr)
+    user_id = getattr(g, 'user_id', None)
+
+    # Check if Redis is available for sophisticated rate limiting
+    if has_app_context() and hasattr(current_app, 'redis'):
+        try:
+            redis_client = current_app.redis
+
+            # Define API endpoint category (for more granular limits)
+            path_parts = request.path.strip('/').split('/')
+            api_category = path_parts[1] if len(path_parts) > 1 else 'general'
+
+            # Check window-based rate limits (1 minute and 1 hour)
+            minute_key = f"ratelimit:1m:{client_ip}:{api_category}"
+            hour_key = f"ratelimit:1h:{client_ip}:{api_category}"
+
+            # Get current counts
+            minute_count = int(redis_client.get(minute_key) or 0)
+            hour_count = int(redis_client.get(hour_key) or 0)
+
+            # Get limits from config or use defaults
+            minute_limit = current_app.config.get(f'API_RATE_LIMIT_{api_category.upper()}_MINUTE', 60)
+            hour_limit = current_app.config.get(f'API_RATE_LIMIT_{api_category.upper()}_HOUR', 1000)
+
+            # Check if limits exceeded
+            if minute_count >= minute_limit or hour_count >= hour_limit:
+                # Log rate limit violation
+                log_security_event(
+                    event_type=AuditLog.EVENT_API_ABUSE,
+                    description=f"API rate limit exceeded for {api_category}",
+                    severity="warning",
+                    user_id=user_id,
+                    ip_address=client_ip,
+                    details={
+                        'minute_count': minute_count,
+                        'minute_limit': minute_limit,
+                        'hour_count': hour_count,
+                        'hour_limit': hour_limit,
+                        'path': request.path,
+                        'method': request.method
+                    }
+                )
+
+                # Update metrics
+                if hasattr(current_app, 'metrics'):
+                    try:
+                        current_app.metrics.counter(
+                            'security.api.rate_limit_violations',
+                            1,
+                            tags={
+                                'api_category': api_category,
+                                'client_ip': client_ip
+                            }
+                        )
+                    except Exception:
+                        pass
+
+                # Return 429 Too Many Requests with retry-after header
+                response = {
+                    'error': 'Too many requests',
+                    'message': 'API rate limit exceeded',
+                    'retry_after': 60  # seconds
+                }
+                abort(429, description=response)
+
+            # Increment counters
+            pipeline = redis_client.pipeline()
+            pipeline.incr(minute_key)
+            pipeline.incr(hour_key)
+
+            # Set expiration if keys are new
+            pipeline.expire(minute_key, 60)  # 1 minute
+            pipeline.expire(hour_key, 3600)  # 1 hour
+            pipeline.execute()
+
+        except Exception:
+            # If Redis fails, don't block the request
+            pass
 
 
 def init_middleware(app):
@@ -597,14 +759,17 @@ def init_middleware(app):
     """
     @app.before_request
     def before_request_middleware():
-        # Generate CSP nonce for this request
+        # Generate CSP nonce for this request (must be first for security)
         generate_csp_nonce()
 
         # Record request timing information
         track_request_timing()
 
-        # Security checks
+        # Check for security risks and attacks
         check_security_risks()
+
+        # Enforce API rate limits
+        check_api_rate_limits()
 
         # Monitor ICS traffic
         check_ics_traffic()

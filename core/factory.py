@@ -167,7 +167,7 @@ def create_app(config_name=None) -> Flask:
     init_extensions(app)
 
     # Register blueprints and API routes
-    register_blueprints(app)
+    register_all_blueprints(app)
     register_api_routes(app)
 
     # Register error handlers

@@ -23,7 +23,7 @@ Examples:
     python admin/scripts/admin_audit.py report --format csv --output config_changes.csv --user admin.user --days 7 --action-type config_change
 
     # Detect anomalies in admin actions over the last 30 days
-    python admin/scripts/admin_audit.py anomalies --days 30
+    python admin/scripts/admin_audit.py anomalies --days 30 --threshold medium --output anomalies.json
 
     # Review logs between specific dates
     python admin/scripts/admin_audit.py review --start-date 2023-11-01 --end-date 2023-11-30 --user-id 5
@@ -42,6 +42,7 @@ Options:
     --limit <N>         Maximum number of entries to fetch/display (default: 1000).
     --verbose           Enable verbose logging.
     --env <env>         Application environment (default: production).
+    --threshold <level> Threshold level for anomaly detection (low, medium, high).
 """
 
 import argparse
@@ -64,11 +65,26 @@ try:
     from models.security.audit_log import AuditLog
     from models.auth.user import User
     from core.factory import create_app
-    from core.security.cs_audit import detect_security_anomalies # Use existing anomaly detection if suitable
-    # Consider importing admin.utils.audit_utils if it exists and is relevant
+    from core.security.cs_audit import detect_security_anomalies
+
+    # Import admin audit utilities
+    from admin.utils.audit_utils import (
+        get_admin_audit_logs,
+        export_admin_audit_logs,
+        detect_admin_anomalies,
+        verify_audit_log_integrity,
+        log_admin_action,
+        ADMIN_ACTION_CATEGORY,
+        ADMIN_EVENT_PREFIX,
+        ACTION_AUDIT_ACCESS,
+        SEVERITY_INFO,
+        STATUS_SUCCESS
+    )
+    AUDIT_UTILS_AVAILABLE = True
 except ImportError as e:
     print(f"Error importing application modules: {e}", file=sys.stderr)
     print("Please ensure the script is run within the project environment or PYTHONPATH is set correctly.", file=sys.stderr)
+    AUDIT_UTILS_AVAILABLE = False
     sys.exit(1)
 
 # Setup logging
@@ -92,14 +108,15 @@ def parse_arguments() -> argparse.Namespace:
     common_parser.add_argument("--user", help="Filter by administrator username.")
     common_parser.add_argument("--user-id", type=int, help="Filter by administrator user ID.")
     common_parser.add_argument("--action-type", help="Filter by specific action/event type (e.g., 'config_change').")
-    common_parser.add_argument("--severity", choices=AuditLog.VALID_SEVERITIES, help="Filter by severity level.")
+    common_parser.add_argument("--severity", choices=['info', 'warning', 'error', 'critical'],
+                               help="Filter by severity level.")
     common_parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT, help=f"Maximum number of entries (default: {DEFAULT_LIMIT}).")
     common_parser.add_argument("--verbose", action="store_true", help="Enable verbose logging.")
     common_parser.add_argument("--env", default="production", help="Application environment (default: production).")
 
     # Subparser for 'review'
     review_parser = subparsers.add_parser('review', parents=[common_parser], help='Review administrative audit logs.')
-    review_parser.add_argument("--format", choices=['text', 'json'], default='text', help="Output format (default: text).") # Limited formats for review
+    review_parser.add_argument("--format", choices=['text', 'json'], default='text', help="Output format (default: text).")
 
     # Subparser for 'report'
     report_parser = subparsers.add_parser('report', parents=[common_parser], help='Generate an audit report.')
@@ -108,13 +125,15 @@ def parse_arguments() -> argparse.Namespace:
 
     # Subparser for 'anomalies'
     anomalies_parser = subparsers.add_parser('anomalies', parents=[common_parser], help='Detect potential anomalies in administrative actions.')
-    anomalies_parser.add_argument("--threshold", choices=['low', 'medium', 'high'], default='medium', help="Anomaly detection sensitivity threshold.")
+    anomalies_parser.add_argument("--threshold", choices=['low', 'medium', 'high'], default='medium',
+                                 help="Anomaly detection sensitivity threshold.")
     anomalies_parser.add_argument("--output", help="Optional output file for anomaly report (JSON format).")
 
     # Subparser for 'integrity'
     integrity_parser = subparsers.add_parser('integrity', parents=[common_parser], help='Perform basic integrity checks (experimental).')
     integrity_parser.add_argument("--check-gaps", action="store_true", help="Check for potential time gaps in logs.")
-    integrity_parser.add_argument("--check-sequence", action="store_true", help="Check for sequence inconsistencies (if applicable).")
+    integrity_parser.add_argument("--check-sequence", action="store_true", help="Check for sequence inconsistencies.")
+    integrity_parser.add_argument("--output", help="Output file for integrity check results (JSON format).")
 
     return parser.parse_args()
 
@@ -151,32 +170,74 @@ def get_time_range(args: argparse.Namespace) -> Tuple[datetime, datetime]:
 
     return start_dt, end_dt
 
-def fetch_admin_logs(app: Flask, args: argparse.Namespace) -> List[AuditLog]:
+def fetch_admin_logs(app: Flask, args: argparse.Namespace) -> List[Dict[str, Any]]:
     """Fetch administrative audit logs based on filters."""
+    start_dt, end_dt = get_time_range(args)
+
     with app.app_context():
+        if AUDIT_UTILS_AVAILABLE:
+            # Use the advanced admin audit utils when available
+            try:
+                filters = {
+                    "start_time": start_dt,
+                    "end_time": end_dt,
+                    "limit": args.limit,
+                    "offset": 0
+                }
+
+                if args.user_id is not None:
+                    filters["user_id"] = args.user_id
+
+                if args.user:
+                    filters["username"] = args.user
+
+                if args.action_type:
+                    filters["action_types"] = [args.action_type]
+
+                if args.severity:
+                    filters["severity"] = args.severity
+
+                logger.debug(f"Fetching admin logs with filters: {filters}")
+                logs = get_admin_audit_logs(**filters)
+
+                # Log the audit access
+                log_admin_action(
+                    action=ACTION_AUDIT_ACCESS,
+                    details={
+                        "command": args.command,
+                        "filters": {k: str(v) for k, v in filters.items()},
+                        "count": len(logs)
+                    },
+                    severity=SEVERITY_INFO,
+                    status=STATUS_SUCCESS
+                )
+
+                return logs
+
+            except Exception as e:
+                logger.error(f"Failed to retrieve logs using audit_utils: {e}")
+                # Fall back to direct querying if the utils method fails
+
+        # Fallback when audit utils are unavailable or failed
+        logger.debug("Falling back to direct database query for admin logs")
         query = AuditLog.query
 
         # Filter primarily for administrative actions
-        # Adjust category/event_types based on actual usage in models/security/audit_log.py
-        admin_categories = [AuditLog.EVENT_CATEGORY_ADMIN, AuditLog.EVENT_CATEGORY_SECURITY] # Example categories
+        admin_categories = [AuditLog.EVENT_CATEGORY_ADMIN, AuditLog.EVENT_CATEGORY_SECURITY]
         admin_event_types = [
             AuditLog.EVENT_ADMIN_ACTION, AuditLog.EVENT_CONFIG_CHANGE,
             AuditLog.EVENT_ROLE_ASSIGNED, AuditLog.EVENT_ROLE_REMOVED,
             AuditLog.EVENT_PERMISSION_GRANTED, AuditLog.EVENT_PERMISSION_REVOKED,
-            # Add other relevant event types
         ]
-        # Allow overriding with specific action type if provided
+
         if args.action_type:
              query = query.filter(AuditLog.event_type == args.action_type)
         else:
-             # Default filter for admin-related categories/types
              query = query.filter(
                  (AuditLog.category.in_(admin_categories)) |
                  (AuditLog.event_type.in_(admin_event_types))
              )
 
-        # Time range filtering
-        start_dt, end_dt = get_time_range(args)
         query = query.filter(AuditLog.created_at.between(start_dt, end_dt))
 
         # User filtering
@@ -187,7 +248,8 @@ def fetch_admin_logs(app: Flask, args: argparse.Namespace) -> List[AuditLog]:
                 user_id_to_filter = user.id
             else:
                 logger.warning(f"Username '{args.user}' not found. No logs will be returned for this user filter.")
-                return [] # Return empty list if user not found
+                return []
+
         if user_id_to_filter is not None:
             query = query.filter(AuditLog.user_id == user_id_to_filter)
 
@@ -198,26 +260,8 @@ def fetch_admin_logs(app: Flask, args: argparse.Namespace) -> List[AuditLog]:
         # Order by timestamp and apply limit
         logs = query.order_by(AuditLog.created_at.asc()).limit(args.limit).all()
 
-        if len(logs) >= args.limit:
-             logger.warning(f"Reached fetch limit of {args.limit}. Results may be truncated.")
-
-        return logs
-
-def format_report_data(logs: List[AuditLog]) -> Tuple[List[Dict[str, Any]], List[str]]:
-    """Formats log data into a list of dictionaries and determines headers."""
-    if not logs:
-        # Define default headers even if no logs
-        headers = ['id', 'created_at', 'event_type', 'severity', 'category', 'user_id', 'username', 'ip_address', 'description', 'details']
-        return [], headers
-
-    log_dicts: List[Dict[str, Any]] = []
-    all_keys = set()
-
-    # Cache user info to avoid repeated DB lookups
-    user_cache: Dict[int, Optional[str]] = {}
-
-    for log in logs:
-        log_dict = log.to_dict() if hasattr(log, 'to_dict') else {
+        # Convert to dictionaries for consistency
+        return [log.to_dict() if hasattr(log, 'to_dict') else {
             'id': log.id,
             'created_at': log.created_at.isoformat() if log.created_at else None,
             'event_type': log.event_type,
@@ -232,27 +276,31 @@ def format_report_data(logs: List[AuditLog]) -> Tuple[List[Dict[str, Any]], List
             'object_id': log.object_id,
             'related_type': log.related_type,
             'related_id': log.related_id,
-        }
+            'username': User.query.get(log.user_id).username if log.user_id and User.query.get(log.user_id) else None
+        } for log in logs]
 
-        # Add username if user_id exists
-        username = None
-        if log.user_id:
-            if log.user_id not in user_cache:
-                 # Fetch user only if not cached
-                 user = User.query.get(log.user_id)
-                 user_cache[log.user_id] = user.username if user else None
-            username = user_cache[log.user_id]
-        log_dict['username'] = username
+def format_report_data(logs: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """Formats log data into a list of dictionaries and determines headers."""
+    if not logs:
+        # Define default headers even if no logs
+        headers = ['id', 'created_at', 'event_type', 'severity', 'category', 'user_id', 'username', 'ip_address', 'description', 'details']
+        return [], headers
 
-        # Convert complex types (like dict/list in 'details') to JSON strings
+    log_dicts = []
+    all_keys = set()
+
+    for log in logs:
+        log_dict = log.copy()  # Work with a copy to avoid modifying original
+
+        # Convert complex types (like dict/list) to JSON strings
         for key, value in log_dict.items():
-             if isinstance(value, (dict, list)):
-                 try:
-                     log_dict[key] = json.dumps(value)
-                 except TypeError:
-                     log_dict[key] = str(value) # Fallback
-             elif isinstance(value, datetime):
-                 log_dict[key] = value.isoformat()
+            if isinstance(value, (dict, list)):
+                try:
+                    log_dict[key] = json.dumps(value)
+                except TypeError:
+                    log_dict[key] = str(value)  # Fallback
+            elif isinstance(value, datetime):
+                log_dict[key] = value.isoformat()
 
         log_dicts.append(log_dict)
         all_keys.update(log_dict.keys())
@@ -269,7 +317,7 @@ def format_report_data(logs: List[AuditLog]) -> Tuple[List[Dict[str, Any]], List
         7 if x == 'ip_address' else
         8 if x == 'description' else
         9 if x == 'details' else
-        10 # Put others at the end
+        10  # Put others at the end
     ))
 
     return log_dicts, ordered_keys
@@ -283,20 +331,20 @@ def write_output(data: List[Dict[str, Any]], headers: List[str], output_file: st
 
         with open(output_file, 'w', newline='', encoding='utf-8') as f:
             if format_type == 'json':
-                json.dump(data, f, indent=2)
+                json.dump(data, f, indent=2, default=str)
             elif format_type == 'csv':
                 writer = csv.DictWriter(f, fieldnames=headers, extrasaction='ignore')
                 writer.writeheader()
                 writer.writerows(data)
             elif format_type == 'text':
-                 # Simple text format, one log per line (customize as needed)
-                 for log_dict in data:
-                      f.write(f"[{log_dict.get('created_at', '')}] {log_dict.get('severity', '').upper()}: "
-                              f"User={log_dict.get('username', log_dict.get('user_id', 'N/A'))} "
-                              f"IP={log_dict.get('ip_address', 'N/A')} "
-                              f"Event={log_dict.get('event_type', '')} - {log_dict.get('description', '')}\n")
+                # Simple text format, one log per line
+                for log_dict in data:
+                    f.write(f"[{log_dict.get('created_at', '')}] {log_dict.get('severity', '').upper()}: "
+                            f"User={log_dict.get('username', log_dict.get('user_id', 'N/A'))} "
+                            f"IP={log_dict.get('ip_address', 'N/A')} "
+                            f"Event={log_dict.get('event_type', '')} - {log_dict.get('description', '')}\n")
             else:
-                 raise ValueError(f"Unsupported format: {format_type}")
+                raise ValueError(f"Unsupported format: {format_type}")
         logger.info(f"Successfully wrote {len(data)} entries to {output_file} in {format_type} format.")
     except IOError as e:
         logger.error(f"Failed to write to output file {output_file}: {e}")
@@ -305,7 +353,7 @@ def write_output(data: List[Dict[str, Any]], headers: List[str], output_file: st
         logger.error(f"An unexpected error occurred during file writing: {e}")
         sys.exit(1)
 
-def display_review(logs: List[AuditLog]):
+def display_review(logs: List[Dict[str, Any]]):
     """Display logs to the console in a readable text format."""
     if not logs:
         print("No administrative logs found matching the criteria.")
@@ -313,35 +361,75 @@ def display_review(logs: List[AuditLog]):
 
     print("\n--- Administrative Audit Log Review ---")
     for log in logs:
-        user_info = f"User={log.user.username if log.user else log.user_id or 'System'}"
-        ip_info = f"IP={log.ip_address or 'N/A'}"
-        details_str = f" Details={log.details}" if log.details else ""
-        print(f"[{log.created_at.strftime('%Y-%m-%d %H:%M:%S')}] {log.severity.upper():<8} "
-              f"{user_info:<25} {ip_info:<20} Event={log.event_type:<20} - {log.description}{details_str}")
-    print(f"--- Displayed {len(logs)} log entries ---\n")
+        timestamp = log.get('created_at', '')
+        if isinstance(timestamp, str):
+            try:
+                timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00')).strftime('%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                pass
 
+        severity = log.get('severity', '').upper()
+        username = log.get('username', log.get('user_id', 'System'))
+        ip_address = log.get('ip_address', 'N/A')
+        event_type = log.get('event_type', '')
+        description = log.get('description', '')
+
+        details = log.get('details', '')
+        details_str = f" Details={details}" if details else ""
+
+        print(f"[{timestamp}] {severity:<8} User={username:<25} IP={ip_address:<20} "
+              f"Event={event_type:<20} - {description}{details_str}")
+    print(f"--- Displayed {len(logs)} log entries ---\n")
 
 def run_anomaly_detection(app: Flask, args: argparse.Namespace):
     """Run anomaly detection checks."""
     logger.info("Running anomaly detection...")
+    start_dt, end_dt = get_time_range(args)
     anomalies = []
+
     with app.app_context():
         try:
-            # Utilize core anomaly detection if it suits admin actions
-            # Pass relevant filters if the function supports them
-            detected = detect_security_anomalies() # This might need adjustment
-            # Filter detected anomalies for relevance to admin actions if necessary
-            admin_related_anomalies = [
-                a for a in detected if a.get('category') == 'admin' or 'admin' in a.get('type', '').lower()
-                # Add more filtering logic based on the structure of anomalies
-            ]
-            anomalies.extend(admin_related_anomalies)
-            logger.info(f"Core anomaly detection found {len(admin_related_anomalies)} potentially relevant anomalies.")
+            # Use the specialized admin anomaly detection if available
+            if AUDIT_UTILS_AVAILABLE:
+                logger.info("Using admin-specific anomaly detection...")
+                admin_anomalies = detect_admin_anomalies(
+                    start_time=start_dt,
+                    end_time=end_dt,
+                    threshold=args.threshold,
+                    output_file=None  # We'll handle the output ourselves
+                )
+                logger.info(f"Admin anomaly detection found {len(admin_anomalies)} potential anomalies.")
+                anomalies.extend(admin_anomalies)
 
-            # Add custom admin-specific anomaly checks here if needed
-            # Example: Check for high frequency of specific admin actions
-            # start_dt, end_dt = get_time_range(args)
-            # high_freq_actions = db.session.query(...) # Query for frequent admin actions
+            # Also use the core security anomaly detection for more comprehensive results
+            logger.info("Using core security anomaly detection...")
+            security_anomalies = detect_security_anomalies()
+
+            # Filter for admin-related anomalies only
+            admin_related_anomalies = [
+                a for a in security_anomalies
+                if a.get('category') == 'admin' or 'admin' in a.get('type', '').lower()
+            ]
+            logger.info(f"Core security anomaly detection found {len(admin_related_anomalies)} additional admin-related anomalies.")
+
+            # Add to our results, avoid duplicates
+            existing_ids = {a.get('id') for a in anomalies if a.get('id') is not None}
+            for anomaly in admin_related_anomalies:
+                if anomaly.get('id') not in existing_ids:
+                    anomalies.append(anomaly)
+
+            # Log the successful anomaly detection
+            if AUDIT_UTILS_AVAILABLE:
+                log_admin_action(
+                    action="anomaly.detection",
+                    details={
+                        "anomaly_count": len(anomalies),
+                        "start_time": start_dt.isoformat(),
+                        "end_time": end_dt.isoformat(),
+                        "threshold": args.threshold
+                    },
+                    status=STATUS_SUCCESS
+                )
 
         except Exception as e:
             logger.error(f"Error during anomaly detection: {e}")
@@ -350,67 +438,178 @@ def run_anomaly_detection(app: Flask, args: argparse.Namespace):
     if not anomalies:
         logger.info("No significant anomalies detected in administrative actions for the specified period.")
         if args.output:
-             write_output([], [], args.output, 'json') # Write empty list if requested
+            write_output([], [], args.output, 'json')  # Write empty list if requested
         return
 
     logger.warning(f"Detected {len(anomalies)} potential anomalies.")
+
+    # Normalize results for output
+    serializable_anomalies = []
+    for anomaly in anomalies:
+        serializable_anomaly = {}
+        for k, v in anomaly.items():
+            if isinstance(v, datetime):
+                serializable_anomaly[k] = v.isoformat()
+            elif isinstance(v, (int, str, float, bool, list, dict)) or v is None:
+                serializable_anomaly[k] = v
+            else:
+                serializable_anomaly[k] = str(v)  # Fallback for other types
+        serializable_anomalies.append(serializable_anomaly)
+
     if args.output:
-        # Ensure data is serializable for JSON
-        serializable_anomalies = []
-        for anomaly in anomalies:
-            serializable_anomaly = {}
-            for k, v in anomaly.items():
-                if isinstance(v, datetime):
-                    serializable_anomaly[k] = v.isoformat()
-                elif isinstance(v, (int, str, float, bool, list, dict)) or v is None:
-                    serializable_anomaly[k] = v
-                else:
-                    serializable_anomaly[k] = str(v) # Fallback for other types
-            serializable_anomalies.append(serializable_anomaly)
-        write_output(serializable_anomalies, list(serializable_anomalies[0].keys()) if serializable_anomalies else [], args.output, 'json')
+        headers = list(serializable_anomalies[0].keys()) if serializable_anomalies else []
+        write_output(serializable_anomalies, headers, args.output, 'json')
     else:
         print("\n--- Detected Anomalies ---")
-        for anomaly in anomalies:
-            print(json.dumps(anomaly, indent=2, default=str)) # Print JSON to console
+        for anomaly in serializable_anomalies:
+            print(json.dumps(anomaly, indent=2))
         print("--- End of Anomalies ---")
-
 
 def run_integrity_checks(app: Flask, args: argparse.Namespace):
     """Run basic integrity checks on audit logs."""
-    logger.info("Running integrity checks (experimental)...")
-    # This is a placeholder for more complex integrity checks.
-    # Real integrity checks might involve checksums, blockchain, or external validation.
+    logger.info("Running integrity checks...")
+    start_dt, end_dt = get_time_range(args)
+    integrity_issues = []
 
-    if args.check_gaps:
-        logger.info("Checking for time gaps...")
-        # Basic gap check: Fetch logs ordered by time and look for large time differences.
-        # This is very basic and might yield false positives.
-        with app.app_context():
-            start_dt, end_dt = get_time_range(args)
-            logs = AuditLog.query.filter(AuditLog.created_at.between(start_dt, end_dt))\
-                                 .order_by(AuditLog.created_at.asc()).limit(args.limit * 2).all() # Fetch more to check gaps
+    with app.app_context():
+        # Use the audit utils integrity check if available
+        if AUDIT_UTILS_AVAILABLE:
+            try:
+                logger.info("Using audit utilities for integrity checking...")
+                integrity_result = verify_audit_log_integrity(start_dt, end_dt)
+
+                if integrity_result["status"] != "valid":
+                    logger.warning(f"Audit log integrity check: {integrity_result['status']}")
+                    logger.warning(f"Found {len(integrity_result.get('issues', []))} potential integrity issues")
+                    integrity_issues.extend(integrity_result.get('issues', []))
+                else:
+                    logger.info("Audit log integrity check passed.")
+
+                # Log the integrity check
+                log_admin_action(
+                    action="audit.integrity",
+                    details={
+                        "status": integrity_result["status"],
+                        "issue_count": len(integrity_result.get('issues', [])),
+                        "start_time": start_dt.isoformat(),
+                        "end_time": end_dt.isoformat()
+                    },
+                    severity=SEVERITY_INFO,
+                    status=STATUS_SUCCESS
+                )
+            except Exception as e:
+                logger.error(f"Error performing integrity check with audit utilities: {e}")
+                # Continue with basic checks
+
+        # Perform basic gap check if requested or no issues found yet
+        if args.check_gaps or not integrity_issues:
+            logger.info("Checking for time gaps in logs...")
+            logs = fetch_admin_logs(app, args)
 
             if len(logs) > 1:
-                max_gap = timedelta(minutes=60) # Example threshold: 1 hour
-                potential_gaps = 0
+                # Sort by timestamp
+                logs.sort(key=lambda x: x.get('created_at', '') if isinstance(x.get('created_at'), str)
+                          else x.get('created_at', datetime.min))
+
+                max_gap = timedelta(minutes=60)  # Example threshold: 1 hour
+                potential_gaps = []
+
                 for i in range(len(logs) - 1):
-                    gap = logs[i+1].created_at - logs[i].created_at
-                    if gap > max_gap:
-                        logger.warning(f"Potential time gap detected: {gap} between log ID {logs[i].id} and {logs[i+1].id}")
-                        potential_gaps += 1
-                if potential_gaps == 0:
-                    logger.info("No significant time gaps detected.")
+                    # Convert timestamps to datetime objects if they're strings
+                    curr_time = logs[i].get('created_at')
+                    next_time = logs[i+1].get('created_at')
+
+                    if isinstance(curr_time, str):
+                        curr_time = datetime.fromisoformat(curr_time.replace('Z', '+00:00'))
+                    if isinstance(next_time, str):
+                        next_time = datetime.fromisoformat(next_time.replace('Z', '+00:00'))
+
+                    gap = next_time - curr_time
+
+                    # Business hours check (9am-5pm on weekdays)
+                    is_business_hours = (
+                        curr_time.weekday() < 5 and  # Weekday
+                        curr_time.hour >= 9 and curr_time.hour < 17  # 9am-5pm
+                    )
+
+                    if gap > max_gap and is_business_hours:
+                        logger.warning(f"Potential time gap detected: {gap} between logs at {curr_time} and {next_time}")
+                        potential_gaps.append({
+                            'type': 'time_gap',
+                            'start_time': curr_time.isoformat() if isinstance(curr_time, datetime) else curr_time,
+                            'end_time': next_time.isoformat() if isinstance(next_time, datetime) else next_time,
+                            'gap_minutes': gap.total_seconds() / 60,
+                            'first_log_id': logs[i].get('id'),
+                            'second_log_id': logs[i+1].get('id')
+                        })
+
+                if potential_gaps:
+                    logger.warning(f"Found {len(potential_gaps)} potential time gaps during business hours.")
+                    integrity_issues.extend(potential_gaps)
                 else:
-                     logger.warning(f"Found {potential_gaps} potential time gaps exceeding {max_gap}.")
+                    logger.info("No significant time gaps detected during business hours.")
             else:
                 logger.info("Not enough logs in the period to check for gaps.")
 
-    if args.check_sequence:
-         logger.warning("Sequence checking is not implemented in this basic version.")
-         # Placeholder: Check if log IDs are sequential or if there's a sequence field.
+        # Perform sequence checking if requested
+        if args.check_sequence:
+            logger.info("Checking for sequence consistency...")
+            logs = fetch_admin_logs(app, args)
 
-    logger.info("Integrity checks complete.")
+            if len(logs) > 1:
+                # Sort by ID
+                logs.sort(key=lambda x: x.get('id', 0))
 
+                sequence_issues = []
+                for i in range(len(logs) - 1):
+                    curr_id = logs[i].get('id', 0)
+                    next_id = logs[i+1].get('id', 0)
+
+                    # Check for gaps in ID sequence
+                    if next_id > curr_id + 1:
+                        logger.warning(f"Potential sequence gap detected: {next_id - curr_id - 1} missing IDs between {curr_id} and {next_id}")
+                        sequence_issues.append({
+                            'type': 'sequence_gap',
+                            'first_id': curr_id,
+                            'second_id': next_id,
+                            'missing_count': next_id - curr_id - 1
+                        })
+
+                if sequence_issues:
+                    logger.warning(f"Found {len(sequence_issues)} sequence gaps in the log IDs.")
+                    integrity_issues.extend(sequence_issues)
+                else:
+                    logger.info("No sequence gaps detected in the log IDs.")
+            else:
+                logger.info("Not enough logs in the period to check sequence.")
+
+    # Output integrity issues if any were found
+    if integrity_issues:
+        if args.output:
+            # Normalize for JSON output
+            serializable_issues = []
+            for issue in integrity_issues:
+                serializable_issue = {}
+                for k, v in issue.items():
+                    if isinstance(v, datetime):
+                        serializable_issue[k] = v.isoformat()
+                    elif isinstance(v, (int, str, float, bool, list, dict)) or v is None:
+                        serializable_issue[k] = v
+                    else:
+                        serializable_issue[k] = str(v)
+                serializable_issues.append(serializable_issue)
+
+            headers = list(serializable_issues[0].keys()) if serializable_issues else []
+            write_output(serializable_issues, headers, args.output, 'json')
+        else:
+            print("\n--- Integrity Issues ---")
+            for issue in integrity_issues:
+                print(json.dumps(issue, indent=2, default=str))
+            print("--- End of Integrity Issues ---")
+    else:
+        logger.info("No integrity issues found.")
+        if args.output:
+            write_output([], [], args.output, 'json')
 
 def main():
     """Main execution function."""
@@ -432,20 +631,60 @@ def main():
         logger.info("Fetching logs for review...")
         logs = fetch_admin_logs(app, args)
         if args.format == 'json':
-             log_dicts, _ = format_report_data(logs)
-             print(json.dumps(log_dicts, indent=2))
+             print(json.dumps(logs, indent=2, default=str))
         else:
              display_review(logs)
     elif args.command == 'report':
         logger.info("Fetching logs for report generation...")
         logs = fetch_admin_logs(app, args)
-        if not logs:
-            logger.info("No logs found matching criteria. Generating empty report.")
-            report_data, headers = format_report_data([])
+
+        # If export utility is available, use it for better integration
+        if AUDIT_UTILS_AVAILABLE and args.output:
+            start_dt, end_dt = get_time_range(args)
+            try:
+                # Build filters
+                filters = {}
+                if args.user_id:
+                    filters['user_id'] = args.user_id
+                if args.user:
+                    filters['username'] = args.user
+                if args.action_type:
+                    filters['action_types'] = [args.action_type]
+                if args.severity:
+                    filters['severity'] = args.severity
+
+                # Use the specialized export function
+                result = export_admin_audit_logs(
+                    start_time=start_dt,
+                    end_time=end_dt,
+                    output_format=args.format,
+                    output_file=args.output,
+                    filters=filters
+                )
+
+                if result is True:
+                    logger.info(f"Successfully exported logs to {args.output}")
+                else:
+                    logger.warning("Export function returned a string instead of writing to file.")
+                    # Write the returned string to the output file
+                    with open(args.output, 'w', encoding='utf-8') as f:
+                        f.write(result)
+                    logger.info(f"Manually wrote export result to {args.output}")
+            except Exception as e:
+                logger.error(f"Failed to use export_admin_audit_logs: {e}")
+                # Fall back to manual formatting and export
+                report_data, headers = format_report_data(logs)
+                write_output(report_data, headers, args.output, args.format)
         else:
-            logger.info(f"Formatting {len(logs)} logs for {args.format} report...")
-            report_data, headers = format_report_data(logs)
-        write_output(report_data, headers, args.output, args.format)
+            # Use the standard formatting and export
+            if not logs:
+                logger.info("No logs found matching criteria. Generating empty report.")
+                report_data, headers = format_report_data([])
+            else:
+                logger.info(f"Formatting {len(logs)} logs for {args.format} report...")
+                report_data, headers = format_report_data(logs)
+            write_output(report_data, headers, args.output, args.format)
+
     elif args.command == 'anomalies':
         run_anomaly_detection(app, args)
     elif args.command == 'integrity':

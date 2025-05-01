@@ -600,3 +600,50 @@ def read_yaml_file(file_path: str, default: Any = None) -> Dict[str, Any]:
         if default is not None:
             return default
         raise IOError(f"Error reading {file_path}: {e}")
+
+
+def get_critical_file_hashes(files: List[str], algorithm: str = DEFAULT_HASH_ALGORITHM) -> Dict[str, str]:
+    """
+    Generate hash dictionary for critical application files.
+
+    Used to create reference hashes for integrity checking and monitoring
+    of critical system files.
+
+    Args:
+        files: List of file paths to hash
+        algorithm: Hash algorithm to use (default: sha256)
+
+    Returns:
+        Dictionary mapping file paths to their hash values
+
+    Example:
+        >>> critical_files = ['/path/to/app.py', '/path/to/config.py']
+        >>> hashes = get_critical_file_hashes(critical_files)
+        >>> print(f"Config hash: {hashes['/path/to/config.py']}")
+    """
+    hashes = {}
+    errors = []
+
+    for file_path in files:
+        # Normalize the path for consistency
+        normalized_path = os.path.normpath(file_path)
+
+        if not os.path.exists(normalized_path):
+            print(f"Warning: File not found for hashing: {normalized_path}")
+            errors.append(f"File not found: {normalized_path}")
+            continue
+
+        try:
+            file_hash = compute_file_hash(normalized_path, algorithm)
+            hashes[normalized_path] = file_hash
+        except (IOError, ValueError, PermissionError) as e:
+            error_msg = f"Failed to hash {normalized_path}: {str(e)}"
+            print(f"Error: {error_msg}")
+            errors.append(error_msg)
+            hashes[normalized_path] = None
+
+    # Log a summary if there were errors
+    if errors and len(errors) > 0:
+        print(f"Completed file hash generation with {len(errors)} errors")
+
+    return hashes
