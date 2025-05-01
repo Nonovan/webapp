@@ -25,13 +25,10 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from sqlalchemy.exc import SQLAlchemyError
 
-from services.auth_service import AuthService
-from core.security.cs_audit import log_security_event
-from core.security.cs_utils import is_suspicious_ip
+from core.security import is_suspicious_ip, log_security_event
 from extensions import db
-from models.audit_log import AuditLog
-from models.user_activity import UserActivity
-from models.user_session import UserSession
+from models import AuditLog, UserActivity, UserSession
+from services.auth_service import AuthService
 
 # Initialize Limiter (ensure this matches your app's configuration)
 limiter = Limiter(

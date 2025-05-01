@@ -32,10 +32,9 @@ from typing import Dict, Any, Tuple, Optional
 from flask import current_app, request, has_request_context
 
 from extensions import db, metrics
-from models.user_session import UserSession
+from models import UserSession
 from models.security.audit_log import AuditLog
-from core.security.cs_audit import log_security_event
-from core.security.cs_utils import is_suspicious_ip
+from core.security import is_suspicious_ip, log_security_event
 
 
 class SessionManager:

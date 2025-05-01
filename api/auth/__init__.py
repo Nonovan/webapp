@@ -37,8 +37,9 @@ auth_api = Blueprint('auth_api', __name__)
 # Initialize module logger
 logger = logging.getLogger(__name__)
 
-# Import route handlers
+# Import route handlers and components
 from . import routes
+from . import decorators
 from .extend_session import SessionManager
 
 # Import security helpers from the new module structure
@@ -103,4 +104,9 @@ def on_register(state):
     logger.info("Authentication API initialized successfully")
 
 # Export public objects
-__all__ = ['auth_api', 'get_session_manager', 'SessionManager']
+__all__ = [
+    'auth_api',
+    'get_session_manager',
+    'SessionManager',
+    'decorators'
+]
