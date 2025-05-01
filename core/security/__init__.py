@@ -34,7 +34,8 @@ from .cs_authentication import (
     generate_secure_token,
     regenerate_session,
     invalidate_user_sessions,
-    validate_url
+    validate_url,
+    is_safe_redirect_url
 )
 
 from .cs_authorization import (
@@ -53,7 +54,14 @@ from .cs_crypto import (
     sanitize_url,
     sanitize_filename,
     sanitize_username,
-    generate_secure_hash
+    generate_secure_hash,
+    generate_random_token,
+    generate_hmac_token,
+    verify_hmac_token,
+    hash_password,
+    verify_password_hash,
+    generate_secure_password,
+    compute_hash
 )
 
 from .cs_file_integrity import (
@@ -120,7 +128,9 @@ from .cs_utils import (
     get_file_integrity_report,
     get_security_status_summary,
     generate_csp_nonce,
-    check_security_dependencies
+    check_security_dependencies,
+    sanitize_filename,
+    obfuscate_sensitive_data
 )
 
 # Constants available at package level

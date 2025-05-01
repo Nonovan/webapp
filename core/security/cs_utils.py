@@ -13,6 +13,7 @@ and integration between different security modules.
 import os
 import logging
 import json
+import re
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Union, Callable, Tuple
 from flask import Flask, current_app, has_app_context, Response, g
@@ -510,6 +511,71 @@ def check_security_dependencies() -> Tuple[bool, List[Dict[str, Any]]]:
         metrics.increment('security.dependencies_check_failed')
 
     return success, dependency_results
+
+
+def sanitize_filename(filename: str) -> str:
+    """
+    Sanitize a filename to prevent directory traversal and other issues.
+
+    Args:
+        filename: Filename to sanitize
+
+    Returns:
+        Sanitized filename
+    """
+    # Remove directory traversal components and limit to basename
+    sanitized = os.path.basename(filename)
+
+    # Remove any null bytes or other control characters
+    sanitized = re.sub(r'[\x00-\x1f]', '', sanitized)
+
+    # Replace potentially dangerous characters
+    sanitized = re.sub(r'[<>:"/\\|?*]', '_', sanitized)
+
+    # Ensure non-empty result
+    if not sanitized:
+        sanitized = "unnamed_file"
+
+    return sanitized
+
+
+def obfuscate_sensitive_data(
+    data: str,
+    prefix_visible: int = 0,
+    suffix_visible: int = 4,
+    mask_char: str = '*'
+) -> str:
+    """
+    Obfuscate sensitive data like API keys or PII.
+
+    Args:
+        data: String to obfuscate
+        prefix_visible: Number of characters to show at beginning
+        suffix_visible: Number of characters to show at end
+        mask_char: Character to use for masking
+
+    Returns:
+        Obfuscated string
+    """
+    if not data:
+        return ""
+
+    data_len = len(data)
+
+    # Adjust visible parts if they exceed data length
+    if prefix_visible + suffix_visible >= data_len:
+        if data_len <= 4:
+            # Very short string, mask it entirely
+            return mask_char * data_len
+        else:
+            # Adjust to show at most half from each end
+            total_visible = data_len // 2
+            prefix_visible = total_visible // 2
+            suffix_visible = total_visible - prefix_visible
+
+    # Create masked string
+    masked_length = data_len - prefix_visible - suffix_visible
+    return data[:prefix_visible] + (mask_char * masked_length) + data[-suffix_visible:] if suffix_visible else data[:prefix_visible] + (mask_char * masked_length)
 
 
 # Private helper functions

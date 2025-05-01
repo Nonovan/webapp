@@ -274,6 +274,34 @@ def chunks(lst: List[T], size: int) -> Iterator[List[T]]:
         yield lst[i:i + size]
 
 
+def chunk_list(lst: List[T], size: int) -> List[List[T]]:
+    """
+    Split a list into chunks of specified size.
+
+    This function divides a list into smaller sublists of the specified size.
+    The last chunk may contain fewer items if the list length is not
+    evenly divisible by the chunk size.
+
+    Args:
+        lst: List to chunk
+        size: Size of each chunk
+
+    Returns:
+        List of list chunks
+
+    Raises:
+        ValueError: If size is less than 1
+
+    Example:
+        >>> chunk_list([1, 2, 3, 4, 5, 6, 7], 3)
+        [[1, 2, 3], [4, 5, 6], [7]]
+    """
+    if size < 1:
+        raise ValueError("Chunk size must be at least 1")
+
+    return [lst[i:i + size] for i in range(0, len(lst), size)]
+
+
 def unique_items(items: List[T], key_func: Optional[Callable[[T], Any]] = None) -> List[T]:
     """
     Get unique items from a list, preserving order.
@@ -306,6 +334,91 @@ def unique_items(items: List[T], key_func: Optional[Callable[[T], Any]] = None) 
                 seen.add(key)
                 result.append(item)
         return result
+
+
+def find_duplicates(items: List[T], key_func: Optional[Callable[[T], Any]] = None) -> Dict[Any, List[T]]:
+    """
+    Find duplicate items in a list, optionally using a key function.
+
+    Identifies items that appear multiple times in a list and groups them by
+    their value or by the result of applying the key function to each item.
+
+    Args:
+        items: List of items to check for duplicates
+        key_func: Optional function to extract a comparison key from each item
+            If None, the items themselves are used as keys
+
+    Returns:
+        Dictionary mapping keys to lists of duplicate items
+
+    Example:
+        >>> find_duplicates([1, 2, 3, 1, 4, 2])
+        {1: [1, 1], 2: [2, 2]}
+
+        >>> find_duplicates(
+        ...     [{'id': 1, 'name': 'A'}, {'id': 2, 'name': 'B'}, {'id': 1, 'name': 'C'}],
+        ...     key_func=lambda x: x['id']
+        ... )
+        {1: [{'id': 1, 'name': 'A'}, {'id': 1, 'name': 'C'}]}
+    """
+    # Track occurrences of each item or key
+    occurrences: Dict[Any, List[T]] = {}
+    result: Dict[Any, List[T]] = {}
+
+    for item in items:
+        key = key_func(item) if key_func else item
+
+        if key not in occurrences:
+            occurrences[key] = []
+
+        occurrences[key].append(item)
+
+        # If we've seen this key before and it's not yet in results,
+        # add it to our results as a duplicate
+        if len(occurrences[key]) == 2:
+            result[key] = occurrences[key].copy()
+        # If we've seen this key multiple times and it's already in results,
+        # just append the new item
+        elif len(occurrences[key]) > 2:
+            result[key].append(item)
+
+    return result
+
+
+def unique_by(items: List[T], key_func: Callable[[T], Any]) -> List[T]:
+    """
+    Return a list of unique items based on a key function.
+
+    Unlike the standard `set` operation which requires items to be hashable
+    and eliminates duplicates based on the item itself, this function uses
+    a key function to determine uniqueness. It preserves the original order
+    and returns the first item found for each unique key.
+
+    Args:
+        items: List of items to filter
+        key_func: Function to extract the comparison key from each item
+
+    Returns:
+        List of items with duplicates removed
+
+    Example:
+        >>> unique_by([
+        ...     {'id': 1, 'name': 'Alice'},
+        ...     {'id': 2, 'name': 'Bob'},
+        ...     {'id': 1, 'name': 'Alice (dup)'}
+        ... ], key_func=lambda x: x['id'])
+        [{'id': 1, 'name': 'Alice'}, {'id': 2, 'name': 'Bob'}]
+    """
+    seen = set()
+    result = []
+
+    for item in items:
+        key = key_func(item)
+        if key not in seen:
+            seen.add(key)
+            result.append(item)
+
+    return result
 
 
 def find_first(items: Iterable[T], predicate: Callable[[T], bool], default: Optional[T] = None) -> Optional[T]:
@@ -454,5 +567,139 @@ def dict_transform(
         if transformation is not None:
             new_key, new_value = transformation
             result[new_key] = new_value
+
+    return result
+
+
+def filter_none(data: Dict) -> Dict:
+    """
+    Remove all key-value pairs where the value is None from a dictionary.
+
+    Args:
+        data: Dictionary to filter
+
+    Returns:
+        Dictionary with None values removed
+
+    Example:
+        >>> filter_none({'a': 1, 'b': None, 'c': 3})
+        {'a': 1, 'c': 3}
+    """
+    if not isinstance(data, dict):
+        return {}
+
+    return {k: v for k, v in data.items() if v is not None}
+
+
+def filter_empty(data: Dict) -> Dict:
+    """
+    Remove all key-value pairs where the value is empty (None, '', [], {}, ()).
+
+    Args:
+        data: Dictionary to filter
+
+    Returns:
+        Dictionary with empty values removed
+
+    Example:
+        >>> filter_empty({'a': 1, 'b': None, 'c': '', 'd': [], 'e': {}, 'f': ()})
+        {'a': 1}
+    """
+    if not isinstance(data, dict):
+        return {}
+
+    def is_empty(value):
+        if value is None:
+            return True
+        if isinstance(value, (str, list, dict, tuple, set)) and len(value) == 0:
+            return True
+        return False
+
+    return {k: v for k, v in data.items() if not is_empty(v)}
+
+
+def filter_dict_by_keys(data: Dict, keys: List[str], include: bool = True) -> Dict:
+    """
+    Filter a dictionary to include or exclude specific keys.
+
+    Args:
+        data: Dictionary to filter
+        keys: List of keys to include or exclude
+        include: If True, includes the keys; if False, excludes them
+
+    Returns:
+        Filtered dictionary
+
+    Examples:
+        >>> filter_dict_by_keys({'a': 1, 'b': 2, 'c': 3}, ['a', 'c'], include=True)
+        {'a': 1, 'c': 3}
+        >>> filter_dict_by_keys({'a': 1, 'b': 2, 'c': 3}, ['a', 'c'], include=False)
+        {'b': 2}
+    """
+    if not isinstance(data, dict):
+        return {}
+
+    if include:
+        return {k: v for k, v in data.items() if k in keys}
+    else:
+        return {k: v for k, v in data.items() if k not in keys}
+
+
+def transform_keys(data: Dict, transform_func: Callable[[str], str]) -> Dict:
+    """
+    Transform all keys in a dictionary using a transformation function.
+
+    Args:
+        data: Dictionary whose keys should be transformed
+        transform_func: Function that takes a key string and returns a new key string
+
+    Returns:
+        Dictionary with transformed keys
+
+    Example:
+        >>> transform_keys({'first_name': 'John', 'last_name': 'Doe'},
+        ...                lambda k: k.replace('_', '-'))
+        {'first-name': 'John', 'last-name': 'Doe'}
+    """
+    if not isinstance(data, dict):
+        return {}
+
+    result = {}
+    for key, value in data.items():
+        new_key = transform_func(key)
+        # Handle nested dictionaries
+        if isinstance(value, dict):
+            result[new_key] = transform_keys(value, transform_func)
+        else:
+            result[new_key] = value
+
+    return result
+
+
+def transform_values(data: Dict, transform_func: Callable[[Any], Any]) -> Dict:
+    """
+    Transform all values in a dictionary using a transformation function.
+
+    Args:
+        data: Dictionary whose values should be transformed
+        transform_func: Function that takes a value and returns a new value
+
+    Returns:
+        Dictionary with transformed values
+
+    Example:
+        >>> transform_values({'a': 1, 'b': 2, 'c': 3}, lambda x: x * 2)
+        {'a': 2, 'b': 4, 'c': 6}
+    """
+    if not isinstance(data, dict):
+        return {}
+
+    result = {}
+    for key, value in data.items():
+        # Handle nested dictionaries
+        if isinstance(value, dict):
+            result[key] = transform_values(value, transform_func)
+        else:
+            result[key] = transform_func(value)
 
     return result

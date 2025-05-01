@@ -12,6 +12,7 @@ These utilities ensure consistent and secure file operations across the applicat
 """
 
 import os
+import re
 import tempfile
 import hashlib
 import base64
@@ -350,3 +351,252 @@ def find_files(
             matched_files = [f for f in matched_files if f not in exclude_files]
 
     return sorted(matched_files)
+
+
+def read_file(file_path: str, encoding: str = "utf-8") -> str:
+    """
+    Securely read a file with proper error handling.
+
+    Args:
+        file_path: Path to the file to read
+        encoding: File encoding (default: utf-8)
+
+    Returns:
+        String content of the file
+
+    Raises:
+        IOError: If the file cannot be read
+        UnicodeDecodeError: If the file cannot be decoded with specified encoding
+    """
+    if not is_path_safe(file_path):
+        raise ValueError(f"Unsafe file path: {file_path}")
+
+    try:
+        with open(file_path, 'r', encoding=encoding) as file:
+            return file.read()
+    except UnicodeDecodeError:
+        # Try again with error handling for problematic characters
+        with open(file_path, 'r', encoding=encoding, errors='replace') as file:
+            return file.read()
+
+
+def write_file(file_path: str, content: str, encoding: str = "utf-8",
+               make_dirs: bool = True, atomic: bool = True) -> None:
+    """
+    Securely write content to a file with proper error handling.
+
+    Args:
+        file_path: Path to the file to write
+        content: Content to write to the file
+        encoding: File encoding (default: utf-8)
+        make_dirs: Create parent directories if they don't exist
+        atomic: Use atomic write operation to prevent corruption
+
+    Raises:
+        IOError: If the file cannot be written
+        OSError: If directories cannot be created
+    """
+    if not is_path_safe(file_path):
+        raise ValueError(f"Unsafe file path: {file_path}")
+
+    # Create parent directories if needed
+    if make_dirs:
+        ensure_directory_exists(os.path.dirname(file_path))
+
+    if atomic:
+        # Use atomic write operation
+        import tempfile
+        temp_fd, temp_path = tempfile.mkstemp(
+            dir=os.path.dirname(os.path.abspath(file_path))
+        )
+        try:
+            with os.fdopen(temp_fd, 'w', encoding=encoding) as temp_file:
+                temp_file.write(content)
+
+            # Ensure proper permissions before moving
+            if os.path.exists(file_path):
+                # Try to preserve permissions from existing file
+                try:
+                    current_mode = os.stat(file_path).st_mode
+                    os.chmod(temp_path, current_mode)
+                except OSError:
+                    pass
+
+            # Atomic move/replace
+            os.replace(temp_path, file_path)
+        except Exception:
+            # Clean up temp file on error
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+            raise
+    else:
+        # Direct write
+        with open(file_path, 'w', encoding=encoding) as file:
+            file.write(content)
+
+
+def append_to_file(file_path: str, content: str, encoding: str = "utf-8",
+                  make_dirs: bool = True) -> None:
+    """
+    Securely append content to a file with proper error handling.
+
+    Args:
+        file_path: Path to the file to append to
+        content: Content to append to the file
+        encoding: File encoding (default: utf-8)
+        make_dirs: Create parent directories if they don't exist
+
+    Raises:
+        IOError: If the file cannot be written
+        OSError: If directories cannot be created
+    """
+    if not is_path_safe(file_path):
+        raise ValueError(f"Unsafe file path: {file_path}")
+
+    # Create parent directories if needed
+    if make_dirs:
+        ensure_directory_exists(os.path.dirname(file_path))
+
+    with open(file_path, 'a', encoding=encoding) as file:
+        file.write(content)
+
+
+def ensure_directory_exists(directory_path: str, mode: int = 0o755) -> None:
+    """
+    Create a directory if it doesn't exist, including parent directories.
+
+    Args:
+        directory_path: Path of the directory to create
+        mode: Permissions for the newly created directory
+
+    Raises:
+        OSError: If the directory cannot be created or modified
+    """
+    # Handle empty path
+    if not directory_path:
+        return
+
+    if not is_path_safe(directory_path):
+        raise ValueError(f"Unsafe directory path: {directory_path}")
+
+    # No need to do anything if the directory already exists
+    if os.path.isdir(directory_path):
+        return
+
+    try:
+        os.makedirs(directory_path, mode=mode, exist_ok=True)
+    except OSError as e:
+        raise OSError(f"Failed to create directory {directory_path}: {str(e)}")
+
+
+def sanitize_filename(filename: str) -> str:
+    """
+    Sanitize a filename to prevent path traversal and other security issues.
+
+    This function ensures filenames are safe for file operations by removing
+    path components and replacing potentially dangerous characters.
+
+    Args:
+        filename: The filename to sanitize
+
+    Returns:
+        Sanitized filename string
+
+    Example:
+        >>> sanitize_filename("../etc/passwd")
+        "passwd"
+        >>> sanitize_filename("file<with>bad:chars?.txt")
+        "file_with_bad_chars_.txt"
+    """
+    if not filename:
+        return "unnamed_file"
+
+    # Remove directory traversal components and limit to basename
+    sanitized = os.path.basename(filename)
+
+    # Remove null bytes and control characters
+    sanitized = re.sub(r'[\x00-\x1f]', '', sanitized)
+
+    # Replace potentially dangerous characters
+    sanitized = re.sub(r'[<>:"/\\|?*]', '_', sanitized)
+
+    # Ensure the filename is not empty after sanitization
+    if not sanitized:
+        sanitized = "unnamed_file"
+
+    # Limit length for safety (prevent extremely long filenames)
+    if len(sanitized) > 255:
+        # Preserve extension if present
+        parts = sanitized.rsplit('.', 1)
+        if len(parts) > 1:
+            sanitized = parts[0][:250] + '.' + parts[1]
+        else:
+            sanitized = sanitized[:255]
+
+    return sanitized
+
+
+def read_json_file(file_path: str, default: Any = None) -> Dict[str, Any]:
+    """
+    Safely read and parse a JSON file with proper error handling.
+
+    Args:
+        file_path: Path to the JSON file
+        default: Default value to return if the file doesn't exist or can't be parsed
+
+    Returns:
+        Parsed JSON data as dictionary or the default value on error
+
+    Example:
+        >>> config = read_json_file("/path/to/config.json", default={})
+        >>> print(config.get("setting", "default_value"))
+    """
+    if not os.path.isfile(file_path):
+        if default is not None:
+            return default
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            return json.load(file)
+    except json.JSONDecodeError as e:
+        if default is not None:
+            return default
+        raise ValueError(f"Invalid JSON in {file_path}: {e}")
+    except Exception as e:
+        if default is not None:
+            return default
+        raise IOError(f"Error reading {file_path}: {e}")
+
+
+def read_yaml_file(file_path: str, default: Any = None) -> Dict[str, Any]:
+    """
+    Safely read and parse a YAML file with proper error handling.
+
+    Args:
+        file_path: Path to the YAML file
+        default: Default value to return if the file doesn't exist or can't be parsed
+
+    Returns:
+        Parsed YAML data as dictionary or the default value on error
+
+    Example:
+        >>> config = read_yaml_file("/path/to/config.yaml", default={})
+        >>> print(config.get("setting", "default_value"))
+    """
+    if not os.path.isfile(file_path):
+        if default is not None:
+            return default
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            return yaml.safe_load(file) or {}
+    except yaml.YAMLError as e:
+        if default is not None:
+            return default
+        raise ValueError(f"Invalid YAML in {file_path}: {e}")
+    except Exception as e:
+        if default is not None:
+            return default
+        raise IOError(f"Error reading {file_path}: {e}")

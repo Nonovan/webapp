@@ -903,3 +903,34 @@ def validate_url(url: str, required_schemes: Optional[List[str]] = None) -> Tupl
         log_error(f"Error validating URL: {e}")
         metrics.increment('security.url_validation_error')
         return False, f"Error validating URL: {str(e)}"
+
+
+def is_safe_redirect_url(url: str, allowed_hosts: List[str] = None) -> bool:
+    """
+    Check if a URL is safe for redirection to prevent open redirects.
+
+    Args:
+        url: URL to check
+        allowed_hosts: List of allowed redirect hosts (if None, only relative URLs are allowed)
+
+    Returns:
+        True if URL is safe for redirection, False otherwise
+    """
+    if not url:
+        return False
+
+    # Allow relative URLs that start with / and don't include protocol markers
+    if url.startswith('/') and not url.startswith('//') and '//' not in url:
+        return True
+
+    # For absolute URLs, check against allowed hosts
+    if allowed_hosts:
+        import urllib.parse
+        try:
+            parsed = urllib.parse.urlparse(url)
+            return parsed.netloc in allowed_hosts
+        except ValueError:
+            return False
+
+    # If no allowed hosts specified, only allow relative URLs
+    return False

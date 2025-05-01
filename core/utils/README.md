@@ -1,6 +1,6 @@
 # Utility Modules for Cloud Infrastructure Platform
 
-This directory contains specialized utility modules that provide reusable functionality across the Cloud Infrastructure Platform. These utilities implement common operations for string manipulation, file handling, data validation, security operations, collection management, and datetime handling.
+This directory contains specialized utility modules that provide reusable functionality across the Cloud Infrastructure Platform. These utilities implement common operations for string manipulation, file handling, data validation, collection management, and datetime handling.
 
 ## Contents
 
@@ -38,10 +38,11 @@ The utility modules provide standardized implementations of common operations ne
 - **`collection.py`**: Collection data structure manipulation
   - Deep dictionary operations (get, set, merge)
   - List and dictionary transformations
-  - Group by and other collection manipulations
+  - Group by and collection aggregation functions
   - Nested structure flattening and reconstruction
-  - Collection validation and filtering
-  - Efficient batch operations
+  - Collection filtering and transformation
+  - Duplicate detection and key-based uniqueness
+  - Efficient batch operations and list chunking
 
 - **`validation.py`**: Input validation and sanitation
   - Type checking and validation
@@ -50,14 +51,7 @@ The utility modules provide standardized implementations of common operations ne
   - Input sanitization for security
   - Format validation (emails, URLs, etc.)
   - Validation pipeline composition
-
-- **`security.py`**: Basic security utilities
-  - Data obfuscation and masking
-  - Token generation and validation
-  - Password strength checking
-  - Redirect URL validation
-  - Secure random string generation
-  - Input/output sanitization
+  - Collection type verification
 
 - **`date_time.py`**: Date and time handling utilities
   - Timezone-aware datetime operations
@@ -79,7 +73,6 @@ core/utils/
 ├── collection.py      # Collection manipulation utilities
 ├── date_time.py       # Date and time handling utilities
 ├── file.py            # File handling utilities
-├── security.py        # Security-related utilities
 ├── string.py          # String manipulation utilities
 └── validation.py      # Input validation utilities
 ```
@@ -141,7 +134,11 @@ content = read_file("/path/to/file.txt", encoding="utf-8")
 ### Collection Utilities
 
 ```python
-from core.utils.collection import deep_get, deep_set, flatten_dict, group_by, filter_none
+from core.utils.collection import (
+    deep_get, deep_set, flatten_dict, group_by, filter_none,
+    unique_by, find_duplicates, chunk_list, filter_empty,
+    filter_dict_by_keys, transform_keys, transform_values
+)
 
 # Safely navigate nested dictionaries
 user_name = deep_get(data, "user.profile.name", default="Unknown User")
@@ -160,19 +157,42 @@ for role, users in users_by_role.items():
 # Filter out None values from dictionary
 clean_data = filter_none(user_input)
 
-# Merge dictionaries with customizable conflict resolution
-merged_config = merge_dicts(base_config, user_config,
-                           conflict_resolver=lambda k, v1, v2: v2)
+# Filter out empty values (None, '', [], {}, ()) from dictionary
+clean_data = filter_empty(user_input)
+
+# Filter dictionary to include only specific keys
+filtered_data = filter_dict_by_keys(data, ['id', 'name', 'email'], include=True)
+
+# Filter dictionary to exclude specific keys
+filtered_data = filter_dict_by_keys(data, ['password', 'token'], include=False)
+
+# Get unique items based on a key function
+unique_users = unique_by(users, key=lambda u: u.email)
 
 # Find duplicate items in a list
 duplicates = find_duplicates(items, key=lambda x: x.id)
+
+# Split a list into chunks of specified size
+batches = chunk_list(items, size=100)
+
+# Transform all keys in a dictionary
+transformed = transform_keys(data, lambda k: k.lower())
+
+# Transform all values in a dictionary
+doubled_values = transform_values(data, lambda v: v * 2 if isinstance(v, int) else v)
+
+# Merge dictionaries with customizable conflict resolution
+merged_config = merge_dicts(base_config, user_config,
+                           conflict_resolver=lambda k, v1, v2: v2)
 ```
 
 ### Validation Utilities
 
 ```python
 from core.utils.validation import (
-    validate_with_schema, is_valid_email, is_valid_ip_address, is_valid_uuid
+    validate_with_schema, is_valid_email, is_valid_ip_address,
+    is_valid_uuid, is_valid_port, is_iterable, is_mapping,
+    is_sequence, is_numeric
 )
 
 # Validate email format
@@ -208,38 +228,23 @@ if is_valid_uuid(resource_id):
 if is_valid_port(port_number):
     # Configure service with port
     pass
-```
 
-### Security Utilities
+# Type checking for more reliable code
+if is_iterable(data) and not isinstance(data, str):
+    # Process iterable (but not string)
+    pass
 
-```python
-from core.utils.security import generate_secure_token, is_safe_redirect_url, check_password_strength
+if is_mapping(data):
+    # Process dictionary-like object
+    pass
 
-# Generate secure random token
-reset_token = generate_secure_token(length=32)
+if is_sequence(data):
+    # Process sequence-like object
+    pass
 
-# Validate URL safety for redirects
-if is_safe_redirect_url(redirect_url, allowed_hosts=["example.com", "api.example.org"]):
-    return redirect(redirect_url)
-else:
-    return redirect(default_url)
-
-# Verify password strength
-is_strong, feedback = check_password_strength(password)
-if not is_strong:
-    return {"error": f"Password too weak. {feedback}"}
-
-# Mask sensitive data for logging
-masked_data = mask_sensitive_data(
-    request_data,
-    sensitive_fields=["password", "credit_card", "ssn"]
-)
-logger.info(f"Processing request: {masked_data}")
-
-# Validate secure token
-if validate_secure_token(received_token, expected_token, max_age_seconds=3600):
-    # Token is valid and not expired
-    grant_access()
+if is_numeric(value):
+    # Process numeric value (int, float, Decimal, etc.)
+    pass
 ```
 
 ### Date and Time Utilities
@@ -303,7 +308,6 @@ datetime_obj = from_timestamp(epoch_time)  # Convert back to datetime
 - **Performance Optimization**: Critical paths are optimized for performance
 - **Resource Management**: Resources like file handles are properly closed using context managers
 - **Unicode Support**: String functions properly handle Unicode characters
-- **Secure Randomness**: Security functions use cryptographically strong random generators
 - **Path Traversal Protection**: File operations validate paths to prevent directory traversal attacks
 - **Timezone Awareness**: Date/time functions properly handle timezone information
 - **Thread Safety**: Utilities are designed to be thread-safe where appropriate
@@ -338,7 +342,6 @@ All utility modules share these common features:
 - File Utilities Reference
 - Collection Utilities Reference
 - Validation Utilities Reference
-- Security Utilities Reference
 - Date/Time Utilities Reference
 - Security Controls Framework
 - Configuration Management Guide
@@ -347,6 +350,6 @@ All utility modules share these common features:
 
 ## Version Information
 
-- **Version**: 0.1.1
-- **Last Updated**: 2024-07-18
+- **Version**: 0.0.1
+- **Last Updated**: 2024-07-22
 - **Maintainers**: Platform Engineering Team

@@ -11,11 +11,12 @@ Key modules:
 - collection: Collection data structure operations
 - file: File handling and path management
 - validation: Input validation utilities
-- security: Security-related utilities
+
+The utilities are designed to be imported individually or accessed via their
+parent modules. Functions are organized by category for ease of discovery and use.
 """
 
-# Import slugify and other commonly used functions from string module
-# to make them directly accessible via core.utils.string
+# Import string manipulation utilities
 from .string import (
     # Formatting and conversion
     slugify,
@@ -104,12 +105,23 @@ from .collection import (
     group_by,
     unique_by,
 
-    # Filtering and transformation
+    # Filtering operations
     filter_none,
     filter_empty,
     filter_dict_by_keys,
+
+    # Transformation operations
     transform_keys,
-    transform_values
+    transform_values,
+
+    # Advanced operations
+    dict_transform,
+    deep_filter,
+    deep_update,
+    partition,
+    index_by,
+    find_first,
+    detect_cycles
 )
 
 # Import file utilities
@@ -144,6 +156,14 @@ from .validation import (
     is_valid_port,
     is_valid_uuid,
 
+    # Range and constraint checking
+    is_in_range,
+    is_valid_length,
+    is_valid_pattern,
+
+    # Dictionary validation
+    is_valid_dict_keys,
+
     # Type checking
     is_iterable,
     is_mapping,
@@ -151,21 +171,7 @@ from .validation import (
     is_numeric
 )
 
-# Import security utilities
-from .security import (
-    # Security tokens
-    generate_secure_token,
-    validate_secure_token,
-
-    # Password security
-    check_password_strength,
-    mask_password,
-
-    # URL security
-    is_safe_redirect_url,
-    sanitize_url
-)
-
+# Define exports for direct import from core.utils
 __all__ = [
     # String utilities
     'slugify',
@@ -217,23 +223,34 @@ __all__ = [
     'from_timestamp',
     'format_timestamp',
 
-    # Collection utilities
+    # Collection utilities - dictionary operations
     'deep_get',
     'deep_set',
     'merge_dicts',
     'flatten_dict',
     'unflatten_dict',
+    'deep_filter',
+    'deep_update',
+    'dict_transform',
+
+    # Collection utilities - list operations
     'chunk_list',
     'find_duplicates',
     'group_by',
     'unique_by',
+    'partition',
+    'index_by',
+    'find_first',
+    'detect_cycles',
+
+    # Collection utilities - filtering and transformation
     'filter_none',
     'filter_empty',
     'filter_dict_by_keys',
     'transform_keys',
     'transform_values',
 
-    # File utilities
+    # File utilities - operations
     'read_file',
     'write_file',
     'append_to_file',
@@ -241,28 +258,30 @@ __all__ = [
     'compute_file_hash',
     'is_path_safe',
     'sanitize_filename',
+
+    # File utilities - formats
     'read_json_file',
     'save_json_file',
     'read_yaml_file',
     'save_yaml_file',
 
-    # Validation utilities
+    # Validation utilities - schema
     'validate_with_schema',
     'validate_dict',
+
+    # Validation utilities - input
     'is_valid_ip_address',
     'is_valid_hostname',
     'is_valid_port',
     'is_valid_uuid',
+    'is_in_range',
+    'is_valid_length',
+    'is_valid_pattern',
+    'is_valid_dict_keys',
+
+    # Validation utilities - type checking
     'is_iterable',
     'is_mapping',
     'is_sequence',
     'is_numeric',
-
-    # Security utilities
-    'generate_secure_token',
-    'validate_secure_token',
-    'check_password_strength',
-    'mask_password',
-    'is_safe_redirect_url',
-    'sanitize_url'
 ]
