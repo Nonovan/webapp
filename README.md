@@ -1,20 +1,35 @@
-# Cloud Infrastructure Platform Documentation
+# Cloud Infrastructure Platform
+
+A secure, scalable platform for managing multi-cloud infrastructure with integrated monitoring, security, and ICS support.
 
 ## Table of Contents
 
-- [Architecture](architecture/architecture-overview.md)
-- [Deployment](deployment/deployment-overview.md)
-  - [Disaster Recovery](deployment/disaster-recovery.md)
-  - [Scaling Strategy](deployment/scaling.md)
-- [Operations](operations/operations-overview.md)
-- [API Reference](api/api-overview.md)
-- [Security](security/security-overview.md)
+- [Overview](#overview)
+- [Getting Started](#getting-started)
+  - [Installation](#installation)
+  - [Configuration](#configuration)
+  - [Deployment](#deployment)
+- [Core Features](#core-features)
+- [Architecture](#architecture)
+- [Project Structure](#project-structure)
+- [API Reference](#api-reference)
+- [Security Features](#security-features)
+- [Integration Capabilities](#integration-capabilities)
+  - [Webhook System](#webhook-system)
+  - [Cloud Providers](#cloud-providers)
+- [Compliance](#compliance)
+- [Scripts & Utilities](#scripts--utilities)
+- [Development](#development)
+- [Contributing](#contributing)
+- [Support](#support)
+- [License](#license)
+- [Documentation](#documentation)
 
 ## Overview
 
-The Cloud Infrastructure Management Platform is a comprehensive Flask-based application that provides secure management, monitoring, and analytics for cloud infrastructure with integrated industrial control systems (ICS) support. The platform is designed with security as a core principle and supports multi-cloud environments.
+The Cloud Infrastructure Platform is a comprehensive Flask-based application that provides secure management, monitoring, and analytics for cloud infrastructure with integrated industrial control systems (ICS) support. The platform is designed with security as a core principle and supports multi-cloud environments including AWS, Azure, and GCP.
 
-This documentation will help you install, configure, and use the platform effectively while maintaining security best practices.
+This platform enables organizations to centralize cloud resource management, enforce security policies, monitor system health, and respond to incidents across their entire infrastructure through a unified interface.
 
 ## Getting Started
 
@@ -22,12 +37,12 @@ This documentation will help you install, configure, and use the platform effect
 
 ```bash
 # Clone repository
-git clone <https://github.com/username/cloud-platform.git>
+git clone https://github.com/username/cloud-platform.git
 cd cloud-platform
 
 # Create virtual environment
 python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\\Scripts\\activate
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
@@ -46,7 +61,6 @@ flask create-admin
 
 # Run development server
 flask run
-
 ```
 
 ### Configuration
@@ -67,8 +81,10 @@ Key configuration options:
 | `JWT_SECRET_KEY` | Secret for JWT token generation | *required* |
 | `ENVIRONMENT` | Application environment | `development` |
 | `CLOUD_PROVIDERS_ENABLED` | Enable cloud provider integrations | `True` |
+| `FILE_INTEGRITY_MONITORING` | Enable file integrity monitoring | `True` |
+| `FILE_BASELINE_PATH` | Path to integrity baseline file | `instance/file_baseline.json` |
 
-See the environment example files in environments for a comprehensive list of configuration options.
+See the environment example files in the `deployment/environments/` directory for a comprehensive list of configuration options.
 
 ### Deployment
 
@@ -82,38 +98,35 @@ cp deployment/environments/production.env.example deployment/environments/produc
 # Deploy using the deployment script
 cd deployment
 ./scripts/deploy.sh production
-
 ```
 
-Refer to [README.md](http://readme.md/) for detailed deployment instructions.
+For detailed deployment instructions including cloud provider-specific deployment, container deployment, and Kubernetes deployment, refer to README.md.
 
-## Features
+## Core Features
 
 - **Cloud Resource Management**
-    - Multi-provider support (AWS, Azure, GCP)
-    - Resource provisioning, monitoring, and lifecycle management
-    - Real-time metrics collection and visualization
-    - Centralized cloud inventory and cost tracking
+  - Multi-provider support (AWS, Azure, GCP)
+  - Resource provisioning, monitoring, and lifecycle management
+  - Real-time metrics collection and visualization
+  - Centralized cloud inventory and cost tracking
+
 - **Security & Compliance**
-    - Role-based access control with fine-grained permissions
-    - Multi-factor authentication and secure password policies
-    - Comprehensive audit logging and security incident tracking
-    - File integrity monitoring and anomaly detection
+  - Role-based access control with fine-grained permissions
+  - Multi-factor authentication and secure password policies
+  - Comprehensive audit logging and security incident tracking
+  - File integrity monitoring and anomaly detection
+
 - **Monitoring & Alerts**
-    - Real-time cloud resource metrics visualization
-    - Anomaly detection with configurable thresholds
-    - Alert management and notification system
-    - Historical metrics analysis and trend reporting
+  - Real-time cloud resource metrics visualization
+  - Anomaly detection with configurable thresholds
+  - Alert management and notification system
+  - Historical metrics analysis and trend reporting
+
 - **Industrial Control Systems (ICS) Integration**
-    - Environmental control system monitoring
-    - ICS device management and metrics collection
-    - Secure control interface with access controls
-    - Historical data collection for ICS equipment
-- **Webhook Integration**
-    - Real-time event notifications to external systems
-    - Secure delivery with HMAC-SHA256 signatures
-    - Multiple event types across different resource categories
-    - Reliable delivery with automatic retries
+  - Environmental control system monitoring
+  - ICS device management and metrics collection
+  - Secure control interface with access controls
+  - Historical data collection for ICS equipment
 
 ## Architecture
 
@@ -125,46 +138,49 @@ The platform is built with a modular architecture that emphasizes security, scal
 - **API**: RESTful API with comprehensive documentation and SDK libraries
 - **Security**: Defense-in-depth approach with multiple security layers
 
-For detailed architecture information, see [architecture.md](http://architecture.md/).
+The architecture implements:
+
+- Comprehensive authentication and authorization
+- Secure communication with TLS encryption
+- Layered security controls at multiple levels
+- Horizontal scaling capabilities for high availability
+- Fault tolerance with circuit breakers and graceful degradation
+
+For detailed architecture information, see architecture-overview.md.
 
 ## Project Structure
 
-```
+```plaintext
 ├── api/                # RESTful API endpoints
 │   ├── auth/           # Authentication endpoints
 │   ├── cloud/          # Cloud resource management endpoints
 │   ├── newsletter/     # Newsletter subscription endpoints
+│   ├── security/       # Security operations endpoints
 │   └── webhooks/       # Webhook configuration and delivery
 ├── app.py              # Application entry point
 ├── blueprints/         # Flask blueprints for main app components
 ├── cli/                # Application command-line interface tools
 ├── config/             # Configuration management
 ├── core/               # Core utility functions and security tools
+│   ├── security/       # Core security implementation
+│   └── utils/          # Shared utility functions
 ├── deployment/         # Deployment configuration and scripts
-│   ├── architecture.md # System architecture documentation
-│   ├── ci/             # CI/CD pipeline configurations
-│   ├── cli/            # Deployment CLI tools
-│   ├── database/       # Database initialization and migration
-│   ├── environments/   # Environment-specific configurations
-│   ├── monitoring/     # Monitoring and alerting setup
-│   ├── scripts/        # Deployment automation scripts
-│   ├── security/       # Security configurations and hardening
-│   ├── disaster-recovery.md  # DR procedures
-│   ├── README.md       # Deployment documentation
-│   └── scaling.md      # Scaling strategies
 ├── extensions/         # Flask extensions and shared components
 ├── models/             # Database models and ORM definitions
+│   ├── auth/           # Authentication models
+│   ├── cloud/          # Cloud resource models
+│   └── security/       # Security models
 ├── services/           # Business logic and service layer
 ├── static/             # Static assets (CSS, JS, images)
-│   └── docs/           # Documentation assets
 ├── tests/              # Automated tests
 └── views/              # View helpers and template utilities
-
 ```
 
 ## API Reference
 
-The platform provides a comprehensive RESTful API for integration with external systems. Key API categories include:
+The platform provides a comprehensive RESTful API for integration with external systems. All APIs use JWT authentication and follow consistent patterns for requests and responses.
+
+Key API categories:
 
 - **Authentication**: User authentication and token management
 - **Cloud Resources**: Managing cloud provider resources
@@ -172,9 +188,19 @@ The platform provides a comprehensive RESTful API for integration with external 
 - **Webhooks**: Event subscription and notification
 - **Security**: Security incident management and reporting
 
-For detailed API documentation, see [README.md](http://readme.md/).
+API features include:
+
+- Consistent error handling and status codes
+- Comprehensive input validation
+- Proper rate limiting and throttling
+- Detailed documentation with examples
+- Secure authentication and authorization
+
+For detailed API documentation, see api-overview.md.
 
 ## Security Features
+
+The platform implements a defense-in-depth security approach with multiple layers of protection:
 
 - Content Security Policy (CSP) with nonce-based script validation
 - CSRF protection for all forms and API endpoints
@@ -184,10 +210,15 @@ For detailed API documentation, see [README.md](http://readme.md/).
 - Input validation and sanitization against XSS and injection attacks
 - Web Application Firewall (WAF) with customized rule sets
 - Multi-factor authentication support
+- File integrity monitoring and verification
+- Comprehensive security event logging and monitoring
+- Automated security scanning integration
 
-For detailed security documentation, see [README.md](http://readme.md/).
+For detailed security documentation, see security-overview.md.
 
-## Webhook System
+## Integration Capabilities
+
+### Webhook System
 
 The platform includes a webhook system allowing external systems to receive real-time notifications about events:
 
@@ -199,7 +230,16 @@ The platform includes a webhook system allowing external systems to receive real
 | ICS | Industrial control system events | `ics.reading`, `ics.state.change` |
 | System | Platform system events | `system.backup.completed` |
 
-For detailed webhook documentation, see [README.md](http://readme.md/).
+Webhooks feature HMAC signature verification, automatic retries, and delivery confirmation. For detailed webhook documentation, see webhooks.md.
+
+### Cloud Providers
+
+The platform integrates with multiple cloud providers:
+
+- **AWS**: EC2, S3, RDS, Lambda, and other AWS services
+- **Azure**: Virtual Machines, Storage Accounts, SQL Database, and other Azure services
+- **Google Cloud Platform**: Compute Engine, Cloud Storage, Cloud SQL, and other GCP services
+- **On-premises**: Custom integrations with on-premises infrastructure
 
 ## Compliance
 
@@ -211,11 +251,13 @@ The platform is designed to help meet requirements from:
 - NIST Cybersecurity Framework
 - PCI DSS (where applicable)
 
-For compliance documentation, see [compliance.md](http://compliance.md/).
+Compliance features include comprehensive audit logging, encryption for sensitive data, role-based access control, and security monitoring capabilities.
 
-## Scripts
+For compliance documentation, see compliance.md.
 
-The platform includes various scripts for automation, maintenance, compliance checking, and security management. These scripts are organized into functional categories within the `/scripts/` directory:
+## Scripts & Utilities
+
+The platform includes various scripts for automation, maintenance, compliance checking, and security management organized in the scripts directory:
 
 ### Core Scripts
 
@@ -228,51 +270,34 @@ The platform includes various scripts for automation, maintenance, compliance ch
 ### Compliance Scripts
 
 - **`generate-report.sh`**: Generates compliance reports in HTML or JSON format
-- **`validate_compliance.sh`**: Validates configurations against compliance standards (PCI DSS, HIPAA, etc.)
+- **`validate_compliance.sh`**: Validates configurations against compliance standards
 
 ### Database Scripts
 
-- **`optimize.sh`**: Performs database optimization tasks including VACUUM, index rebuilding, and storage optimization
+- **`optimize.sh`**: Performs database optimization tasks including VACUUM, index rebuilding
 - **`verify-backups.sh`**: Validates the integrity of database backups
 
 ### Deployment Scripts
 
-- **`config/config_validator.sh`**: Validates configuration files against schemas
-- **`config/configure_resources.sh`**: Configures cloud resources based on environment settings
-- **`core/rollback.sh`**: Handles application rollback to a previous version
-- **`dr/update-dns.sh`**: Updates DNS records for disaster recovery failover
+- **`config_validator.sh`**: Validates configuration files against schemas
+- **`configure_resources.sh`**: Configures cloud resources based on environment settings
+- **`rollback.sh`**: Handles application rollback to a previous version
+- **`update-dns.sh`**: Updates DNS records for disaster recovery failover
 
-### Maintenance Scripts
-
-- **`env_sync.sh`**: Synchronizes configuration between environments
-- **`backup/verify-backups.sh`**: Verifies integrity of system backups
-
-### Monitoring Scripts
-
-- **`config/update-monitoring.sh`**: Updates monitoring configuration during region switches
-- **`tests/performance-test.sh`**: Runs performance tests on the application
-
-### Security Scripts
-
-- **`apply_security_updates.sh`**: Applies security updates with rollback capability
+Example script usage:
 
 ```bash
-# Examples of script usage
-
 # Validate configuration files
 ./scripts/deployment/config/config_validator.sh --environment production
 
 # Validate compliance with PCI DSS
-./scripts/compliance/validate_compliance.sh --environment production --standard pci-dss --report compliance-report.json
+./scripts/compliance/validate_compliance.sh --standard pci-dss --report compliance-report.json
 
 # Optimize database
 ./scripts/database/optimize.sh --env production --apply
 
 # Apply security updates
 ./scripts/security/apply_security_updates.sh --environment production
-
-# Update monitoring for DR failover
-./scripts/monitoring/config/update-monitoring.sh --primary-region secondary --dr-mode
 ```
 
 ## Development
@@ -287,7 +312,6 @@ python -m pytest
 python -m pytest tests/unit
 python -m pytest tests/integration
 python -m pytest tests/security
-
 ```
 
 ### Code Style
@@ -300,12 +324,11 @@ flake8
 
 # Format code
 black .
-
 ```
 
 ## Contributing
 
-Please see `CONTRIBUTING.md` for details on our code of conduct and the process for submitting pull requests.
+Please see CONTRIBUTING.md for details on our code of conduct and the process for submitting pull requests.
 
 ## Support
 
@@ -313,4 +336,14 @@ For support, please create an issue in the GitHub repository or contact the deve
 
 ## License
 
-This project is licensed under the MIT License - see the `LICENSE` file for details.
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Documentation
+
+For more detailed documentation, see these key resources:
+
+- Architecture Overview
+- API Documentation
+- Deployment Guide
+- Security Overview
+- User Guide
