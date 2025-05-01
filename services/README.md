@@ -73,6 +73,17 @@ Services encapsulate complex operations and provide clean APIs for controllers/r
     - Integration with `EmailService`
     - Marking notifications as read
 
+- **`ScanningService`**: Security scanning management
+  - **Usage**: Use this service for managing security scans across different infrastructure components.
+  - **Features**:
+    - Multiple scan types (vulnerability, compliance, configuration, etc.)
+    - Scan scheduling and execution
+    - Result processing and storage
+    - Finding classification and reporting
+    - Severity-based result prioritization
+    - Integration with security monitoring systems
+    - Scan profile management
+
 - **`SecurityService`**: Security operations including file integrity monitoring
   - **Usage**: Use this service for security-related operations including file integrity verification
   - **Features**:
@@ -93,6 +104,8 @@ Services encapsulate complex operations and provide clean APIs for controllers/r
     - Test webhook functionality
     - Delivery history tracking
     - Subscription groups and rate limiting
+    - Health monitoring for subscriptions
+    - Rate limiting to prevent abuse
 
 ## Directory Structure
 
@@ -105,6 +118,7 @@ services/
 ├── monitoring_service.py # System monitoring and health check service
 ├── newsletter_service.py # Newsletter management service
 ├── notification_service.py # Multi-channel notification service
+├── scanning_service.py   # Security scanning management service
 ├── security_service.py   # Security operations and file integrity services
 ├── webhook_service.py    # Webhook management and delivery service
 └── README.md             # This documentation
@@ -204,7 +218,7 @@ stats = NewsletterService.get_stats()
 ### Security Operations
 
 ```python
-from services import check_integrity, update_security_baseline
+from services import check_integrity, update_security_baseline, SecurityService
 
 # Check file integrity
 integrity_status, changes = check_integrity()
@@ -220,6 +234,58 @@ if success:
     print(f"Baseline updated successfully: {message}")
 else:
     print(f"Baseline update failed: {message}")
+
+# Schedule periodic integrity checks
+SecurityService.schedule_integrity_check(
+    interval_seconds=3600,  # Check every hour
+    callback=lambda integrity_status, changes: send_alert_if_compromised(integrity_status, changes)
+)
+
+# Get current integrity status
+status = SecurityService.get_integrity_status()
+print(f"Last check: {status['last_check_time']}")
+print(f"Baseline status: {status['baseline_status']}")
+print(f"Files monitored: {status['file_count']}")
+print(f"Changes detected: {status['changes_detected']}")
+
+# Verify specific file against baseline
+is_valid, details = SecurityService.verify_file_hash('/path/to/important/file.py')
+if not is_valid:
+    print(f"File integrity check failed: {details['status']}")
+    print(f"Expected hash: {details['expected_hash']}")
+    print(f"Current hash: {details['current_hash']}")
+```
+
+### Security Scanning
+
+```python
+from services import ScanningService
+from models.security import SecurityScan
+
+# Get available scan profiles
+available_profiles = ScanningService.get_available_scan_profiles()
+print(f"Available profiles: {[p['name'] for p in available_profiles]}")
+
+# Create a new scan
+scan = SecurityScan(
+    scan_type=SecurityScan.TYPE_VULNERABILITY,
+    targets=[{'id': 'web-server-01', 'type': 'server'}],
+    profile="standard",
+    options={"depth": "high"}
+)
+scan.save()
+
+# Start the scan
+success = ScanningService.start_scan(scan)
+if success:
+    print(f"Scan {scan.id} started successfully")
+else:
+    print(f"Failed to start scan {scan.id}")
+
+# Get scan health metrics
+health_metrics = ScanningService.get_scan_health_metrics()
+print(f"Active scans: {health_metrics.get('active_scans', 0)}")
+print(f"Queued scans: {health_metrics.get('queued_scans', 0)}")
 ```
 
 ### Audit Logging
@@ -309,6 +375,22 @@ else:
 # Trigger an event
 payload = {'resource_id': 'res-abc', 'type': 'vm', 'status': 'created'}
 WebhookService.trigger_event(event_type='resource.created', payload=payload)
+
+# Check health metrics for a subscription
+health_data = WebhookService.get_subscription_health('subscription-uuid', user_id=123)
+print(f"Status: {health_data['status']}")
+print(f"Success rate: {health_data['success_rate']}%")
+print(f"Average response time: {health_data['average_response_time_ms']}ms")
+
+# Replay a failed delivery
+success, error, details = WebhookService.replay_failed_delivery(delivery_id=456, user_id=123)
+if success:
+    print(f"Delivery replayed successfully: {details}")
+
+# Rotate webhook secret for enhanced security
+success, error, new_secret = WebhookService.rotate_subscription_secret('subscription-uuid', user_id=123)
+if success:
+    print(f"Secret rotated. New secret: {new_secret}")
 ```
 
 ## Related Documentation
@@ -323,9 +405,12 @@ WebhookService.trigger_event(event_type='resource.created', payload=payload)
 - Notification System Design (docs/api/notifications.md)
 - Security Baseline Management (admin/security/assessment_tools/config_files/security_baselines/README.md)
 - Security Policies (docs/security/README.md)
+- Security Scanning Framework (docs/security/scanning-framework.md)
 - System Health Metrics (docs/operations/system-metrics.md)
 - Webhook Implementation Guide (docs/api/guides/webhooks.md)
 
 ## Version History
 
+- **0.3.0 (2024-08-15)**: Enhanced security monitoring and webhook management capabilities
+- **0.2.0 (2024-07-28)**: Added ScanningService for security vulnerability scanning
 - **0.1.0 (2023-09-01)**: Initial implementation of core service classes

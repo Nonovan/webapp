@@ -14,6 +14,7 @@ Key services in this package:
 - EmailService: Email template rendering and delivery
 - NewsletterService: Subscription management and newsletter distribution
 - SecurityService: Security operations including file integrity monitoring
+- ScanningService: Security scanning management and vulnerability assessment
 - WebhookService: Management of webhooks, subscriptions, and event delivery
 """
 
@@ -26,6 +27,7 @@ from typing import Dict, List, Any, Optional, Tuple, Union, Set, Callable
 from .auth_service import AuthService
 from .email_service import EmailService, send_email, send_template_email, validate_email_address, test_email_configuration
 from .newsletter_service import NewsletterService
+from .scanning_service import ScanningService
 from .security_service import SecurityService
 from .webhook_service import WebhookService
 
@@ -38,6 +40,7 @@ __all__ = [
     'AuthService',
     'EmailService',
     'NewsletterService',
+    'ScanningService',
     'SecurityService',
     'WebhookService',
 
@@ -57,6 +60,13 @@ __all__ = [
     'update_file_integrity_baseline',
     'update_file_baseline',
 
+    # Scanning functions
+    'get_scan_profiles',
+    'start_security_scan',
+    'cancel_security_scan',
+    'get_scan_health_metrics',
+    'estimate_scan_duration',
+
     # Webhook functions
     'trigger_webhook_event',
     'create_webhook_subscription',
@@ -67,7 +77,7 @@ __all__ = [
 ]
 
 # Version information - incremented to reflect security service enhancements
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 
 def check_integrity(paths: Optional[List[str]] = None) -> Tuple[bool, List[Dict[str, Any]]]:
     """
@@ -248,6 +258,9 @@ def update_file_baseline(baseline_path: str,
     except ImportError:
         logger.debug("Core utility not available, using SecurityService directly")
 
+        # Convert baseline_path to Path object for consistency
+        baseline_file = Path(baseline_path)
+
         # Format updates for SecurityService
         paths = list(updates.keys())
 
@@ -258,16 +271,97 @@ def update_file_baseline(baseline_path: str,
         # If successful and we need to verify hashes match exactly what was provided
         if success and paths:
             # Load the baseline again to ensure consistency
-            baseline = SecurityService._load_baseline(Path(baseline_path))
-            files = baseline.get("files", {})
+            baseline_data = SecurityService._load_baseline(baseline_file)
+            files = baseline_data.get("files", {})
 
             # Check if hashes match what was requested
             mismatched = [p for p in paths if p in files and files[p] != updates.get(p)]
             if mismatched:
                 logger.warning(f"Hash mismatch after baseline update for: {mismatched}")
-                # Could force update here if needed
+
+                # Force update the file directly with exact hashes if mismatches found
+                try:
+                    # Make a copy of the baseline data and update it with the exact hashes
+                    updated_baseline = baseline_data.copy()
+                    for path, hash_value in updates.items():
+                        if path in updated_baseline["files"]:
+                            updated_baseline["files"][path] = hash_value
+
+                    # Write the updated baseline back to file
+                    SecurityService._save_baseline(updated_baseline, baseline_file)
+                    logger.info(f"Forced update of {len(mismatched)} hash values to match exactly")
+                    return True, f"{message} (with {len(mismatched)} forced hash updates)"
+                except Exception as e:
+                    logger.error(f"Failed to force hash updates: {e}")
 
         return success, message
+
+# Security scanning convenience functions
+def get_scan_profiles() -> List[Dict[str, Any]]:
+    """
+    Get available security scan profiles.
+
+    This is a convenience function that delegates to ScanningService.
+
+    Returns:
+        List of available scan profile configurations
+    """
+    return ScanningService.get_available_scan_profiles()
+
+def start_security_scan(scan: Any) -> bool:
+    """
+    Start a security scan.
+
+    This is a convenience function that delegates to ScanningService.
+
+    Args:
+        scan: SecurityScan object to start
+
+    Returns:
+        Boolean indicating if scan was successfully started
+    """
+    return ScanningService.start_scan(scan)
+
+def cancel_security_scan(scan: Any) -> bool:
+    """
+    Cancel a running or queued security scan.
+
+    This is a convenience function that delegates to ScanningService.
+
+    Args:
+        scan: SecurityScan object to cancel
+
+    Returns:
+        Boolean indicating if cancellation was successful
+    """
+    return ScanningService.cancel_scan(scan)
+
+def get_scan_health_metrics() -> Dict[str, Any]:
+    """
+    Get health metrics for security scanning operations.
+
+    This is a convenience function that delegates to ScanningService.
+
+    Returns:
+        Dictionary containing scan health metrics
+    """
+    return ScanningService.get_scan_health_metrics()
+
+def estimate_scan_duration(scan_type: str, targets: List[Dict[str, Any]], profile: str = "standard") -> int:
+    """
+    Estimate the duration of a security scan based on type, targets, and profile.
+
+    This is a convenience function that delegates to ScanningService.
+
+    Args:
+        scan_type: Type of scan to execute
+        targets: List of scan targets
+        profile: Scan profile name
+
+    Returns:
+        Estimated duration in minutes
+    """
+    return ScanningService.estimate_scan_duration(scan_type, targets, profile)
 
 def trigger_webhook_event(event_type: str, payload: Dict[str, Any],
                         user_id: Optional[int] = None,
@@ -388,12 +482,18 @@ def check_subscription_health(subscription_id: str, user_id: int, lookback_hours
     """
     return WebhookService.get_subscription_health(subscription_id, user_id, lookback_hours)
 
-# Determine if security service has all required functionality
+# Determine if security services have all required functionality
 try:
     SECURITY_SERVICE_AVAILABLE = hasattr(SecurityService, 'check_file_integrity') and callable(SecurityService.check_file_integrity)
 except (ImportError, AttributeError):
     SECURITY_SERVICE_AVAILABLE = False
     logger.warning("SecurityService functionality may be limited or unavailable")
 
+try:
+    SCANNING_SERVICE_AVAILABLE = hasattr(ScanningService, 'start_scan') and callable(ScanningService.start_scan)
+except (ImportError, AttributeError):
+    SCANNING_SERVICE_AVAILABLE = False
+    logger.warning("ScanningService functionality may be limited or unavailable")
+
 # Log initialization status
-logger.debug(f"Services package initialized - version {__version__} - Security service available: {SECURITY_SERVICE_AVAILABLE}")
+logger.debug(f"Services package initialized - version {__version__} - Security service available: {SECURITY_SERVICE_AVAILABLE}, Scanning service available: {SCANNING_SERVICE_AVAILABLE}")

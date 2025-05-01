@@ -66,6 +66,7 @@ This module serves as the central interface for all security operations in the C
   - Alert correlation
   - Threat intelligence feeds
   - Detection metrics
+  - Integration with the `SecurityIncident` model
 
 - **`__init__.py`**: Module initialization and configuration
   - Blueprint registration
@@ -74,6 +75,7 @@ This module serves as the central interface for all security operations in the C
   - Rate limit configuration
   - Security headers enforcement
   - Security monitoring setup
+  - File integrity baseline management
 
 ## Directory Structure
 
@@ -126,6 +128,8 @@ api/security/
 | `/api/security/threats/ioc` | POST | Create threat indicator | Security Admin |
 | `/api/security/threats/ioc/{id}` | DELETE | Remove threat indicator | Security Admin |
 | `/api/security/threats/detection` | GET | List threat detections | Security Analyst, Admin |
+| `/api/security/threats/integrity` | GET | Get file integrity status | Security Analyst, Admin |
+| `/api/security/threats/status` | GET | Get threat status summary | Security Analyst, Admin |
 
 ## Configuration
 
@@ -150,6 +154,9 @@ The security API system uses several configuration settings that can be adjusted
     'medium': 24,                          # Medium severity: 24 hours
     'low': 72                              # Low severity: 72 hours
 },
+'FILE_INTEGRITY_BASELINE_PATH': 'instance/file_baseline.json',  # Path to integrity baseline
+'FILE_INTEGRITY_AUTO_UPDATE_LIMIT': 10,    # Maximum files to auto-update in baseline
+'FILE_INTEGRITY_AUTO_NOTIFICATION': True,  # Auto-notify on integrity violations
 
 # Rate limiting settings
 'RATELIMIT_SECURITY_DEFAULT': "60 per minute",
@@ -173,6 +180,8 @@ The security API system uses several configuration settings that can be adjusted
 - **Progressive SLAs**: Severity-based response time requirements
 - **State Management**: Proper handling of security incident lifecycle states
 - **Customizable Scan Profiles**: Template-based security scan configurations
+- **File Integrity Baseline Management**: Maintain and verify file integrity baselines
+- **Exception Handling**: Robust error management with appropriate logging
 
 ## Usage Examples
 
@@ -412,6 +421,52 @@ Response:
 }
 ```
 
+### Get File Integrity Status
+
+```http
+GET /api/security/threats/integrity
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+Response:
+
+```json
+{
+  "status": "compromised",
+  "last_check": "2024-08-15T13:45:22Z",
+  "changes_detected": 3,
+  "critical_violations": 1,
+  "high_violations": 1,
+  "other_violations": 1,
+  "violations": {
+    "critical": [
+      {
+        "path": "/etc/passwd",
+        "status": "modified",
+        "expected_hash": "a1b2c3...",
+        "current_hash": "d4e5f6..."
+      }
+    ],
+    "high": [
+      {
+        "path": "/etc/shadow",
+        "status": "modified",
+        "expected_hash": "g7h8i9...",
+        "current_hash": "j0k1l2..."
+      }
+    ],
+    "other": [
+      {
+        "path": "/var/log/auth.log",
+        "status": "modified",
+        "expected_hash": "m3n4o5...",
+        "current_hash": "p6q7r8..."
+      }
+    ]
+  }
+}
+```
+
 ## Integration with Platform Services
 
 The Security API integrates with several platform services:
@@ -430,6 +485,10 @@ The Security API integrates with several platform services:
 
 7. **Authentication/Authorization**: Enforces strict access controls based on security roles
 
+8. **File Baseline Management**: Updates and maintains file integrity baseline definitions with proper security controls
+
+9. **Threat Intelligence Integration**: Correlates security incidents with known threat indicators
+
 ## Related Documentation
 
 - Security Architecture Overview
@@ -438,3 +497,6 @@ The Security API integrates with several platform services:
 - Security Scanning Framework
 - File Integrity Monitoring
 - Security API Reference
+- Threat Intelligence Framework
+- File Baseline Management
+- Incident Lifecycle Management

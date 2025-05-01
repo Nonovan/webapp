@@ -59,14 +59,16 @@ These models support security operations, incident management, vulnerability tra
   - Implements confidence scoring and severity classification
   - Maintains historical tracking of threat indicators
 
-- **`VulnerabilityRecord`**: Vulnerability tracking and management
-  - Tracks identified vulnerabilities with detailed classification
-  - Implements CVSS scoring and custom risk assessment
-  - Maps vulnerabilities to compliance requirements
-  - Manages complete remediation lifecycle
-  - Supports verification and regression testing
-  - Integrates with security scanning and threat intelligence
-  - Implements SLA tracking with deadline management
+- **`Vulnerability`**: Modern vulnerability tracking and management
+  - Implements complete vulnerability lifecycle from discovery to resolution
+  - Provides comprehensive CVSS scoring and vector string validation
+  - Manages vulnerability status transitions with audit logging
+  - Tracks affected resources with flexible JSONB storage
+  - Calculates risk scores based on multiple factors
+  - Implements SLA tracking with deadline enforcement and overdue detection
+  - Integrates with security scanning and AuditLog components
+  - Supports advanced search and filtering capabilities
+  - Provides detailed statistics and metrics tracking
 
 ## Directory Structure
 
@@ -82,7 +84,7 @@ models/security/
 ├── security_scan.py          # Security scanning results
 ├── system_config.py          # Security configuration storage
 ├── threat_intelligence.py    # Threat intelligence data
-└── vulnerability_record.py   # Vulnerability management
+├── vulnerability.py          # Modern vulnerability management
 ```
 
 ## Usage Examples
@@ -167,20 +169,20 @@ critical_events = AuditLog.query.filter(
 ### Vulnerability Management
 
 ```python
-from models.security import VulnerabilityRecord
+from models.security import Vulnerability
 
-# Record a new vulnerability
-vuln = VulnerabilityRecord(
+# Create a new vulnerability
+vuln = Vulnerability(
     title="SQL Injection in Search Function",
     description="The search API endpoint is vulnerable to SQL injection attacks",
-    severity=VulnerabilityRecord.SEVERITY_HIGH,
+    severity=Vulnerability.SEVERITY_HIGH,
     cvss_score=8.5,
-    cvss_vector="AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
-    vulnerability_type=VulnerabilityRecord.TYPE_CODE,
+    cvss_vector="CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+    vulnerability_type=Vulnerability.TYPE_CODE,
     affected_resources=[
         {"type": "api", "id": "search-endpoint"}
     ],
-    status=VulnerabilityRecord.STATUS_OPEN
+    status=Vulnerability.STATUS_OPEN
 )
 vuln.save()
 
@@ -209,6 +211,24 @@ vuln.resolve(
 
 # Verify the fix
 vuln.verify(user_id=security_team_id)
+
+# Search for vulnerabilities
+vulnerabilities, total = Vulnerability.get_paginated(
+    page=1,
+    per_page=20,
+    filters={
+        'severity': [Vulnerability.SEVERITY_CRITICAL, Vulnerability.SEVERITY_HIGH],
+        'status': Vulnerability.STATUS_OPEN,
+        'is_overdue': True
+    },
+    sort_by='risk_score',
+    sort_direction='desc'
+)
+
+# Get vulnerability statistics
+stats = Vulnerability.get_statistics()
+print(f"Total vulnerabilities: {stats['total']}")
+print(f"Overdue vulnerabilities: {stats['remediation_progress']['overdue']}")
 ```
 
 ### Threat Intelligence Management

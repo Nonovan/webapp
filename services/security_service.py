@@ -12,7 +12,7 @@ import json
 import hashlib
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, Callable
 
 # Attempt to import core security utilities and extensions
 try:
@@ -138,6 +138,105 @@ class SecurityService:
             logger.error("Error calculating hash for %s using %s: %s", filepath, algorithm, e)
             metrics.increment('security.file_integrity.hash_error')
             return None
+
+    @staticmethod
+    def verify_file_hash(filepath: str, expected_hash: Optional[str] = None) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Verify the hash of a specific file against baseline or provided hash.
+
+        This method checks the integrity of a specific file by comparing its current
+        hash with either a provided hash value or the value stored in the security baseline.
+
+        Args:
+            filepath: Path to the file to verify
+            expected_hash: Optional expected hash. If None, uses hash from baseline
+
+        Returns:
+            Tuple of (match_status, details)
+            - match_status: True if hash matches, False otherwise
+            - details: Dictionary with verification details
+        """
+        details = {
+            "path": filepath,
+            "exists": os.path.exists(filepath),
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
+        # If file doesn't exist, return immediately
+        if not details["exists"]:
+            logger.warning(f"File not found for hash verification: {filepath}")
+            details["status"] = "missing"
+            metrics.increment('security.file_integrity.missing_file')
+            return False, details
+
+        # Calculate current hash of the file
+        current_hash = SecurityService._calculate_hash(filepath)
+        details["current_hash"] = current_hash
+
+        if current_hash is None:
+            details["status"] = "error"
+            details["error"] = "Failed to calculate file hash"
+            logger.error(f"Failed to calculate hash for file: {filepath}")
+            metrics.increment('security.file_integrity.hash_error')
+            return False, details
+
+        # If expected hash is not provided, try to get it from baseline
+        if expected_hash is None:
+            baseline_data = SecurityService._load_baseline()
+            baseline_files = baseline_data.get("files", {})
+
+            # Try both absolute and relative paths in baseline
+            if filepath in baseline_files:
+                expected_hash = baseline_files[filepath]
+                details["source"] = "baseline"
+            elif os.path.basename(filepath) in baseline_files:
+                expected_hash = baseline_files[os.path.basename(filepath)]
+                details["source"] = "baseline_basename"
+            else:
+                details["status"] = "unknown"
+                details["error"] = "No baseline entry found for file"
+                logger.warning(f"No baseline hash found for file: {filepath}")
+                metrics.increment('security.file_integrity.no_baseline')
+                return False, details
+
+        details["expected_hash"] = expected_hash
+        match_status = current_hash == expected_hash
+
+        if match_status:
+            details["status"] = "verified"
+            metrics.increment('security.file_integrity.verified')
+            logger.debug(f"File integrity verified: {filepath}")
+        else:
+            details["status"] = "modified"
+            logger.warning(f"File integrity check failed for {filepath}: hash mismatch")
+            metrics.increment('security.file_integrity.modified')
+
+            # Attempt to determine severity of the change
+            is_critical = False
+            for pattern in SECURITY_CONFIG.get('CRITICAL_FILES_PATTERN', []):
+                if fnmatch.fnmatch(filepath, pattern):
+                    is_critical = True
+                    break
+
+            details["severity"] = "critical" if is_critical else "medium"
+
+            # Log security event for critical files
+            if is_critical:
+                try:
+                    log_security_event(
+                        event_type=getattr(AuditLog, 'EVENT_FILE_INTEGRITY_FAILED', 'file_integrity_failed'),
+                        description=f"Critical file modified: {os.path.basename(filepath)}",
+                        severity="high",
+                        details={
+                            "path": filepath,
+                            "expected_hash": expected_hash,
+                            "current_hash": current_hash
+                        }
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to log security event: {e}")
+
+        return match_status, details
 
     @staticmethod
     def check_file_integrity(paths: Optional[List[str]] = None) -> Tuple[bool, List[Dict[str, Any]]]:
@@ -335,6 +434,195 @@ class SecurityService:
                 details={"summary": summary_msg}
             )
             return False, f"Failed to save baseline. {summary_msg}"
+
+    @staticmethod
+    def schedule_integrity_check(interval_seconds: int = 3600,
+                               callback: Optional[Callable[[bool, List[Dict[str, Any]]], None]] = None) -> bool:
+        """
+        Schedule periodic integrity checks to run at specified intervals.
+
+        This method sets up automated file integrity monitoring by configuring a
+        recurring check that runs in the background. It can use either the
+        Flask scheduler if available, or fall back to other scheduling mechanisms.
+
+        Args:
+            interval_seconds: Time between integrity checks in seconds (default: 1 hour)
+            callback: Optional callback function to receive integrity check results.
+                     Called with (integrity_status: bool, changes: List[Dict[str, Any]])
+
+        Returns:
+            bool: True if scheduling was successful, False otherwise
+        """
+        logger.info(f"Setting up scheduled integrity check every {interval_seconds} seconds")
+
+        try:
+            # Try to access Flask app context if available
+            from flask import current_app
+            if current_app and hasattr(current_app, 'scheduler'):
+                # Use Flask's APScheduler if available
+                try:
+                    job_id = 'file_integrity_check'
+
+                    # Custom wrapper function to handle the callback
+                    def check_and_report():
+                        integrity_status, changes = SecurityService.check_file_integrity()
+                        if callback and callable(callback):
+                            try:
+                                callback(integrity_status, changes)
+                            except Exception as e:
+                                logger.error(f"Error in integrity check callback: {e}")
+                        return integrity_status, changes
+
+                    # Add job to scheduler
+                    current_app.scheduler.add_job(
+                        func=check_and_report,
+                        trigger='interval',
+                        seconds=interval_seconds,
+                        id=job_id,
+                        replace_existing=True
+                    )
+
+                    logger.info(f"Scheduled integrity check job '{job_id}' successfully")
+                    metrics.increment('security.integrity_check.scheduled')
+                    return True
+
+                except Exception as e:
+                    logger.error(f"Failed to schedule integrity check with Flask scheduler: {e}")
+                    metrics.increment('security.integrity_check.schedule_error')
+
+            # If Flask scheduler is not available, try alternate scheduling methods
+            try:
+                # Try to use APScheduler directly if available
+                from apscheduler.schedulers.background import BackgroundScheduler
+
+                # Create a singleton scheduler if it doesn't exist
+                if not hasattr(SecurityService, '_integrity_scheduler'):
+                    SecurityService._integrity_scheduler = BackgroundScheduler()
+                    SecurityService._integrity_scheduler.start()
+
+                # Define the job
+                def check_and_report_job():
+                    integrity_status, changes = SecurityService.check_file_integrity()
+                    if callback and callable(callback):
+                        try:
+                            callback(integrity_status, changes)
+                        except Exception as e:
+                            logger.error(f"Error in integrity check callback: {e}")
+
+                # Schedule the job
+                job = SecurityService._integrity_scheduler.add_job(
+                    check_and_report_job,
+                    'interval',
+                    seconds=interval_seconds,
+                    id='security_integrity_check',
+                    replace_existing=True
+                )
+
+                logger.info("Scheduled integrity check with background scheduler")
+                metrics.increment('security.integrity_check.scheduled')
+                return True
+
+            except ImportError:
+                logger.warning("Could not schedule integrity check: APScheduler not available")
+                return False
+
+        except ImportError:
+            logger.warning("Could not access Flask application context for scheduling")
+            # Try to use alternate scheduling methods as above
+            return False
+
+        except Exception as e:
+            logger.error(f"Unexpected error setting up integrity check schedule: {e}")
+            metrics.increment('security.integrity_check.schedule_error')
+            return False
+
+    @staticmethod
+    def get_integrity_status() -> Dict[str, Any]:
+        """
+        Get the current integrity status of the system.
+
+        Provides comprehensive information about the file integrity monitoring
+        system, including last check time, baseline status, monitored files count,
+        and any detected changes or security violations.
+
+        Returns:
+            Dictionary with integrity status information:
+            - last_check_time: DateTime of the last integrity check
+            - baseline_status: Status of the baseline file
+            - file_count: Number of files monitored
+            - changes_detected: Number of changes since last baseline update
+            - critical_changes: List of critical file changes
+            - baseline_path: Path to the current baseline file
+            - monitoring_enabled: Whether file integrity monitoring is enabled
+        """
+        status = {
+            'last_check_time': None,
+            'baseline_status': 'unknown',
+            'file_count': 0,
+            'changes_detected': 0,
+            'critical_changes': [],
+            'baseline_path': str(DEFAULT_BASELINE_FILE_PATH),
+            'monitoring_enabled': FILE_INTEGRITY_ENABLED
+        }
+
+        try:
+            # Get baseline data to determine file count
+            baseline_data = SecurityService._load_baseline()
+            baseline_files = baseline_data.get("files", {})
+            status['file_count'] = len(baseline_files)
+
+            # Check if baseline file exists and has valid format
+            if baseline_files:
+                status['baseline_status'] = 'valid'
+            elif Path(DEFAULT_BASELINE_FILE_PATH).exists():
+                status['baseline_status'] = 'empty'
+            else:
+                status['baseline_status'] = 'missing'
+
+            # Try to get last check time from metadata
+            metadata = baseline_data.get("metadata", {})
+            if "last_checked_at" in metadata:
+                status['last_check_time'] = metadata.get("last_checked_at")
+            elif "last_updated_at" in metadata:
+                # Fall back to last update time if check time isn't available
+                status['last_check_time'] = metadata.get("last_updated_at")
+
+            # Try to get information about recent changes
+            # First check if we can access Redis for more detailed/recent info
+            try:
+                from extensions import get_redis_client
+                redis_client = get_redis_client()
+                if redis_client:
+                    # Try to get recent integrity check results from cache
+                    violations_data = redis_client.get('security:integrity_violations')
+                    if violations_data:
+                        violations = json.loads(violations_data.decode('utf-8'))
+                        status['changes_detected'] = violations.get('total', 0)
+
+                        # Get detailed changes if available
+                        changes_data = redis_client.get('security:integrity_changes')
+                        if changes_data:
+                            changes = json.loads(changes_data.decode('utf-8'))
+                            status['critical_changes'] = [c for c in changes if c.get('severity') == 'critical']
+            except (ImportError, Exception) as e:
+                logger.debug(f"Could not access Redis for integrity status: {e}")
+
+            # If no Redis info, try to do a quick check for changes
+            if status['changes_detected'] == 0 and len(status['critical_changes']) == 0:
+                # Do a lightweight check (up to 10 critical files only)
+                critical_paths = list(baseline_files.keys())[:10]
+                _, changes = SecurityService.check_file_integrity(critical_paths)
+                if changes:
+                    status['changes_detected'] = len(changes)
+                    status['critical_changes'] = [c for c in changes if c.get('severity', 'medium') == 'critical']
+
+            return status
+
+        except Exception as e:
+            logger.error(f"Error getting integrity status: {e}")
+            status['baseline_status'] = 'error'
+            status['error_message'] = str(e)
+            return status
 
     # Potential future methods:
     # @staticmethod

@@ -42,7 +42,7 @@ from .schemas import (
 # Adjust import path based on actual model location
 try:
     # Use package-level imports
-    from models.security import ThreatIndicator, AuditLog, SecurityEvent
+    from models.security import ThreatIndicator, AuditLog, SecurityIncident
     MODELS_AVAILABLE = True
 except ImportError:
     MODELS_AVAILABLE = False
@@ -84,11 +84,11 @@ except ImportError:
         @staticmethod
         def get_events_by_type(event_type, **kwargs): return []
 
-    class SecurityEvent:
+    class SecurityIncident:
         @staticmethod
         def get_paginated(**kwargs): return [], 0
         @staticmethod
-        def create(**kwargs): return SecurityEvent(**kwargs)
+        def create(**kwargs): return SecurityIncident(**kwargs)
 
 logger = logging.getLogger(__name__)
 
@@ -319,7 +319,7 @@ def list_threat_detections():
 
         if MODELS_AVAILABLE:
             # Fetch events from database if models are available
-            detections, total = SecurityEvent.get_paginated(
+            detections, total = SecurityIncident.get_paginated(
                 page=page,
                 per_page=per_page,
                 filters=query_params
