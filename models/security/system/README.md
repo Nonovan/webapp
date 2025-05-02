@@ -1,0 +1,333 @@
+# System-Level Security Models
+
+This package contains database models related to system-level security functionalities for the Cloud Infrastructure Platform, providing core infrastructure for security governance, configuration management, compliance verification, and security monitoring.
+
+## Contents
+
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Usage Examples](#usage-examples)
+- [Implementation Notes](#implementation-notes)
+- [Best Practices & Security](#best-practices--security)
+- [Common Features](#common-features)
+- [Related Documentation](#related-documentation)
+
+## Overview
+
+The system-level security models provide foundational security infrastructure that underpins the platform's security posture. These models implement comprehensive auditing, baseline security standards, configuration management, compliance verification, and security scan tracking. The components in this package enable systematic security monitoring, compliance validation, and configuration management across all environments.
+
+## Key Components
+
+- **`AuditLog`**: Comprehensive security event logging system
+  - Records all security-relevant events with structured data
+  - Supports different severity levels and event categorization
+  - Enables compliance tracking and security investigation
+  - Provides search, filtering, and analysis capabilities
+  - Maintains tamper-resistant logging for auditability
+  - Integrates with alerting for critical security events
+
+- **`ComplianceCheck`**: Compliance verification and reporting
+  - Maps controls to compliance frameworks (GDPR, HIPAA, PCI-DSS, etc.)
+  - Records compliance status with evidence references
+  - Supports audit preparation with compliance reports
+  - Tracks remediation efforts for non-compliant controls
+  - Provides compliance metrics and trend analysis
+  - Generates compliance attestation reports
+
+- **`SecurityBaseline`**: Security standard definitions and tracking
+  - Defines expected security configurations for different systems
+  - Maps baseline controls to compliance requirements
+  - Supports baseline validation against actual configurations
+  - Tracks deviations with risk assessment capabilities
+  - Provides versioned security standards with change history
+  - Implements exemption workflows with approval tracking
+
+- **`SecurityScan`**: Security scanning configuration and results
+  - Manages security scan schedules and configurations
+  - Stores comprehensive scan results with finding details
+  - Tracks remediation status for identified vulnerabilities
+  - Supports different scan types (vulnerability, compliance, etc.)
+  - Provides scan metrics and trend analysis
+  - Integrates with external scanning tools
+
+- **`SystemConfig`**: Security-related configuration management
+  - Stores security parameters with version tracking
+  - Manages environment-specific security settings
+  - Provides configuration validation capabilities
+  - Tracks configuration changes with audit logging
+  - Implements secure default values for all parameters
+  - Manages configuration encryption for sensitive values
+
+## Directory Structure
+
+```plaintext
+models/security/system/
+├── __init__.py           # Package initialization and exports
+├── audit_log.py          # Security event logging system
+├── compliance_check.py   # Compliance verification model
+├── README.md             # This documentation
+├── security_baseline.py  # Security standards definition
+├── security_scan.py      # Security scanning results
+└── system_config.py      # Security configuration storage
+```
+
+## Usage Examples
+
+### Audit Logging
+
+```python
+from models.security.system import AuditLog
+
+# Log a security event
+AuditLog.log_event(
+    event_type=AuditLog.EVENT_CONFIG_CHANGE,
+    resource_type="security_policy",
+    resource_id="firewall-policy-123",
+    user_id=current_user.id,
+    details={
+        "action": "update",
+        "old_value": {"allow_ssh": True},
+        "new_value": {"allow_ssh": False},
+        "change_reason": "Implementing security hardening"
+    },
+    severity=AuditLog.SEVERITY_MEDIUM
+)
+
+# Query security events by time range
+recent_events = AuditLog.get_events_by_timeframe(
+    start_time=datetime.now() - timedelta(hours=24),
+    end_time=datetime.now(),
+    event_types=[AuditLog.EVENT_LOGIN_FAILED],
+    severity_min=AuditLog.SEVERITY_MEDIUM
+)
+
+# Get event distribution by type
+event_counts = AuditLog.get_event_distribution(days=30)
+for event_type, count in event_counts.items():
+    print(f"{event_type}: {count} events")
+
+# Export audit logs for compliance reporting
+report = AuditLog.export_events_to_report(
+    start_time=last_month,
+    end_time=today,
+    format_type="csv"
+)
+```
+
+### Security Baseline Management
+
+```python
+from models.security.system import SecurityBaseline
+
+# Create a new security baseline
+linux_baseline = SecurityBaseline(
+    name="Linux Server Hardening",
+    version="1.2.0",
+    description="Security baseline for Linux servers based on CIS Benchmarks",
+    system_type="linux_server",
+    created_by_id=current_user.id
+)
+linux_baseline.save()
+
+# Add baseline items
+linux_baseline.add_item(
+    control_id="1.1",
+    title="Disable unused filesystems",
+    description="Disable mounting of unused filesystems",
+    implementation="Edit /etc/modprobe.d/CIS.conf and add install cramfs /bin/true",
+    verification="Run lsmod | grep cramfs should return no results",
+    remediation="Add installation lines to /etc/modprobe.d/CIS.conf",
+    impact="Low",
+    priority=SecurityBaseline.PRIORITY_MEDIUM
+)
+
+# Create baseline assessment
+assessment = linux_baseline.create_assessment(
+    system_id="web-server-01",
+    assessor_id=current_user.id
+)
+
+# Record assessment results
+assessment.add_result(
+    control_id="1.1",
+    status=SecurityBaseline.STATUS_PASS,
+    evidence="Command output confirmed cramfs is not loaded",
+    notes="Verified via SSH and running lsmod | grep cramfs"
+)
+
+# Calculate compliance percentage
+compliance = assessment.calculate_compliance()
+print(f"System is {compliance}% compliant with baseline")
+```
+
+### Compliance Verification
+
+```python
+from models.security.system import ComplianceCheck
+
+# Create a compliance requirement
+pci_req = ComplianceCheck(
+    framework="PCI-DSS",
+    section="6.5.1",
+    requirement="Prevent SQL injection vulnerabilities",
+    description="Review code to prevent SQL injection",
+    created_by_id=security_officer_id
+)
+pci_req.save()
+
+# Add implemented controls
+pci_req.add_control(
+    control_id="APP-SEC-012",
+    control_name="Parameterized Queries",
+    implementation_status=ComplianceCheck.STATUS_IMPLEMENTED,
+    evidence_references=["doc-123", "code-review-456"],
+    implementation_notes="All database access uses SQLAlchemy with parameterized queries"
+)
+
+# Generate compliance report
+report = ComplianceCheck.generate_report(
+    framework="PCI-DSS",
+    section="6.5",
+    as_of_date=datetime.now(timezone.utc)
+)
+
+# Check compliance gap
+gaps = ComplianceCheck.find_compliance_gaps(framework="HIPAA")
+for gap in gaps:
+    print(f"Missing control for {gap.section}: {gap.requirement}")
+```
+
+### Security Scan Management
+
+```python
+from models.security.system import SecurityScan
+
+# Record a new scan
+scan = SecurityScan(
+    scan_type=SecurityScan.TYPE_VULNERABILITY,
+    target="web-application",
+    scanner="OWASP ZAP",
+    scanner_version="2.12.0",
+    initiated_by_id=current_user.id
+)
+scan.save()
+
+# Add scan findings
+scan.add_finding(
+    title="SQL Injection in Search API",
+    description="The search API endpoint is vulnerable to SQL injection",
+    severity=SecurityScan.SEVERITY_HIGH,
+    cvss_score=8.5,
+    location="/api/v1/search?q=",
+    remediation="Implement input validation and parameterized queries"
+)
+
+# Mark finding as false positive
+scan.update_finding_status(
+    finding_id=123,
+    status=SecurityScan.FINDING_STATUS_FALSE_POSITIVE,
+    notes="Verified that all queries are parameterized",
+    updated_by_id=security_analyst_id
+)
+
+# Get open findings by severity
+high_severity_findings = SecurityScan.get_open_findings(
+    severity_minimum=SecurityScan.SEVERITY_HIGH
+)
+
+# Get scan metrics
+scan_metrics = SecurityScan.get_scan_metrics(
+    past_days=90,
+    group_by="week"
+)
+```
+
+### Configuration Management
+
+```python
+from models.security.system import SystemConfig
+
+# Store security configuration
+SystemConfig.set_config(
+    name="password_policy",
+    value={
+        "min_length": 12,
+        "require_uppercase": True,
+        "require_lowercase": True,
+        "require_numbers": True,
+        "require_special_chars": True,
+        "max_age_days": 90
+    },
+    category="authentication",
+    environment="production",
+    is_sensitive=False
+)
+
+# Retrieve configuration
+pwd_policy = SystemConfig.get_config("password_policy", environment="production")
+
+# Update configuration with versioning
+SystemConfig.update_config(
+    name="password_policy",
+    value={"min_length": 14, "max_age_days": 60},
+    category="authentication",
+    environment="production",
+    changed_by_id=admin_id,
+    reason="Increasing security posture",
+    merge=True  # Merge with existing values
+)
+
+# Get configuration history
+history = SystemConfig.get_config_history("password_policy", limit=5)
+for version in history:
+    print(f"Changed on {version.changed_at} by {version.changed_by}: {version.change_reason}")
+```
+
+## Implementation Notes
+
+- All models inherit from the `BaseModel` and `AuditableMixin` classes for consistent behavior and auditing
+- Each model implements comprehensive validation to ensure data integrity
+- Models integrate with the platform's RBAC system for access control
+- Sensitive information is automatically protected and redacted in logs
+- Events from these models are automatically captured in audit logs through event listeners
+- Full transaction support ensures atomic operations and proper rollback on errors
+- Versioning is implemented for security-critical components for compliance and traceability
+- Each model provides pagination support for handling large result sets efficiently
+- Bulk operation methods are available for efficiency with large data sets
+
+## Best Practices & Security
+
+- Use appropriate methods provided by these models for security operations
+- Implement proper transaction management with commit/rollback patterns
+- Set appropriate access controls for administrative operations
+- Enable MFA for administrative operations on security models
+- Validate all inputs before storing in security models
+- Keep security baseline references up to date with current standards
+- Schedule regular compliance checks to ensure ongoing compliance
+- Rotate sensitive security configurations regularly
+- Review audit logs periodically for suspicious activity
+- Export and archive audit logs according to retention policies
+
+## Common Features
+
+- Comprehensive audit trails for all changes
+- Automatic versioning of security-critical data
+- Support for bulk operations with proper transaction management
+- Rich query capabilities with filtering and sorting
+- Pagination for large result sets
+- Proper serialization for API responses
+- Input validation with detailed error messages
+- Integration with the platform's notification system
+- Environment-aware configuration capabilities
+- Tamper-resistant logging mechanisms
+
+## Related Documentation
+
+- Security Architecture Overview
+- Compliance Framework Documentation
+- Audit Requirements Guide
+- Security Baseline Management
+- Security Scanning Implementation
+- Configuration Management Guide
+- RBAC Implementation Guide

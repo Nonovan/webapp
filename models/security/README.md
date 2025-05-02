@@ -1,5 +1,16 @@
 # Security Models
 
+## Contents
+
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Usage Examples](#usage-examples)
+- [Implementation Notes](#implementation-notes)
+- [Best Practices & Security](#best-practices--security)
+- [Common Features](#common-features)
+- [Related Documentation](#related-documentation)
+
 ## Overview
 
 This directory contains security-related models for the Cloud Infrastructure Platform. The security models provide core functionality for tracking security incidents, managing vulnerabilities, conducting security scans, maintaining audit logs, validating compliance, managing security baselines, tracking threat intelligence, and storing security-related configurations.
@@ -13,6 +24,13 @@ These models support security operations, incident management, vulnerability tra
   - Supports different severity levels and event categorization
   - Enables compliance tracking and security investigation
   - Provides structured event storage for analysis and reporting
+
+- **`CircuitBreaker`**: Protection against cascading failures
+  - Prevents system overload during service disruptions
+  - Implements configurable failure thresholds
+  - Provides automatic recovery with half-open state pattern
+  - Tracks failure statistics and recovery metrics
+  - Supports configurable fallback mechanisms
 
 - **`ComplianceCheck`**: Compliance status tracking and verification
   - Tracks compliance requirements and statuses
@@ -75,16 +93,20 @@ These models support security operations, incident management, vulnerability tra
 ```plaintext
 models/security/
 ├── __init__.py               # Package exports
-├── audit_log.py              # Security event logging
-├── compliance_check.py       # Compliance verification
+├── circuit_breaker.py        # Service protection components
 ├── login_attempt.py          # Authentication attempt tracking
 ├── README.md                 # This documentation
-├── security_baseline.py      # Security standards definition
 ├── security_incident.py      # Security incident management
-├── security_scan.py          # Security scanning results
-├── system_config.py          # Security configuration storage
+├── system/                   # System-level security models
+│   ├── __init__.py           # System security package exports
+│   ├── audit_log.py          # System event logging
+│   ├── compliance_check.py   # System compliance verification
+│   ├── README.md             # System security documentation
+│   ├── security_baseline.py  # System security standards
+│   ├── security_scan.py      # System security scanning
+│   └── system_config.py      # Security configuration storage
 ├── threat_intelligence.py    # Threat intelligence data
-├── vulnerability.py          # Modern vulnerability management
+└── vulnerability.py          # Modern vulnerability management
 ```
 
 ## Usage Examples
@@ -231,6 +253,43 @@ print(f"Total vulnerabilities: {stats['total']}")
 print(f"Overdue vulnerabilities: {stats['remediation_progress']['overdue']}")
 ```
 
+### Circuit Breaker Implementation
+
+```python
+from models.security import CircuitBreaker, RateLimiter, CircuitOpenError
+
+# Create a circuit breaker to protect a database service
+db_circuit = CircuitBreaker(
+    name="database_service",
+    failure_threshold=5,       # Number of failures before opening
+    recovery_timeout=60,       # Seconds to wait before trying to recover
+    half_open_max_calls=3      # Max calls to allow in half-open state
+)
+
+# Use the circuit breaker to protect a function call
+try:
+    with db_circuit:
+        result = database_service.execute_query("SELECT * FROM users")
+        return result
+except CircuitOpenError:
+    # Handle the case when circuit is open
+    return cached_data or fallback_response()
+
+# Rate limiting for API endpoints
+api_limiter = RateLimiter(
+    key="user:12345",
+    max_requests=100,
+    time_window=60  # 100 requests per minute
+)
+
+try:
+    with api_limiter:
+        # Process API request
+        return process_api_request(request_data)
+except RateLimitExceededError as e:
+    return {"error": "Rate limit exceeded", "retry_after": e.retry_after}
+```
+
 ### Threat Intelligence Management
 
 ```python
@@ -262,27 +321,6 @@ if matches:
         ip_address="192.168.1.100",
         action=ThreatIntelligence.ThreatEvent.ACTION_BLOCKED
     )
-
-# Configure and add a threat feed
-feed = ThreatIntelligence.ThreatFeed(
-    name="AlienVault OTX",
-    url="https://otx.alienvault.com/api/v1/indicators/export",
-    feed_type=ThreatIntelligence.ThreatFeed.TYPE_STRUCTURED_JSON,
-    description="Open Threat Exchange feed for malicious indicators",
-    update_interval=86400,  # Daily updates
-    config={
-        "api_key": "{{ENV_OTX_API_KEY}}",
-        "types": ["domain", "IPv4", "file"]
-    }
-)
-feed.save()
-
-# Bulk import indicators from a threat feed
-indicators = [
-    {"indicator_type": "ip", "value": "10.0.0.1", "source": "alientvault"},
-    {"indicator_type": "domain", "value": "malicious.example.com", "source": "alienvault"}
-]
-imported, failed, errors = ThreatIntelligence.ThreatIndicator.bulk_import(indicators)
 ```
 
 ### Compliance Checks
@@ -324,57 +362,6 @@ compliance_report = ComplianceCheck.generate_report(
     section="6.5",
     as_of_date=datetime.now(timezone.utc)
 )
-```
-
-### Security Scanning
-
-```python
-from models.security import SecurityScan
-
-# Create a new security scan configuration
-scan_config = SecurityScan(
-    name="Weekly Web Application Scan",
-    scan_type=SecurityScan.TYPE_WEB_APPLICATION,
-    target="https://app.example.com",
-    schedule="0 0 * * 0",  # Weekly on Sunday
-    parameters={
-        "scan_depth": "full",
-        "authentication": True,
-        "auth_username": "scanner",
-        "excluded_paths": ["/health", "/metrics"]
-    },
-    creator_id=current_user.id
-)
-scan_config.save()
-
-# Record scan execution
-scan_execution = scan_config.create_execution(
-    start_time=datetime.now(timezone.utc),
-    executor_id=system_user_id
-)
-
-# Record scan completion
-scan_execution.complete(
-    end_time=datetime.now(timezone.utc) + timedelta(hours=2),
-    status=SecurityScan.STATUS_COMPLETED,
-    findings_count=12,
-    summary="Completed with 12 findings: 2 high, 5 medium, 5 low"
-)
-
-# Add findings
-scan_execution.add_finding(
-    title="Cross-site Scripting in Profile Page",
-    description="XSS vulnerability in profile page description field",
-    severity=SecurityScan.FINDING_SEVERITY_HIGH,
-    details={
-        "location": "/user/profile",
-        "parameter": "description",
-        "proof": "<script>alert(1)</script> is not sanitized"
-    }
-)
-
-# Get recent scan results
-recent_scans = SecurityScan.get_recent_executions(days=30)
 ```
 
 ### Security Baseline Management
@@ -435,6 +422,10 @@ print(f"System is {compliance_percentage}% compliant with baseline")
 - Access to security models is restricted through the RBAC system
 - Critical operations include proper transaction management
 - Documentation includes security considerations for each model
+- Circuit breaker pattern implementation follows industry best practices
+- System-level models provide additional infrastructure-specific security capabilities
+- Pagination is implemented for all queries that might return large result sets
+- Automated security auditing ensures all model changes are tracked
 
 ## Best Practices & Security
 
@@ -448,11 +439,38 @@ print(f"System is {compliance_percentage}% compliant with baseline")
 - Follow least privilege principles when granting access to security data
 - Implement MFA for administrative operations on security models
 - Regularly back up security data with proper access controls
+- Apply circuit breakers where external service dependencies exist
+- Use rate limiting for publicly exposed endpoints
+- Ensure all security-critical operations require approval workflows
+- Implement defense in depth with multiple overlapping security controls
+- Separate system-level security controls from application-level controls
+- Schedule regular security assessments using the baseline models
+
+## Common Features
+
+- Comprehensive audit logging of all security-relevant events
+- Role-based access control integration
+- Versioning support for security-critical data
+- Status tracking with workflow state transitions
+- Activity tracking with user attribution
+- Structured data storage using JSONB for flexible schemas
+- Search and filtering capabilities with proper indexing
+- Pagination support for large result sets
+- Bulk operations for efficient data manipulation
+- Rate limiting and circuit breaking for resilience
+- Integration with notification systems for alerts
+- Support for environment-specific configurations
+- Automatic timestamp tracking (created, updated)
+- Tamper-resistant logging mechanisms
+- Data retention policy enforcement
+- Transaction management with proper rollback
 
 ## Related Documentation
 
 - Security Architecture Overview
+- Core Security Module
 - Incident Response Procedures
+- Authentication and Authorization Models
 - Compliance Framework Documentation
 - Vulnerability Management Policy
 - Security Scanning Implementation
