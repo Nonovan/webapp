@@ -38,6 +38,18 @@ The extensions module centralizes Flask extension initialization and configurati
     - Automatic metrics collection for real-time events
     - Error handling and error rate tracking
 
+- **`celery_app.py`**: Celery task queue integration
+  - **Usage**: Provides distributed task processing capabilities
+  - **Features**:
+    - Task queue configuration with Redis broker
+    - Flask application context integration for tasks
+    - Automatic task failure/success tracking
+    - Task time limit enforcement
+    - Task event monitoring
+    - Worker management configuration
+    - Scheduled tasks support
+    - Security settings for task broker
+
 ## Directory Structure
 
 ```plaintext
@@ -45,6 +57,7 @@ extensions/
 ├── __init__.py           # Extension initialization and configuration
 ├── metrics.py            # Metrics collection and configuration
 ├── socketio.py           # Socket.IO server and real-time communication
+├── celery_app.py         # Celery task queue integration
 └── README.md             # This documentation
 ```
 
@@ -86,6 +99,22 @@ SOCKETIO_CORS_ALLOWED_ORIGINS=*     # CORS allowed origins for Socket.IO
 SOCKETIO_ASYNC_MODE=eventlet        # Async mode (eventlet, gevent, threading)
 SOCKETIO_MESSAGE_QUEUE=             # Optional message queue URI (uses REDIS_URL if not set)
 
+[Celery]
+CELERY_BROKER_URL=redis://localhost:6379/0  # Task broker URL (default: Redis)
+CELERY_RESULT_BACKEND=redis://localhost:6379/0  # Result backend URL
+CELERY_ALWAYS_EAGER=False           # Run tasks synchronously (for testing)
+CELERY_EAGER_PROPAGATES=False       # Propagate exceptions in eager mode
+CELERY_MAX_TASKS_PER_CHILD=1000     # Max tasks per worker before restart
+CELERY_PREFETCH_MULTIPLIER=4        # Number of tasks to prefetch
+CELERY_TASK_ACKS_LATE=True          # Acknowledge task after execution
+CELERY_DEFAULT_QUEUE=default        # Default task queue name
+CELERY_TASK_TIME_LIMIT=3600         # Task time limit in seconds (1 hour)
+CELERY_TASK_SOFT_TIME_LIMIT=3300    # Soft time limit (55 minutes)
+CELERY_SEND_TASK_EVENTS=True        # Send task events for monitoring
+CELERY_TRACK_STARTED=True           # Track when tasks are started
+CELERY_BROKER_USE_SSL=False         # Use SSL for broker communication
+CELERY_BROKER_SSL_CONFIG={}         # SSL configuration dictionary if needed
+
 [GeoIP]
 GEOIP_DB_PATH=/path/to/geoip.mmdb   # Path to MaxMind GeoIP database file
 ```
@@ -104,6 +133,9 @@ GEOIP_DB_PATH=/path/to/geoip.mmdb   # Path to MaxMind GeoIP database file
 - Use secure WebSocket connections in production environments
 - Apply authentication for real-time communication
 - Keep GeoIP database updated regularly
+- Configure Celery task time limits to prevent runaway tasks
+- Use SSL for Celery broker in production environments
+- Define focused tasks with clear failure handling
 
 ## Common Features
 
@@ -116,6 +148,9 @@ GEOIP_DB_PATH=/path/to/geoip.mmdb   # Path to MaxMind GeoIP database file
 - Automatic tracking of important system parameters
 - Real-time event broadcasting and monitoring
 - IP geolocation services for security and analytics
+- Distributed task processing with monitoring
+- Background task scheduling
+- Task retries with exponential backoff
 
 ## Usage
 
@@ -240,6 +275,39 @@ from extensions import emit_with_metrics
 emit_with_metrics('status_update', {'status': 'operational'})
 ```
 
+### Use Celery for Background Tasks
+
+```python
+from extensions.celery_app import celery
+
+# Define a task
+@celery.task(bind=True, max_retries=3, rate_limit='10/m')
+def process_data_task(self, data_id):
+    try:
+        # Process data
+        result = process_complex_data(data_id)
+        return result
+    except TemporaryError as e:
+        # Retry with exponential backoff
+        self.retry(exc=e, countdown=60 * 2 ** self.request.retries)
+
+# Call the task asynchronously
+task_result = process_data_task.delay(data_id=123)
+
+# Check task status
+task_id = task_result.id
+status = process_data_task.AsyncResult(task_id).status
+
+# Schedule a periodic task (in CELERY_BEAT_SCHEDULE config)
+CELERY_BEAT_SCHEDULE = {
+    'cleanup-expired-data': {
+        'task': 'app.tasks.maintenance.cleanup_expired_data',
+        'schedule': 3600.0,  # Every hour
+        'args': (),
+    },
+}
+```
+
 ### Use GeoIP Services
 
 ```python
@@ -267,6 +335,7 @@ if location:
 - [Prometheus Best Practices](https://prometheus.io/docs/practices/naming/)
 - [MaxMind GeoIP2 Documentation](https://maxmind.github.io/GeoIP2-python/)
 - [Socket.IO Documentation](https://socket.io/docs/v4/)
+- [Celery Documentation](https://docs.celeryproject.org/)
 
 When adding new extensions:
 

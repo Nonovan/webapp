@@ -20,6 +20,7 @@ from typing import Any, Callable, Dict, List, Optional, TypeVar, cast
 from flask import Flask, current_app, g, request, session
 from prometheus_client import Counter, Gauge, Histogram, Summary, CollectorRegistry
 from flask_prometheus_metrics import PrometheusMetrics
+from flask_socketio import emit
 
 # Type variable for generic function wrapping
 F = TypeVar('F', bound=Callable[..., Any])
@@ -92,6 +93,39 @@ TASK_EXECUTION_TIME = Summary(
     registry=registry
 )
 
+# Socket.IO specific metrics
+socketio_connection_count = Gauge(
+    'websocket_connections_active',
+    'Current number of active WebSocket connections',
+    ['channel', 'role'],
+    multiprocess_mode='livesum',
+    registry=registry
+)
+
+socketio_message_counter = Counter(
+    'websocket_messages_total',
+    'Total WebSocket messages',
+    ['event_type', 'channel', 'direction'],
+    multiprocess_mode='livesum',
+    registry=registry
+)
+
+socketio_error_counter = Counter(
+    'websocket_errors_total',
+    'Total WebSocket errors',
+    ['error_type', 'channel'],
+    multiprocess_mode='livesum',
+    registry=registry
+)
+
+socketio_latency = Histogram(
+    'websocket_message_latency_seconds',
+    'WebSocket message processing latency in seconds',
+    ['event_type'],
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
+    registry=registry
+)
+
 # Define functions to create custom metrics
 def counter(name: str, description: str, labels: Dict[str, Callable] = None,
             registry: CollectorRegistry = registry) -> Counter:
@@ -111,6 +145,7 @@ def counter(name: str, description: str, labels: Dict[str, Callable] = None,
         name = f"app_{name}"
     return Counter(name, description, list(labels.keys()) if labels else [], registry=registry)
 
+
 def gauge(name: str, description: str, labels: Dict[str, Callable] = None,
           registry: CollectorRegistry = registry) -> Gauge:
     """
@@ -128,6 +163,7 @@ def gauge(name: str, description: str, labels: Dict[str, Callable] = None,
     if not name.startswith('app_'):
         name = f"app_{name}"
     return Gauge(name, description, list(labels.keys()) if labels else [], registry=registry)
+
 
 def histogram(name: str, description: str, labels: Dict[str, Callable] = None,
               buckets: tuple = None, registry: CollectorRegistry = registry) -> Histogram:
@@ -152,6 +188,7 @@ def histogram(name: str, description: str, labels: Dict[str, Callable] = None,
 
     return Histogram(name, description, list(labels.keys()) if labels else [], buckets=buckets, registry=registry)
 
+
 def summary(name: str, description: str, labels: Dict[str, Callable] = None,
             registry: CollectorRegistry = registry) -> Summary:
     """
@@ -170,10 +207,12 @@ def summary(name: str, description: str, labels: Dict[str, Callable] = None,
         name = f"app_{name}"
     return Summary(name, description, list(labels.keys()) if labels else [], registry=registry)
 
+
 # Flask middleware functions
 def start_request_timer() -> None:
     """Start the request timer for latency tracking."""
     g.start_time = time.time()
+
 
 def record_request_metrics(response: Any) -> Any:
     """
@@ -221,20 +260,21 @@ def record_request_metrics(response: Any) -> Any:
 
     return response
 
+
 # Database performance monitoring
 def track_db_query(query_type: str, func: F, model_name: str = "unknown", *args: Any, **kwargs: Any) -> Any:
     """
-    Track the latency of a database query.
+    Track database query performance.
 
     Args:
-        query_type: Type of the query (e.g., SELECT, INSERT)
-        func: The database function to execute
+        query_type: Type of query (select, insert, update, delete)
+        func: Function that executes the query
         model_name: Name of the model being queried
-        args: Positional arguments for the function
-        kwargs: Keyword arguments for the function
+        *args: Arguments to pass to the function
+        **kwargs: Keyword arguments to pass to the function
 
     Returns:
-        Result of the database function
+        Any: Result of the function call
     """
     start_time = time.time()
     status = "success"
@@ -244,12 +284,6 @@ def track_db_query(query_type: str, func: F, model_name: str = "unknown", *args:
         return result
     except Exception as e:
         status = "error"
-        # Track database errors
-        ERROR_COUNT.labels(
-            module="database",
-            error_type=type(e).__name__,
-            is_handled="true"
-        ).inc()
         raise
     finally:
         latency = time.time() - start_time
@@ -258,6 +292,7 @@ def track_db_query(query_type: str, func: F, model_name: str = "unknown", *args:
             model=model_name,
             status=status
         ).observe(latency)
+
 
 # Cloud resource tracking
 def update_cloud_resource_usage(resource_type: str, provider: str, usage: float, region: str = "global") -> None:
@@ -276,16 +311,17 @@ def update_cloud_resource_usage(resource_type: str, provider: str, usage: float,
         region=region
     ).set(usage)
 
+
 # Task execution monitoring
 def monitor_task_execution(task_name: str) -> Callable[[F], F]:
     """
-    Decorator to monitor task execution time.
+    Decorator for monitoring task execution time.
 
     Args:
-        task_name: Name of the task to monitor
+        task_name: Name of the task for metrics labeling
 
     Returns:
-        Decorator function that tracks execution time
+        Callable: Decorated function
     """
     def decorator(func: F) -> F:
         def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -293,8 +329,9 @@ def monitor_task_execution(task_name: str) -> Callable[[F], F]:
             status = "success"
 
             try:
-                return func(*args, **kwargs)
-            except Exception:
+                result = func(*args, **kwargs)
+                return result
+            except Exception as e:
                 status = "error"
                 raise
             finally:
@@ -305,16 +342,16 @@ def monitor_task_execution(task_name: str) -> Callable[[F], F]:
                 ).observe(execution_time)
 
         return cast(F, wrapper)
-
     return decorator
+
 
 # Security event tracking
 def track_security_event(event_type: str, severity: str = "info") -> None:
     """
-    Track a security event occurrence.
+    Record a security event for monitoring.
 
     Args:
-        event_type: Type of security event
+        event_type: Type of security event (e.g., login_failed, access_denied)
         severity: Severity level (info, warning, error, critical)
     """
     SECURITY_EVENT_COUNT.labels(
@@ -322,118 +359,76 @@ def track_security_event(event_type: str, severity: str = "info") -> None:
         severity=severity
     ).inc()
 
+
 # User tracking
 def update_active_users(count: int, user_type: str = "regular") -> None:
     """
     Update the active users gauge.
 
     Args:
-        count: Current count of active users
-        user_type: Type of users (regular, admin, etc.)
+        count: Number of active users
+        user_type: Type of user (regular, admin, api)
     """
     ACTIVE_USERS_GAUGE.labels(user_type=user_type).set(count)
+
 
 # Error tracking
 def track_error(module: str, error_type: str, is_handled: bool = True) -> None:
     """
-    Track an application error.
+    Track application errors by module and type.
 
     Args:
         module: Module where the error occurred
         error_type: Type of error
-        is_handled: Whether the error was properly handled
+        is_handled: Whether the error was handled gracefully
     """
     ERROR_COUNT.labels(
         module=module,
         error_type=error_type,
-        is_handled=str(is_handled).lower()
+        is_handled="true" if is_handled else "false"
     ).inc()
 
-# Metrics configuration
+
+# WebSocket metrics tracking helpers
+def emit_with_metrics(event: str, data: Any = None, namespace: str = None, to: str = None, room: str = None) -> None:
+    """
+    Emit a socket.io event with metrics tracking.
+
+    Args:
+        event: Event name
+        data: Data to emit
+        namespace: Socket.io namespace
+        to: Specific recipient
+        room: Room to broadcast to
+    """
+    # Record metrics before emission
+    socketio_message_counter.labels(
+        event_type=event,
+        channel=room or 'global',
+        direction='outgoing'
+    ).inc()
+
+    start_time = time.time()
+
+    # Emit event
+    emit(event, data, namespace=namespace, to=to, room=room)
+
+    # Record latency
+    latency = time.time() - start_time
+    socketio_latency.labels(event_type=event).observe(latency)
+
+
+# Global metrics instance
 metrics = PrometheusMetrics.for_app_factory(
-    app_name='myapp',
+    app_name='cloud_platform',
     path='/metrics',
-    group_by=['endpoint', 'http_status'],
-    defaults_prefix='myapp',
-    default_labels={'environment': lambda: current_app.config.get('ENVIRONMENT', 'production')}
-)  # Prometheus metrics for application monitoring
-
-# Initialize counters
-request_counter = metrics.counter(
-    'http_requests_total',
-    'Total HTTP request count',
-    labels={
-        'method': lambda: request.method,
-        'endpoint': lambda: request.endpoint,
-        'user_role': lambda: session.get('role', 'anonymous') if hasattr(session, 'get') else 'unknown',
-        'is_authenticated': lambda: 'user_id' in session if hasattr(session, '__contains__') else False
+    defaults_prefix='cloud_platform',
+    default_labels={
+        'environment': lambda: current_app.config.get('ENVIRONMENT', 'production') if current_app else 'unknown'
     }
-)  # Counter for overall HTTP requests
+)
 
-endpoint_counter = metrics.counter(
-    'http_requests_by_endpoint_total',
-    'Total HTTP requests by endpoint path',
-    labels={
-        'method': lambda: request.method,
-        'path': lambda: request.path,
-        'endpoint': lambda: request.endpoint
-    }
-)  # Counter for requests by specific endpoint
-
-error_counter = metrics.counter(
-    'http_errors_total',
-    'Total HTTP errors by status code',
-    labels={
-        'method': lambda: request.method,
-        'status': lambda error: getattr(error, 'code', 500),
-        'path': lambda: request.path
-    }
-)  # Counter for HTTP errors
-
-# Security metrics
-security_event_counter = metrics.counter(
-    'security_events_total',
-    'Total security events by type and severity',
-    labels={
-        'event_type': lambda: g.get('security_event_type', 'unknown'),
-        'severity': lambda: g.get('security_event_severity', 'info'),
-        'authenticated': lambda: 'user_id' in session if hasattr(session, '__contains__') else False
-    }
-)  # Counter for security events
-
-auth_counter = metrics.counter(
-    'auth_attempts_total',
-    'Authentication attempts (success/failure)',
-    labels={
-        'result': lambda: g.get('auth_result', 'unknown'),
-        'method': lambda: g.get('auth_method', 'unknown')
-    }
-)  # Counter for authentication attempts
-
-# ICS system metrics
-ics_gauge = metrics.gauge(
-    'ics_system_parameters',
-    'Current ICS system parameter values',
-    labels={
-        'parameter': lambda: g.get('ics_parameter', 'unknown'),
-        'unit': lambda: g.get('ics_unit', 'unknown'),
-        'zone': lambda: g.get('ics_zone', 'main')
-    },
-    registry=metrics.registry
-)  # Gauge for ICS system parameters
-
-# Performance metrics
-request_latency = metrics.histogram(
-    'request_latency_seconds',
-    'Request latency in seconds',
-    labels={
-        'endpoint': lambda: request.endpoint,
-        'method': lambda: request.method
-    },
-    buckets=(0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0)
-)  # Histogram for request latency
-
-# Database metrics
+# Expose specific database metrics
 db_query_counter = metrics.counter(
     'database_queries_total',
     'Total database queries executed',
@@ -442,21 +437,21 @@ db_query_counter = metrics.counter(
         'model': lambda: g.get('db_model', 'unknown'),
         'status': lambda: g.get('db_status', 'success')
     }
-)  # Counter for database queries
+)
 
-# Cloud resources metrics
+# Expose cloud resource gauge
 cloud_resource_gauge = metrics.gauge(
-    'cloud_resources_count',
-    'Count of active cloud resources by provider and type',
+    'cloud_resources',
+    'Count of cloud resources',
     labels={
         'provider': lambda: g.get('cloud_provider', 'unknown'),
-        'resource_type': lambda: g.get('resource_type', 'unknown'),
-        'region': lambda: g.get('cloud_region', 'unknown')
-    },
-    registry=metrics.registry
-)  # Gauge for cloud resources
+        'resource_type': lambda: g.get('resource_type', 'instance'),
+        'region': lambda: g.get('cloud_region', 'unknown'),
+        'status': lambda: g.get('resource_status', 'running')
+    }
+)
 
-# Flask integration
+
 def init_metrics(app: Flask) -> None:
     """
     Initialize metrics for the Flask application.
@@ -486,3 +481,7 @@ def init_metrics(app: Flask) -> None:
     app.track_security_event = track_security_event
     app.track_error = track_error
     app.monitor_task = monitor_task_execution
+    app.emit_with_metrics = emit_with_metrics
+
+    # Initialize the Prometheus metrics
+    metrics.init_app(app)
