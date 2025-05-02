@@ -38,13 +38,39 @@ from blueprints.auth.utils import (
     record_login_failure, check_bruteforce_attempts, reset_login_attempts,
     audit_security_event
 )
-from extensions import limiter, db, cache, metrics
+from extensions import db, cache, metrics, limiter
+from extensions.circuit_breaker import (
+    circuit_breaker, CircuitOpenError, create_circuit_breaker,
+    RateLimiter, RateLimitExceededError
+)
 from models import User
 from models.security import AuditLog
 from services.auth_service import AuthService
 
 # Create blueprint with template folder setting
 auth_bp = Blueprint('auth', __name__, template_folder='templates')
+
+# Create circuit breakers for critical authentication operations
+login_circuit = create_circuit_breaker(
+    name="auth.login",
+    failure_threshold=3,
+    reset_timeout=300.0,  # 5 minutes
+    half_open_after=60.0  # 1 minute
+)
+
+registration_circuit = create_circuit_breaker(
+    name="auth.registration",
+    failure_threshold=3,
+    reset_timeout=600.0,  # 10 minutes
+    half_open_after=120.0  # 2 minutes
+)
+
+password_reset_circuit = create_circuit_breaker(
+    name="auth.password_reset",
+    failure_threshold=3,
+    reset_timeout=300.0,  # 5 minutes
+    half_open_after=60.0  # 1 minute
+)
 
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
@@ -91,17 +117,25 @@ def login():
             )
 
         try:
-            # Use AuthService to authenticate
-            success, user, error_message = AuthService.authenticate_user(
-                username,
-                password,
-                ip_address=request.remote_addr,
-                user_agent=request.user_agent.string
-            )
+            # Use circuit breaker to protect authentication service
+            @login_circuit
+            def protected_authenticate():
+                return AuthService.authenticate_user(
+                    username,
+                    password,
+                    ip_address=request.remote_addr,
+                    user_agent=request.user_agent.string
+                )
+
+            # Authenticate with circuit breaker protection
+            success, user, error_message = protected_authenticate()
 
             if success and user:
                 # Reset failed login attempts counter
                 reset_login_attempts(username)
+
+                # Record successful circuit behavior
+                login_circuit.record_success()
 
                 # Use AuthService to establish session
                 AuthService.login_user_session(user, remember=form.remember.data)
@@ -133,15 +167,25 @@ def login():
                         lockout=True,
                         lockout_message=error_message
                     )
+
+        except CircuitOpenError:
+            # Circuit breaker is open due to previous failures
+            current_app.logger.warning("Authentication service circuit breaker is open - fast failing")
+            flash("Authentication service is temporarily unavailable. Please try again later.", 'danger')
+            metrics.info('auth_circuit_breaker_trips_total', 1, labels={'circuit': 'login'})
+
         except SQLAlchemyError as e:
             # Database errors
             current_app.logger.error(f"Database error during login: {str(e)}", exc_info=True)
             db.session.rollback()
             flash("A system error occurred. Please try again later.", 'danger')
+            login_circuit.record_failure()
+
         except (ValueError, KeyError) as e:
             # Other unexpected errors
             current_app.logger.error(f"Login error: {str(e)}", exc_info=True)
             flash("An unexpected error occurred. Please try again.", 'danger')
+            login_circuit.record_failure()
 
     # Get reCAPTCHA key from config if enabled
     recaptcha_site_key = current_app.config.get('RECAPTCHA_SITE_KEY', '')
@@ -244,15 +288,23 @@ def register():
         metrics.info('auth_registration_attempts_total', 1)
 
         try:
-            # Use AuthService to register user
-            success, user, error_message = AuthService.register_user(
-                username=username,
-                email=email,
-                password=password,
-                ip_address=request.remote_addr
-            )
+            # Use circuit breaker to protect registration service
+            @registration_circuit
+            def protected_register():
+                return AuthService.register_user(
+                    username=username,
+                    email=email,
+                    password=password,
+                    ip_address=request.remote_addr
+                )
+
+            # Register user with circuit breaker protection
+            success, user, error_message = protected_register()
 
             if success:
+                # Record successful circuit behavior
+                registration_circuit.record_success()
+
                 # Log successful registration
                 current_app.logger.info(f"New user registered: {username}")
                 audit_security_event(
@@ -268,14 +320,22 @@ def register():
                 current_app.logger.warning(f"Registration failed: {error_message}")
                 flash(error_message, 'danger')
 
+        except CircuitOpenError:
+            # Circuit breaker is open due to previous failures
+            current_app.logger.warning("Registration service circuit breaker is open - fast failing")
+            flash("Registration service is temporarily unavailable. Please try again later.", 'danger')
+            metrics.info('auth_circuit_breaker_trips_total', 1, labels={'circuit': 'registration'})
+
         except SQLAlchemyError as e:
             db.session.rollback()
             current_app.logger.error(f"Database error during user registration: {str(e)}", exc_info=True)
             flash('A system error occurred. Please try again later.', 'danger')
+            registration_circuit.record_failure()
 
         except Exception as e:
             current_app.logger.error(f"Unexpected error during registration: {str(e)}", exc_info=True)
             flash('An unexpected error occurred. Please try again.', 'danger')
+            registration_circuit.record_failure()
 
     # Track page view metric
     metrics.info('auth_page_views_total', 1, labels={'page': 'register'})
@@ -286,6 +346,7 @@ def register():
 @auth_bp.route('/forgot-password', methods=['GET', 'POST'])
 @anonymous_required
 @limiter.limit("5/hour")
+@circuit_breaker("auth.forgot_password", failure_threshold=5, reset_timeout=300.0)
 def forgot_password():
     """
     Handle password reset requests.
@@ -350,11 +411,24 @@ def reset_password(token):
         POST (failure): Rendered form with validation errors
     """
     # Verify token before showing the form
-    token_valid, user_id = AuthService.verify_reset_token(token)
+    try:
+        # Use circuit breaker for token verification
+        @password_reset_circuit
+        def protected_verify_token():
+            return AuthService.verify_reset_token(token)
 
-    if not token_valid:
-        flash('Invalid or expired password reset link. Please request a new one.', 'danger')
-        return redirect(url_for('auth.forgot_password'))
+        token_valid, user_id = protected_verify_token()
+
+        if not token_valid:
+            flash('Invalid or expired password reset link. Please request a new one.', 'danger')
+            return redirect(url_for('auth.forgot_password'))
+
+    except CircuitOpenError:
+        # Circuit breaker is open due to previous failures
+        current_app.logger.warning("Password reset service circuit breaker is open - fast failing")
+        flash("Password reset service is temporarily unavailable. Please try again later.", 'danger')
+        metrics.info('auth_circuit_breaker_trips_total', 1, labels={'circuit': 'password_reset'})
+        return redirect(url_for('auth.login'))
 
     form = ResetPasswordForm()
 
@@ -362,10 +436,18 @@ def reset_password(token):
         new_password = form.password.data
 
         try:
-            # Reset the password using the AuthService
-            success, message = AuthService.reset_password(token, new_password)
+            # Use circuit breaker to protect password reset operation
+            @password_reset_circuit
+            def protected_reset_password():
+                return AuthService.reset_password(token, new_password)
+
+            # Reset password with circuit breaker protection
+            success, message = protected_reset_password()
 
             if success:
+                # Record successful circuit behavior
+                password_reset_circuit.record_success()
+
                 # Log the successful reset
                 current_app.logger.info(f"Password reset successful for user ID: {user_id}")
 
@@ -381,9 +463,17 @@ def reset_password(token):
             else:
                 flash(message, 'danger')
 
+        except CircuitOpenError:
+            # Circuit breaker is open due to previous failures
+            current_app.logger.warning("Password reset service circuit breaker is open - fast failing")
+            flash("Password reset service is temporarily unavailable. Please try again later.", 'danger')
+            metrics.info('auth_circuit_breaker_trips_total', 1, labels={'circuit': 'password_reset'})
+            return redirect(url_for('auth.login'))
+
         except Exception as e:
             current_app.logger.error(f"Error in password reset: {str(e)}", exc_info=True)
             flash('An unexpected error occurred. Please try again.', 'danger')
+            password_reset_circuit.record_failure()
 
     # Track page view metric
     metrics.info('auth_page_views_total', 1, labels={'page': 'reset_password'})
@@ -394,6 +484,7 @@ def reset_password(token):
 @auth_bp.route('/change-password', methods=['GET', 'POST'])
 @login_required
 @limiter.limit("10/hour")
+@circuit_breaker("auth.change_password", failure_threshold=3, reset_timeout=300.0)
 def change_password():
     """
     Handle password changes for authenticated users.
@@ -456,6 +547,7 @@ def change_password():
 
 @auth_bp.route('/mfa-setup', methods=['GET', 'POST'])
 @login_required
+@circuit_breaker("auth.mfa_setup", failure_threshold=3, reset_timeout=300.0)
 def mfa_setup():
     """
     Set up multi-factor authentication for a user account.
@@ -540,6 +632,7 @@ def mfa_setup():
 @auth_bp.route('/mfa-verify', methods=['GET', 'POST'])
 @login_required
 @limiter.limit("10/minute")
+@circuit_breaker("auth.mfa_verify", failure_threshold=5, reset_timeout=300.0)
 def mfa_verify():
     """
     Verify a multi-factor authentication code during login.
@@ -603,6 +696,7 @@ def mfa_verify():
 @auth_bp.route('/confirm-password', methods=['GET', 'POST'])
 @login_required
 @limiter.limit("10/minute")
+@circuit_breaker("auth.confirm_password", failure_threshold=3, reset_timeout=300.0)
 def confirm_password():
     """
     Handle password confirmation for sensitive operations.
@@ -663,6 +757,7 @@ def confirm_password():
 @auth_bp.route('/mfa-disable', methods=['POST'])
 @login_required
 @require_role('admin')
+@circuit_breaker("auth.mfa_disable", failure_threshold=3, reset_timeout=600.0)
 def mfa_disable():
     """
     Disable multi-factor authentication for a user account.
@@ -735,3 +830,55 @@ def access_denied():
     metrics.info('auth_access_denied_total', 1)
 
     return render_template('auth/access_denied.html'), 403
+
+
+# Error handler for CircuitOpenError
+@auth_bp.errorhandler(CircuitOpenError)
+def handle_circuit_open_error(error):
+    """
+    Handle circuit open errors to provide user-friendly responses.
+
+    Returns:
+        Rendered error template with proper message
+    """
+    current_app.logger.warning(f"Circuit breaker error: {str(error)}")
+    metrics.info('auth_circuit_breaker_trips_total', 1)
+    flash("The authentication service is temporarily unavailable. Please try again later.", "warning")
+
+    if 'awaiting_mfa' in session and session['awaiting_mfa']:
+        return redirect(url_for('auth.login'))
+
+    return redirect(url_for('main.home'))
+
+
+# Error handler for RateLimitExceededError
+@auth_bp.errorhandler(RateLimitExceededError)
+def handle_rate_limit_exceeded_error(error):
+    """
+    Handle rate limit exceeded errors to provide user-friendly responses.
+
+    Returns:
+        Rendered error template with proper message
+    """
+    current_app.logger.warning(f"Rate limit exceeded: {str(error)}")
+    metrics.info('auth_rate_limit_exceeded_total', 1)
+
+    # Extract retry_after information if available
+    retry_after = getattr(error, 'retry_after', 60)
+
+    flash("You've made too many requests. Please wait a moment before trying again.", "warning")
+
+    # Add to security audit log
+    audit_security_event(
+        event_type='rate_limit_exceeded',
+        description=f"Rate limit exceeded on auth endpoint: {request.endpoint}",
+        severity="medium",
+        ip_address=request.remote_addr,
+        details={
+            'endpoint': request.endpoint,
+            'method': request.method,
+            'retry_after': retry_after
+        }
+    )
+
+    return redirect(url_for('auth.login'))

@@ -5,11 +5,21 @@ This module initializes and configures all Flask extensions used in the applicat
 ensuring they're properly set up and available throughout the system.
 """
 
-from flask import Flask
-import redis
-from flask_sqlalchemy import SQLAlchemy
-from flask_jwt_extended import JWTManager
 import logging
+import os
+from typing import Dict, Any, Optional, Callable, Union
+
+import redis
+from flask import Flask, request, g
+from flask_jwt_extended import JWTManager
+from flask_sqlalchemy import SQLAlchemy
+
+# Existing imports
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+# Initialize Limiter
+limiter = Limiter(key_func=get_remote_address)
 
 # Configure module logger
 logger = logging.getLogger(__name__)
@@ -47,6 +57,51 @@ except ImportError as e:
     socketio_latency = None
     emit_with_metrics = None
 
+# Import and initialize circuit breaker
+try:
+    from .circuit_breaker import (
+        CircuitBreaker,
+        CircuitBreakerState,
+        CircuitOpenError,
+        circuit_breaker,
+        create_circuit_breaker,
+        reset_circuit,
+        reset_all_circuits,
+        get_all_circuits,
+        rate_limit,
+        RateLimitExceededError,
+        create_limiter,
+        get_user_id,
+        get_ip_address,
+        get_api_key,
+        get_combined_key,
+        FIXED_WINDOW,
+        SLIDING_WINDOW,
+        TOKEN_BUCKET,
+        init_app as init_circuit_breaker
+    )
+except ImportError as e:
+    logger.warning(f"Circuit breaker module not available: {e}")
+    CircuitBreaker = None
+    CircuitBreakerState = None
+    CircuitOpenError = None
+    circuit_breaker = None
+    create_circuit_breaker = None
+    reset_circuit = None
+    reset_all_circuits = None
+    get_all_circuits = None
+    rate_limit = None
+    RateLimitExceededError = None
+    create_limiter = None
+    get_user_id = None
+    get_ip_address = None
+    get_api_key = None
+    get_combined_key = None
+    FIXED_WINDOW = None
+    SLIDING_WINDOW = None
+    TOKEN_BUCKET = None
+    init_circuit_breaker = None
+
 # Import and initialize cache
 try:
     from flask_caching import Cache
@@ -63,13 +118,21 @@ except ImportError as e:
     celery = None
     init_celery = None
 
+# Import and initialize Socket.IO
+try:
+    from .socketio import socketio, init_socketio
+except ImportError as e:
+    logger.warning(f"Socket.IO module not available: {e}")
+    socketio = None
+    init_socketio = None
 
-def get_redis_client():
+
+def get_redis_client() -> Optional[redis.Redis]:
     """
     Get the Redis client instance.
 
     Returns:
-        Redis client instance
+        Redis client instance or None if not connected
     """
     return redis_client
 
@@ -93,7 +156,8 @@ def init_redis(app: Flask) -> None:
             redis_url,
             decode_responses=True,
             socket_timeout=app.config.get('REDIS_TIMEOUT', 5),
-            socket_connect_timeout=app.config.get('REDIS_CONNECT_TIMEOUT', 5)
+            socket_connect_timeout=app.config.get('REDIS_CONNECT_TIMEOUT', 5),
+            health_check_interval=app.config.get('REDIS_HEALTH_CHECK_INTERVAL', 30)
         )
         # Test the connection
         redis_client.ping()
@@ -119,7 +183,7 @@ def init_geoip(app: Flask) -> None:
 
     try:
         import geoip2.database
-        import os
+        import geoip2.errors
 
         if not os.path.exists(geoip_path):
             app.logger.warning(f"GeoIP database not found at {geoip_path}. Geolocation features will be disabled.")
@@ -132,12 +196,16 @@ def init_geoip(app: Flask) -> None:
         app.logger.info("GeoIP database loaded successfully")
     except ImportError as e:
         app.logger.warning(f"GeoIP module not available: {e}")
+    except FileNotFoundError as e:
+        app.logger.error(f"GeoIP database file error: {e}")
+    except PermissionError as e:
+        app.logger.error(f"GeoIP database permission error: {e}")
     except Exception as e:
         app.logger.error(f"Failed to initialize GeoIP: {e}")
         geoip = None
 
 
-def _get_location_from_ip(ip: str):
+def _get_location_from_ip(ip: str) -> Optional[Dict[str, Any]]:
     """
     Get location information from an IP address.
 
@@ -151,6 +219,8 @@ def _get_location_from_ip(ip: str):
         return None
 
     try:
+        import geoip2.errors
+
         response = geoip['reader'].city(ip)
         return {
             'city': response.city.name,
@@ -159,7 +229,16 @@ def _get_location_from_ip(ip: str):
             'latitude': response.location.latitude,
             'longitude': response.location.longitude
         }
-    except Exception:
+    except geoip2.errors.AddressNotFoundError:
+        # IP address not found in database
+        logger.debug(f"IP address not found in GeoIP database: {ip}")
+        return None
+    except ValueError:
+        # Invalid IP address format
+        logger.warning(f"Invalid IP address format for GeoIP lookup: {ip}")
+        return None
+    except Exception as e:
+        logger.error(f"Error looking up IP location: {e}")
         return None
 
 
@@ -190,6 +269,70 @@ def init_extensions(app: Flask) -> None:
     if init_celery:
         init_celery(app)
 
+    # Initialize limiter
+    limiter.init_app(app)
+
     # Initialize metrics if available
-    if 'metrics' in globals() and metrics and hasattr(metrics, 'init_app'):
+    if metrics and hasattr(metrics, 'init_app'):
         metrics.init_app(app)
+
+    # Initialize Socket.IO if available
+    if socketio and init_socketio:
+        init_socketio(app)
+
+    # Initialize circuit breaker and rate limiting if available
+    if init_circuit_breaker:
+        init_circuit_breaker(app)
+
+    # Log successful initialization
+    app.logger.info("All extensions initialized successfully")
+
+
+__all__ = [
+    # Core extensions
+    'db',
+    'jwt',
+    'cache',
+    'limiter',
+    'metrics',
+    'celery',
+    'socketio',
+
+    # Utility functions
+    'get_redis_client',
+    'init_extensions',
+
+    # Metrics
+    'db_query_counter',
+    'cloud_resource_gauge',
+    'socketio_connection_count',
+    'socketio_message_counter',
+    'socketio_error_counter',
+    'socketio_latency',
+    'emit_with_metrics',
+
+    # Circuit breaker
+    'CircuitBreaker',
+    'CircuitBreakerState',
+    'CircuitOpenError',
+    'circuit_breaker',
+    'create_circuit_breaker',
+    'reset_circuit',
+    'reset_all_circuits',
+    'get_all_circuits',
+
+    # Rate limiting
+    'rate_limit',
+    'RateLimitExceededError',
+    'create_limiter',
+    'get_user_id',
+    'get_ip_address',
+    'get_api_key',
+    'get_combined_key',
+    'FIXED_WINDOW',
+    'SLIDING_WINDOW',
+    'TOKEN_BUCKET',
+
+    # GeoIP
+    'geoip'
+]

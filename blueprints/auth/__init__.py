@@ -23,9 +23,12 @@ from typing import Optional, Dict, Any, Tuple, Union
 from flask import Blueprint, current_app, request, session, g, jsonify, render_template
 from werkzeug.exceptions import Unauthorized, Forbidden
 
-from extensions import metrics, db, cache
+from extensions import metrics, db, cache, limiter
+from extensions.circuit_breaker import CircuitOpenError, RateLimitExceededError
 from core.security import log_security_event
-from core.utils import is_request_secure, generate_request_id
+from core.security.cs_authentication import is_request_secure
+from core.utils import generate_request_id
+from models.security import AuditLog
 
 # Initialize module-level logger
 logger = logging.getLogger(__name__)
@@ -79,11 +82,17 @@ def before_request() -> None:
     # Check for suspicious headers that might indicate request forgery
     if _contains_suspicious_headers(request.headers):
         log_security_event(
-            'suspicious_auth_request',
-            f"Suspicious authentication request detected from {request.remote_addr}",
-            'warning',
+            event_type=AuditLog.EVENT_SUSPICIOUS_REQUEST,
+            description=f"Suspicious authentication request detected from {request.remote_addr}",
+            severity=AuditLog.SEVERITY_WARNING,
             user_id=session.get('user_id'),
-            ip_address=request.remote_addr
+            ip_address=request.remote_addr,
+            details={
+                'headers': {k: v for k, v in request.headers.items()
+                           if k.lower() not in ('cookie', 'authorization')},
+                'path': request.path,
+                'method': request.method
+            }
         )
         metrics.info('auth_suspicious_request_total', 1)
 
@@ -130,9 +139,12 @@ def after_request(response):
     # Add security headers for auth routes
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers['Permissions-Policy'] = 'geolocation=(), camera=(), microphone=(), payment=()'
 
     # Add cache control directives for sensitive auth pages
-    if request.endpoint in ['auth.login', 'auth.reset_password', 'auth.mfa_verify']:
+    if request.endpoint in ['auth.login', 'auth.reset_password', 'auth.mfa_verify',
+                          'auth.register', 'auth.change_password', 'auth.confirm_password']:
         response.headers['Cache-Control'] = 'no-store, max-age=0'
         response.headers['Pragma'] = 'no-cache'
 
@@ -140,7 +152,7 @@ def after_request(response):
 
 
 @auth_bp.app_errorhandler(401)
-def unauthorized_error(_error) -> Union[Tuple[Dict[str, str], int], Tuple[str, int]]:
+def unauthorized_error(_error) -> Union[Tuple[Dict[str, Any], int], Tuple[str, int]]:
     """
     Handle unauthorized access attempts (HTTP 401).
 
@@ -167,24 +179,34 @@ def unauthorized_error(_error) -> Union[Tuple[Dict[str, str], int], Tuple[str, i
 
     # Log security event for audit trail
     log_security_event(
-        'unauthorized_access',
-        f"Unauthorized access attempt to {request.path}",
-        'warning',
+        event_type=AuditLog.EVENT_UNAUTHORIZED_ACCESS,
+        description=f"Unauthorized access attempt to {request.path}",
+        severity=AuditLog.SEVERITY_WARNING,
         user_id=session.get('user_id'),
-        ip_address=request.remote_addr
+        ip_address=request.remote_addr,
+        details={
+            'url': request.path,
+            'method': request.method,
+            'user_agent': request.user_agent.string if hasattr(request, 'user_agent') else None,
+        },
+        category=AuditLog.EVENT_CATEGORY_AUTH
     )
 
     metrics.info('auth_unauthorized_total', 1)
 
     # Return appropriate response format based on request
     if request.is_json or request.headers.get('Accept') == 'application/json':
-        return jsonify(error='Unauthorized access', code=401), 401
+        return jsonify({
+            'error': 'Unauthorized access',
+            'code': 401,
+            'message': 'Authentication is required to access this resource'
+        }), 401
     else:
         return render_template('auth/errors/401.html'), 401
 
 
 @auth_bp.app_errorhandler(403)
-def forbidden_error(_error) -> Union[Tuple[Dict[str, str], int], Tuple[str, int]]:
+def forbidden_error(_error) -> Union[Tuple[Dict[str, Any], int], Tuple[str, int]]:
     """
     Handle forbidden access attempts (HTTP 403).
 
@@ -206,17 +228,24 @@ def forbidden_error(_error) -> Union[Tuple[Dict[str, str], int], Tuple[str, int]
             'url': request.url,
             'ip': request.remote_addr,
             'user_id': session.get('user_id'),
-            'request_id': g.get('request_id', 'unknown')
+            'request_id': g.get('request_id', 'unknown'),
+            'endpoint': request.endpoint
         }
     )
 
     # Log security event for audit and compliance
     log_security_event(
-        'permission_denied',
-        f"Permission denied for {request.path}",
-        'warning',
+        event_type=AuditLog.EVENT_PERMISSION_DENIED,
+        description=f"Permission denied for {request.path}",
+        severity=AuditLog.SEVERITY_WARNING,
         user_id=session.get('user_id'),
-        ip_address=request.remote_addr
+        ip_address=request.remote_addr,
+        details={
+            'endpoint': request.endpoint,
+            'method': request.method,
+            'path': request.path
+        },
+        category=AuditLog.EVENT_CATEGORY_ACCESS
     )
 
     metrics.info('auth_forbidden_total', 1, labels={
@@ -225,9 +254,96 @@ def forbidden_error(_error) -> Union[Tuple[Dict[str, str], int], Tuple[str, int]
 
     # Return appropriate response format based on request
     if request.is_json or request.headers.get('Accept') == 'application/json':
-        return jsonify(error='Forbidden access', code=403), 403
+        return jsonify({
+            'error': 'Forbidden access',
+            'code': 403,
+            'message': 'You do not have permission to access this resource'
+        }), 403
     else:
         return render_template('auth/errors/403.html'), 403
+
+
+@auth_bp.errorhandler(CircuitOpenError)
+def handle_circuit_open_error(error):
+    """
+    Handle circuit breaker errors to provide user-friendly responses.
+
+    Returns:
+        Rendered error template with proper message
+    """
+    current_app.logger.warning(f"Circuit breaker error: {str(error)}")
+    metrics.info('auth_circuit_breaker_trips_total', 1, labels={
+        'circuit': getattr(error, 'circuit_name', 'unknown')
+    })
+
+    log_security_event(
+        event_type="circuit_breaker_trip",
+        description=f"Authentication circuit breaker tripped",
+        severity=AuditLog.SEVERITY_WARNING,
+        details={
+            "circuit_name": getattr(error, 'circuit_name', 'unknown'),
+            "endpoint": request.endpoint,
+            "error": str(error)
+        }
+    )
+
+    if request.is_json or request.headers.get('Accept') == 'application/json':
+        return jsonify({
+            'error': 'Service temporarily unavailable',
+            'code': 503,
+            'retry_after': 60  # Suggest retry after 1 minute
+        }), 503
+
+    flash_message = "The authentication service is temporarily unavailable. Please try again later."
+
+    if 'awaiting_mfa' in session and session['awaiting_mfa']:
+        return redirect(url_for('auth.login'))
+
+    return render_template('auth/errors/service_unavailable.html',
+                          message=flash_message), 503
+
+
+@auth_bp.errorhandler(RateLimitExceededError)
+def handle_rate_limit_exceeded_error(error):
+    """
+    Handle rate limit exceeded errors to provide user-friendly responses.
+
+    Returns:
+        Rendered error template with proper message
+    """
+    current_app.logger.warning(f"Rate limit exceeded: {str(error)}")
+    metrics.info('auth_rate_limit_exceeded_total', 1, labels={
+        'endpoint': request.endpoint
+    })
+
+    # Extract retry_after information if available
+    retry_after = getattr(error, 'retry_after', 60)
+
+    # Add to security audit log
+    log_security_event(
+        event_type=AuditLog.EVENT_RATE_LIMIT,
+        description=f"Rate limit exceeded on auth endpoint: {request.endpoint}",
+        severity=AuditLog.SEVERITY_WARNING,
+        ip_address=request.remote_addr,
+        details={
+            'endpoint': request.endpoint,
+            'method': request.method,
+            'retry_after': retry_after
+        },
+        category=AuditLog.EVENT_CATEGORY_SECURITY
+    )
+
+    if request.is_json or request.headers.get('Accept') == 'application/json':
+        return jsonify({
+            'error': 'Rate limit exceeded',
+            'code': 429,
+            'retry_after': retry_after
+        }), 429, {'Retry-After': str(retry_after)}
+
+    flash_message = "You've made too many requests. Please wait a moment before trying again."
+    return render_template('auth/errors/rate_limit.html',
+                          message=flash_message,
+                          retry_seconds=retry_after), 429, {'Retry-After': str(retry_after)}
 
 
 @auth_bp.teardown_request
@@ -258,11 +374,16 @@ def teardown_request(exc) -> None:
         # Log security-related exceptions specifically
         if isinstance(exc, (Unauthorized, Forbidden)) or 'csrf' in str(exc).lower():
             log_security_event(
-                'auth_error',
-                f"Authentication error: {str(exc)}",
-                'warning',
+                event_type=AuditLog.EVENT_SECURITY_ERROR,
+                description=f"Authentication error: {str(exc)}",
+                severity=AuditLog.SEVERITY_WARNING,
                 user_id=session.get('user_id'),
-                ip_address=request.remote_addr
+                ip_address=request.remote_addr,
+                details={
+                    'exception_type': exc.__class__.__name__,
+                    'endpoint': request.endpoint
+                },
+                category=AuditLog.EVENT_CATEGORY_AUTH
             )
 
     # Always remove db session
@@ -276,3 +397,8 @@ def teardown_request(exc) -> None:
             'method': request.method,
             'status': int(request.environ.get('werkzeug.request_exception') is not None)
         })
+
+
+# Ensure Flask imports these correctly
+from flask import flash, redirect, url_for
+import flask

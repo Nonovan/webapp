@@ -6,23 +6,28 @@ for route protection, including:
 - Role-based access control
 - Permission validation
 - Session validation
-- Rate limiting
+- Rate limiting and circuit breaking
 - Anonymous-only access
 - MFA requirement enforcement
+- Password confirmation for sensitive operations
+- Comprehensive audit logging
 
 These decorators follow security best practices with proper error handling,
 logging, and metrics collection for comprehensive security monitoring.
 """
 
 import functools
-from typing import Callable, TypeVar, cast, Optional
+from datetime import datetime, timedelta
+from typing import Callable, TypeVar, cast, Optional, Dict, Any, Union
 from flask import current_app, flash, g, redirect, request, session, url_for, abort
 from werkzeug.exceptions import Forbidden, Unauthorized
 from extensions import limiter, metrics, db
-from datetime import datetime, timedelta
+from extensions.circuit_breaker import CircuitOpenError, circuit_breaker
 from models.auth import User
 from core.security import log_security_event
+from models.security.system.audit_log import AuditLog
 
+# Type variable for better typing in decorators
 T = TypeVar('T', bound=Callable)
 
 def anonymous_required(f: T) -> T:
@@ -71,7 +76,7 @@ def login_required(f: T) -> T:
                 extra={
                     'url': request.path,
                     'ip': request.remote_addr,
-                    'user_agent': request.user_agent.string
+                    'user_agent': request.user_agent.string if hasattr(request, 'user_agent') else None
                 }
             )
 
@@ -88,11 +93,12 @@ def login_required(f: T) -> T:
             if datetime.utcnow() - last_active > timedelta(minutes=timeout_minutes):
                 # Log session timeout
                 log_security_event(
-                    event_type='session_timeout',
+                    event_type=AuditLog.EVENT_SESSION_ERROR,
                     description=f"Session timed out for user {session['user_id']}",
-                    severity='info',
+                    severity=AuditLog.SEVERITY_INFO,
                     user_id=session['user_id'],
-                    ip_address=request.remote_addr
+                    ip_address=request.remote_addr,
+                    category=AuditLog.EVENT_CATEGORY_AUTH
                 )
 
                 metrics.info('auth_session_timeout_total', 1)
@@ -107,6 +113,15 @@ def login_required(f: T) -> T:
         if not hasattr(g, 'user') or not g.user:
             try:
                 g.user = User.query.get(session['user_id'])
+                if not g.user:
+                    # User no longer exists or was deleted
+                    session.clear()
+                    flash('Your account is no longer valid. Please contact support.', 'danger')
+                    return redirect(url_for('auth.login'))
+
+                # Set user ID in g for convenience
+                g.user_id = g.user.id
+
             except Exception as e:
                 current_app.logger.error(f"Error fetching user: {str(e)}")
                 session.clear()
@@ -139,11 +154,17 @@ def require_role(role: str) -> Callable[[T], T]:
             if not g.user or not g.user.has_role(role):
                 # Log unauthorized access attempt
                 log_security_event(
-                    event_type='authorization_failure',
+                    event_type=AuditLog.EVENT_PERMISSION_DENIED,
                     description=f"User attempted to access resource requiring role '{role}'",
-                    severity='warning',
+                    severity=AuditLog.SEVERITY_WARNING,
                     user_id=g.user.id if g.user else None,
-                    ip_address=request.remote_addr
+                    ip_address=request.remote_addr,
+                    category=AuditLog.EVENT_CATEGORY_ACCESS,
+                    details={
+                        'required_role': role,
+                        'endpoint': request.endpoint,
+                        'path': request.path
+                    }
                 )
 
                 metrics.info('auth_authorization_failure_total', 1, labels={
@@ -178,11 +199,17 @@ def require_permission(permission: str) -> Callable[[T], T]:
             if not g.user or not g.user.has_permission(permission):
                 # Log unauthorized access attempt
                 log_security_event(
-                    event_type='permission_denied',
+                    event_type=AuditLog.EVENT_PERMISSION_DENIED,
                     description=f"User attempted to access resource requiring permission '{permission}'",
-                    severity='warning',
+                    severity=AuditLog.SEVERITY_WARNING,
                     user_id=g.user.id if g.user else None,
-                    ip_address=request.remote_addr
+                    ip_address=request.remote_addr,
+                    details={
+                        'required_permission': permission,
+                        'endpoint': request.endpoint,
+                        'path': request.path
+                    },
+                    category=AuditLog.EVENT_CATEGORY_ACCESS
                 )
 
                 metrics.info('auth_permission_denied_total', 1, labels={
@@ -215,29 +242,34 @@ def require_mfa(f: T) -> T:
         # Check if MFA is required but not completed in the session
         if current_app.config.get('ENABLE_MFA', False) and not session.get('mfa_verified'):
             # Check if user has MFA set up
-            if g.user and g.user.mfa_enabled:
+            if g.user and g.user.two_factor_enabled:
+                # Set awaiting MFA flag in session
+                session['awaiting_mfa'] = True
+                session['mfa_redirect_to'] = request.full_path
+
                 # Log MFA enforcement
                 log_security_event(
-                    event_type='mfa_required',
+                    event_type=AuditLog.EVENT_MFA_CHALLENGE,
                     description="MFA verification required for protected resource",
-                    severity='info',
+                    severity=AuditLog.SEVERITY_INFO,
                     user_id=g.user.id,
-                    ip_address=request.remote_addr
+                    ip_address=request.remote_addr,
+                    category=AuditLog.EVENT_CATEGORY_AUTH
                 )
 
                 metrics.info('auth_mfa_enforcement_total', 1)
-                return redirect(url_for('auth.verify_mfa', next=request.full_path))
+                return redirect(url_for('auth.mfa_verify'))
 
             # If user doesn't have MFA set up but it's required for their role
-            if g.user and g.user.role in current_app.config.get('MFA_REQUIRED_ROLES', []):
+            if g.user and g.user.role in current_app.config.get('MFA_REQUIRED_ROLES', ['admin', 'security']):
                 flash('Multi-factor authentication setup is required for your role.', 'warning')
-                return redirect(url_for('auth.setup_mfa', next=request.full_path))
+                return redirect(url_for('auth.mfa_setup', next=request.full_path))
 
         return f(*args, **kwargs)
     return cast(T, decorated_function)
 
 
-def rate_limit(limit: str = "5/minute") -> Callable[[T], T]:
+def rate_limit(limit: str = "5/minute", key_func: Optional[Callable] = None) -> Callable[[T], T]:
     """
     Decorator for route-specific rate limiting.
 
@@ -246,20 +278,77 @@ def rate_limit(limit: str = "5/minute") -> Callable[[T], T]:
 
     Args:
         limit: Rate limit string in format "number/period" (e.g., "5/minute")
+        key_func: Optional function to derive the rate limiting key
 
     Returns:
         Decorator function that applies rate limiting
     """
     def decorator(f: T) -> T:
         @functools.wraps(f)
-        @limiter.limit(limit)
+        @limiter.limit(limit, key_func=key_func)
         def decorated_function(*args, **kwargs):
             return f(*args, **kwargs)
         return cast(T, decorated_function)
     return decorator
 
 
-def audit_activity(activity_type: str, description_template: Optional[str] = None) -> Callable[[T], T]:
+def circuit_protected(circuit_name: str,
+                     failure_threshold: int = 3,
+                     reset_timeout: float = 300.0,
+                     half_open_after: float = 60.0) -> Callable[[T], T]:
+    """
+    Decorator to apply circuit breaker pattern to a route.
+
+    This decorator protects routes from cascading failures by implementing
+    the circuit breaker pattern, which prevents repeated failures when
+    a dependency is unavailable.
+
+    Args:
+        circuit_name: Name identifier for the circuit breaker
+        failure_threshold: Number of failures before opening circuit
+        reset_timeout: Seconds before resetting failure count
+        half_open_after: Seconds before trying test request
+
+    Returns:
+        Decorator function that applies circuit breaker pattern
+    """
+    def decorator(f: T) -> T:
+        @functools.wraps(f)
+        @circuit_breaker(circuit_name,
+                        failure_threshold=failure_threshold,
+                        reset_timeout=reset_timeout,
+                        half_open_after=half_open_after)
+        def decorated_function(*args, **kwargs):
+            try:
+                return f(*args, **kwargs)
+            except CircuitOpenError as e:
+                # Log the circuit breaker trip
+                log_security_event(
+                    event_type="circuit_breaker_trip",
+                    description=f"Circuit breaker {circuit_name} tripped",
+                    severity="warning",
+                    details={
+                        "circuit": circuit_name,
+                        "endpoint": request.endpoint,
+                        "error": str(e)
+                    }
+                )
+
+                # Track in metrics
+                metrics.info('auth_circuit_breaker_trips_total', 1, labels={
+                    'circuit': circuit_name
+                })
+
+                flash("This operation is temporarily unavailable. Please try again later.", "warning")
+                return redirect(url_for('main.home'))
+
+        return cast(T, decorated_function)
+    return decorator
+
+
+def audit_activity(activity_type: str,
+                  description_template: Optional[str] = None,
+                  severity: str = AuditLog.SEVERITY_INFO) -> Callable[[T], T]:
     """
     Decorator to audit user activity for security-relevant routes.
 
@@ -269,6 +358,7 @@ def audit_activity(activity_type: str, description_template: Optional[str] = Non
     Args:
         activity_type: Type of activity being audited
         description_template: Optional template string for activity description
+        severity: Severity level for the audit log entry
 
     Returns:
         Decorator function that logs the activity
@@ -286,25 +376,34 @@ def audit_activity(activity_type: str, description_template: Optional[str] = Non
                 if description_template is None:
                     description = f"User performed {activity_type} action"
 
-                # Log the activity
+                # Log the activity using system AuditLog
                 try:
-                    from models.audit_log import AuditLog
+                    details = {
+                        'url': request.path,
+                        'method': request.method,
+                        'referrer': request.referrer if hasattr(request, 'referrer') else None
+                    }
 
-                    log = AuditLog(
-                        user_id=user_id,
+                    # Add route parameters for context
+                    for key, value in kwargs.items():
+                        if isinstance(value, (str, int, bool, float)) or value is None:
+                            details[f"param_{key}"] = value
+
+                    log_security_event(
                         event_type=activity_type,
                         description=description,
+                        severity=severity,
+                        user_id=user_id,
                         ip_address=request.remote_addr,
-                        user_agent=request.user_agent.string,
-                        details={
-                            'url': request.path,
-                            'method': request.method,
-                            'referrer': request.referrer
-                        }
+                        details=details,
+                        category=AuditLog.EVENT_CATEGORY_ACCESS
                     )
 
-                    db.session.add(log)
-                    db.session.commit()
+                    # Track via metrics
+                    metrics.info('auth_activity_logged_total', 1, labels={
+                        'activity_type': activity_type,
+                        'severity': severity
+                    })
 
                 except Exception as e:
                     current_app.logger.error(f"Failed to log audit activity: {str(e)}")
@@ -360,12 +459,67 @@ def confirm_password(f: T) -> T:
             log_security_event(
                 event_type='password_confirmation_required',
                 description="Password confirmation required for sensitive operation",
-                severity='info',
+                severity=AuditLog.SEVERITY_INFO,
                 user_id=session.get('user_id'),
-                ip_address=request.remote_addr
+                ip_address=request.remote_addr,
+                details={
+                    'endpoint': request.endpoint,
+                    'path': request.path
+                },
+                category=AuditLog.EVENT_CATEGORY_AUTH
             )
 
             return redirect(url_for('auth.confirm_password'))
 
         return f(*args, **kwargs)
     return cast(T, decorated_function)
+
+
+def validate_resource_access(resource_type: str) -> Callable[[T], T]:
+    """
+    Decorator to validate and audit resource access.
+
+    This decorator checks authorization for specific resource types and records
+    detailed audit logs of resource access patterns.
+
+    Args:
+        resource_type: The type of resource being accessed
+
+    Returns:
+        Decorator function that validates resource access
+    """
+    def decorator(f: T) -> T:
+        @functools.wraps(f)
+        @login_required
+        def decorated_function(*args, **kwargs):
+            # Extract resource ID from kwargs if available
+            resource_id = kwargs.get('id') or kwargs.get(f'{resource_type}_id')
+
+            # Log resource access attempt
+            log_security_event(
+                event_type=f'{resource_type}_access',
+                description=f"User accessed {resource_type}" +
+                           (f" ID {resource_id}" if resource_id else ""),
+                severity=AuditLog.SEVERITY_INFO,
+                user_id=g.user.id,
+                ip_address=request.remote_addr,
+                details={
+                    'resource_type': resource_type,
+                    'resource_id': resource_id,
+                    'method': request.method,
+                    'endpoint': request.endpoint
+                },
+                object_type=resource_type,
+                object_id=resource_id
+            )
+
+            # Track resource access metrics
+            metrics.info('resource_access_total', 1, labels={
+                'resource_type': resource_type,
+                'method': request.method
+            })
+
+            return f(*args, **kwargs)
+
+        return cast(T, decorated_function)
+    return decorator

@@ -25,7 +25,6 @@ The extensions module centralizes Flask extension initialization and configurati
     - Cloud resource tracking
     - Security event monitoring
     - System health metrics and dependency tracking
-    - Circuit breaker pattern for error handling
     - Task execution monitoring
 
 - **`socketio.py`**: Real-time communication functionality
@@ -50,6 +49,24 @@ The extensions module centralizes Flask extension initialization and configurati
     - Scheduled tasks support
     - Security settings for task broker
 
+- **`circuit_breaker.py`**: Protection against cascading failures and rate limiting
+  - **Usage**: Prevents system overload during service disruptions and protects APIs
+  - **Features**:
+    - **Circuit Breaker Pattern**:
+      - Configurable failure thresholds and recovery timeouts
+      - Half-open state testing for graceful recovery
+      - Circuit state tracking and statistics
+      - Decorator-based usage for easy integration
+      - Admin endpoints for monitoring and management
+      - CLI commands for circuit management
+    - **Rate Limiting**:
+      - Multiple rate limiting strategies (fixed-window, sliding-window, token-bucket)
+      - Redis-based storage for distributed environments
+      - Memory fallback when Redis is unavailable
+      - Automatic rate limit headers in responses
+      - Custom key functions for flexible limiting policies
+      - Comprehensive metrics for monitoring
+
 ## Directory Structure
 
 ```plaintext
@@ -58,6 +75,7 @@ extensions/
 ├── metrics.py            # Metrics collection and configuration
 ├── socketio.py           # Socket.IO server and real-time communication
 ├── celery_app.py         # Celery task queue integration
+├── circuit_breaker.py    # Circuit breaker and rate limiting implementation
 └── README.md             # This documentation
 ```
 
@@ -117,6 +135,25 @@ CELERY_BROKER_SSL_CONFIG={}         # SSL configuration dictionary if needed
 
 [GeoIP]
 GEOIP_DB_PATH=/path/to/geoip.mmdb   # Path to MaxMind GeoIP database file
+GEOLOCATION_ENABLED=True            # Enable geolocation features
+GEOLOCATION_API=ipapi              # Geolocation API to use (ipapi or ipinfo)
+GEOLOCATION_USE_HTTPS=False         # Use HTTPS for geolocation API calls
+GEOLOCATION_RATE_LIMIT=60           # API call rate limit per minute
+IPAPI_KEY=                         # API key for ip-api.com (for pro accounts)
+IPINFO_API_KEY=                    # API key for ipinfo.io
+
+[Circuit Breaker]
+CIRCUIT_BREAKER_ADMIN_ENABLED=True  # Enable admin endpoints for circuit breaker
+CIRCUIT_BREAKER_FAILURE_THRESHOLD=5 # Default failure threshold before opening circuit
+CIRCUIT_BREAKER_RESET_TIMEOUT=60.0  # Default seconds before resetting failure count
+CIRCUIT_BREAKER_HALF_OPEN_AFTER=30.0 # Default seconds before trying test request
+CIRCUIT_BREAKERS={}                 # Preconfigured circuit breakers dictionary
+
+[Rate Limiting]
+RATELIMIT_ENABLED=True              # Enable rate limiting
+RATELIMIT_STORAGE_URL=              # Redis URL for rate limit storage (uses REDIS_URL if not set)
+RATELIMIT_STRATEGY=fixed-window     # Rate limiting strategy (fixed-window, sliding-window, token-bucket)
+RATELIMIT_HEADERS_ENABLED=True      # Add rate limit headers to responses
 ```
 
 ## Best Practices & Security
@@ -136,6 +173,8 @@ GEOIP_DB_PATH=/path/to/geoip.mmdb   # Path to MaxMind GeoIP database file
 - Configure Celery task time limits to prevent runaway tasks
 - Use SSL for Celery broker in production environments
 - Define focused tasks with clear failure handling
+- Apply rate limits to public endpoints to prevent abuse
+- Configure appropriate circuit breaker thresholds based on service SLAs
 
 ## Common Features
 
@@ -151,6 +190,9 @@ GEOIP_DB_PATH=/path/to/geoip.mmdb   # Path to MaxMind GeoIP database file
 - Distributed task processing with monitoring
 - Background task scheduling
 - Task retries with exponential backoff
+- Circuit breaking for service protection
+- Rate limiting for API protection
+- Tamper-resistant logging mechanisms
 
 ## Usage
 
@@ -249,6 +291,92 @@ def validate_user_permissions(user_id, resource):
     return is_authorized
 ```
 
+### Apply Circuit Breaker
+
+```python
+from extensions import circuit_breaker, CircuitOpenError
+
+# Create a circuit breaker with custom parameters
+@circuit_breaker("external_api", failure_threshold=5, reset_timeout=60.0, half_open_after=30.0)
+def call_external_service(data):
+    # Code that might fail due to service issues
+    response = requests.post("https://api.example.com/endpoint", json=data)
+    response.raise_for_status()
+    return response.json()
+
+# Handle circuit breaker errors
+try:
+    result = call_external_service(data)
+except CircuitOpenError:
+    # Handle service unavailable case
+    result = get_cached_fallback()
+```
+
+### Create and Manage Circuit Breakers
+
+```python
+from extensions import create_circuit_breaker, reset_circuit, get_all_circuits
+
+# Create a named circuit breaker
+api_circuit = create_circuit_breaker(
+    "payment_gateway",
+    failure_threshold=3,
+    reset_timeout=120.0
+)
+
+# Apply the circuit breaker to a function
+@api_circuit
+def process_payment(payment_data):
+    # Payment processing logic
+    pass
+
+# Reset a circuit breaker after issues are resolved
+reset_circuit("payment_gateway")
+
+# Get status of all circuit breakers
+circuit_states = get_all_circuits()
+for name, state in circuit_states.items():
+    print(f"Circuit {name}: {state['state']}, Failures: {state.get('failures', 0)}")
+```
+
+### Apply Rate Limiting
+
+```python
+from extensions import rate_limit, RateLimitExceededError
+
+# Simple rate limiting decorator
+@rate_limit("10 per minute")
+def limited_function():
+    return "This function is rate limited"
+
+# Use custom key function and parameters
+from extensions import get_user_id, get_ip_address, get_api_key
+
+@rate_limit("5 per minute", key_function=get_user_id)
+def user_specific_function():
+    return "Limited per user"
+
+# Create a custom limiter
+from extensions import create_limiter, TOKEN_BUCKET
+
+api_limiter = create_limiter(
+    name="api_calls",
+    limit=100,
+    window=60,
+    strategy=TOKEN_BUCKET
+)
+
+@rate_limit(api_limiter)
+def api_function():
+    return "API response"
+
+# Handle rate limit exceptions
+try:
+    result = api_function()
+except RateLimitExceededError:
+    return "Rate limit exceeded, please try again later"
+```
+
 ### Use Socket.IO for Real-time Communication
 
 ```python
@@ -325,7 +453,7 @@ if location:
         log_security_event('restricted_country_access', ip_address)
 ```
 
-## Related Docs & Extending
+## Related Documentation
 
 - [Flask Application Factory Pattern](https://flask.palletsprojects.com/en/2.0.x/patterns/appfactories/)
 - [Flask Extensions Documentation](https://flask.palletsprojects.com/en/2.0.x/extensions/)
@@ -336,10 +464,14 @@ if location:
 - [MaxMind GeoIP2 Documentation](https://maxmind.github.io/GeoIP2-python/)
 - [Socket.IO Documentation](https://socket.io/docs/v4/)
 - [Celery Documentation](https://docs.celeryproject.org/)
+- [Circuit Breaker Pattern](https://martinfowler.com/bliki/CircuitBreaker.html)
+- [Rate Limiting Patterns](https://cloud.google.com/architecture/rate-limiting-strategies-techniques)
+
+## Extending the Extensions
 
 When adding new extensions:
 
-1. Import and initialize the extension in **init__.py**
+1. Import and initialize the extension in `init.py`
 2. Add extension to `__all__` list for easy importing
 3. Include configuration in the `init_extensions` function
 4. Update this README with new functionality
