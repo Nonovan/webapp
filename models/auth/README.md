@@ -86,6 +86,13 @@ The authentication system provides robust security features including password m
   - IP and referer restrictions
   - Usage tracking and monitoring
 
+- **`SecurityApproval`**: Multi-person approval workflows for sensitive operations
+  - Configurable approval requirements with quorums
+  - Time-limited approval requests
+  - Comprehensive approval tracking and audit logging
+  - Support for different approval types and urgency levels
+  - Notification integration for pending approval requests
+
 ## Directory Structure
 
 ```plaintext
@@ -96,12 +103,13 @@ models/auth/
 ├── mfa_backup_code.py      # Backup codes for multi-factor authentication
 ├── mfa_method.py           # Multi-factor authentication methods
 ├── mfa_verification.py     # MFA verification attempt tracking
-├── oath_provider.py        # OAuth provider and connection models
+├── oauth_provider.py       # OAuth provider and connection models
 ├── permission.py           # Permission model and related utilities
 ├── permission_context.py   # Context-based permission evaluation rules
 ├── permission_delegation.py # Permission delegation between users
 ├── README.md               # This documentation
 ├── role.py                 # Role model with permission inheritance
+├── security_approval.py    # Approval workflows for sensitive operations
 ├── user.py                 # User model with authentication features
 ├── user_activity.py        # User activity tracking for audit purposes
 └── user_session.py         # Session tracking and management
@@ -202,6 +210,8 @@ The authentication system uses several configuration settings that can be adjust
 - **`MFA_REQUIRED_ROLES`**: Roles that require MFA enrollment (e.g., "admin", "security")
 - **`OAUTH_PROVIDERS`**: Configuration for OAuth providers
 - **`API_KEY_RATE_LIMITS`**: Default rate limits for API keys
+- **`SECURITY_APPROVAL_EXPIRY`**: Default expiry time for approval requests (in minutes)
+- **`SECURITY_APPROVAL_NOTIFICATIONS`**: Enable/disable notifications for approvals
 
 ## Best Practices & Security
 
@@ -215,6 +225,7 @@ The authentication system uses several configuration settings that can be adjust
 - Use proper transaction management with commit/rollback patterns
 - Implement MFA for administrative and sensitive operations
 - Regularly audit active sessions and API keys
+- Use multi-person approvals for critical configuration changes
 
 ## Common Features
 
@@ -229,6 +240,7 @@ The authentication system uses several configuration settings that can be adjust
 - Multi-factor authentication with multiple methods
 - OAuth integration for third-party authentication
 - API key management for programmatic access
+- Multi-person approval workflows for sensitive operations
 
 ## Usage Examples
 
@@ -523,6 +535,40 @@ else:
     db.session.commit()
 ```
 
+### Security Approval Workflows
+
+```python
+# Request approval for sensitive operation
+approval = SecurityApproval.create_approval_request(
+    operation="system:maintenance:restart",
+    requester_id=current_user.id,
+    required_approvals=2,
+    expiry_minutes=120,
+    details={
+        "reason": "Scheduled system maintenance",
+        "affected_services": ["api", "worker"]
+    }
+)
+
+# Check status of approval request
+status = approval.get_status()
+if status["is_approved"]:
+    # Proceed with operation
+    pass
+
+# Approve a request (by different user)
+approval.add_approval(
+    approver_id=admin_user.id,
+    comments="Verified maintenance window and impact"
+)
+
+# Reject a request
+approval.add_rejection(
+    approver_id=security_officer.id,
+    reason="Insufficient details provided"
+)
+```
+
 ### API Key Management
 
 ```python
@@ -571,3 +617,4 @@ api_key.record_usage(ip_address=request.remote_addr)
 - OAuth Integration Guide
 - API Key Management
 - Security Monitoring and Auditing
+- Approval Workflows Guide

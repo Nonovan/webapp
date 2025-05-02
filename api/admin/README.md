@@ -4,16 +4,16 @@ The Administrative API module provides secure endpoints for system management, u
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- API Endpoints
-- Configuration
-- Security Features
-- Usage Examples
-- Error Handling
-- Metrics and Monitoring
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [API Endpoints](#api-endpoints)
+- [Configuration](#configuration)
+- [Security Features](#security-features)
+- [Usage Examples](#usage-examples)
+- [Error Handling](#error-handling)
+- [Metrics and Monitoring](#metrics-and-monitoring)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
@@ -151,10 +151,12 @@ api/admin/
 ├── middleware.py        # Request preprocessing middleware
 ├── errors.py            # Error handling and standardization
 └── ws/                  # WebSocket endpoints for real-time admin functions
-    ├── __init__.py      # WebSocket initialization
+    ├── __init__.py      # WebSocket connection management
+    ├── README.md        # WebSocket API documentation
     ├── routes.py        # WebSocket route handlers
-    ├── auth.py          # WebSocket authentication
-    └── metrics.py       # WebSocket performance monitoring
+    ├── auth.py          # Authentication and authorization
+    ├── schemas.py       # Message validation schemas
+    └── metrics.py       # Connection and message metrics
 ```
 
 ## API Endpoints
@@ -232,6 +234,9 @@ The administrative system uses several configuration settings that can be adjust
 'ADMIN_WS_RECONNECT_MAX_ATTEMPTS': 5,    # Maximum reconnect attempts
 'ADMIN_WS_COMMAND_TIMEOUT_SECONDS': 120, # Command execution timeout
 'ADMIN_WS_REQUIRE_APPROVAL': True,       # Require approval for WebSocket commands
+'ADMIN_WS_METRICS_ENABLED': True,        # Enable WebSocket metrics collection
+'ADMIN_WS_METRICS_INTERVAL': 30,         # Interval for metrics emission in seconds
+'ADMIN_WS_METRICS_CHANNELS': ['admin:metrics'] # Channels to emit metrics to
 ```
 
 ## Security Features

@@ -28,7 +28,7 @@ from core.security import (
 from models.auth.user import User
 from models.auth.user_activity import UserActivity
 from models.security.audit_log import AuditLog
-from models.security.security_approval import SecurityApproval
+from models.auth import SecurityApproval
 
 # Initialize logger
 logger = logging.getLogger(__name__)

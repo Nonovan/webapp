@@ -16,6 +16,8 @@ Modules:
 - mfa_verification: Tracks MFA verification attempts.
 - permission_delegation: Temporary delegation of permissions between users.
 - permission_context: Context-based permission evaluation rules.
+- oauth_provider: OAuth provider integration and connection management.
+- security_approval: Approval workflows for sensitive administrative operations.
 
 The authentication and authorization system implements a comprehensive RBAC approach with:
 - Hierarchical roles that can inherit permissions from parent roles
@@ -23,6 +25,7 @@ The authentication and authorization system implements a comprehensive RBAC appr
 - Dynamic permission rules based on context attributes
 - Temporary permission delegation between users
 - Detailed activity and session tracking for security auditing
+- Multi-person approval workflows for sensitive operations
 
 Usage:
 Import the necessary models or utilities from this package for authentication-related operations.
@@ -69,6 +72,15 @@ Examples:
         permission_id=permission.id,
         valid_until=datetime.now(timezone.utc) + timedelta(days=7),
         reason="Temporary access during team member absence"
+    )
+
+    # Request approval for sensitive operations
+    approval = SecurityApproval.create_approval_request(
+        operation="system:maintenance:restart",
+        requester_id=current_user.id,
+        required_approvals=2,
+        expiry_minutes=120,
+        details={"reason": "Scheduled system maintenance", "affected_services": ["api", "worker"]}
     )
 """
 
@@ -134,7 +146,14 @@ except ImportError:
 
 # OAuth provider model
 try:
-    from .oath_provider import OAuthProvider, OAuthConnection
+    from .oauth_provider import OAuthProvider, OAuthConnection
     __all__.extend(["OAuthProvider", "OAuthConnection"])
+except ImportError:
+    pass
+
+# Security approval model
+try:
+    from .security_approval import SecurityApproval
+    __all__.append("SecurityApproval")
 except ImportError:
     pass
