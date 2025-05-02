@@ -285,12 +285,13 @@ def check_permission(token: str, permission: str) -> bool:
     return False
 
 
-def require_permission(permission: str):
+def require_permission(permission: str, operation_name: str = None):
     """
     Decorator to enforce admin permission checks.
 
     Args:
         permission: Required permission
+        operation_name: Optional descriptive name of the operation for audit logs
 
     Raises:
         AdminAuthenticationError: If no valid auth token
@@ -307,9 +308,13 @@ def require_permission(permission: str):
             if not auth_token:
                 raise AdminAuthenticationError("Authentication required")
 
+            # Cache session retrieval result to avoid multiple lookups
             session = get_admin_session(auth_token)
             if not session:
                 raise AdminAuthenticationError("Invalid or expired session")
+
+            # Get operation name from parameter or function name
+            op_name = operation_name or func.__name__
 
             if not check_permission(auth_token, permission):
                 user_id = session.get("user_id")
@@ -322,10 +327,167 @@ def require_permission(permission: str):
                     username=username,
                     details={
                         "username": username,
-                        "permission": permission
+                        "permission": permission,
+                        "operation": op_name,
+                        "args": str(args),
+                        "kwargs": {k: v for k, v in kwargs.items() if k != 'password'} # Safe logging
                     }
                 )
-                raise AdminPermissionError(f"Permission denied: {permission}")
+                raise AdminPermissionError(f"Permission denied: {permission} for operation: {op_name}")
+
+            # Store session in kwargs to make it available to the function
+            kwargs['admin_session'] = session
+
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def require_any_permission(permissions: List[str]):
+    """
+    Decorator to enforce that the user has at least one of the listed permissions.
+
+    Args:
+        permissions: List of permissions, any of which grants access
+
+    Raises:
+        AdminAuthenticationError: If no valid auth token
+        AdminPermissionError: If user lacks all required permissions
+    """
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            auth_token = kwargs.get('auth_token')
+
+            if not auth_token and FLASK_AVAILABLE and g:
+                auth_token = getattr(g, 'admin_auth_token', None)
+
+            if not auth_token:
+                raise AdminAuthenticationError("Authentication required")
+
+            # Cache session retrieval result to avoid multiple lookups
+            session = get_admin_session(auth_token)
+            if not session:
+                raise AdminAuthenticationError("Invalid or expired session")
+
+            # Check if user has any of the required permissions
+            has_permission = False
+            for perm in permissions:
+                if check_permission(auth_token, perm):
+                    has_permission = True
+                    break
+
+            if not has_permission:
+                user_id = session.get("user_id")
+                username = session.get("username", "unknown")
+
+                log_admin_action(
+                    action="admin.permission_denied",
+                    status="failure",
+                    user_id=user_id,
+                    username=username,
+                    details={
+                        "username": username,
+                        "permissions": permissions
+                    }
+                )
+                raise AdminPermissionError(f"Permission denied: {permissions}")
+
+            # Store session in kwargs to make it available to the function
+            kwargs['admin_session'] = session
+
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def require_mfa(operation_name: str = None):
+    """
+    Decorator to enforce MFA verification for sensitive admin operations.
+
+    This decorator should be used in conjunction with require_permission to
+    ensure sensitive operations require both proper permissions and MFA verification.
+
+    Args:
+        operation_name: Optional descriptive name of the operation for audit logs
+
+    Raises:
+        AdminAuthenticationError: If no valid auth token or session
+        AdminPermissionError: If MFA token is missing or invalid
+    """
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            auth_token = kwargs.get('auth_token')
+            mfa_token = kwargs.get('mfa_token')
+
+            if not auth_token and FLASK_AVAILABLE and g:
+                auth_token = getattr(g, 'admin_auth_token', None)
+                mfa_token = getattr(g, 'mfa_token', None)
+
+            if not auth_token:
+                raise AdminAuthenticationError("Authentication required")
+
+            # Get session information
+            session = get_admin_session(auth_token)
+            if not session:
+                raise AdminAuthenticationError("Invalid or expired session")
+
+            # Get operation name from parameter or function name
+            op_name = operation_name or func.__name__
+
+            # Check if MFA is already verified in session
+            if session.get("mfa_verified"):
+                # MFA already verified during authentication
+                return func(*args, **kwargs)
+
+            # Otherwise require MFA token
+            username = session.get("username", "unknown")
+
+            if not mfa_token:
+                log_admin_action(
+                    action="admin.mfa_required",
+                    status="failure",
+                    user_id=session.get("user_id"),
+                    username=username,
+                    details={
+                        "username": username,
+                        "operation": op_name
+                    }
+                )
+                raise AdminPermissionError(f"MFA verification required for operation: {op_name}")
+
+            # Verify the provided MFA token
+            if not verify_mfa_token(username, mfa_token):
+                log_admin_action(
+                    action="admin.mfa_verification",
+                    status="failure",
+                    user_id=session.get("user_id"),
+                    username=username,
+                    details={
+                        "username": username,
+                        "operation": op_name
+                    }
+                )
+                raise AdminPermissionError(f"Invalid MFA token for operation: {op_name}")
+
+            # MFA verified, update session
+            session["mfa_verified"] = True
+
+            # Log successful MFA verification
+            log_admin_action(
+                action="admin.mfa_verification",
+                status="success",
+                user_id=session.get("user_id"),
+                username=username,
+                details={
+                    "username": username,
+                    "operation": op_name
+                }
+            )
+
+            # Store session in kwargs to make it available to the function
+            kwargs['admin_session'] = session
 
             return func(*args, **kwargs)
         return wrapper

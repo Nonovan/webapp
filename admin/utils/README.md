@@ -9,6 +9,7 @@ This directory contains utility modules and helper functions used by the adminis
 - [Directory Structure](#directory-structure)
 - [Usage](#usage)
   - [Authentication and Authorization](#authentication-and-authorization)
+  - [Multi-Factor Authentication](#multi-factor-authentication)
   - [Audit Logging](#audit-logging)
   - [Configuration Validation](#configuration-validation)
   - [Secure Credential Handling](#secure-credential-handling)
@@ -31,6 +32,7 @@ The administrative utilities implement shared functionality used by the CLI tool
   - Session security controls
   - Emergency access support
   - Login attempt monitoring and protection
+  - MFA enforcement for sensitive operations
 
 - **`audit_utils.py`**: Administrative audit logging facilities
   - Comprehensive audit trail generation
@@ -39,6 +41,7 @@ The administrative utilities implement shared functionality used by the CLI tool
   - User tracking and attribution
   - Event filtering and search capabilities
   - Compliance-ready logging format
+  - MFA verification auditing
 
 - **`config_validation.py`**: Configuration validation tools
   - Schema-based configuration validation
@@ -47,6 +50,7 @@ The administrative utilities implement shared functionality used by the CLI tool
   - Environment-specific validation
   - Default value management
   - Migration support for configuration changes
+  - Security control validation
 
 - **`secure_credentials.py`**: Secure credential handling
   - Secure storage and retrieval of credentials
@@ -71,6 +75,7 @@ The administrative utilities implement shared functionality used by the CLI tool
   - Resource usage monitoring (CPU, memory)
   - Execution time tracking for operations
   - Integration with monitoring systems (e.g., Prometheus)
+  - Security event metrics tracking
 
 ## Directory Structure
 
@@ -92,10 +97,11 @@ admin/utils/
 ### Authentication and Authorization
 
 ```python
-from admin.utils.admin_auth import authenticate, check_permission
+from admin.utils.admin_auth import authenticate_admin, check_permission
 
 # Authenticate an administrative user
-session_token = authenticate(username, password, mfa_code)
+auth_result = authenticate_admin(username, password, mfa_token)
+session_token = auth_result["token"]
 
 # Check if a user has the required permission
 if check_permission(session_token, "system:configuration:write"):
@@ -103,7 +109,36 @@ if check_permission(session_token, "system:configuration:write"):
     update_system_configuration(new_config)
 else:
     # Handle insufficient permissions
-    raise PermissionDenied("Insufficient permissions to modify system configuration")
+    raise AdminPermissionError("Insufficient permissions to modify system configuration")
+```
+
+### Multi-Factor Authentication
+
+```python
+from admin.utils.admin_auth import require_permission, require_mfa, verify_mfa_token
+
+# Verify an MFA token manually
+if verify_mfa_token(username, mfa_token):
+    # MFA verification successful
+    perform_sensitive_operation()
+
+# Using the MFA decorator for sensitive operations
+@require_permission("admin:system:maintenance")
+@require_mfa("system_maintenance")
+def perform_maintenance(system_id, maintenance_type, **kwargs):
+    # This function will only execute if:
+    # 1. User has the required permission
+    # 2. MFA has been verified with a valid token
+    # The operation_name "system_maintenance" is included in audit logs
+    return execute_maintenance_task(system_id, maintenance_type)
+
+# The function can be called with an MFA token
+result = perform_maintenance(
+    "primary-db-cluster",
+    "scheduled-backup",
+    auth_token="admin-session-token",
+    mfa_token="123456"  # TOTP code from authenticator app
+)
 ```
 
 ### Audit Logging
@@ -208,6 +243,8 @@ def perform_database_backup():
 - **Multi-Factor Authentication**: Enforce MFA for sensitive operations
 - **Secure Defaults**: Use secure default settings requiring explicit opt-out
 - **Session Management**: Implement proper session controls and timeouts
+- **MFA Enforcement**: Require MFA verification before allowing sensitive operations
+- **Operation Documentation**: Include descriptive operation names in MFA requirements
 
 ## Common Features
 
@@ -223,6 +260,8 @@ All administrative utilities share these common features:
 - **Type Annotations**: Python type hints for better IDE support
 - **Unit Testing**: Comprehensive test coverage
 - **Version Information**: Clear version tracking
+- **MFA Integration**: Support for multi-factor authentication
+- **Decorator Patterns**: Function decorators for common security controls
 
 ## Related Documentation
 
@@ -230,6 +269,8 @@ All administrative utilities share these common features:
 - Administrative Scripts
 - Permission Model Reference
 - Authentication Framework
+- Multi-Factor Authentication Guide
 - Audit Requirements
 - Configuration Management
 - Security Best Practices
+- Emergency Access Procedures

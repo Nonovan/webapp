@@ -11,9 +11,12 @@ security best practices.
 import os
 import logging
 import json
-from typing import Optional, List, Dict, Any, Generator, Callable
+import time
+import datetime
+import hashlib
+from typing import Optional, List, Dict, Any, Generator, Callable, Tuple, Union
 from contextlib import contextmanager
-from admin.utils.error_handling import AdminConfigurationError, AdminResourceNotFoundError
+from pathlib import Path
 
 # Attempt to import Vault client
 try:
@@ -45,6 +48,26 @@ except ImportError:
     def log_admin_action(*args, **kwargs) -> None:
         pass
 
+try:
+    from admin.utils.error_handling import AdminConfigurationError, AdminResourceNotFoundError, AdminError
+except ImportError:
+    logger.warning("Admin error handling utilities not found. Using generic exceptions.")
+    class AdminError(Exception):
+        """Base class for administrative errors."""
+        pass
+
+    class AdminConfigurationError(AdminError):
+        """Error related to administrative configuration."""
+        pass
+
+    class AdminResourceNotFoundError(AdminError):
+        """Error when a required resource is not found."""
+        def __init__(self, resource_type: str, resource_id: str, *args, **kwargs):
+            self.resource_type = resource_type
+            self.resource_id = resource_id
+            message = f"{resource_type} not found: {resource_id}"
+            super().__init__(message, *args, **kwargs)
+
 # --- Configuration ---
 
 # Order of preference for credential sources
@@ -65,38 +88,48 @@ VAULT_BASE_PATH: str = os.environ.get("VAULT_ADMIN_BASE_PATH", "secret/cloud-pla
 # Keyring service name
 KEYRING_SERVICE_NAME: str = "cloud_platform_admin"
 
+# Credential cache settings
+CACHE_CREDENTIALS = os.environ.get("CACHE_ADMIN_CREDENTIALS", "false").lower() == "true"
+CREDENTIAL_CACHE: Dict[str, Dict[str, Any]] = {}
+DEFAULT_CACHE_TTL = 300  # Default cache TTL in seconds
+
 # --- Helper Functions ---
 
 def _get_vault_client() -> Optional['hvac.Client']:
     """
-    Initializes and authenticates the Vault client.
+    Creates and authenticates a HashiCorp Vault client.
+
+    Attempts authentication using several methods in order of preference:
+    1. VAULT_TOKEN environment variable
+    2. AppRole authentication with VAULT_ROLE_ID and VAULT_SECRET_ID
+    3. Kubernetes authentication using service account token
+    4. Existing authentication from .vault-token file
 
     Returns:
-        Authenticated hvac.Client or None if authentication failed
+        Optional[hvac.Client]: Authenticated client or None if failed
     """
     if not HVAC_AVAILABLE:
-        logger.debug("hvac library not available, Vault client unavailable")
+        logger.warning("HashiCorp Vault client library not available")
         return None
 
     if not VAULT_ADDR:
-        logger.debug("VAULT_ADDR not configured, Vault client unavailable")
+        logger.debug("VAULT_ADDR not set, skipping Vault credential source")
         return None
 
-    client = hvac.Client(url=VAULT_ADDR)
-
     try:
-        # Try various authentication methods in priority order
+        # Initialize client
+        client = hvac.Client(url=VAULT_ADDR)
 
-        # 1. Direct token authentication
+        # 1. Try token authentication first
         if VAULT_TOKEN:
             client.token = VAULT_TOKEN
             if client.is_authenticated():
-                logger.debug("Authenticated to Vault using token")
+                logger.debug("Authenticated to Vault using VAULT_TOKEN")
                 return client
             else:
-                logger.warning("Provided VAULT_TOKEN is invalid or expired")
+                logger.warning("VAULT_TOKEN is invalid")
 
-        # 2. AppRole authentication
+        # 2. Try AppRole authentication
         if VAULT_ROLE_ID and VAULT_SECRET_ID:
             try:
                 client.auth.approle.login(
@@ -111,7 +144,7 @@ def _get_vault_client() -> Optional['hvac.Client']:
             except Exception as e:
                 logger.warning(f"Vault AppRole authentication error: {e}")
 
-        # 3. Kubernetes authentication
+        # 3. Try Kubernetes authentication
         if VAULT_K8S_ROLE:
             k8s_token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
             if os.path.exists(k8s_token_path):
@@ -148,35 +181,39 @@ def _get_vault_client() -> Optional['hvac.Client']:
 
 def _get_from_vault(key: str, environment: Optional[str] = None) -> Optional[str]:
     """
-    Retrieves a secret from HashiCorp Vault.
+    Retrieves a credential from HashiCorp Vault.
 
     Args:
-        key: The secret key to retrieve
-        environment: Optional environment name for namespacing
+        key: The key to look up in Vault
+        environment: Optional environment name for path construction
 
     Returns:
-        Secret value as string or None if not found or error occurred
+        Credential value or None if not found or unavailable
     """
-    client = _get_vault_client()
-    if not client:
+    if not HVAC_AVAILABLE:
+        logger.debug("HashiCorp Vault client library not available")
         return None
 
-    # Build the path where the secret is stored
+    client = _get_vault_client()
+    if not client:
+        logger.debug("Could not obtain authenticated Vault client")
+        return None
+
+    # Construct path based on environment
     if environment:
-        secret_path = f"{VAULT_BASE_PATH}/{environment}/{key}"
-        alt_path = f"{VAULT_BASE_PATH}/{key}"
+        secret_path = f"{VAULT_BASE_PATH}/{environment}"
+        alt_path = f"{VAULT_BASE_PATH}/environments/{environment}"
     else:
-        secret_path = f"{VAULT_BASE_PATH}/{key}"
+        secret_path = VAULT_BASE_PATH
         alt_path = None
 
     try:
-        # Try to read the secret using KV v2 engine
+        # Try to get the secret from Vault
         try:
             response = client.secrets.kv.v2.read_secret_version(
                 path=secret_path,
                 mount_point='secret'
             )
-            # Extract the value - usually stored with the key name as the field
             value = response['data']['data'].get(key)
             if value is not None:
                 logger.debug(f"Retrieved secret '{key}' from Vault at path '{secret_path}'")
@@ -325,8 +362,19 @@ def get_credential(
         AdminResourceNotFoundError: If credential cannot be found in any source
         AdminConfigurationError: If a configured source is unavailable
     """
-    if not source_preference:
+    if source_preference is None:
         source_preference = DEFAULT_SOURCE_PREFERENCE
+
+    # Check cache first if caching is enabled
+    cache_key = f"{key}:{environment or 'default'}"
+    if CACHE_CREDENTIALS and cache_key in CREDENTIAL_CACHE:
+        cache_entry = CREDENTIAL_CACHE[cache_key]
+        if cache_entry['expires'] > time.time():
+            logger.debug(f"Using cached credential '{key}'")
+            return cache_entry['value']
+        else:
+            # Remove expired cache entry
+            del CREDENTIAL_CACHE[cache_key]
 
     logger.info(f"Retrieving credential '{key}' for environment '{environment or 'default'}'")
 
@@ -356,6 +404,14 @@ def get_credential(
                             "environment": environment or 'default'
                         }
                     )
+
+                # Cache the credential if caching is enabled
+                if CACHE_CREDENTIALS:
+                    CREDENTIAL_CACHE[cache_key] = {
+                        'value': value,
+                        'expires': time.time() + DEFAULT_CACHE_TTL
+                    }
+
                 return str(value)
         except Exception as e:
             logger.error(f"Error accessing credential source '{source}': {str(e)}")
@@ -440,7 +496,7 @@ def store_credential(
         key: The name/key to store the credential under
         value: The credential value to store
         environment: Optional environment name for namespacing
-        target: Where to store the credential ('keyring' or 'file')
+        target: Where to store the credential ('keyring', 'vault', or 'file')
         expires_in: Optional expiration time in seconds
 
     Returns:
@@ -474,6 +530,63 @@ def store_credential(
             logger.error(f"Failed to store credential in keyring: {str(e)}")
             return False
 
+    elif target == 'vault':
+        if not HVAC_AVAILABLE:
+            raise AdminConfigurationError("Vault storage unavailable, missing hvac package")
+
+        client = _get_vault_client()
+        if not client:
+            raise AdminConfigurationError("Failed to connect to Vault")
+
+        try:
+            # Construct path based on environment
+            if environment:
+                secret_path = f"{VAULT_BASE_PATH}/{environment}"
+            else:
+                secret_path = VAULT_BASE_PATH
+
+            # First read existing secrets to avoid overwriting
+            try:
+                response = client.secrets.kv.v2.read_secret_version(
+                    path=secret_path,
+                    mount_point='secret'
+                )
+                data = response['data']['data']
+            except hvac.exceptions.InvalidPath:
+                data = {}
+            except Exception as e:
+                logger.warning(f"Error reading existing secrets: {e}")
+                data = {}
+
+            # Add new credential
+            data[key] = value
+
+            # Create or update the secret
+            client.secrets.kv.v2.create_or_update_secret(
+                path=secret_path,
+                mount_point='secret',
+                secret=data
+            )
+
+            logger.info(f"Stored credential '{key}' in Vault at path '{secret_path}'")
+
+            # Log audit event
+            log_admin_action(
+                action="credential.store",
+                status="success",
+                details={
+                    "credential_key": key,
+                    "target": target,
+                    "vault_path": secret_path,
+                    "environment": environment or 'default',
+                    "expiration": expires_in
+                }
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to store credential in Vault: {str(e)}")
+            return False
+
     elif target == 'file':
         # Only allow file storage in development environments for safety
         if environment and environment.lower() not in ['dev', 'development', 'local', 'test']:
@@ -503,7 +616,6 @@ def store_credential(
 
             # Set secure permissions
             os.chmod(filepath, 0o600)
-
             logger.info(f"Stored credential '{key}' in file: {filepath}")
 
             # Log audit event
@@ -524,3 +636,331 @@ def store_credential(
             return False
     else:
         raise ValueError(f"Unsupported credential storage target: {target}")
+
+
+def delete_credential(
+    key: str,
+    environment: Optional[str] = None,
+    target: Optional[str] = None
+) -> bool:
+    """
+    Deletes a credential from the specified storage.
+
+    Args:
+        key: The name/key of the credential to delete
+        environment: Optional environment name for namespacing
+        target: Where to delete the credential from (None to try all)
+
+    Returns:
+        True if deleted successfully, False otherwise
+    """
+    targets_to_try = [target] if target else ['vault', 'keyring', 'file']
+    success = False
+
+    for t in targets_to_try:
+        if t == 'keyring' and KEYRING_AVAILABLE:
+            try:
+                keyring.delete_password(KEYRING_SERVICE_NAME, key)
+                logger.info(f"Deleted credential '{key}' from system keyring")
+                success = True
+            except Exception as e:
+                logger.debug(f"Failed to delete credential from keyring: {str(e)}")
+
+        elif t == 'vault' and HVAC_AVAILABLE:
+            client = _get_vault_client()
+            if client:
+                try:
+                    # Construct path based on environment
+                    if environment:
+                        secret_path = f"{VAULT_BASE_PATH}/{environment}"
+                    else:
+                        secret_path = VAULT_BASE_PATH
+
+                    # First read existing secrets
+                    try:
+                        response = client.secrets.kv.v2.read_secret_version(
+                            path=secret_path,
+                            mount_point='secret'
+                        )
+                        data = response['data']['data']
+                    except hvac.exceptions.InvalidPath:
+                        logger.debug(f"Secret path '{secret_path}' not found in Vault")
+                        continue
+
+                    # Remove the credential if it exists
+                    if key in data:
+                        del data[key]
+
+                        # Update the secret
+                        client.secrets.kv.v2.create_or_update_secret(
+                            path=secret_path,
+                            mount_point='secret',
+                            secret=data
+                        )
+
+                        logger.info(f"Deleted credential '{key}' from Vault at path '{secret_path}'")
+                        success = True
+                except Exception as e:
+                    logger.debug(f"Failed to delete credential from Vault: {str(e)}")
+
+        elif t == 'file':
+            creds_dir = os.environ.get("CP_ADMIN_CREDS_DIR", "/etc/cloud-platform/admin/secrets")
+
+            # Determine file path based on environment
+            if environment:
+                filepath = os.path.join(creds_dir, environment, "credentials.json")
+            else:
+                filepath = os.path.join(creds_dir, "credentials.json")
+
+            try:
+                if os.path.exists(filepath):
+                    with open(filepath, 'r') as f:
+                        data = json.load(f)
+
+                    if key in data:
+                        del data[key]
+
+                        with open(filepath, 'w') as f:
+                            json.dump(data, f, indent=2)
+
+                        logger.info(f"Deleted credential '{key}' from file {filepath}")
+                        success = True
+            except Exception as e:
+                logger.debug(f"Failed to delete credential from file: {str(e)}")
+
+    # Log the action
+    log_admin_action(
+        action="credential.delete",
+        status="success" if success else "failure",
+        details={
+            "credential_key": key,
+            "environment": environment or 'default',
+            "targets": targets_to_try
+        }
+    )
+
+    # Clear from cache if present
+    if CACHE_CREDENTIALS:
+        cache_key = f"{key}:{environment or 'default'}"
+        if cache_key in CREDENTIAL_CACHE:
+            del CREDENTIAL_CACHE[cache_key]
+
+    return success
+
+
+def rotate_credential(
+    key: str,
+    generator: Callable[[], str],
+    environment: Optional[str] = None,
+    target: str = 'vault',
+    deprecation_period: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Rotates a credential by generating a new one and storing it.
+
+    Args:
+        key: The name/key of the credential to rotate
+        generator: A function that generates the new credential value
+        environment: Optional environment name for namespacing
+        target: Where to store the new credential
+        deprecation_period: Optional period in seconds before the old
+                           credential becomes invalid
+
+    Returns:
+        Dict with new_value and old_value if successful
+
+    Raises:
+        AdminConfigurationError: If target storage is unavailable
+    """
+    # Generate timestamp for versioning
+    timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+
+    # Create key for old credential
+    old_key = f"{key}_old_{timestamp}"
+
+    try:
+        # Try to get the old credential
+        try:
+            old_value = get_credential(key, environment, log_access=False)
+            has_old = True
+        except AdminResourceNotFoundError:
+            old_value = None
+            has_old = False
+
+        # Generate new credential
+        new_value = generator()
+
+        # Store the new credential
+        if not store_credential(key, new_value, environment, target):
+            raise AdminConfigurationError(f"Failed to store new credential '{key}'")
+
+        # Store the old credential with timestamp if it existed
+        if has_old:
+            if not store_credential(old_key, old_value, environment, target,
+                                   expires_in=deprecation_period):
+                logger.warning(f"Failed to store old credential '{old_key}'")
+
+        # Log the rotation
+        log_admin_action(
+            action="credential.rotate",
+            status="success",
+            details={
+                "credential_key": key,
+                "old_credential_key": old_key if has_old else None,
+                "environment": environment or 'default',
+                "target": target,
+                "deprecation_period": deprecation_period
+            }
+        )
+
+        return {
+            "key": key,
+            "new_value": new_value,
+            "old_value": old_value,
+            "old_key": old_key if has_old else None,
+            "timestamp": timestamp,
+            "environment": environment,
+            "deprecation_period": deprecation_period
+        }
+
+    except Exception as e:
+        # Log the failure
+        log_admin_action(
+            action="credential.rotate",
+            status="failure",
+            details={
+                "credential_key": key,
+                "environment": environment or 'default',
+                "error": str(e)
+            }
+        )
+        raise
+
+
+# Additional utility functions
+
+def list_credentials(environment: Optional[str] = None) -> Dict[str, List[str]]:
+    """
+    List available credentials by source.
+
+    This function doesn't return the actual credential values,
+    only the keys that are available.
+
+    Args:
+        environment: Optional environment name for namespacing
+
+    Returns:
+        Dict mapping sources to lists of available credential keys
+    """
+    result = {
+        'vault': [],
+        'keyring': [],
+        'env': [],
+        'file': []
+    }
+
+    # Check environment variables
+    for env_var in os.environ:
+        if env_var.startswith(ENV_CRED_PREFIX):
+            key = env_var[len(ENV_CRED_PREFIX):].lower()
+            result['env'].append(key)
+
+    # Check keyring if available
+    if KEYRING_AVAILABLE:
+        # Note: There's no standard way to list all keys in a keyring
+        # This is inherently limited by the keyring backends
+        pass
+
+    # Check file
+    creds_dir = os.environ.get("CP_ADMIN_CREDS_DIR", "/etc/cloud-platform/admin/secrets")
+    if environment:
+        filepath = os.path.join(creds_dir, f"{environment}.json")
+    else:
+        filepath = os.path.join(creds_dir, "credentials.json")
+
+    try:
+        if os.path.exists(filepath):
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+                result['file'] = list(data.keys())
+    except Exception as e:
+        logger.debug(f"Failed to read credentials file: {str(e)}")
+
+    # Check Vault if available
+    if HVAC_AVAILABLE:
+        client = _get_vault_client()
+        if client:
+            try:
+                # Construct path based on environment
+                if environment:
+                    secret_path = f"{VAULT_BASE_PATH}/{environment}"
+                else:
+                    secret_path = VAULT_BASE_PATH
+
+                response = client.secrets.kv.v2.read_secret_version(
+                    path=secret_path,
+                    mount_point='secret'
+                )
+                result['vault'] = list(response['data']['data'].keys())
+            except Exception as e:
+                logger.debug(f"Failed to read Vault secrets: {str(e)}")
+
+    return result
+
+
+def clear_credential_cache() -> int:
+    """
+    Clears the in-memory credential cache.
+
+    Returns:
+        Number of cache entries cleared
+    """
+    count = len(CREDENTIAL_CACHE)
+    CREDENTIAL_CACHE.clear()
+    logger.debug(f"Cleared {count} entries from credential cache")
+    return count
+
+
+if __name__ == "__main__":
+    # Simple self-test
+    print("Testing secure credential utilities...")
+
+    # Test credential storage and retrieval
+    test_key = "test_credential"
+    test_value = f"test_value_{int(time.time())}"
+
+    print(f"Storing test credential: {test_key}")
+    success = False
+
+    # Try to store in keyring first
+    if KEYRING_AVAILABLE:
+        success = store_credential(test_key, test_value, target='keyring')
+        print(f"Store in keyring: {'Success' if success else 'Failed'}")
+    else:
+        print("Keyring not available")
+
+    # Fall back to file storage
+    if not success:
+        success = store_credential(test_key, test_value, environment='dev', target='file')
+        print(f"Store in file: {'Success' if success else 'Failed'}")
+
+    # Retrieve the credential
+    if success:
+        try:
+            retrieved = get_credential(test_key, environment='dev')
+            print(f"Retrieved credential matches: {retrieved == test_value}")
+
+            # Test secure context manager
+            with secure_credential(test_key, environment='dev') as value:
+                print(f"Secure context manager works: {value == test_value}")
+
+            # Clean up
+            delete_credential(test_key, environment='dev')
+            print("Deleted test credential")
+
+        except Exception as e:
+            print(f"Error during retrieval: {e}")
+    else:
+        print("Skipping retrieval test")
+
+    print("Self-test completed")

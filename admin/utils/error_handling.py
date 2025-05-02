@@ -9,8 +9,11 @@ logging, reporting, and exit codes for administrative errors.
 import logging
 import sys
 import traceback
-from typing import Optional, Dict, Any, Tuple, List, Union, Callable
-from datetime import timezone
+import time
+import random
+from typing import Optional, Dict, Any, Tuple, List, Union, Callable, Type, TypeVar
+from datetime import timezone, datetime
+from functools import wraps
 
 # Attempt to import admin-specific logging and core logging
 try:
@@ -31,6 +34,9 @@ except ImportError:
     def log_admin_action(*args, **kwargs) -> None:
         pass
 
+# Type variable for decorator return type preservation
+F = TypeVar('F', bound=Callable[..., Any])
+
 # --- Standard Exit Codes (Consistent with admin CLI tools) ---
 EXIT_SUCCESS = 0
 EXIT_ERROR = 1  # General/unexpected error
@@ -40,6 +46,15 @@ EXIT_VALIDATION_ERROR = 4
 EXIT_AUTHENTICATION_ERROR = 5
 EXIT_CONFIGURATION_ERROR = 6
 EXIT_OPERATION_CANCELLED = 7
+EXIT_CONNECTIVITY_ERROR = 8  # Network/connectivity issues
+EXIT_TIMEOUT_ERROR = 9       # Operation timed out
+EXIT_EXTERNAL_SERVICE_ERROR = 10  # Error in external service
+
+# --- Error Severity Levels ---
+SEVERITY_INFO = "info"
+SEVERITY_WARNING = "warning"
+SEVERITY_ERROR = "error"
+SEVERITY_CRITICAL = "critical"
 
 # --- Custom Admin Exception Classes ---
 
@@ -87,6 +102,56 @@ class AdminOperationCancelledError(AdminError):
     def __init__(self, message: str = "Operation cancelled by user.", details: Optional[Dict[str, Any]] = None):
         super().__init__(message, EXIT_OPERATION_CANCELLED, details)
 
+class AdminConnectivityError(AdminError):
+    """Raised for network or connectivity issues."""
+    def __init__(
+        self, message: str = "Network or connectivity error.",
+        service: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None
+    ):
+        if service:
+            message = f"Connection error to {service}: {message}"
+        enhanced_details = {"service": service} if service else {}
+        if details:
+            enhanced_details.update(details)
+        super().__init__(message, EXIT_CONNECTIVITY_ERROR, enhanced_details)
+
+class AdminTimeoutError(AdminError):
+    """Raised when an operation times out."""
+    def __init__(
+        self, message: str = "Operation timed out.",
+        operation: Optional[str] = None,
+        timeout: Optional[float] = None,
+        details: Optional[Dict[str, Any]] = None
+    ):
+        enhanced_message = message
+        if operation:
+            enhanced_message = f"{operation} {enhanced_message}"
+        enhanced_details = {}
+        if timeout is not None:
+            enhanced_details["timeout"] = timeout
+        if details:
+            enhanced_details.update(details)
+        super().__init__(enhanced_message, EXIT_TIMEOUT_ERROR, enhanced_details)
+
+class AdminExternalServiceError(AdminError):
+    """Raised when an external service returns an error."""
+    def __init__(
+        self, message: str = "External service error.",
+        service: Optional[str] = None,
+        status_code: Optional[int] = None,
+        details: Optional[Dict[str, Any]] = None
+    ):
+        enhanced_message = message
+        if service:
+            enhanced_message = f"{service} service error: {message}"
+        enhanced_details = {}
+        if status_code is not None:
+            enhanced_details["status_code"] = status_code
+        if details:
+            enhanced_details.update(details)
+        super().__init__(enhanced_message, EXIT_EXTERNAL_SERVICE_ERROR, enhanced_details)
+
 
 # --- Error Handling Functions ---
 
@@ -94,7 +159,8 @@ def handle_admin_error(
     error: Exception,
     context: Optional[str] = None,
     log_audit: bool = True,
-    exit_on_error: bool = True
+    exit_on_error: bool = True,
+    collect_diagnostics: bool = False
 ) -> Tuple[str, int]:
     """
     Handles exceptions caught in administrative tools.
@@ -107,6 +173,7 @@ def handle_admin_error(
         context: Optional string describing the context where the error occurred.
         log_audit: Whether to log this error as a failed admin action.
         exit_on_error: Whether to exit the script after handling the error.
+        collect_diagnostics: Whether to collect additional system diagnostics.
 
     Returns:
         A tuple containing the formatted error message and the exit code.
@@ -115,7 +182,16 @@ def handle_admin_error(
         error_message = error.message
         exit_code = error.exit_code
         details = error.details
-        log_level = logging.WARNING if exit_code in [EXIT_VALIDATION_ERROR, EXIT_OPERATION_CANCELLED] else logging.ERROR
+
+        # Determine log level based on error type
+        if exit_code in [EXIT_VALIDATION_ERROR, EXIT_OPERATION_CANCELLED]:
+            log_level = logging.WARNING
+        elif exit_code in [EXIT_CONNECTIVITY_ERROR, EXIT_TIMEOUT_ERROR]:
+            log_level = logging.ERROR
+        elif exit_code == EXIT_EXTERNAL_SERVICE_ERROR:
+            log_level = logging.ERROR
+        else:
+            log_level = logging.ERROR
     else:
         # Handle unexpected errors
         error_message = f"An unexpected error occurred: {str(error)}"
@@ -125,12 +201,22 @@ def handle_admin_error(
 
     full_context = f"Context: {context} | Error: {error_message}" if context else f"Error: {error_message}"
 
+    # Add diagnostics if requested
+    if collect_diagnostics and (exit_code in [EXIT_ERROR, EXIT_CONNECTIVITY_ERROR, EXIT_TIMEOUT_ERROR, EXIT_EXTERNAL_SERVICE_ERROR]):
+        diagnostic_info = _collect_error_diagnostics(error)
+        if details is None:
+            details = {}
+        details["diagnostics"] = diagnostic_info
+
     # Log the error using standard logger
     if log_level >= logging.ERROR:
         # Include exception info for more severe errors
         logger.log(log_level, full_context, exc_info=(exit_code == EXIT_ERROR))
     else:
         logger.log(log_level, full_context)
+
+    # Determine error severity for audit logs
+    severity = _map_exit_code_to_severity(exit_code)
 
     # Log admin action failure if requested and applicable
     if log_audit and exit_code != EXIT_OPERATION_CANCELLED:
@@ -141,6 +227,7 @@ def handle_admin_error(
             log_admin_action(
                 action=f"error.{action_name}",
                 status="failure",
+                severity=severity,
                 details={
                     "error_message": str(error),
                     "error_type": error.__class__.__name__,
@@ -155,6 +242,8 @@ def handle_admin_error(
     user_message = f"Error: {error_message}"
     if exit_code == EXIT_ERROR:  # Add more info for unexpected errors
         user_message += " Please check logs for details."
+    elif exit_code == EXIT_CONNECTIVITY_ERROR:
+        user_message += " Please check your network connectivity and try again."
 
     # Print to stderr for CLI tools
     print(user_message, file=sys.stderr)
@@ -163,6 +252,88 @@ def handle_admin_error(
         sys.exit(exit_code)
 
     return user_message, exit_code
+
+
+def _map_exit_code_to_severity(exit_code: int) -> str:
+    """
+    Maps exit codes to severity levels for audit logging.
+
+    Args:
+        exit_code: The exit code to map
+
+    Returns:
+        Severity level string
+    """
+    severity_map = {
+        EXIT_ERROR: SEVERITY_ERROR,
+        EXIT_PERMISSION_ERROR: SEVERITY_WARNING,
+        EXIT_RESOURCE_ERROR: SEVERITY_WARNING,
+        EXIT_VALIDATION_ERROR: SEVERITY_INFO,
+        EXIT_AUTHENTICATION_ERROR: SEVERITY_WARNING,
+        EXIT_CONFIGURATION_ERROR: SEVERITY_ERROR,
+        EXIT_OPERATION_CANCELLED: SEVERITY_INFO,
+        EXIT_CONNECTIVITY_ERROR: SEVERITY_WARNING,
+        EXIT_TIMEOUT_ERROR: SEVERITY_WARNING,
+        EXIT_EXTERNAL_SERVICE_ERROR: SEVERITY_WARNING
+    }
+    return severity_map.get(exit_code, SEVERITY_ERROR)
+
+
+def _collect_error_diagnostics(error: Exception) -> Dict[str, Any]:
+    """
+    Collects system and environment diagnostics to help with troubleshooting.
+
+    Args:
+        error: The exception that occurred
+
+    Returns:
+        Dictionary with diagnostic information
+    """
+    diagnostics = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "system_info": {
+            "platform": sys.platform,
+            "python_version": sys.version,
+            "pid": os.getpid() if "os" in sys.modules else "unknown"
+        }
+    }
+
+    # Add error attributes if present
+    error_attrs = {}
+    for attr in dir(error):
+        if not attr.startswith("_") and attr not in ["args", "with_traceback"]:
+            try:
+                value = getattr(error, attr)
+                if not callable(value):
+                    error_attrs[attr] = str(value)
+            except Exception:
+                pass
+
+    if error_attrs:
+        diagnostics["error_attributes"] = error_attrs
+
+    # Try to add network info for connectivity errors
+    if isinstance(error, AdminConnectivityError) or "ConnectionError" in error.__class__.__name__:
+        try:
+            import socket
+            diagnostics["network_info"] = {
+                "hostname": socket.gethostname(),
+                "fqdn": socket.getfqdn()
+            }
+
+            # Try to get public IP (without making external requests)
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))  # Connect to a public DNS
+                diagnostics["network_info"]["local_ip"] = s.getsockname()[0]
+                s.close()
+            except Exception:
+                pass
+
+        except ImportError:
+            pass
+
+    return diagnostics
 
 
 def format_error_for_output(
@@ -301,6 +472,7 @@ def handle_common_exceptions(func):
             # This function can now raise FileNotFoundError and it will
             # be translated to AdminResourceNotFoundError automatically
     """
+    @wraps(func)
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
@@ -317,6 +489,10 @@ def handle_common_exceptions(func):
             raise AdminConfigurationError(f"Missing dependency: {e}")
         except NotImplementedError as e:
             raise AdminConfigurationError(f"Feature not implemented: {e}")
+        except ConnectionError as e:
+            raise AdminConnectivityError(str(e))
+        except TimeoutError as e:
+            raise AdminTimeoutError(str(e))
         except Exception as e:
             # Don't wrap AdminError exceptions
             if isinstance(e, AdminError):
@@ -324,3 +500,282 @@ def handle_common_exceptions(func):
             # Let other exceptions pass through to be handled by the caller
             raise
     return wrapper
+
+
+class ExponentialBackoff:
+    """
+    Implements exponential backoff for retries with jitter.
+
+    Attributes:
+        base_delay: Base delay in seconds
+        max_delay: Maximum delay in seconds
+        max_retries: Maximum number of retries
+        backoff_factor: Multiplier for each retry
+        jitter: Whether to add random jitter
+    """
+
+    def __init__(
+        self,
+        base_delay: float = 1.0,
+        max_delay: float = 60.0,
+        max_retries: int = 5,
+        backoff_factor: float = 2.0,
+        jitter: bool = True
+    ):
+        self.base_delay = base_delay
+        self.max_delay = max_delay
+        self.max_retries = max_retries
+        self.backoff_factor = backoff_factor
+        self.jitter = jitter
+
+    def get_delay(self, attempt: int) -> float:
+        """
+        Calculate the delay for a specific retry attempt.
+
+        Args:
+            attempt: The current attempt number (0-based)
+
+        Returns:
+            Delay time in seconds
+        """
+        if attempt <= 0:
+            return 0
+
+        # Calculate exponential delay
+        delay = min(self.max_delay, self.base_delay * (self.backoff_factor ** (attempt - 1)))
+
+        # Add jitter if enabled (up to 25% of the delay)
+        if self.jitter:
+            jitter_amount = delay * 0.25
+            delay = delay - jitter_amount + (random.random() * jitter_amount * 2)
+
+        return delay
+
+
+def retry_operation(
+    max_attempts: int = 3,
+    retry_exceptions: Tuple[Type[Exception], ...] = (
+        ConnectionError,
+        TimeoutError
+    ),
+    exclude_exceptions: Optional[Tuple[Type[Exception], ...]] = None,
+    base_delay: float = 1.0,
+    max_delay: float = 30.0,
+    backoff_factor: float = 2.0,
+    jitter: bool = True,
+    on_retry_callback: Optional[Callable[[Exception, int, float], None]] = None
+) -> Callable[[F], F]:
+    """
+    Decorator for retrying functions with exponential backoff.
+
+    Args:
+        max_attempts: Maximum number of retry attempts
+        retry_exceptions: Tuple of exception types to retry on
+        exclude_exceptions: Tuple of exception types to exclude from retries
+        base_delay: Initial delay between retries in seconds
+        max_delay: Maximum delay between retries in seconds
+        backoff_factor: Multiplier for the delay after each retry
+        jitter: Whether to add random jitter to the delay
+        on_retry_callback: Optional function to call before each retry
+
+    Returns:
+        Decorated function
+    """
+    def decorator(func: F) -> F:
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            backoff = ExponentialBackoff(
+                base_delay=base_delay,
+                max_delay=max_delay,
+                max_retries=max_attempts-1,
+                backoff_factor=backoff_factor,
+                jitter=jitter
+            )
+
+            last_exception = None
+
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    # Don't retry if the exception should be excluded
+                    if exclude_exceptions and isinstance(e, exclude_exceptions):
+                        raise
+
+                    # Only retry for specified exceptions
+                    if not isinstance(e, retry_exceptions):
+                        raise
+
+                    last_exception = e
+
+                    # Break if this was the last attempt
+                    if attempt >= max_attempts - 1:
+                        break
+
+                    # Calculate delay for this attempt
+                    delay = backoff.get_delay(attempt + 1)
+
+                    # Call retry callback if provided
+                    if on_retry_callback:
+                        try:
+                            on_retry_callback(e, attempt + 1, delay)
+                        except Exception as callback_error:
+                            logger.warning(f"Error in retry callback: {callback_error}")
+
+                    # Log the retry
+                    logger.warning(
+                        f"Retry {attempt+1}/{max_attempts} after error: {e}. "
+                        f"Retrying in {delay:.2f} seconds."
+                    )
+
+                    # Wait before the next attempt
+                    time.sleep(delay)
+
+            # If we get here, we've exhausted our retries
+            if isinstance(last_exception, ConnectionError):
+                raise AdminConnectivityError(str(last_exception), details={
+                    "attempts": max_attempts,
+                    "original_error": str(last_exception)
+                })
+            elif isinstance(last_exception, TimeoutError):
+                raise AdminTimeoutError(str(last_exception), details={
+                    "attempts": max_attempts,
+                    "original_error": str(last_exception)
+                })
+            else:
+                # Re-raise the last exception
+                if last_exception is not None:
+                    raise last_exception
+                else:
+                    raise RuntimeError("Retry operation failed without capturing an exception.")
+
+        return wrapper
+    return decorator
+
+
+def with_error_boundary(
+    boundary_name: str = "operation",
+    reraise: bool = True,
+    log_level: str = SEVERITY_ERROR,
+    error_mapper: Optional[Dict[Type[Exception], Type[AdminError]]] = None
+) -> Callable[[F], F]:
+    """
+    Creates a boundary around operations for consolidated error handling.
+
+    Useful for grouping related operations and providing consistent
+    error handling patterns across multiple functions.
+
+    Args:
+        boundary_name: Name of the boundary for logging and context
+        reraise: Whether to re-raise caught exceptions
+        log_level: Severity level for logging errors
+        error_mapper: Dictionary mapping exception types to admin error types
+
+    Returns:
+        Decorated function with error boundary
+    """
+    def decorator(func: F) -> F:
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            logger.debug(f"Entering error boundary: {boundary_name}")
+
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                # Handle the exception
+                logger_method = getattr(logger, log_level.lower(), logger.error)
+                logger_method(f"Error in {boundary_name}: {str(e)}", exc_info=True)
+
+                # Transform the error if a mapper is provided
+                if error_mapper and isinstance(e, tuple(error_mapper.keys())):
+                    error_class = error_mapper[type(e)]
+                    transformed_error = error_class(str(e))
+
+                    # Add original exception as cause
+                    transformed_error.__cause__ = e
+
+                    # Re-raise transformed error if requested
+                    if reraise:
+                        raise transformed_error
+
+                    return None
+
+                # Re-raise original exception if requested
+                if reraise:
+                    raise
+
+                return None
+            finally:
+                logger.debug(f"Exiting error boundary: {boundary_name}")
+
+        return wrapper
+    return decorator
+
+
+def categorize_error(error: Exception) -> Dict[str, Any]:
+    """
+    Categorizes an error for consistent reporting and handling.
+
+    Analyzes the error type and content to determine its category,
+    severity, and relevant attributes for structured logging and
+    error handling.
+
+    Args:
+        error: The exception to categorize
+
+    Returns:
+        Dictionary with error category information
+    """
+    result = {
+        "type": error.__class__.__name__,
+        "message": str(error),
+        "category": "unknown",
+        "severity": SEVERITY_ERROR
+    }
+
+    # Categorize by error type
+    if isinstance(error, AdminError):
+        result["category"] = "admin"
+        result["exit_code"] = error.exit_code
+        result["details"] = error.details
+        result["severity"] = _map_exit_code_to_severity(error.exit_code)
+    elif isinstance(error, (PermissionError, OSError)) or "Permission" in error.__class__.__name__:
+        result["category"] = "permission"
+        result["severity"] = SEVERITY_WARNING
+    elif isinstance(error, FileNotFoundError) or "NotFound" in error.__class__.__name__:
+        result["category"] = "not_found"
+        result["severity"] = SEVERITY_WARNING
+    elif isinstance(error, (ValueError, TypeError, KeyError)) or "Value" in error.__class__.__name__:
+        result["category"] = "validation"
+        result["severity"] = SEVERITY_WARNING
+    elif isinstance(error, (ConnectionError, TimeoutError)) or any(net_err in error.__class__.__name__
+                                                                for net_err in ["Connection", "Timeout", "Socket"]):
+        result["category"] = "connectivity"
+        result["severity"] = SEVERITY_ERROR
+    elif "Configuration" in error.__class__.__name__:
+        result["category"] = "configuration"
+        result["severity"] = SEVERITY_ERROR
+
+    # Extract additional attributes
+    try:
+        # Include HTTP status code if available
+        if hasattr(error, "status_code"):
+            result["status_code"] = error.status_code
+        elif hasattr(error, "code"):
+            result["status_code"] = error.code
+
+        # Include response data if available
+        if hasattr(error, "response"):
+            try:
+                result["response"] = error.response
+            except:
+                pass
+
+    except Exception:
+        pass
+
+    return result
+
+# Standard import for better IDE support and proper module exports
+import os
+import json
