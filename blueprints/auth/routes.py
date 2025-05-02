@@ -28,7 +28,7 @@ from flask import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
-from forms.auth_forms import (
+from models.forms.auth_forms import (
     LoginForm, RegisterForm, ForgotPasswordForm, ResetPasswordForm,
     ChangePasswordForm, MFASetupForm, MFAVerifyForm, ConfirmPasswordForm
 )
@@ -38,10 +38,10 @@ from blueprints.auth.utils import (
     record_login_failure, check_bruteforce_attempts, reset_login_attempts,
     audit_security_event
 )
-from services.auth_service import AuthService
 from extensions import limiter, db, cache, metrics
-from models.audit_log import AuditLog
-from models.user import User
+from models import User
+from models.security import AuditLog
+from services.auth_service import AuthService
 
 # Create blueprint with template folder setting
 auth_bp = Blueprint('auth', __name__, template_folder='templates')

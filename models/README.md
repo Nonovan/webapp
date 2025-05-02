@@ -14,7 +14,7 @@ This package defines the application's data model layer with a focus on:
 - Bulk operations for efficient data manipulation
 - Advanced query capabilities with pagination and filtering
 
-The models implement the Active Record pattern through SQLAlchemy, where each model instance represents a row in the database and provides methods for CRUD operations. This approach encapsulates database operations within the models themselves, promoting code organization and reusability.
+The models implement the Active Record pattern through SQLAlchemy ORM, where each model instance represents a row in the database and provides methods for CRUD operations. This approach encapsulates database operations within the models themselves, promoting code organization and reusability.
 
 ## Directory Structure
 
@@ -23,13 +23,22 @@ models/
 ├── __init__.py              # Package exports and event listeners
 ├── base.py                  # Base model classes and mixins
 ├── README.md                # This documentation
+├── alerts/                  # Alert management models
+│   ├── __init__.py          # Alert module exports
+│   ├── alert.py             # Core alert model
+│   ├── alert_correlation.py # Alert correlation functionality
+│   ├── alert_escalation.py  # Severity escalation management
+│   ├── alert_metrics.py     # Alert statistics and trends
+│   ├── alert_notification.py # Alert delivery functionality
+│   ├── alert_suppression.py # Alert filtering and silencing
+│   └── README.md            # Alert module documentation
 ├── auth/                    # Authentication and user management
 │   ├── __init__.py          # Auth module exports
 │   ├── api_key.py           # API key model for programmatic authentication
 │   ├── login_attempt.py     # Login attempt tracking and brute force protection
 │   ├── mfa_backup_code.py   # Backup codes for multi-factor authentication
 │   ├── mfa_method.py        # Multi-factor authentication methods
-│   ├── mfa_totp.py          # TOTP-based multi-factor authentication
+│   ├── mfa_totp.py          # Time-based OTP implementation
 │   ├── mfa_verification.py  # MFA verification attempt tracking
 │   ├── oauth_provider.py    # OAuth provider and connection models
 │   ├── permission.py        # Permission model for RBAC
@@ -41,7 +50,7 @@ models/
 │   ├── security_approval.py # Approval workflows for sensitive operations
 │   ├── user.py              # User account model
 │   ├── user_activity.py     # User activity logging
-│   └── user_session.py      # User session tracking
+│   └── user_session.py      # Session tracking and management
 ├── cloud/                   # Cloud infrastructure models
 │   ├── __init__.py          # Cloud module exports
 │   ├── cloud_alert.py       # Alert configurations
@@ -68,6 +77,9 @@ models/
 │   ├── post_media.py        # Media associations for posts
 │   ├── README.md            # Content module documentation
 │   └── tag.py               # Content tagging
+├── forms/                   # Form models for input handling
+│   ├── __init__.py          # Forms module exports
+│   └── auth_forms.py        # Authentication-related forms
 ├── ics/                     # Industrial Control Systems
 │   ├── __init__.py          # ICS module exports
 │   ├── ics_control_log.py   # Control operation logging
@@ -84,7 +96,7 @@ models/
 │   ├── security_scan.py     # Security scan results
 │   ├── system_config.py     # Security configurations
 │   ├── threat_intelligence.py # Threat intelligence data
-│   └── vulnerability_record.py # Vulnerability management
+│   └── vulnerability.py     # Vulnerability management
 └── storage/                 # Storage-related models
     ├── __init__.py          # Storage module exports
     ├── file_metadata.py     # File metadata management
@@ -166,6 +178,104 @@ models/
     - Alert metrics and trend analysis
     - Environment and service-specific alerting
     - SLA compliance tracking
+
+## Model Migrations & Schema Management
+
+The models package integrates with database migrations to manage schema evolution and changes in a controlled manner. This section outlines how models relate to database schema changes and best practices for handling model modifications.
+
+### Migration Integration
+
+All model schema changes must be accompanied by database migrations to ensure:
+
+- Data integrity during schema changes
+- Backward compatibility with existing data
+- Safe deployment across environments
+- Proper version control of database structure
+
+### Schema Evolution Best Practices
+
+When modifying models or creating new ones:
+
+1. **Generate Migrations**: Always create migration files for schema changes
+
+   ```bash
+   flask db migrate -m "Add user preferences table"
+   ```
+
+2. **Review Migration**: Always review auto-generated migrations for accuracy
+
+    ```bash
+    # After generating, inspect the migration file
+    # Modify if necessary to ensure data preservation
+    ```
+
+3. **Test Migration Path**: Verify both upgrade and downgrade paths
+
+    ```bash
+    # Test upgrade
+    flask db upgrade
+
+    # Test downgrade if needed
+    flask db downgrade
+    ```
+
+4. **Data Migration**: Include data transformations when necessary
+
+    ```bah
+    # Example migration with data transformation
+    def upgrade():
+        # Add column with nullable constraint initially
+        op.add_column('users', sa.Column('full_name', sa.String(255), nullable=True))
+
+        # Update existing rows
+        op.execute("UPDATE users SET full_name = first_name || ' ' || last_name")
+
+        # Now make column non-nullable if required
+        op.alter_column('users', 'full_name', nullable=False)
+    ```
+
+5. **Transaction Safety**: Ensure migrations are transactional when possible
+
+    ```bash
+    # Ensure transaction safety in migrations
+    with op.batch_alter_table('table_name') as batch_op:
+        batch_op.add_column(sa.Column('new_column', sa.Integer(), nullable=False, server_default='0'))
+    ```
+
+6. **Avoid Online Schema Changes**: For large tables, plan migrations during maintenance windows
+
+### Model Versioning
+
+Models may evolve over time through these common patterns:
+
+1. **Additive Changes**: Adding new fields (preferred approach)
+   - Always provide default values for existing records
+   - Use nullable fields when appropriate
+
+2. **Column Modifications**: Changing field properties
+   - May require data transformation
+   - Consider temporary columns for data safety
+
+3. **Relationship Changes**: Modifying associations between models
+   - Update related models and foreign keys
+   - Consider impact on existing relationships
+
+4. **Deprecation Path**: Phasing out fields or models
+   - Mark as deprecated before removal
+   - Provide transition period before deletion
+
+### Schema Documentation
+
+- Keep an entity relationship diagram (ERD) updated with model changes
+- Document significant schema changes in version control
+- Include context and business drivers for significant changes
+- Reference related requirements or tickets in migration commits
+
+For detailed guidance on database migrations:
+
+- [Migration Workflow Guide](/docs/development/migrations.md)
+- [Database Versioning Best Practices](/docs/operations/database_management.md)
+- [Production Migration Checklist](/docs/operations/deployment_checklist.md)
 
 ## Notable Files
 

@@ -18,6 +18,7 @@ code organization and reusability.
 """
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List, Type, Union, cast, Set, TypeVar
 
@@ -95,6 +96,18 @@ from .alerts.alert_escalation import AlertEscalation
 from .alerts.alert_suppression import AlertSuppression
 from .alerts.alert_metrics import AlertMetrics
 
+# Forms
+# Handle form models conditionally
+try:
+    from .forms.auth_forms import (
+        LoginForm, RegisterForm, ForgotPasswordForm, ResetPasswordForm,
+        ChangePasswordForm, MFASetupForm, MFAVerifyForm, ConfirmPasswordForm
+    )
+    FORMS_AVAILABLE = True
+except ImportError:
+    FORMS_AVAILABLE = False
+    logger.debug("Auth form models not available")
+
 # Import threat intelligence conditionally
 try:
     from .security.threat_intelligence import ThreatIndicator, ThreatFeed
@@ -149,6 +162,13 @@ if THREAT_INTELLIGENCE_AVAILABLE:
 if SECURITY_BASELINE_AVAILABLE:
     __all__.append('SecurityBaseline')
 
+# Add form models if available
+if FORMS_AVAILABLE:
+    __all__.extend([
+        'LoginForm', 'RegisterForm', 'ForgotPasswordForm', 'ResetPasswordForm',
+        'ChangePasswordForm', 'MFASetupForm', 'MFAVerifyForm', 'ConfirmPasswordForm'
+    ])
+
 # Define constants for security-sensitive fields
 # This centralized list makes it easier to maintain and update
 SENSITIVE_FIELDS: Set[str] = {
@@ -159,7 +179,7 @@ SENSITIVE_FIELDS: Set[str] = {
     'encryption_key', 'security_answer', 'verification_code',
     'passphrase', 'certificate_key', 'client_secret', 'mfa_secret',
     'cookie_value', 'csrf_token', 'session_key', 'oauth_token',
-    'jwt_secret', 'otac', 'recovery_code', 'signature'
+    'jwt_secret', 'otac', 'recovery_code', 'signature', 'credential'
 }
 
 # Define pattern fragments that indicate sensitive data
@@ -609,7 +629,6 @@ def _looks_like_token(value: str) -> bool:
         return False
 
     # Check for common token patterns
-    import re
     # JWT pattern (header.payload.signature)
     if re.match(r'^ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$', value):
         return True
