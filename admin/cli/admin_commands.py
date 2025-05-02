@@ -24,20 +24,22 @@ from typing import Dict, List, Any, Optional, Callable, Tuple, Union
 # Add project root to path to allow imports from core packages
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.loggings import get_logger
-from core.security import (
-    authenticate_user, verify_permission, audit_log,
-    require_mfa, check_ip_restriction
-)
 from admin.utils.admin_auth import (
     get_admin_session, check_permission,
     require_permission, verify_mfa_token
 )
 from admin.utils.audit_utils import log_admin_action
 from admin.utils.secure_credentials import secure_credential
+from core.security import require_mfa
+from core.security.cs_audit import log_security_event as audit_log
+from core.security.cs_authentication import authenticate_user, is_ip_in_whitelist
+from core.security.cs_authorization import verify_permission
 
-# Initialize logger
-logger = get_logger(__name__)
+# Core utilities
+from core.loggings import logger as core_logger
+
+# Create a module-level logger
+logger = logging.getLogger(__name__)
 
 # Constants
 VERSION = "1.0.0"

@@ -1036,3 +1036,114 @@ def is_request_secure() -> bool:
         metrics.increment('security.insecure_request')
 
     return False
+
+
+def authenticate_user(username: str, password: str, ip_address: str = None, user_agent: str = None) -> dict:
+    """
+    Authenticate a user with username and password.
+
+    This function validates user credentials against the database and handles
+    security controls like failed login tracking, account lockouts, and audit logging.
+
+    Args:
+        username: The username to authenticate
+        password: The password to verify
+        ip_address: The IP address of the client (optional)
+        user_agent: The user agent string of the client (optional)
+
+    Returns:
+        dict: Authentication result with keys:
+            - success: Boolean indicating if authentication succeeded
+            - user_id: ID of the authenticated user if successful
+            - token: JWT token if authentication succeeded
+            - requires_mfa: Boolean indicating if MFA is required
+            - error: Error message if authentication failed
+    """
+    from flask import current_app, request, has_app_context
+    from models.auth import User
+    from extensions import db
+    from .cs_audit import log_security_event
+
+    # Sanitize input
+    from .cs_utils import sanitize_username
+    username = sanitize_username(username) if username else ""
+
+    # Default values for tracking
+    if not ip_address and has_app_context() and request:
+        ip_address = request.remote_addr
+
+    # Attempt to find the user
+    user = User.query.filter_by(username=username).first()
+
+    # If user doesn't exist or password is invalid
+    if not user or not user.check_password(password):
+        # Record the failed attempt if user exists
+        if user:
+            user.record_failed_login()
+            db.session.commit()
+
+        # Log the security event
+        log_security_event(
+            event_type="login_failed",
+            description=f"Failed login attempt for user: {username}",
+            severity="warning",
+            ip_address=ip_address,
+            user_id=user.id if user else None
+        )
+
+        return {"success": False, "error": "Invalid username or password"}
+
+    # Check if account is locked
+    if hasattr(user, 'is_locked') and user.is_locked():
+        log_security_event(
+            event_type="login_blocked",
+            description=f"Login attempt on locked account: {username}",
+            severity="warning",
+            ip_address=ip_address,
+            user_id=user.id
+        )
+
+        return {"success": False, "error": "Account is locked due to too many failed attempts"}
+
+    # Check if account is inactive
+    if hasattr(user, 'status') and user.status != 'active':
+        log_security_event(
+            event_type="login_blocked",
+            description=f"Login attempt on inactive account: {username}",
+            severity="warning",
+            ip_address=ip_address,
+            user_id=user.id
+        )
+
+        return {"success": False, "error": f"Account is {user.status}"}
+
+    # Authentication successful, record the successful login
+    if hasattr(user, 'update_last_login'):
+        user.update_last_login()
+        user.reset_failed_logins()
+        db.session.commit()
+
+    # Generate token for the user
+    token = user.generate_token() if hasattr(user, 'generate_token') else None
+
+    # Check if MFA is required
+    requires_mfa = False
+    if hasattr(user, 'two_factor_enabled'):
+        requires_mfa = user.two_factor_enabled
+
+    # Log successful authentication
+    log_security_event(
+        event_type="login_success",
+        description=f"Successful login: {username}",
+        severity="info",
+        ip_address=ip_address,
+        user_id=user.id,
+        details={"user_agent": user_agent}
+    )
+
+    return {
+        "success": True,
+        "user_id": user.id,
+        "token": token,
+        "requires_mfa": requires_mfa
+    }

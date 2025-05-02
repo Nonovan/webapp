@@ -26,21 +26,24 @@ from typing import Dict, List, Any, Optional, Tuple, Union, Set
 # Add project root to path to allow imports from core packages
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.loggings import get_logger
-from core.security import audit_log, require_permission, generate_password
+
 from admin.utils.admin_auth import (
     get_admin_session, check_permission,
     require_permission as require_admin_permission,
     verify_mfa_token
 )
 from admin.utils.audit_utils import log_admin_action
-from models.auth.user import User
-from models.auth.role import Role
+from admin.utils.security_utils import generate_password
+from core.security.cs_audit import log_security_event
+from models.auth import User, Role
 from models.auth.permission import Permission
 from extensions import db
 
-# Initialize logger
-logger = get_logger(__name__)
+# Core utilities
+from core.loggings import logger as core_logger
+
+# Create a module-level logger
+logger = logging.getLogger(__name__)
 
 # Constants
 VERSION = "1.0.0"

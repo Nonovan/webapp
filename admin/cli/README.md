@@ -8,6 +8,12 @@ This directory contains command-line interface tools for administrative tasks in
 - [Key Components](#key-components)
 - [Directory Structure](#directory-structure)
 - [Usage](#usage)
+  - [Core Command Framework](#core-command-framework)
+  - [User Administration](#user-administration)
+  - [User Import](#user-import)
+  - [Permission Management](#permission-management)
+  - [System Configuration](#system-configuration)
+  - [Security Administration](#security-administration)
 - [Best Practices & Security](#best-practices--security)
 - [Common Features](#common-features)
 - [Related Documentation](#related-documentation)
@@ -55,12 +61,14 @@ The Admin CLI tools provide command-line interfaces for performing administrativ
   - MFA requirement management
   - User locking and unlocking
   - User permission and role assignment
+  - Structured data import with validation
 
 ## Directory Structure
 
 ```plaintext
 admin/cli/
 ├── README.md              # This documentation
+├── __init__.py            # Package initialization and shared utilities
 ├── admin_commands.py      # Core command registry and framework
 ├── grant_permissions.py   # Permission management utility
 ├── security_admin.py      # Security administration commands
@@ -100,6 +108,22 @@ python user_admin.py lock --username jsmith --reason "Security policy violation"
 
 # Export user data to CSV
 python user_admin.py export --role operator --output users.csv
+```
+
+### User Import
+
+```bash
+# Import users from a CSV file
+python user_admin.py import --file users.csv --reason "Onboarding new department"
+
+# Import users from a JSON file
+python user_admin.py import --file users.json --reason "System migration"
+
+# Perform a dry run to validate import data without making changes
+python user_admin.py import --file users.csv --dry-run --reason "Validation only"
+
+# Import with specific format if auto-detection fails
+python user_admin.py import --file users.txt --format csv --reason "Custom format file"
 ```
 
 ### Permission Management
@@ -174,6 +198,7 @@ python security_admin.py audit --event login_failed --days 7
 - **Audit Trail**: All operations are logged for audit purposes
 - **Batch Operations**: Use caution with batch operations to avoid unintended changes
 - **Configuration Management**: Back up configurations before making system-wide changes
+- **Data Validation**: Always validate import data before performing bulk operations
 - **Least Privilege**: Run commands with the minimum required permissions
 - **Multi-factor Authentication**: Enable MFA for administrative access
 - **Parameter Validation**: Validate all input parameters before execution
@@ -182,12 +207,15 @@ python security_admin.py audit --event login_failed --days 7
 - **Timeout Controls**: Implement session timeouts for administrative sessions
 - **Reason Documentation**: Always provide meaningful reasons for security-relevant operations
 - **Emergency Access**: Follow proper procedures for emergency access scenarios
+- **Dry Runs**: Use dry-run options for bulk operations to verify expected changes
 
 ## Common Features
 
 All CLI tools share these common features:
 
 - **Consistent Command Structure**: Standard command format across all tools
+- **Data Import/Export**: Support for importing and exporting data in multiple formats
+- **Dry Run Mode**: Preview changes without applying them for bulk operations
 - **Error Handling**: Comprehensive error handling with clear messages
 - **Flexible Output Formats**: Support for multiple output formats (text, JSON, CSV, table)
 - **Help System**: Built-in documentation and examples
@@ -199,6 +227,7 @@ All CLI tools share these common features:
 - **Return Codes**: Standardized return codes for scripting integration
 - **MFA Integration**: Support for multi-factor authentication on sensitive operations
 - **Audit Integration**: Detailed audit logging for accountability
+- **Reason Tracking**: Required documentation of reasons for security-relevant changes
 
 ## Related Documentation
 
@@ -212,3 +241,5 @@ All CLI tools share these common features:
 - Security Controls Framework
 - Audit Requirements
 - Emergency Access Procedures
+- Data Import Format Specifications
+- Batch Processing Guidelines

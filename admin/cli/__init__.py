@@ -21,7 +21,11 @@ staging, and production environments.
 import logging
 import os
 import sys
-from typing import Dict, Any, List, Callable, Optional, Tuple
+import csv
+import json
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, Any, List, Callable, Optional, Tuple, Union
 
 # Setup package logging
 logger = logging.getLogger(__name__)
@@ -132,6 +136,111 @@ def get_available_commands() -> Dict[str, bool]:
         "security_admin": SECURITY_ADMIN_AVAILABLE
     }
 
+def initialize_user_import(
+    file_path: str,
+    file_format: Optional[str] = None,
+    required_fields: List[str] = None
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """
+    Initialize user import by loading and validating data from a file.
+
+    Processes the specified file (CSV or JSON) and performs basic validation
+    to ensure that all required fields are present.
+
+    Args:
+        file_path: Path to the import file
+        file_format: Format of the file ('csv' or 'json'), can be auto-detected
+        required_fields: List of required fields for valid user data
+
+    Returns:
+        Tuple containing:
+        - List of user data dictionaries from the file
+        - Dictionary with stats (total records, invalid records, etc.)
+
+    Raises:
+        ValueError: If file has invalid format or missing required fields
+        FileNotFoundError: If the specified file does not exist
+        IOError: If there's an error reading the file
+    """
+    if required_fields is None:
+        # Default required fields for user data
+        required_fields = ['username', 'email']
+
+    stats = {
+        'total': 0,
+        'invalid_format': 0,
+        'missing_fields': 0,
+        'valid': 0
+    }
+
+    # Check file existence
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Import file not found: {file_path}")
+
+    # Auto-detect format if not specified
+    if not file_format:
+        if file_path.lower().endswith('.json'):
+            file_format = 'json'
+        elif file_path.lower().endswith('.csv'):
+            file_format = 'csv'
+        else:
+            raise ValueError("Could not determine file format from extension. Please specify format.")
+
+    # Load the file based on format
+    try:
+        users_data = []
+
+        if file_format.lower() == 'json':
+            with open(file_path, 'r') as f:
+                json_data = json.load(f)
+
+                # Handle both array and object formats
+                if isinstance(json_data, list):
+                    users_data = json_data
+                elif isinstance(json_data, dict) and 'users' in json_data:
+                    users_data = json_data['users']
+                else:
+                    users_data = [json_data]  # Single user
+
+        elif file_format.lower() == 'csv':
+            with open(file_path, 'r', newline='') as f:
+                reader = csv.DictReader(f)
+                users_data = list(reader)
+
+                # Convert boolean fields
+                for user in users_data:
+                    for field in ['require_mfa', 'require_password_change']:
+                        if field in user and isinstance(user[field], str):
+                            user[field] = user[field].lower() in ('true', 'yes', '1', 'y')
+        else:
+            raise ValueError(f"Unsupported file format: {file_format}. Supported formats are CSV and JSON.")
+
+        # Basic validation
+        stats['total'] = len(users_data)
+        valid_users = []
+
+        for i, user in enumerate(users_data):
+            # Check for required fields
+            missing_fields = [field for field in required_fields if field not in user or not user[field]]
+
+            if missing_fields:
+                stats['missing_fields'] += 1
+                logger.warning(f"Record {i+1}: Missing required fields: {', '.join(missing_fields)}")
+                continue
+
+            # Add validated user to result
+            valid_users.append(user)
+            stats['valid'] += 1
+
+        return valid_users, stats
+
+    except json.JSONDecodeError:
+        raise ValueError(f"Invalid JSON format in file: {file_path}")
+    except csv.Error as e:
+        raise ValueError(f"CSV parsing error: {e}")
+    except Exception as e:
+        raise IOError(f"Error reading import file: {e}")
+
 def run_command(command_module: str, args: Optional[List[str]] = None) -> int:
     """
     Run a specific admin CLI command with the given arguments.
@@ -181,6 +290,7 @@ __all__ = [
     # Package utilities
     'get_available_commands',
     'run_command',
+    'initialize_user_import',
 
     # Exit codes
     'EXIT_SUCCESS',

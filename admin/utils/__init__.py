@@ -13,6 +13,7 @@ Key functionality includes:
 - Secure credential handling
 - Standardized error handling
 - Performance metrics collection
+- Password generation and validation
 
 The utilities are designed to be imported and used by CLI tools, scripts,
 and other administrative components of the platform.
@@ -20,14 +21,15 @@ and other administrative components of the platform.
 
 import logging
 import os
+import re
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Union, Callable
+from typing import Dict, List, Any, Optional, Union, Callable, Tuple
 
 # Setup package logging
 logger = logging.getLogger(__name__)
 
 # Version information
-__version__ = '1.0.0'
+__version__ = '0.1.1'
 __author__ = 'Cloud Infrastructure Platform Team'
 __email__ = 'platform-team@example.com'
 
@@ -39,6 +41,7 @@ ERROR_HANDLING_AVAILABLE = False
 ENCRYPTION_UTILS_AVAILABLE = False
 METRICS_UTILS_AVAILABLE = False
 SECURE_CREDENTIALS_AVAILABLE = False
+PASSWORD_UTILS_AVAILABLE = False
 
 # Try importing admin_auth utilities
 try:
@@ -142,6 +145,18 @@ try:
 except ImportError as e:
     logger.debug(f"Secure credential utilities not available: {e}")
 
+# Try importing password utilities
+try:
+    from .password_utils import (
+        generate_password,
+        validate_password_strength,
+        check_password_history,
+        PASSWORD_MIN_LENGTH
+    )
+    PASSWORD_UTILS_AVAILABLE = True
+except ImportError as e:
+    logger.debug(f"Password utilities not available: {e}")
+
 def get_available_utilities() -> Dict[str, bool]:
     """
     Returns a dictionary of available utility modules in this package.
@@ -156,7 +171,8 @@ def get_available_utilities() -> Dict[str, bool]:
         "error_handling": ERROR_HANDLING_AVAILABLE,
         "encryption_utils": ENCRYPTION_UTILS_AVAILABLE,
         "metrics_utils": METRICS_UTILS_AVAILABLE,
-        "secure_credentials": SECURE_CREDENTIALS_AVAILABLE
+        "secure_credentials": SECURE_CREDENTIALS_AVAILABLE,
+        "password_utils": PASSWORD_UTILS_AVAILABLE
     }
 
 # Define public exports - only include symbols from available modules
@@ -243,6 +259,14 @@ if SECURE_CREDENTIALS_AVAILABLE:
         "delete_credential",
         "secure_credential",
         "rotate_credential"
+    ])
+
+if PASSWORD_UTILS_AVAILABLE:
+    __all__.extend([
+        "generate_password",
+        "validate_password_strength",
+        "check_password_history",
+        "PASSWORD_MIN_LENGTH"
     ])
 
 # Log initialization status

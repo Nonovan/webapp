@@ -594,6 +594,82 @@ def role_required(role_names: Union[str, List[str]]):
     return decorator
 
 
+def verify_permission(user_id: int, permission: str) -> bool:
+    """
+    Verify if a user has a specific permission.
+
+    This function checks if the user with the given ID has the specified permission.
+    It supports wildcard matching with "*" for resource or action components.
+
+    Args:
+        user_id: The ID of the user to check permissions for
+        permission: The permission string to check (format: "resource:action")
+
+    Returns:
+        bool: True if the user has the permission, False otherwise
+    """
+    from flask import current_app, has_app_context
+
+    if not user_id:
+        return False
+
+    try:
+        # Import here to avoid circular imports
+        from models.auth.user import User
+
+        user = User.query.get(user_id)
+        if not user:
+            return False
+
+        # Check direct permission match
+        if hasattr(user, 'has_permission') and callable(user.has_permission):
+            # Handle wildcard permissions
+            if permission.endswith(':*'):
+                resource = permission.split(':', 1)[0]
+                # Find any permission that matches the resource prefix
+                return _check_resource_permissions(user, resource)
+            elif permission == '*:*' or permission == '*':
+                # Super permission - only for system admins
+                return getattr(user, 'is_admin', False)
+            else:
+                # Standard permission check
+                return user.has_permission(permission)
+
+        # Fall back to role-based check if has_permission method unavailable
+        if hasattr(user, 'role'):
+            admin_roles = ['admin', 'superuser', 'system_admin']
+            if user.role in admin_roles:
+                return True
+
+    except Exception as e:
+        if has_app_context():
+            current_app.logger.error(f"Error verifying permission '{permission}' for user {user_id}: {str(e)}")
+        return False
+
+    return False
+
+def _check_resource_permissions(user, resource: str) -> bool:
+    """
+    Check if user has any permission for the specified resource.
+
+    Args:
+        user: User object
+        resource: Resource name to check
+
+    Returns:
+        bool: True if user has any permission for the resource
+    """
+    # If user has a get_permissions method, use it
+    if hasattr(user, 'get_permissions') and callable(user.get_permissions):
+        permissions = user.get_permissions()
+        if isinstance(permissions, (list, tuple, set)):
+            return any(p.startswith(f"{resource}:") for p in permissions)
+        return False
+
+    # Otherwise check admin status as fallback
+    return getattr(user, 'is_admin', False)
+
+
 # Helper functions
 
 def _is_superuser_or_admin() -> bool:

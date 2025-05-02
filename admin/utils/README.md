@@ -13,8 +13,10 @@ This directory contains utility modules and helper functions used by the adminis
   - [Audit Logging](#audit-logging)
   - [Configuration Validation](#configuration-validation)
   - [Secure Credential Handling](#secure-credential-handling)
+  - [Password Management](#password-management)
   - [Error Handling](#error-handling)
   - [Metrics Collection](#metrics-collection)
+  - [Security Utilities](#security-utilities)
 - [Best Practices & Security](#best-practices--security)
 - [Common Features](#common-features)
 - [Related Documentation](#related-documentation)
@@ -77,6 +79,17 @@ The administrative utilities implement shared functionality used by the CLI tool
   - Integration with monitoring systems (e.g., Prometheus)
   - Security event metrics tracking
 
+- **`password_utils.py`**: Password generation and validation
+  - Secure password generation with configurable complexity
+  - Password strength validation against security requirements
+  - Password history verification to prevent reuse
+  - Integration with core security modules
+
+- **`security_utils.py`**: Security utility functions
+  - API token generation
+  - Secure hash computation
+  - Cryptographic primitives for administrative operations
+
 ## Directory Structure
 
 ```plaintext
@@ -89,7 +102,9 @@ admin/utils/
 ├── encryption_utils.py   # Encryption and decryption utilities
 ├── error_handling.py     # Centralized error handling
 ├── metrics_utils.py      # Performance and usage metrics collection
+├── password_utils.py     # Password generation and validation
 ├── secure_credentials.py # Secure credential management
+└── security_utils.py     # Security utility functions
 ```
 
 ## Usage
@@ -207,6 +222,43 @@ with secure_credential("encryption_key") as key:
     # Key will be securely wiped from memory after the block
 ```
 
+### Password Management
+
+```python
+from admin.utils.password_utils import generate_password, validate_password_strength, check_password_history
+
+# Generate a secure random password
+password = generate_password(
+    length=16,
+    include_uppercase=True,
+    include_lowercase=True,
+    include_digits=True,
+    include_special=True
+)
+
+# Validate password strength
+is_valid, error_messages = validate_password_strength(
+    password="Proposed@Password123",
+    username="admin.user",  # To prevent username in password
+    min_length=12
+)
+
+if not is_valid:
+    for error in error_messages:
+        print(f"Password validation error: {error}")
+
+# Check if password was previously used
+password_history = ["$2a$10$...", "$2a$10$..."]  # Password hashes
+is_unique, error = check_password_history(
+    password="NewPassword123!",
+    password_history=password_history,
+    history_size=24
+)
+
+if not is_unique:
+    print(f"Password history error: {error}")
+```
+
 ### Error Handling
 
 ```python
@@ -229,6 +281,18 @@ from admin.utils.metrics_utils import track_operation
 def perform_database_backup():
     # Function will be automatically timed and resource usage tracked
     run_backup_process()
+```
+
+### Security Utilities
+
+```python
+from admin.utils.security_utils import generate_api_token, compute_hash
+
+# Generate a secure API token
+token = generate_api_token(prefix="admin", length=32)
+
+# Compute a secure hash with salt
+password_hash, salt = compute_hash(data="sensitive_password")
 ```
 
 ## Best Practices & Security

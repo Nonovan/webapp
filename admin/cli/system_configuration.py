@@ -19,14 +19,13 @@ import logging
 import os
 import re
 import sys
+import yaml
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple, Union, Set
 
 # Add project root to path to allow imports from core packages
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from core.loggings import get_logger
-from core.security import audit_log, require_permission
 from admin.utils.admin_auth import (
     get_admin_session, check_permission, verify_mfa_token
 )
@@ -34,11 +33,15 @@ from admin.utils.config_validation import (
     validate_config, load_schema, ValidationResult
 )
 from admin.utils.audit_utils import log_admin_action
+from core.security import require_permission
 from models.security.system_config import SystemConfig
 from extensions import db
 
-# Initialize logger
-logger = get_logger(__name__)
+# Core utilities
+from core.loggings import logger as core_logger
+
+# Create a module-level logger
+logger = logging.getLogger(__name__)
 
 # Exit status codes
 EXIT_SUCCESS = 0
@@ -329,8 +332,6 @@ def export_configs(
 
         elif format == "yaml":
             try:
-                import yaml
-
                 with open(output_file, 'w') as f:
                     yaml.dump({
                         "version": VERSION,
@@ -396,7 +397,6 @@ def import_configs(
                 data = json.load(f)
             elif input_file.endswith(".yaml") or input_file.endswith(".yml"):
                 try:
-                    import yaml
                     data = yaml.safe_load(f)
                 except ImportError:
                     return False, "YAML support requires PyYAML package", {}
@@ -605,7 +605,6 @@ def format_output(data: Any, output_format: str = DEFAULT_OUTPUT_FORMAT) -> str:
 
     elif output_format == "yaml":
         try:
-            import yaml
             return yaml.dump(data, default_flow_style=False)
         except ImportError:
             return "YAML output requires PyYAML package"
@@ -849,7 +848,6 @@ def execute_cli(args: argparse.Namespace) -> int:
             if args.format == "json":
                 output = json.dumps({"key": args.get, "value": value}, indent=2)
             elif args.format == "yaml":
-                import yaml
                 output = yaml.dump({"key": args.get, "value": value}, default_flow_style=False)
             else:
                 output = value

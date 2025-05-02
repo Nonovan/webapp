@@ -26,12 +26,17 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Union, Set
 from functools import wraps  # Add this for decorator functions
 
+# Core utilities
+from core.loggings import logger as core_logger
+
+# Create a module-level logger
+logger = logging.getLogger(__name__)
+
 # Add project root to path to allow imports from core packages
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 try:
     # Core utilities
-    from core.loggings import get_logger
     from core.security import require_permission, verify_token
 
     # Admin utilities
@@ -54,9 +59,6 @@ except ImportError as e:
     print(f"Error importing required modules: {e}", file=sys.stderr)
     print("Please ensure the application environment is properly configured.", file=sys.stderr)
     sys.exit(1)
-
-# Initialize logger
-logger = get_logger(__name__)
 
 # Constants
 VERSION = "1.0.0"
