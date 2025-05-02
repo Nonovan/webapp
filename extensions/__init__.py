@@ -5,22 +5,23 @@ This module initializes and configures all Flask extensions used by the applicat
 It provides a centralized way to manage extension dependencies and configuration.
 """
 
+import redis
+import logging
 from typing import Dict, Any, Optional, Callable, Union
+from prometheus_flask_exporter import PrometheusMetrics
 from flask import request, g, current_app, session, Flask
 from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
 from flask_wtf.csrf import CSRFProtect
 from flask_caching import Cache
 from flask_session import Session
 from flask_mail import Mail
-from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_talisman import Talisman
-from prometheus_flask_exporter import PrometheusMetrics
-import redis
-import logging
+from flask_cors import CORS
+from flask_migrate import Migrate
+from flask_socketio import SocketIO
 
 # Initialize extensions
 db = SQLAlchemy()
@@ -32,217 +33,86 @@ session_extension = Session()  # Renamed to avoid conflict with flask.session
 mail = Mail()
 cors = CORS()
 talisman = Talisman()
+socketio = SocketIO()  # Initialize SocketIO extension
 
 # Security extensions
 limiter = Limiter(
     key_func=get_remote_address,
     default_limits=["200 per day", "50 per hour"]
-)  # Rate limiting to prevent abuse
+)
 
-# Cache configuration
-CACHE_CONFIG: Dict[str, Any] = {
-    'CACHE_TYPE': 'redis',
-    'CACHE_DEFAULT_TIMEOUT': 300,
-    'CACHE_KEY_PREFIX': 'myapp_'
-}
+# Monitoring extensions
+metrics = PrometheusMetrics()
 
-# Metrics configuration
-metrics = PrometheusMetrics.for_app_factory(
-    app_name='myapp',
-    path='/metrics',
-    group_by=['endpoint', 'http_status'],
-    defaults_prefix='myapp',
-    default_labels={'environment': lambda: current_app.config.get('ENVIRONMENT', 'production')}
-)  # Prometheus metrics for application monitoring
+# Redis client for various uses (cache, pub/sub, session storage)
+_redis_client = None
 
-# Initialize counters
-request_counter = metrics.counter(
-    'http_requests_total',
-    'Total HTTP request count',
-    labels={
-        'method': lambda: request.method,
-        'endpoint': lambda: request.endpoint,
-        'user_role': lambda: session.get('role', 'anonymous') if hasattr(session, 'get') else 'unknown',
-        'is_authenticated': lambda: 'user_id' in session if hasattr(session, '__contains__') else False
-    }
-)  # Counter for overall HTTP requests
+def get_redis_client() -> Optional[redis.Redis]:
+    """Get the Redis client instance."""
+    global _redis_client
+    return _redis_client
 
-endpoint_counter = metrics.counter(
-    'http_requests_by_endpoint_total',
-    'Total HTTP requests by endpoint path',
-    labels={
-        'method': lambda: request.method,
-        'path': lambda: request.path,
-        'endpoint': lambda: request.endpoint
-    }
-)  # Counter for requests by specific endpoint
+def set_redis_client(client: redis.Redis) -> None:
+    """Set the Redis client instance."""
+    global _redis_client
+    _redis_client = client
 
-error_counter = metrics.counter(
-    'http_errors_total',
-    'Total HTTP errors by status code',
-    labels={
-        'method': lambda: request.method,
-        'status': lambda error: getattr(error, 'code', 500),
-        'path': lambda: request.path
-    }
-)  # Counter for HTTP errors
+# Import internal modules after initializing objects to avoid circular imports
+from .metrics import request_counter, endpoint_counter, error_counter, security_event_counter, auth_counter, ics_gauge, request_latency, db_query_counter
 
-# Security metrics
-security_event_counter = metrics.counter(
-    'security_events_total',
-    'Total security events by type and severity',
-    labels={
-        'event_type': lambda: g.get('security_event_type', 'unknown'),
-        'severity': lambda: g.get('security_event_severity', 'info'),
-        'authenticated': lambda: 'user_id' in session if hasattr(session, '__contains__') else False
-    }
-)  # Counter for security events
-
-auth_counter = metrics.counter(
-    'auth_attempts_total',
-    'Authentication attempts (success/failure)',
-    labels={
-        'result': lambda: g.get('auth_result', 'unknown'),
-        'method': lambda: g.get('auth_method', 'unknown')
-    }
-)  # Counter for authentication attempts
-
-# ICS system metrics
-ics_gauge = metrics.gauge(
-    'ics_system_parameters',
-    'Current ICS system parameter values',
-    labels={
-        'parameter': lambda: g.get('ics_parameter', 'unknown'),
-        'unit': lambda: g.get('ics_unit', 'unknown'),
-        'zone': lambda: g.get('ics_zone', 'main')
-    },
-    registry=metrics.registry
-)  # Gauge for ICS system parameters
-
-# Performance metrics
-request_latency = metrics.histogram(
-    'request_latency_seconds',
-    'Request latency in seconds',
-    labels={
-        'endpoint': lambda: request.endpoint,
-        'method': lambda: request.method
-    },
-    buckets=(0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0)
-)  # Histogram for request latency
-
-# Database metrics
-db_query_counter = metrics.counter(
-    'database_queries_total',
-    'Total database queries executed',
-    labels={
-        'operation': lambda: g.get('db_operation', 'unknown'),
-        'model': lambda: g.get('db_model', 'unknown'),
-        'status': lambda: g.get('db_status', 'success')
-    }
-)  # Counter for database queries
-
-# Cloud resources metrics
+# Create gauge for cloud resources
 cloud_resource_gauge = metrics.gauge(
-    'cloud_resources_count',
-    'Count of active cloud resources by provider and type',
+    'cloud_resources',
+    'Cloud resources by provider and type',
     labels={
         'provider': lambda: g.get('cloud_provider', 'unknown'),
-        'resource_type': lambda: g.get('resource_type', 'unknown'),
+        'type': lambda: g.get('resource_type', 'unknown'),
         'region': lambda: g.get('cloud_region', 'unknown')
     },
     registry=metrics.registry
 )  # Gauge for cloud resources
 
-
-def get_redis_client() -> Optional[redis.Redis]:
-    """
-    Get a Redis client instance based on application configuration.
-
-    This function creates a Redis client using the configuration from the current Flask application.
-    It supports both connection URL and individual connection parameters.
-
-    Returns:
-        Optional[redis.Redis]: Redis client or None if configuration is missing or connection fails
-    """
-    try:
-        # Check if we have app context
-        if not current_app:
-            return None
-
-        # Try connection URL first (preferred method)
-        if current_app.config.get('REDIS_URL'):
-            return redis.from_url(
-                current_app.config.get('REDIS_URL'),
-                socket_timeout=current_app.config.get('REDIS_SOCKET_TIMEOUT', 5),
-                socket_connect_timeout=current_app.config.get('REDIS_SOCKET_CONNECT_TIMEOUT', 5)
-            )
-
-        # Fall back to individual connection parameters
-        elif all(current_app.config.get(k) for k in ['REDIS_HOST', 'REDIS_PORT']):
-            return redis.Redis(
-                host=current_app.config.get('REDIS_HOST'),
-                port=current_app.config.get('REDIS_PORT'),
-                db=current_app.config.get('REDIS_DB', 0),
-                password=current_app.config.get('REDIS_PASSWORD'),
-                ssl=current_app.config.get('REDIS_SSL', False),
-                decode_responses=False,
-                socket_timeout=current_app.config.get('REDIS_SOCKET_TIMEOUT', 5),
-                socket_connect_timeout=current_app.config.get('REDIS_SOCKET_CONNECT_TIMEOUT', 5),
-                health_check_interval=current_app.config.get('REDIS_HEALTH_CHECK_INTERVAL', 30)
-            )
-
-        # No valid configuration found
-        logging.warning("No Redis configuration found in application config")
-        return None
-
-    except redis.RedisError as e:
-        # Specific Redis errors
-        if hasattr(current_app, 'logger'):
-            current_app.logger.error(f"Redis connection error: {e}")
-        else:
-            logging.error(f"Redis connection error: {e}")
-        return None
-
-    except Exception as e:
-        # Generic fallback for unexpected errors
-        if hasattr(current_app, 'logger'):
-            current_app.logger.error(f"Unexpected error when connecting to Redis: {e}")
-        else:
-            logging.error(f"Unexpected error when connecting to Redis: {e}")
-        return None
-
+# Import SocketIO extension implementation
+from .socketio import socketio_connection_count, socketio_message_counter, socketio_error_counter, socketio_latency, emit_with_metrics
 
 def init_extensions(app: Flask) -> None:
     """
-    Initialize all Flask extensions with the app.
+    Initialize all Flask extensions with the application.
 
-    This function initializes all Flask extensions with proper configuration
-    and error handling. It should be called during application setup.
+    This function configures each extension with appropriate settings
+    based on the application configuration.
 
     Args:
-        app: Flask application instance
+        app: The Flask application instance
     """
-    # Database and ORM
+    # Database
     db.init_app(app)
     migrate.init_app(app, db)
 
-    # Security-related extensions
+    # Security
     jwt.init_app(app)
     csrf.init_app(app)
     limiter.init_app(app)
+    cors.init_app(app)
 
-    # Configure CORS with proper settings
-    cors.init_app(
-        app,
-        resources=app.config.get('CORS_RESOURCES', {}),
-        origins=app.config.get('CORS_ORIGINS', '*'),
-        supports_credentials=app.config.get('CORS_SUPPORTS_CREDENTIALS', False),
-        vary_header=app.config.get('CORS_VARY_HEADER', True)
-    )
+    # Configure Redis for various services if available
+    if app.config.get('REDIS_URL'):
+        client = redis.from_url(
+            app.config['REDIS_URL'],
+            decode_responses=True  # Store as strings not bytes
+        )
+        set_redis_client(client)
+    else:
+        # Fallback to simple memory cache
+        app.logger.warning("Redis URL not configured, using in-memory cache")
+        cache.init_app(app, config={'CACHE_TYPE': 'SimpleCache'})
 
-    # Session, caching and email
-    cache_config = app.config.get('CACHE_CONFIG', CACHE_CONFIG)
-    # If Redis URL is specified in app config but not in cache config, add it
+    # Configure cache with Redis if available
+    cache_config = {
+        'CACHE_TYPE': 'RedisCache',
+        'CACHE_DEFAULT_TIMEOUT': app.config.get('CACHE_DEFAULT_TIMEOUT', 300)
+    }
+
     if app.config.get('REDIS_URL') and 'CACHE_REDIS_URL' not in cache_config:
         cache_config['CACHE_REDIS_URL'] = app.config.get('REDIS_URL')
 
@@ -278,6 +148,18 @@ def init_extensions(app: Flask) -> None:
             path=app.config.get('METRICS_ENDPOINT_PATH', '/metrics')
         )
 
+    # Initialize SocketIO extension
+    from .socketio import init_app as init_socketio
+    init_socketio(app)
+
+    # Register JWT handlers
+    register_jwt_handlers(app)
+
+# Register JWT token handlers for security
+def register_jwt_handlers(app: Flask) -> None:
+    """Register handlers for JWT authentication events."""
+    # Implementation of JWT handlers...
+    pass
 
 # List of all extensions for import in other modules
 __all__ = [
@@ -291,6 +173,7 @@ __all__ = [
     'mail',
     'session_extension',  # Updated name to avoid conflict
     'talisman',
+    'socketio',  # Added SocketIO to exports
     'metrics',
     'request_counter',
     'endpoint_counter',
@@ -301,6 +184,11 @@ __all__ = [
     'request_latency',
     'db_query_counter',
     'cloud_resource_gauge',
+    'socketio_connection_count',  # Added SocketIO metrics
+    'socketio_message_counter',
+    'socketio_error_counter',
+    'socketio_latency',
+    'emit_with_metrics',  # Added helper function
     'get_redis_client',
     'init_extensions'
 ]

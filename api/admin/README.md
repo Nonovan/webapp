@@ -4,16 +4,16 @@ The Administrative API module provides secure endpoints for system management, u
 
 ## Contents
 
-- [Overview](#overview)
-- [Key Components](#key-components)
-- [Directory Structure](#directory-structure)
-- [API Endpoints](#api-endpoints)
-- [Configuration](#configuration)
-- [Security Features](#security-features)
-- [Usage Examples](#usage-examples)
-- [Error Handling](#error-handling)
-- [Metrics and Monitoring](#metrics-and-monitoring)
-- [Related Documentation](#related-documentation)
+- Overview
+- Key Components
+- Directory Structure
+- API Endpoints
+- Configuration
+- Security Features
+- Usage Examples
+- Error Handling
+- Metrics and Monitoring
+- Related Documentation
 
 ## Overview
 
@@ -36,6 +36,7 @@ The API follows a layered architecture with clear separation of concerns:
   - System maintenance operations
   - Data backup and recovery management
   - Administrative task scheduling
+  - File integrity monitoring controls
 
 - **`user_management.py`**: User administration functionality
   - User account creation and management
@@ -46,6 +47,7 @@ The API follows a layered architecture with clear separation of concerns:
   - Temporary access elevation with approval workflows
   - Account merging and data migration
   - Bulk user operations with validation
+  - Password policy enforcement
 
 - **`system_config.py`**: System configuration management
   - Environment settings management
@@ -56,6 +58,7 @@ The API follows a layered architecture with clear separation of concerns:
   - Configuration validation and testing
   - Configuration version history tracking
   - Environment-specific overrides management
+  - Secure default configuration templates
 
 - **`audit.py`**: Administrative audit functionality
   - Security event log access
@@ -66,6 +69,7 @@ The API follows a layered architecture with clear separation of concerns:
   - Access anomaly detection
   - Audit data export capabilities
   - Retention policy management
+  - Advanced filtering and search
 
 - **`decorators.py`**: Administrative security decorators
   - Role and permission validation
@@ -76,6 +80,39 @@ The API follows a layered architecture with clear separation of concerns:
   - Context-based access controls
   - Approval workflow enforcement for critical actions
   - Session security verification
+  - Request integrity validation
+
+- **`schemas.py`**: Request/response validation schemas
+  - Comprehensive input validation
+  - Field-level validation rules
+  - Schema versioning support
+  - Cross-field validation logic
+  - Data sanitization rules
+  - Type conversion and normalization
+  - Response formatting templates
+  - Documentation generation support
+
+- **`middleware.py`**: Request preprocessing middleware
+  - Authentication verification
+  - Authorization enforcement
+  - Request logging and tracking
+  - Performance monitoring
+  - Input sanitization
+  - Content security policy enforcement
+  - IP restriction validation
+  - Rate limit checking
+  - Request correlation
+
+- **`errors.py`**: Error handling and standardization
+  - Consistent error formatting
+  - Detailed validation error reporting
+  - Security-aware error messages
+  - Correlation ID inclusion
+  - Error categorization
+  - Audit integration for security errors
+  - Comprehensive HTTP status code mapping
+  - Error documentation references
+  - Client-friendly error messages
 
 - **`__init__.py`**: Module initialization with strict security controls
   - Blueprint registration with admin routes
@@ -85,6 +122,8 @@ The API follows a layered architecture with clear separation of concerns:
   - Request validation setup
   - Error handling customization
   - Metrics registration
+  - Secure defaults configuration
+  - File integrity monitoring setup
 
 - **`ws/`**: WebSocket endpoints for real-time administrative functions
   - Secure WebSocket connection management
@@ -92,6 +131,10 @@ The API follows a layered architecture with clear separation of concerns:
   - Live audit log monitoring
   - Interactive administrative console
   - Security event notifications
+  - Resource utilization dashboards
+  - Active user session monitoring
+  - Command execution with approval workflow
+  - Real-time metrics visualization
 
 ## Directory Structure
 
@@ -146,6 +189,13 @@ api/admin/
 | `/api/admin/system/restore` | POST | Restore from backup | SuperAdmin |
 | `/api/admin/system/tasks` | GET | View scheduled administrative tasks | Admin |
 | `/api/admin/system/tasks` | POST | Create administrative task | SuperAdmin |
+| `/api/admin/security/baseline` | GET | View file integrity baseline | SecurityAdmin |
+| `/api/admin/security/baseline` | PUT | Update file integrity baseline | SecurityAdmin |
+| `/api/admin/security/baseline/verify` | POST | Verify file integrity status | SecurityAdmin |
+| `/api/admin/security/incidents` | GET | List security incidents | SecurityAdmin |
+| `/api/admin/security/incidents` | POST | Create security incident | SecurityAdmin |
+| `/api/admin/reports` | GET | List available administrative reports | Admin |
+| `/api/admin/reports/{report_id}` | GET | Generate administrative report | Admin |
 
 ## Configuration
 
@@ -163,6 +213,8 @@ The administrative system uses several configuration settings that can be adjust
 'ADMIN_REQUIRE_SECURE_CHANNEL': True,    # Require HTTPS for admin API
 'ADMIN_PASSWORD_SCORE_MIN': 80,          # Admin password strength requirement
 'ADMIN_STRICT_PERMISSION_CHECK': True,   # No permission inheritance for admin actions
+'ADMIN_FILE_INTEGRITY_CHECK': True,      # Enable file integrity monitoring
+'ADMIN_CRITICAL_FILES': ['app.py', 'config.py', 'api/admin/*.py'],  # Protected files
 
 # Rate limiting settings
 'RATELIMIT_ADMIN_DEFAULT': "30 per minute",
@@ -171,11 +223,15 @@ The administrative system uses several configuration settings that can be adjust
 'RATELIMIT_ADMIN_SYSTEM': "20 per minute",
 'RATELIMIT_ADMIN_AUDIT': "60 per minute",
 'RATELIMIT_ADMIN_HEALTH': "12 per minute",
+'RATELIMIT_ADMIN_SECURITY': "15 per minute",
+'RATELIMIT_ADMIN_EXPORT': "10 per minute",
 
 # WebSocket settings
 'ADMIN_WS_MAX_CONNECTIONS': 50,          # Maximum concurrent admin WebSocket connections
 'ADMIN_WS_HEARTBEAT_SECONDS': 30,        # WebSocket heartbeat interval
 'ADMIN_WS_RECONNECT_MAX_ATTEMPTS': 5,    # Maximum reconnect attempts
+'ADMIN_WS_COMMAND_TIMEOUT_SECONDS': 120, # Command execution timeout
+'ADMIN_WS_REQUIRE_APPROVAL': True,       # Require approval for WebSocket commands
 ```
 
 ## Security Features
@@ -197,6 +253,10 @@ The administrative system uses several configuration settings that can be adjust
 - **Replay Protection**: Prevention of request replay attacks
 - **Security Headers**: Strict security headers on all responses
 - **Secure Defaults**: Conservative defaults requiring explicit opt-out
+- **File Integrity Monitoring**: Detection and alerting of unauthorized file modifications
+- **Access Anomaly Detection**: Machine learning algorithms identify unusual access patterns
+- **API Versioning**: Controlled API changes through versioned endpoints
+- **Request Tracing**: Correlation IDs for tracking requests across services
 
 ## Usage Examples
 
@@ -377,6 +437,66 @@ Response:
 }
 ```
 
+### File Integrity Monitoring
+
+```http
+GET /api/admin/security/baseline/verify
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+X-MFA-Token: 123456
+X-Request-ID: req-8d7e6f5d-4c3b-2a1e-9f8g-7h6i5j4k3l2m
+```
+
+Response:
+
+```json
+{
+  "status": "incomplete",
+  "timestamp": "2023-07-16T08:45:22Z",
+  "total_files": 156,
+  "verified": 156,
+  "modified": 2,
+  "added": 0,
+  "removed": 0,
+  "verification_id": "verify-20230716-084522",
+  "critical_modifications": [
+    {
+      "path": "/app/config/security.ini",
+      "status": "modified",
+      "expected_hash": "a1b2c3d4e5f6g7h8i9j0...",
+      "current_hash": "k1l2m3n4o5p6q7r8s9t0...",
+      "last_modified": "2023-07-15T22:14:37Z",
+      "severity": "critical"
+    }
+  ],
+  "other_modifications": [
+    {
+      "path": "/app/logs/application.log",
+      "status": "modified",
+      "expected_hash": "u1v2w3x4y5z6a7b8c9d0...",
+      "current_hash": "e1f2g3h4i5j6k7l8m9n0...",
+      "last_modified": "2023-07-16T08:30:12Z",
+      "severity": "low"
+    }
+  ],
+  "recommendations": [
+    "Investigate unauthorized modifications to security.ini",
+    "Update baseline for expected log file changes"
+  ],
+  "actions": [
+    {
+      "name": "Update Baseline",
+      "endpoint": "/api/admin/security/baseline",
+      "method": "PUT"
+    },
+    {
+      "name": "Create Incident",
+      "endpoint": "/api/admin/security/incidents",
+      "method": "POST"
+    }
+  ]
+}
+```
+
 ## Error Handling
 
 All API endpoints implement standardized error handling with detailed information for troubleshooting while protecting sensitive implementation details:
@@ -409,19 +529,25 @@ Common error status codes:
 | 429 | Too Many Requests | Rate limit exceeded |
 | 500 | Internal Server Error | Unexpected server-side error |
 | 503 | Service Unavailable | Service temporarily down or in maintenance mode |
+| 507 | Insufficient Storage | Storage quota exceeded for operation |
+| 511 | Network Authentication Required | Network access requires authentication |
 
 ## Metrics and Monitoring
 
 The Administrative API collects and exposes metrics to help monitor usage patterns, performance, and security events:
 
-- **Request Metrics**: Volume, response times, error rates
-- **Authentication Metrics**: Success/failure rates, MFA usage
-- **Authorization Metrics**: Permission denials, access patterns
-- **Operation Metrics**: Resource creation/modification/deletion counts
-- **Security Metrics**: Suspicious access attempts, privilege elevations
-- **Performance Metrics**: Database operation times, caching efficiency
+- **Request Metrics**: Volume, response times, error rates by endpoint and method
+- **Authentication Metrics**: Success/failure rates, MFA usage, token lifetimes
+- **Authorization Metrics**: Permission denials, access patterns, role distribution
+- **Operation Metrics**: Resource creation/modification/deletion counts, batch operation efficiency
+- **Security Metrics**: Suspicious access attempts, privilege elevations, integrity violations
+- **Performance Metrics**: Database operation times, caching efficiency, response size
+- **WebSocket Metrics**: Connection counts, message throughput, subscription patterns
+- **File Integrity Metrics**: Baseline verification results, change frequencies
+- **Audit Metrics**: Event volume by type and severity, export frequency
+- **System Health Metrics**: Resource utilization, service availability, endpoint response times
 
-These metrics are available through the monitoring system and the `/api/admin/system/metrics` endpoint, subject to appropriate permissions.
+These metrics are available through the monitoring system and the `/api/admin/system/metrics` endpoint, subject to appropriate permissions. Real-time monitoring dashboards are accessible via the WebSocket interface for authorized administrators.
 
 ## Related Documentation
 
@@ -433,3 +559,10 @@ These metrics are available through the monitoring system and the `/api/admin/sy
 - Administrative API Reference
 - RBAC Implementation Guide
 - WebSocket Security Guidelines
+- File Integrity Monitoring Guide
+- Administrative Reports Guide
+- Security Baseline Management
+- Multi-Factor Authentication Setup
+- Rate Limiting Guidelines
+- Administrative Metrics Reference
+- API Security Best Practices
