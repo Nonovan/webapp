@@ -14,6 +14,7 @@ Modules:
 - mfa_method: Multi-factor authentication methods implementation.
 - mfa_backup_code: Backup codes for multi-factor authentication.
 - mfa_verification: Tracks MFA verification attempts.
+- mfa_totp: TOTP-based multi-factor authentication implementation.
 - permission_delegation: Temporary delegation of permissions between users.
 - permission_context: Context-based permission evaluation rules.
 - oauth_provider: OAuth provider integration and connection management.
@@ -128,6 +129,12 @@ except ImportError:
 try:
     from .mfa_verification import MFAVerification
     __all__.append("MFAVerification")
+except ImportError:
+    pass
+
+try:
+    from .mfa_totp import MFATotp
+    __all__.append("MFATotp")
 except ImportError:
     pass
 
