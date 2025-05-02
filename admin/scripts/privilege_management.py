@@ -47,7 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 # Import the relevant modules
 try:
     from core.loggings import get_logger
-    from core.security import audit_log, require_permission, generate_token
+    from core.security import audit_log, , generate_token
     from admin.utils.admin_auth import (
         get_admin_session, check_permission,
         require_permission as require_admin_permission,

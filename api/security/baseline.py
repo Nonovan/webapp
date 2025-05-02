@@ -16,14 +16,15 @@ from flask import request, jsonify, current_app, g
 from marshmallow import ValidationError
 
 from . import security_bp
-from .decorators import require_permission
 from .schemas import baseline_update_schema
 from extensions import metrics, limiter, cache
 
 from core.security.cs_audit import log_security_event
+from core.security.cs_authorization import require_permission
 from core.security import (
     check_critical_file_integrity,
-    get_last_integrity_status
+    get_last_integrity_status,
+    require_permission
 )
 
 # Import baseline update function

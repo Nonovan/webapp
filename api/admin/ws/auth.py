@@ -17,13 +17,12 @@ from flask import current_app, request, session, g
 from flask_socketio import disconnect
 
 from extensions import db, metrics
+from core.security.cs_authentication import get_client_ip, is_ip_in_whitelist
 from core.security import (
     log_security_event,
     verify_token,
     is_mfa_verified,
-    is_suspicious_ip,
-    is_ip_in_whitelist,
-    get_client_ip
+    is_suspicious_ip
 )
 from models.auth.user import User
 from models.auth.user_activity import UserActivity
