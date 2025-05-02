@@ -27,6 +27,8 @@ the standard HTTP methods (GET, POST, PUT, DELETE) implemented as appropriate.
 
 import time
 import logging
+import os
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple, Optional, Union
 from flask import Blueprint, Flask, jsonify, request, g, current_app
 from werkzeug.exceptions import HTTPException
@@ -133,6 +135,207 @@ def _log_api_security_incident(error_type: str, description: str, severity: str 
     except Exception as e:
         # Fail gracefully if logging fails
         current_app.logger.error(f"Failed to log security incident: {e}")
+
+def update_api_module_baseline(app=None, auto_update_limit: int = 20,
+                              remove_missing: bool = False) -> Tuple[bool, str, Dict[str, Any]]:
+    """
+    Update file integrity baseline for critical API module files.
+
+    This function provides a centralized way to update the integrity baseline
+    for critical API components. It calculates current hashes for key API files
+    and updates the baseline accordingly, following security best practices.
+
+    Args:
+        app: Flask application instance (uses current_app if None)
+        auto_update_limit: Maximum number of files to update (safety limit)
+        remove_missing: Whether to remove missing files from baseline
+
+    Returns:
+        Tuple containing (success, message, update_stats)
+        - success: True if the update was successful
+        - message: A descriptive message about the operation
+        - update_stats: Statistics about the update including files updated and skipped
+    """
+    from services import calculate_file_hash
+
+    try:
+        app = app or current_app
+        start_time = time.time()
+        logger = logging.getLogger(__name__)
+
+        # Get baseline path from config
+        baseline_path = app.config.get('FILE_BASELINE_PATH')
+        if not baseline_path:
+            logger.error("Baseline path not configured")
+            return False, "Baseline path not configured", {'files_updated': 0, 'files_skipped': 0}
+
+        # Stats tracking
+        stats = {
+            'files_processed': 0,
+            'files_updated': 0,
+            'files_skipped': 0,
+            'critical_files': 0,
+            'high_priority_files': 0,
+            'errors': 0,
+            'modules_processed': set()
+        }
+
+        # Define critical API directories to monitor
+        api_root = os.path.dirname(os.path.abspath(__file__))
+        api_dirs = [
+            os.path.join(api_root, ''),           # API root
+            os.path.join(api_root, 'auth'),       # Authentication API
+            os.path.join(api_root, 'admin'),      # Admin API
+            os.path.join(api_root, 'security'),   # Security API
+            os.path.join(api_root, 'webhooks')    # Webhooks API
+        ]
+
+        # Critical file patterns to monitor with priority
+        critical_patterns = [
+            '__init__.py',                 # Module initialization
+            'auth.py',                     # Authentication handling
+            'security.py',                 # Security handling
+            'routes.py',                   # Core routes
+            'baseline.py',                 # Baseline management
+            'schemas.py',                  # Data validation
+            'incidents.py',                # Security incidents
+            'decorators.py'                # Security decorators
+        ]
+
+        # Collect all files from API directories
+        changes = []
+        for directory in api_dirs:
+            if os.path.exists(directory):
+                stats['modules_processed'].add(os.path.basename(directory) or 'api_root')
+
+                for filename in os.listdir(directory):
+                    file_path = os.path.join(directory, filename)
+
+                    if os.path.isfile(file_path) and file_path.endswith('.py'):
+                        try:
+                            # Get relative path for baseline
+                            rel_path = os.path.relpath(file_path, os.path.dirname(app.root_path))
+
+                            # Calculate current hash
+                            current_hash = calculate_file_hash(file_path)
+
+                            # Determine severity based on file criticality
+                            if filename in critical_patterns:
+                                severity = 'high' if 'security' in directory or 'auth' in directory else 'medium'
+                                if severity == 'high':
+                                    stats['high_priority_files'] += 1
+                            else:
+                                severity = 'medium' if filename.endswith('.py') else 'low'
+
+                            # Mark truly critical files
+                            if ('security' in directory or 'auth' in directory) and filename in critical_patterns:
+                                stats['critical_files'] += 1
+
+                            # Add to changes list for baseline update
+                            changes.append({
+                                'path': rel_path,
+                                'current_hash': current_hash,
+                                'severity': severity
+                            })
+
+                            stats['files_processed'] += 1
+
+                        except Exception as e:
+                            logger.error(f"Error processing file {file_path}: {e}")
+                            stats['errors'] += 1
+
+        # Check if we have too many changes
+        if len(changes) > auto_update_limit:
+            logger.warning(f"Too many files to update: {len(changes)} exceeds limit of {auto_update_limit}")
+            stats['files_skipped'] = len(changes) - auto_update_limit
+
+            # Prioritize critical and high severity files
+            changes = sorted(
+                changes,
+                key=lambda c: (
+                    0 if c.get('severity', 'medium') == 'high' else
+                    1 if c.get('severity', 'medium') == 'medium' else 2
+                )
+            )[:auto_update_limit]
+
+        # Import security function for baseline update
+        from api.security import update_file_integrity_baseline
+
+        # Log the baseline update attempt
+        log_security_event(
+            event_type="api_baseline_update_started",
+            description=f"API integrity baseline update started with {len(changes)} changes",
+            severity="info",
+            details={
+                "changes_count": len(changes),
+                "remove_missing": remove_missing,
+                "baseline_path": baseline_path,
+                "critical_files": stats['critical_files'],
+                "high_priority_files": stats['high_priority_files']
+            }
+        )
+
+        # Update baseline
+        success, message = update_file_integrity_baseline(
+            app=app,
+            baseline_path=baseline_path,
+            changes=changes,
+            auto_update_limit=auto_update_limit,
+            remove_missing=remove_missing
+        )
+
+        stats['files_updated'] = len(changes)
+        duration = time.time() - start_time
+
+        # Log event based on outcome
+        if success:
+            log_security_event(
+                event_type="api_baseline_updated",
+                description=f"API integrity baseline updated successfully with {len(changes)} changes",
+                severity="info",
+                details={
+                    "modules_processed": list(stats['modules_processed']),
+                    "files_updated": stats['files_updated'],
+                    "files_skipped": stats['files_skipped'],
+                    "critical_files": stats['critical_files'],
+                    "duration_seconds": round(duration, 2)
+                }
+            )
+
+            # Track metrics
+            if hasattr(metrics, 'increment'):
+                metrics.increment('security.api_baseline_updated')
+                metrics.gauge('security.api_baseline.files_updated', stats['files_updated'])
+        else:
+            log_security_event(
+                event_type="api_baseline_update_failed",
+                description=f"API integrity baseline update failed: {message}",
+                severity="warning",
+                details={
+                    "modules_processed": list(stats['modules_processed']),
+                    "files_attempted": stats['files_processed'],
+                    "errors": stats['errors'],
+                    "duration_seconds": round(duration, 2)
+                }
+            )
+
+            if hasattr(metrics, 'increment'):
+                metrics.increment('security.api_baseline_error')
+
+        return success, message, stats
+
+    except ImportError as e:
+        logger.error(f"Required security modules not available: {e}")
+        return False, "Required security modules not available", {
+            'files_updated': 0,
+            'error': str(e)
+        }
+    except Exception as e:
+        logger.error(f"Error updating API module baseline: {e}")
+        return False, f"Error updating baseline: {str(e)}", {
+            'files_updated': 0,
+            'error': str(e)
+        }
 
 # Define API-wide error handlers
 @api_bp.errorhandler(404)
@@ -336,8 +539,8 @@ def register_api_routes(app: Flask) -> None:
     """
     # Define all blueprints to register with their URL prefixes
     blueprint_configs = [
-        (api_bp, '/api'),
-        (auth_api, None),  # None means use the blueprint's url_prefix
+        (api_bp, None),  # None means use the blueprint's url_prefix
+        (auth_api, None),
         (cloud_routes, None),
         (metrics_routes, None),
         (alerts_api, None),
@@ -399,10 +602,12 @@ def register_api_routes(app: Flask) -> None:
         app.logger.info(f"API initialization completed: All {total} blueprints registered successfully")
 
 
-# Update the init_app function to use register_api_routes
 def init_app(app: Flask) -> None:
     """
     Initialize the API module within the Flask application.
+
+    Sets up API blueprints, security features, and performs initial file
+    integrity verification if configured.
 
     Args:
         app: The Flask application instance
@@ -410,5 +615,55 @@ def init_app(app: Flask) -> None:
     # Register the API blueprint with all routes
     register_api_routes(app)
 
+    # Setup file integrity monitoring if enabled
+    if app.config.get('API_INTEGRITY_CHECK_ON_STARTUP', True):
+        try:
+            # Verify file integrity at startup in development environments
+            # In production, this is better handled by scheduled tasks
+            if app.config.get('ENVIRONMENT') in ['development', 'testing']:
+                logger = logging.getLogger(__name__)
+                logger.info("Performing API module integrity verification")
+
+                # Only update automatically in development mode
+                auto_update = app.config.get('ENVIRONMENT') == 'development'
+
+                if auto_update:
+                    # Update the baseline automatically
+                    success, message, stats = update_api_module_baseline(
+                        app=app,
+                        auto_update_limit=app.config.get('API_BASELINE_AUTO_UPDATE_LIMIT', 20),
+                        remove_missing=False
+                    )
+
+                    if success:
+                        logger.info(f"API baseline updated: {message} - {stats['files_updated']} files updated")
+                    else:
+                        logger.warning(f"API baseline update failed: {message}")
+                else:
+                    # Just check the integrity but don't update
+                    from api.security import validate_baseline_integrity
+                    result, violations = validate_baseline_integrity()
+
+                    if not result and violations:
+                        logger.warning(f"API integrity verification failed: {len(violations)} violations detected")
+                    else:
+                        logger.info("API integrity verification passed")
+        except ImportError:
+            app.logger.warning("File integrity module not available, skipping API validation")
+        except Exception as e:
+            app.logger.error(f"Error during API integrity verification: {e}")
+
     # Log successful initialization
     app.logger.info("API module initialized successfully")
+
+# Package version
+__version__ = '0.1.1'
+
+# Define what is available for import from this package
+__all__ = [
+    'api_bp',
+    'init_app',
+    'register_api_routes',
+    'update_api_module_baseline',
+    '__version__'
+]

@@ -12,6 +12,7 @@ The API package provides RESTful endpoints for programmatic access to the Cloud 
 - Error Handling
 - Rate Limiting
 - Security Features
+- File Integrity Baseline Management
 - Common Patterns
 - Related Documentation
 
@@ -309,6 +310,59 @@ X-RateLimit-Reset: 1605572738
 - **Rate Limiting**: Endpoint-specific limits to prevent abuse
 - **Secure Headers**: Implementation of security headers on all responses
 - **Session Security**: Session regeneration and fingerprinting
+
+## File Integrity Baseline Management
+
+The API module implements comprehensive file integrity monitoring to detect unauthorized modifications to critical system files and protect against tampering with security-sensitive components.
+
+### Baseline Management Functions
+
+- **Baseline Generation**: Creates cryptographic hashes of critical files to establish a trusted state
+- **Integrity Verification**: Compares current file hashes against the baseline to detect modifications
+- **Baseline Updates**: Securely updates the baseline when legitimate changes are made
+- **Security Event Integration**: Generates security events when integrity violations are detected
+
+### Critical File Categories
+
+The system monitors different categories of files with appropriate severity levels:
+
+| Category | Description | Severity |
+|----------|-------------|----------|
+| High Priority | Security and authentication modules in critical paths | High |
+| Medium Priority | Core API implementation files | Medium |
+| Standard | Supporting Python modules | Low |
+
+### Update Process
+
+The `update_api_module_baseline` function provides a secure way to update file integrity baselines:
+
+1. Scans critical API directories for Python files
+2. Calculates cryptographic hashes of each file
+3. Prioritizes security-sensitive files for update
+4. Implements safety limits on batch updates
+5. Provides detailed statistics on update operations
+6. Logs all baseline changes as security events
+
+### Update Controls
+
+To maintain security during baseline updates, the function implements:
+
+- **Auto-update Limits**: Maximum number of files that can be updated in one operation
+- **Missing File Handling**: Options for removing missing files from baseline
+- **Prioritization**: Critical security files are prioritized during partial updates
+- **Comprehensive Logging**: All baseline operations are logged for audit purposes
+- **Metrics Collection**: Collection of metrics about baseline status
+- **Rollback Support**: Preserves previous baseline states for recovery
+
+### Integration Points
+
+The file integrity monitoring system integrates with:
+
+- **Security Incident Management**: Creates incidents from integrity violations
+- **Metrics System**: Provides monitoring dashboards for baseline status
+- **Audit System**: Records all baseline operations for compliance
+- **Administrative API**: Exposes baseline management through secure endpoints
+- **Startup Validation**: Verifies file integrity during application startup
 
 ## Common Patterns
 
