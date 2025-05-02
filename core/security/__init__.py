@@ -80,7 +80,7 @@ from .cs_file_integrity import (
     format_timestamp
 )
 
-from .cs_general_sec import (
+from ...models.security.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerState,
     CircuitOpenError,

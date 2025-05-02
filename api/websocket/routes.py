@@ -27,7 +27,8 @@ from flask_socketio import SocketIO, emit, join_room, leave_room, disconnect, Co
 
 from extensions import socketio, db, metrics
 from core.security import log_security_event, require_permission
-from core.security.cs_general_sec import CircuitBreaker, RateLimiter
+from models.security.circuit_breaker import CircuitBreaker
+from models.security.rate_limiter import RateLimiter
 from models.auth.user import User
 from models.auth.user_session import UserSession
 

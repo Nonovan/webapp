@@ -26,7 +26,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from user_agents import parse
 
 from models.base import BaseModel
-from models.security.audit_log import AuditLog
+from models.security.system.audit_log import AuditLog
 from extensions import db, metrics, cache
 
 

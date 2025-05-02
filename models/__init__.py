@@ -69,8 +69,8 @@ from .communication.comm_scheduler import CommunicationScheduler
 
 # Security models
 from .security.security_incident import SecurityIncident
-from .security.audit_log import AuditLog
-from .security.system_config import SystemConfig
+from .security.system.audit_log import AuditLog
+from .security.system.system_config import SystemConfig
 from .security.login_attempt import LoginAttempt
 
 # Cloud models
@@ -117,7 +117,7 @@ except ImportError:
 
 # Import security baseline conditionally
 try:
-    from .security.security_baseline import SecurityBaseline
+    from .security.system.security_baseline import SecurityBaseline
     SECURITY_BASELINE_AVAILABLE = True
 except ImportError:
     SECURITY_BASELINE_AVAILABLE = False
@@ -328,7 +328,7 @@ def _log_model_insert(_mapper, _connection, target) -> None:
                 details = {"id": getattr(target, 'id', None)}
 
         # Handle case where AuditLog might not be imported yet
-        from .security.audit_log import AuditLog
+        from .security.system.audit_log import AuditLog
 
         # Check for security-critical fields
         severity = AuditLog.SEVERITY_INFO
@@ -404,7 +404,7 @@ def _log_model_update(_mapper, _connection, target) -> None:
                 details["critical_fields_changed"] = critical_changes
 
         # Handle case where AuditLog might not be imported yet
-        from .security.audit_log import AuditLog
+        from .security.system.audit_log import AuditLog
 
         # Determine severity based on criticality
         severity = AuditLog.SEVERITY_INFO
@@ -474,7 +474,7 @@ def _log_model_delete(_mapper, _connection, target) -> None:
         ip_address = request.remote_addr if request else None
 
         # Handle case where AuditLog might not be imported yet
-        from .security.audit_log import AuditLog
+        from .security.system.audit_log import AuditLog
 
         # Get object ID safely
         obj_id = getattr(target, 'id', None)
@@ -700,7 +700,7 @@ def bulk_update_models(model_class: Type[BaseModel], model_ids: List[int],
             # Log bulk update as a separate audit event if we have request context
             if has_request_context():
                 try:
-                    from .security.audit_log import AuditLog
+                    from .security.system.audit_log import AuditLog
 
                     user_id = getattr(g, 'user_id', None)
                     ip_address = request.remote_addr if request else None
