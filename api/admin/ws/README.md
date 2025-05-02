@@ -65,6 +65,15 @@ The WebSocket API follows a channel-based subscription model with comprehensive 
   - Error rate tracking
   - Resource utilization monitoring
 
+- **`schemas.py`**: Message validation schemas
+  - JSON schema validation
+  - Message structure enforcement
+  - Field validation rules
+  - Type checking and conversion
+  - Security validation for inputs
+  - Cross-field validation
+  - Error message standardization
+
 ## Directory Structure
 
 ```plaintext
@@ -156,6 +165,7 @@ Available administrative channels include:
 | `admin:users` | User activity stream | Admin | Monitor user login/logout and actions |
 | `admin:maintenance` | Maintenance operations | SuperAdmin | Coordinate and monitor maintenance |
 | `admin:interactive` | Interactive administration | SuperAdmin | Command execution with approval |
+| `admin:metrics` | System metrics | Admin | Real-time performance monitoring |
 
 ## Security Features
 
@@ -172,6 +182,8 @@ The WebSocket API implements comprehensive security measures:
 - **Connection Timeout**: Automatic disconnection of idle connections
 - **Security Headers**: Security-focused headers on the initial HTTP connection
 - **Protection Against CSRF**: Origin verification for WebSocket connections
+- **Circuit Breakers**: Protection against cascading failures
+- **Structured Error Handling**: Security-conscious error messages
 
 ## Usage Examples
 
@@ -198,7 +210,7 @@ socket.onerror = (error) => {
 };
 ```
 
-### Channel Subscription
+### Channel Subscription Examples
 
 ```javascript
 // Subscribe to the system health channel
@@ -325,6 +337,8 @@ Common error codes include:
 | `subscription_error` | Error in channel subscription |
 | `validation_error` | Message validation failed |
 | `system_error` | Internal server error |
+| `circuit_open` | Circuit breaker is open for the requested operation |
+| `command_timeout` | Command execution timed out |
 
 ## Metrics and Monitoring
 
@@ -348,4 +362,4 @@ These metrics are available through the monitoring system and in real time on th
 - Message Schemas
 - WebSocket Client Implementation
 - Channel Authorization Model
-- WebSocket Performance Tuning
+- Circuit Breaker Pattern
