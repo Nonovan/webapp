@@ -46,7 +46,6 @@ The Authentication API implements RESTful endpoints following security best prac
 
 - **`mfa.py`**: Multi-factor authentication implementation
   - Backup code management
-  - FIDO2/WebAuthn support
   - MFA enrollment workflow
   - One-time password validation
   - TOTP configuration

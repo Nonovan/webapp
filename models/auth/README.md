@@ -47,7 +47,7 @@ The authentication system provides robust security features including password m
   - Approval workflows for delegation requests
 
 - **`MFAMethod`**: Multi-factor authentication method management
-  - Support for multiple MFA types (TOTP, backup codes, WebAuthn)
+  - Support for multiple MFA types (TOTP, backup codes)
   - Secure storage of MFA secrets
   - Enrollment and verification workflows
   - Device identification and management
@@ -102,6 +102,7 @@ models/auth/
 ├── login_attempt.py        # Login attempt tracking and brute force protection
 ├── mfa_backup_code.py      # Backup codes for multi-factor authentication
 ├── mfa_method.py           # Multi-factor authentication methods
+├── mfa_totp.py             # Time-based OTP implementation
 ├── mfa_verification.py     # MFA verification attempt tracking
 ├── oauth_provider.py       # OAuth provider and connection models
 ├── permission.py           # Permission model and related utilities
@@ -226,6 +227,7 @@ The authentication system uses several configuration settings that can be adjust
 - Implement MFA for administrative and sensitive operations
 - Regularly audit active sessions and API keys
 - Use multi-person approvals for critical configuration changes
+- Verify security key attestation when possible for sensitive operations
 
 ## Common Features
 

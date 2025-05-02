@@ -29,14 +29,16 @@ models/
 │   ├── login_attempt.py     # Login attempt tracking and brute force protection
 │   ├── mfa_backup_code.py   # Backup codes for multi-factor authentication
 │   ├── mfa_method.py        # Multi-factor authentication methods
+│   ├── mfa_totp.py          # TOTP-based multi-factor authentication
 │   ├── mfa_verification.py  # MFA verification attempt tracking
-│   ├── oath_provider.py     # OAuth provider and connection models
+│   ├── oauth_provider.py    # OAuth provider and connection models
 │   ├── permission.py        # Permission model for RBAC
 │   ├── permission_context.py # Context-based permission evaluation rules
 │   ├── permission_delegation.py # Temporary permission delegation
 │   ├── README.md            # Auth module documentation
 │   ├── role.py              # Role model for access control
 │   ├── role_assignment.py   # Role assignment and management
+│   ├── security_approval.py # Approval workflows for sensitive operations
 │   ├── user.py              # User account model
 │   ├── user_activity.py     # User activity logging
 │   └── user_session.py      # User session tracking
@@ -107,9 +109,10 @@ models/
     - Session tracking and management
     - User activity logging
     - Multi-factor authentication
-    - OAuth integration
-    - API key management
+    - OAuth integration with multiple providers
+    - API key management for programmatic access
     - Temporary permission delegation
+    - Multi-person approval workflows for sensitive operations
 3. **Cloud Infrastructure (`cloud/`)**:
     - Cloud provider configurations (AWS, Azure, GCP)
     - Resource management (VMs, storage, etc.)
@@ -172,6 +175,7 @@ models/
 - **`auth/role.py`**: Role model with permission inheritance
 - **`auth/permission_delegation.py`**: Temporary permission transfers between users
 - **`auth/mfa_method.py`**: Multi-factor authentication implementation
+- **`auth/security_approval.py`**: Multi-person approval workflows for sensitive operations
 - **`security/audit_log.py`**: Comprehensive security auditing system
 - **`security/vulnerability_record.py`**: Vulnerability tracking and lifecycle management
 - **`content/content_revision.py`**: Version history tracking for content
@@ -615,6 +619,43 @@ delegation.revoke(
 )
 ```
 
+### Security Approval Workflows
+
+```python
+# Request multi-person approval for a sensitive operation
+approval = SecurityApproval.create_approval_request(
+    operation="system:maintenance:restart",
+    requester_id=current_user.id,
+    required_approvals=2,
+    expiry_minutes=120,
+    details={
+        "reason": "Scheduled system maintenance",
+        "affected_services": ["api", "worker"]
+    }
+)
+
+# Check approval status
+status = approval.get_status()
+if status["is_approved"]:
+    # Proceed with sensitive operation
+    pass
+else:
+    # Wait for required approvals
+    pass
+
+# Add an approval (by security admin)
+approval.add_approval(
+    approver_id=admin_user.id,
+    comments="Verified maintenance window and impact"
+)
+
+# Reject request (by another admin)
+approval.add_rejection(
+    approver_id=security_officer.id,
+    reason="Insufficient details provided"
+)
+```
+
 ### Bulk Operations
 
 ```python
@@ -711,6 +752,7 @@ else:
 - **Metadata Sanitization**: Removal of sensitive metadata from uploaded files
 - **Bulk Operation Auditing**: Security logging for bulk operations to track mass changes
 - **Transaction Management**: Proper transaction handling with automatic rollbacks on errors
+- **Multi-Person Approval**: Required approvals for highly sensitive operations
 
 ## Contributing New Models
 

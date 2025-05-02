@@ -75,12 +75,6 @@ The authentication standards provide a comprehensive framework for securely veri
   - Secure enrollment workflow
   - Backup code generation
 
-- **Hardware Security Keys**: Highest security level
-  - FIDO2/WebAuthn compliant
-  - Support for U2F legacy devices
-  - Physical presence verification
-  - Multiple keys per account supported
-
 - **Email/SMS**: Restricted use cases only
   - Limited to account recovery
   - Not considered secure for primary MFA
@@ -190,19 +184,13 @@ The authentication standards provide a comprehensive framework for securely veri
    - Secure enrollment process with QR codes
    - Supported apps: Google Authenticator, Microsoft Authenticator, Authy
 
-2. **Hardware Security Keys**
-   - FIDO2/WebAuthn compliant devices
-   - U2F support for legacy devices
-   - Multiple keys per account for backup
-   - Phishing-resistant authentication
-
-3. **Push Notifications** (Limited approval)
+2. **Push Notifications** (Limited approval)
    - Approved secure mobile applications only
    - Cryptographically signed challenges
    - Limited validity period (30 seconds)
    - Out-of-band verification channel
 
-4. **Backup Codes**
+3. **Backup Codes**
    - Single-use recovery codes
    - Minimum of 10 codes generated
    - Codes expire after use
@@ -428,7 +416,6 @@ Limited exceptions to MFA requirements:
 
 2. **MFA Configuration**
    - TOTP settings (interval, algorithm)
-   - WebAuthn/FIDO2 configuration
    - Backup methods configuration
    - Grace period settings
 
@@ -476,7 +463,6 @@ All authentication events must be logged with the following information:
 ## Best Practices
 
 - **Defense in Depth**: Use multiple authentication factors
-- **Phishing Resistance**: Implement FIDO2/WebAuthn where possible
 - **Continuous Authentication**: Validate context throughout sessions
 - **Secure Storage**: Use appropriate hashing for credential storage
 - **Fail Secure**: Deny access when authentication systems fail
@@ -510,7 +496,6 @@ This standard ensures compliance with:
 | Version | Date | Description | Author |
 |---------|------|-------------|--------|
 | 1.0 | 2023-07-25 | Initial document | Security Team |
-| 1.1 | 2023-10-12 | Added FIDO2/WebAuthn requirements | Authentication Team |
 | 1.2 | 2024-01-08 | Updated password requirements | Security Architect |
 | 1.3 | 2024-03-15 | Enhanced token security standards | Identity Team |
 | 1.4 | 2024-05-22 | Added OAuth/OIDC security controls | Security Standards Team |

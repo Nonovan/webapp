@@ -27,6 +27,7 @@ The authentication and authorization system implements a comprehensive RBAC appr
 - Temporary permission delegation between users
 - Detailed activity and session tracking for security auditing
 - Multi-person approval workflows for sensitive operations
+- Multi-factor authentication with various authenticator types
 
 Usage:
 Import the necessary models or utilities from this package for authentication-related operations.
@@ -85,6 +86,12 @@ Examples:
     )
 """
 
+import logging
+from datetime import datetime, timezone, timedelta
+from typing import Dict, List, Optional, Any, Set, Union, Type
+
+logger = logging.getLogger(__name__)
+
 # Import core models
 from .user import User
 from .role import Role
@@ -95,8 +102,7 @@ from .user_activity import UserActivity
 # Import security and authentication models
 from .login_attempt import LoginAttempt
 
-# Import additional auth-related models with graceful fallbacks
-# for models that might not be available in all deployments
+# Define core exports - these will always be available
 __all__ = [
     "User",
     "Role",
@@ -106,61 +112,109 @@ __all__ = [
     "LoginAttempt"
 ]
 
+# Track available features for conditional behavior
+AUTH_FEATURE_STATUS = {
+    "api_key": False,
+    "mfa": False,
+    "mfa_totp": False,
+    "mfa_backup": False,
+    "permission_delegation": False,
+    "permission_context": False,
+    "oauth": False,
+    "security_approval": False
+}
+
 # Optional authentication models
 try:
     from .api_key import APIKey
     __all__.append("APIKey")
+    AUTH_FEATURE_STATUS["api_key"] = True
 except ImportError:
-    pass
+    logger.debug("APIKey model not available")
 
 # Multi-factor authentication models
 try:
     from .mfa_method import MFAMethod
     __all__.append("MFAMethod")
+    AUTH_FEATURE_STATUS["mfa"] = True
 except ImportError:
-    pass
+    logger.debug("MFAMethod model not available")
 
 try:
     from .mfa_backup_code import MFABackupCode
     __all__.append("MFABackupCode")
+    AUTH_FEATURE_STATUS["mfa_backup"] = True
 except ImportError:
-    pass
+    logger.debug("MFABackupCode model not available")
 
 try:
     from .mfa_verification import MFAVerification
     __all__.append("MFAVerification")
 except ImportError:
-    pass
+    logger.debug("MFAVerification model not available")
 
 try:
     from .mfa_totp import MFATotp
     __all__.append("MFATotp")
+    AUTH_FEATURE_STATUS["mfa_totp"] = True
 except ImportError:
-    pass
+    logger.debug("MFATotp model not available")
 
 # Permission enhancement models
 try:
     from .permission_delegation import PermissionDelegation
     __all__.append("PermissionDelegation")
+    AUTH_FEATURE_STATUS["permission_delegation"] = True
 except ImportError:
-    pass
+    logger.debug("PermissionDelegation model not available")
 
 try:
     from .permission_context import PermissionContextRule
     __all__.append("PermissionContextRule")
+    AUTH_FEATURE_STATUS["permission_context"] = True
 except ImportError:
-    pass
+    logger.debug("PermissionContextRule model not available")
 
 # OAuth provider model
 try:
     from .oauth_provider import OAuthProvider, OAuthConnection
     __all__.extend(["OAuthProvider", "OAuthConnection"])
+    AUTH_FEATURE_STATUS["oauth"] = True
 except ImportError:
-    pass
+    logger.debug("OAuth models not available")
 
 # Security approval model
 try:
     from .security_approval import SecurityApproval
     __all__.append("SecurityApproval")
+    AUTH_FEATURE_STATUS["security_approval"] = True
 except ImportError:
-    pass
+    logger.debug("SecurityApproval model not available")
+
+
+def get_available_features() -> Dict[str, bool]:
+    """
+    Get a dictionary of available authentication and authorization features.
+
+    Returns:
+        Dict[str, bool]: Dictionary with feature names and their availability status
+    """
+    return AUTH_FEATURE_STATUS
+
+
+def supports_mfa() -> bool:
+    """Check if MFA functionality is available in this deployment."""
+    return AUTH_FEATURE_STATUS["mfa"]
+
+
+def supports_oauth() -> bool:
+    """Check if OAuth provider integration is available."""
+    return AUTH_FEATURE_STATUS["oauth"]
+
+
+# Version information
+__version__ = '0.1.1'
+
+# Log initialization status
+available_features = [name for name, status in AUTH_FEATURE_STATUS.items() if status]
+logger.debug(f"Auth module initialized with features: {', '.join(available_features)}")

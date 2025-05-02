@@ -115,7 +115,6 @@ MFA is required for:
 Supported MFA methods:
 
 - TOTP-based authenticator apps (preferred)
-- Hardware security keys (FIDO2/WebAuthn)
 - SMS codes (discouraged, only as fallback)
 
 ### Session Management

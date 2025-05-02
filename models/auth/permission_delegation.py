@@ -12,7 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from extensions import db
 from models.base import BaseModel, AuditableMixin
-from core.security_utils import log_security_event
+from core.security.cs_audit import log_security_event
 
 class PermissionDelegation(BaseModel, AuditableMixin):
     """

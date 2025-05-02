@@ -2,7 +2,7 @@
 Multi-Factor Authentication model for the Cloud Infrastructure Platform.
 
 This module defines the MFA model which handles multiple authentication factors
-including TOTP, WebAuthn/FIDO2, and backup codes. It separates MFA data from
+including TOTP, and backup codes. It separates MFA data from
 the User table for better security and more flexible authentication options.
 """
 from datetime import datetime, timezone, timedelta
@@ -17,8 +17,9 @@ from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import relationship, validates
 
 from extensions import db
+from admin.utils import encrypt_data, decrypt_data
+from core.security.cs_audit import log_security_event
 from models.base import BaseModel, AuditableMixin
-from core.security_utils import log_security_event, encrypt_data, decrypt_data
 
 class MFAMethod(BaseModel, AuditableMixin):
     """Model for storing user multi-factor authentication methods."""
@@ -30,12 +31,11 @@ class MFAMethod(BaseModel, AuditableMixin):
 
     # Constants for method types
     TYPE_TOTP = 'totp'
-    TYPE_WEBAUTHN = 'webauthn'
     TYPE_BACKUP_CODES = 'backup_codes'
     TYPE_EMAIL = 'email'
     TYPE_SMS = 'sms'
 
-    VALID_TYPES = [TYPE_TOTP, TYPE_WEBAUTHN, TYPE_BACKUP_CODES, TYPE_EMAIL, TYPE_SMS]
+    VALID_TYPES = [TYPE_TOTP, TYPE_BACKUP_CODES, TYPE_EMAIL, TYPE_SMS]
 
     # Primary key
     id = db.Column(db.Integer, primary_key=True)
@@ -51,10 +51,6 @@ class MFAMethod(BaseModel, AuditableMixin):
     is_primary = db.Column(db.Boolean, default=False)  # Whether this is the primary MFA method
     is_active = db.Column(db.Boolean, default=True)
     verified = db.Column(db.Boolean, default=False)
-
-    # For WebAuthn
-    credential_id = db.Column(db.String(255), nullable=True, unique=True)
-    webauthn_data = db.Column(MutableDict.as_mutable(db.JSON), nullable=True)
 
     # For backup codes
     backup_codes = db.Column(MutableDict.as_mutable(db.JSON), nullable=True)
@@ -187,14 +183,6 @@ class MFAMethod(BaseModel, AuditableMixin):
             'name': self.name or username
         }
 
-    def register_webauthn_credential(self, credential_data: Dict[str, Any]) -> None:
-        """Register a WebAuthn credential."""
-        if self.method_type != self.TYPE_WEBAUTHN:
-            raise ValueError("This MFA method is not WebAuthn")
-
-        self.credential_id = credential_data.pop('credential_id', None)
-        self.webauthn_data = credential_data
-        self.verified = True
 
     @validates('is_primary')
     def validate_is_primary(self, key, is_primary):

@@ -13,11 +13,11 @@ import json
 import ipaddress
 from user_agents import parse
 from geoip2.errors import AddressNotFoundError
+from sqlalchemy.exc import SQLAlchemyError
 
 from extensions import db, redis_client, geoip
-from sqlalchemy.exc import SQLAlchemyError
+from core.security.cs_audit import log_security_event
 from models.base import BaseModel
-from core.security_utils import log_security_event
 
 class LoginAttempt(BaseModel):
     """Model for tracking login attempts and implementing brute force protection."""

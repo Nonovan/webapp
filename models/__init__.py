@@ -195,6 +195,74 @@ def _setup_audit_listeners() -> None:
         LoginAttempt
     ]
 
+    # Add MFA-related models to audit logging if available
+    # Define AUTH_FEATURE_STATUS if not already imported
+    AUTH_FEATURE_STATUS = globals().get("AUTH_FEATURE_STATUS", {})
+    if AUTH_FEATURE_STATUS.get("mfa", False):
+        try:
+            from .auth import MFAMethod
+            models_to_audit.append(MFAMethod)
+        except ImportError:
+            logger.debug("MFAMethod not available for audit logging")
+
+    if AUTH_FEATURE_STATUS.get("mfa_backup", False):
+        try:
+            from .auth import MFABackupCode
+            models_to_audit.append(MFABackupCode)
+        except ImportError:
+            logger.debug("MFABackupCode not available for audit logging")
+
+    if AUTH_FEATURE_STATUS.get("mfa_verification", False):
+        try:
+            from .auth import MFAVerification
+            models_to_audit.append(MFAVerification)
+        except ImportError:
+            logger.debug("MFAVerification not available for audit logging")
+
+    if AUTH_FEATURE_STATUS.get("mfa_totp", False):
+        try:
+            from .auth import MFATotp
+            models_to_audit.append(MFATotp)
+        except ImportError:
+            logger.debug("MFATotp not available for audit logging")
+
+    # Add OAuth models if available
+    if AUTH_FEATURE_STATUS.get("oauth", False):
+        try:
+            from .auth import OAuthProvider, OAuthConnection
+            models_to_audit.extend([OAuthProvider, OAuthConnection])
+        except ImportError:
+            logger.debug("OAuth models not available for audit logging")
+
+    # Add permission enhancement models if available
+    if AUTH_FEATURE_STATUS.get("permission_delegation", False):
+        try:
+            from .auth import PermissionDelegation
+            models_to_audit.append(PermissionDelegation)
+        except ImportError:
+            logger.debug("PermissionDelegation not available for audit logging")
+
+    if AUTH_FEATURE_STATUS.get("permission_context", False):
+        try:
+            from .auth import PermissionContextRule
+            models_to_audit.append(PermissionContextRule)
+        except ImportError:
+            logger.debug("PermissionContextRule not available for audit logging")
+
+    if AUTH_FEATURE_STATUS.get("security_approval", False):
+        try:
+            from .auth import SecurityApproval
+            models_to_audit.append(SecurityApproval)
+        except ImportError:
+            logger.debug("SecurityApproval not available for audit logging")
+
+    if AUTH_FEATURE_STATUS.get("api_key", False):
+        try:
+            from .auth import APIKey
+            models_to_audit.append(APIKey)
+        except ImportError:
+            logger.debug("APIKey not available for audit logging")
+
     # Add conditionally imported models
     if THREAT_INTELLIGENCE_AVAILABLE:
         models_to_audit.extend([ThreatIndicator, ThreatFeed])

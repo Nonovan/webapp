@@ -2,7 +2,7 @@
 Multi-Factor Authentication implementation for the API authentication module.
 
 This module provides functionality for managing multi-factor authentication methods
-including TOTP, backup codes, and WebAuthn. It supports MFA enrollment, verification,
+including TOTP, and backup codes. It supports MFA enrollment, verification,
 and management with proper security controls and audit logging.
 """
 
@@ -32,11 +32,11 @@ def setup_mfa() -> Tuple[Dict[str, Any], int]:
     Set up a new MFA method for the current user.
 
     This endpoint initiates MFA setup by generating and returning necessary
-    credentials (e.g., TOTP secret, QR code URI, or registration data for WebAuthn).
+    credentials (e.g., TOTP secret, or QR code URI).
     The setup is completed using the verify endpoint.
 
     Request body:
-        type (str): Type of MFA method to set up (totp, webauthn, backup_codes)
+        type (str): Type of MFA method to set up (totp, backup_codes)
         name (str, optional): User-friendly name for the device/method
 
     Returns:
@@ -96,8 +96,6 @@ def setup_mfa() -> Tuple[Dict[str, Any], int]:
             setup_data = _setup_totp(mfa_method)
         elif mfa_type == MFAMethod.TYPE_BACKUP_CODES:
             setup_data = _setup_backup_codes(mfa_method)
-        elif mfa_type == MFAMethod.TYPE_WEBAUTHN:
-            setup_data = _setup_webauthn(mfa_method)
         else:
             # For other methods like SMS/Email
             setup_data = {"method_id": mfa_method.id}
@@ -149,7 +147,6 @@ def verify_mfa_setup() -> Tuple[Dict[str, Any], int]:
         method_id (int): ID of the MFA method to verify
         setup_token (str): Setup token from the setup step
         code (str): Verification code for TOTP/backup codes
-        credential (dict): Credential data for WebAuthn
 
     Returns:
         JSON with verification result and status
@@ -163,7 +160,6 @@ def verify_mfa_setup() -> Tuple[Dict[str, Any], int]:
     method_id = data.get('method_id')
     setup_token = data.get('setup_token')
     verification_code = data.get('code')
-    credential_data = data.get('credential')
 
     # Basic validation
     if not method_id or not setup_token:
@@ -207,13 +203,6 @@ def verify_mfa_setup() -> Tuple[Dict[str, Any], int]:
 
             verified = _verify_backup_code(mfa_method, verification_code)
             verification_type = 'backup_code'
-
-        elif mfa_method.method_type == MFAMethod.TYPE_WEBAUTHN:
-            if not credential_data:
-                return jsonify({"error": "Credential data required"}), 400
-
-            verified = _verify_webauthn(mfa_method, credential_data)
-            verification_type = 'webauthn'
 
         if verified:
             # Mark method as verified
@@ -521,13 +510,6 @@ def mfa_challenge() -> Tuple[Dict[str, Any], int]:
                 "type": "totp",
                 "challenge_token": challenge_token
             }
-        elif method_type == MFAMethod.TYPE_WEBAUTHN:
-            # WebAuthn challenge would be more complex in production
-            challenge = {
-                "type": "webauthn",
-                "challenge_token": challenge_token,
-                "challenge_data": base64.b64encode(os.urandom(32)).decode('utf-8')
-            }
         elif method_type == MFAMethod.TYPE_BACKUP_CODES:
             challenge = {
                 "type": "backup_code",
@@ -575,7 +557,6 @@ def verify_mfa() -> Tuple[Dict[str, Any], int]:
         method_id (int): ID of the MFA method
         challenge_token (str): Challenge token from the challenge step
         code (str): Verification code for TOTP/backup codes
-        credential (dict): Authentication assertion for WebAuthn
 
     Returns:
         JSON with verification result
@@ -589,7 +570,6 @@ def verify_mfa() -> Tuple[Dict[str, Any], int]:
     method_id = data.get('method_id')
     challenge_token = data.get('challenge_token')
     verification_code = data.get('code')
-    credential_data = data.get('credential')
 
     # Basic validation
     if not method_id or not challenge_token:
@@ -634,13 +614,6 @@ def verify_mfa() -> Tuple[Dict[str, Any], int]:
 
             verified = _verify_backup_code(mfa_method, verification_code)
             verification_type = 'backup_code'
-
-        elif mfa_method.method_type == MFAMethod.TYPE_WEBAUTHN:
-            if not credential_data:
-                return jsonify({"error": "Credential data required"}), 400
-
-            verified = _verify_webauthn(mfa_method, credential_data)
-            verification_type = 'webauthn'
 
         # Log verification attempt
         MFAVerification.log_verification(
@@ -881,44 +854,6 @@ def _setup_backup_codes(mfa_method: MFAMethod) -> Dict[str, Any]:
     }
 
 
-def _setup_webauthn(mfa_method: MFAMethod) -> Dict[str, Any]:
-    """
-    Set up WebAuthn/FIDO2 authentication.
-
-    Args:
-        mfa_method: MFA method object to configure
-
-    Returns:
-        Dict with setup data
-    """
-    # This would involve WebAuthn registration challenge generation
-    # For simplicity, we're returning a placeholder
-    # In a real implementation, this would use a WebAuthn library
-
-    # Generate a random challenge
-    challenge = base64.b64encode(os.urandom(32)).decode('utf-8')
-
-    return {
-        "registration_options": {
-            "challenge": challenge,
-            "rp": {
-                "name": "Cloud Infrastructure Platform",
-                "id": request.host
-            },
-            "user": {
-                "id": str(mfa_method.user_id),
-                "name": f"user_{mfa_method.user_id}",
-                "displayName": mfa_method.name
-            },
-            "pubKeyCredParams": [
-                {"alg": -7, "type": "public-key"}  # ES256
-            ],
-            "timeout": 60000,
-            "attestation": "direct"
-        }
-    }
-
-
 def _verify_totp(mfa_method: MFAMethod, code: str) -> bool:
     """
     Verify a TOTP code.
@@ -953,37 +888,3 @@ def _verify_backup_code(mfa_method: MFAMethod, code: str) -> bool:
 
     # Call method's verify function
     return mfa_method.verify_backup_code(normalized_code)
-
-
-def _verify_webauthn(mfa_method: MFAMethod, credential_data: Dict[str, Any]) -> bool:
-    """
-    Verify a WebAuthn assertion.
-
-    Args:
-        mfa_method: MFA method to verify against
-        credential_data: WebAuthn authentication assertion
-
-    Returns:
-        bool: True if verified, False otherwise
-    """
-    # This would involve WebAuthn assertion verification
-    # For simplicity, we're returning a placeholder success
-    # In a real implementation, this would use a WebAuthn library
-
-    try:
-        # In a real implementation, credential_data would be verified against
-        # the stored credential data in mfa_method.webauthn_data
-
-        # For demonstration purposes only - this is NOT secure
-        # Log that this is a placeholder implementation
-        logger.warning("WebAuthn verification using placeholder implementation")
-
-        # Update last used timestamp
-        mfa_method.last_used_at = datetime.now(timezone.utc)
-        db.session.commit()
-
-        # Return success for demo purposes
-        return True
-    except Exception as e:
-        logger.error(f"WebAuthn verification error: {str(e)}")
-        return False

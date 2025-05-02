@@ -15,7 +15,7 @@ from sqlalchemy import func
 
 from extensions import db, redis_client, metrics
 from models.base import BaseModel, AuditableMixin
-from core.security_utils import log_security_event
+from core.security.cs_audit import log_security_event
 
 class APIKey(BaseModel, AuditableMixin):
     """

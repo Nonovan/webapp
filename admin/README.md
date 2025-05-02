@@ -9,6 +9,7 @@ This directory contains administrative tools, utilities, scripts, and templates 
 - [Directory Structure](#directory-structure)
 - [Usage](#usage)
   - [User Management](#user-management)
+  - [Bulk User Operations](#bulk-user-operations)
   - [Permission Management](#permission-management)
   - [System Configuration](#system-configuration)
   - [Security Administration](#security-administration)
@@ -65,6 +66,7 @@ admin/
 ├── README.md                 # This documentation
 ├── cli/                      # Command-line administration tools
 │   ├── README.md             # CLI tools documentation
+│   ├── __init__.py           # Package initialization and shared utilities
 │   ├── admin_commands.py     # Core command registry
 │   ├── grant_permissions.py  # Permission management
 │   ├── security_admin.py     # Security administration
@@ -72,15 +74,20 @@ admin/
 │   └── user_admin.py         # User management
 ├── scripts/                  # Administrative scripts
 │   ├── README.md             # Scripts documentation
+│   ├── __init__.py           # Package initialization
 │   ├── admin_audit.py        # Administrative auditing
-│   ├── audit_log_exporter.py # Audit log export utility
-│   ├── backup_verification.sh   # Backup integrity verification
+│   ├── audit_log_rotator.py  # Export audit logs to external systems
+│   ├── backup_verification.py # Backup integrity verification in Python
+│   ├── backup_verification.sh # Backup integrity verification
 │   ├── compliance_report_generator.py # Compliance reporting tool
 │   ├── emergency_access.py   # Emergency access management
 │   ├── incident_response.sh  # Incident response automation
-│   ├── privilege_management.sh # Privilege management
+│   ├── privilege_management.py # Privilege management Python implementation
+│   ├── privilege_management.sh # Privilege management shell script
 │   ├── security_baseline_validator.py # Security baseline validation
+│   ├── system_health_check.py # System health monitoring in Python
 │   ├── system_health_check.sh # System health monitoring
+│   ├── system_lockdown.py    # System security hardening in Python
 │   └── system_lockdown.sh    # System security hardening
 ├── security/                 # Security administration tools
 │   ├── README.md             # Security tools documentation
@@ -98,11 +105,13 @@ admin/
     ├── __init__.py           # Package initialization
     ├── admin_auth.py         # Authentication and authorization utilities
     ├── audit_utils.py        # Audit logging utilities
-    ├── config_validation.py  # Configuration validation
-    ├── encryption_utils.py   # Encryption utilities
-    ├── error_handling.py     # Error handling utilities
-    ├── metrics_utils.py      # Metrics collection
-    └── secure_credentials.py # Credential management
+    ├── config_validation.py  # Configuration validation tools
+    ├── encryption_utils.py   # Encryption and decryption utilities
+    ├── error_handling.py     # Centralized error handling
+    ├── metrics_utils.py      # Performance and usage metrics collection
+    ├── password_utils.py     # Password generation and validation
+    ├── secure_credentials.py # Secure credential management
+    └── security_utils.py     # Security utility functions
 ```
 
 ## Usage
@@ -118,6 +127,31 @@ python user_admin.py list --role admin --output-format table
 
 # Deactivate a user account
 python user_admin.py deactivate --username jsmith --reason "Extended leave"
+```
+
+### Bulk User Operations
+
+```bash
+# Import users from a CSV file
+python user_admin.py import --file users.csv --reason "Onboarding new department"
+
+# Import users with update option for existing users
+python user_admin.py import --file users.csv --update-existing --reason "Employee data update"
+
+# Perform a dry run to validate import data without making changes
+python user_admin.py import --file users.csv --dry-run --reason "Validation only"
+
+# Import users from a JSON file
+python user_admin.py import --file users.json --format json --reason "System migration"
+
+# Export users to CSV or JSON format
+python user_admin.py export --output users.csv --role user
+
+# Export users with sensitive information (requires elevated permissions)
+python user_admin.py export --output detailed_users.json --include-sensitive
+
+# Export users with specific filters
+python user_admin.py export --output finance_users.csv --search "finance" --status active
 ```
 
 ### Permission Management
@@ -173,7 +207,7 @@ python emergency_access.py --approve --request-id ER-2023-042 --approver securit
 
 ```bash
 # Enable MFA requirement for an administrative role
-python security_admin.py mfa --enable --role "system-admin" --methods totp,webauthn
+python security_admin.py mfa --enable --role "system-admin" --methods totp
 
 # Verify MFA for sensitive operation (automatically prompts for MFA token)
 python system_configuration.py --set security.level=maximum --mfa-token 123456
@@ -208,6 +242,9 @@ system_lockdown.sh --component authentication --apply-policy strict-mfa
 - **Multi-Factor Authentication**: Enforce MFA for sensitive administrative operations
 - **Secure Communications**: Use encrypted channels for administration
 - **Session Management**: Implement session timeouts and secure session handling
+- **Data Validation**: Always validate import data before bulk operations
+- **Dry Run Verification**: Use dry-run mode to verify changes before execution
+- **Reason Documentation**: Always provide meaningful reasons for operations
 
 ## Common Features
 
@@ -224,13 +261,17 @@ All administrative tools share these common features:
 - **Secure Defaults**: Conservative default settings requiring explicit opt-out
 - **Structured Error Handling**: Consistent error reporting and handling
 - **Version Information**: Clear version tracking for all components
+- **Bulk Operations**: Support for importing and exporting data in multiple formats
+- **Format Auto-detection**: Automatic detection of file formats based on extensions
 
 ## Related Documentation
 
 - Authentication Framework
 - Authorization Model
 - Audit Requirements
+- Batch Processing Guidelines
 - Change Management Process
+- Data Import Format Specifications
 - Emergency Access Procedures
 - Multi-Factor Authentication Guide
 - Platform Architecture

@@ -288,7 +288,6 @@ nh3==0.2.14  # HTML sanitization utility (lightweight alternative)
 qrcode==7.4.2  # For generating QR codes for TOTP MFA setup
 pillow==10.1.0  # Required by qrcode for image generation
 pyotp==2.9.0  # Already included - TOTP implementation
-webauthn==1.8.1  # WebAuthn/FIDO2 support for hardware security keys
 fido2==1.1.0  # FIDO2 protocol implementation
 pycryptodome==3.19.0  # Cryptographic primitives for MFA token verification
 base32-lib==1.0.1  # Base32 encoding for TOTP secrets
@@ -297,5 +296,4 @@ qrcode-terminal==0.8  # CLI QR code generation for terminal-based MFA setup
 # Security enhancement for MFA
 backoff==2.2.1  # Exponential backoff for MFA rate limiting
 throttle==0.1.6  # Rate limiting for MFA verification attempts
-cbor2==5.5.1  # CBOR encoding used by WebAuthn
 freezegun==1.2.2  # Time-freezing for testing time-based MFA tokens

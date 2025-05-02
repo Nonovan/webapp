@@ -25,7 +25,6 @@ Authentication mechanisms support:
 - Session-based authentication for web interfaces
 - API key authentication for service integrations
 - Multi-factor authentication using TOTP
-- Hardware security key integration (FIDO2/WebAuthn)
 """
 
 import logging
