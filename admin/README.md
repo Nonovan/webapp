@@ -13,6 +13,7 @@ This directory contains administrative tools, utilities, scripts, and templates 
   - [System Configuration](#system-configuration)
   - [Security Administration](#security-administration)
   - [Emergency Access Management](#emergency-access-management)
+  - [Multi-Factor Authentication](#multi-factor-authentication)
   - [System Security](#system-security)
 - [Best Practices & Security](#best-practices--security)
 - [Common Features](#common-features)
@@ -54,6 +55,7 @@ The `admin/` directory provides a comprehensive set of tools for platform admini
   - Audit logging
   - Configuration validation
   - Secure credential handling
+  - Multi-factor authentication enforcement
   - Error handling and metrics collection
 
 ## Directory Structure
@@ -94,7 +96,7 @@ admin/
 └── utils/                    # Administrative utilities
     ├── README.md             # Utilities documentation
     ├── __init__.py           # Package initialization
-    ├── admin_auth.py         # Authentication utilities
+    ├── admin_auth.py         # Authentication and authorization utilities
     ├── audit_utils.py        # Audit logging utilities
     ├── config_validation.py  # Configuration validation
     ├── encryption_utils.py   # Encryption utilities
@@ -167,6 +169,22 @@ python emergency_access.py --activate --role admin --reason "Critical system fai
 python emergency_access.py --approve --request-id ER-2023-042 --approver security.admin
 ```
 
+### Multi-Factor Authentication
+
+```bash
+# Enable MFA requirement for an administrative role
+python security_admin.py mfa --enable --role "system-admin" --methods totp,webauthn
+
+# Verify MFA for sensitive operation (automatically prompts for MFA token)
+python system_configuration.py --set security.level=maximum --mfa-token 123456
+
+# Update MFA enforcement policy
+python security_admin.py mfa-policy --update --policy strict --apply-to security,configuration
+
+# Generate temporary backup codes for a user
+python user_admin.py mfa --generate-backup-codes --username admin.user --count 10
+```
+
 ### System Security
 
 ```bash
@@ -187,6 +205,7 @@ system_lockdown.sh --component authentication --apply-policy strict-mfa
 - **Change Management**: Follow proper change control procedures
 - **Documentation**: Document all administrative actions with justification
 - **Emergency Access**: Control and audit emergency access procedures
+- **Multi-Factor Authentication**: Enforce MFA for sensitive administrative operations
 - **Secure Communications**: Use encrypted channels for administration
 - **Session Management**: Implement session timeouts and secure session handling
 
@@ -200,6 +219,7 @@ All administrative tools share these common features:
 - **Environment Awareness**: Support for different deployment environments
 - **Help Systems**: Built-in documentation and usage examples
 - **Input Validation**: Thorough validation of all inputs and parameters
+- **MFA Support**: Multi-factor authentication for sensitive operations
 - **Multi-Format Output**: Support for different output formats (text, JSON, CSV)
 - **Secure Defaults**: Conservative default settings requiring explicit opt-out
 - **Structured Error Handling**: Consistent error reporting and handling
@@ -212,6 +232,7 @@ All administrative tools share these common features:
 - Audit Requirements
 - Change Management Process
 - Emergency Access Procedures
+- Multi-Factor Authentication Guide
 - Platform Architecture
 - Security Controls Framework
 - System Administration Guide
