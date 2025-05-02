@@ -4,19 +4,19 @@ The webhook system enables real-time notifications to external systems when even
 
 ## Contents
 
-- Overview
-- Architecture
-- Key Components
-- Directory Structure
-- API Endpoints
-- Database Models
-- Delivery Process
-- Security Considerations
-- Event Types
-- Testing
-- Best Practices
-- Extending the System
-- Related Documentation
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [API Endpoints](#api-endpoints)
+- [Database Models](#database-models)
+- [Delivery Process](#delivery-process)
+- [Security Considerations](#security-considerations)
+- [Event Types](#event-types)
+- [Testing](#testing)
+- [Best Practices](#best-practices)
+- [Extending the System](#extending-the-system)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
@@ -38,31 +38,43 @@ The webhook system consists of these components:
   - Event category groupings
   - Signature generation and verification
   - Delivery status tracking
+  - Application initialization hooks
 
 - **`models.py`**: Database models for webhook functionality
   - Subscription storage
   - Delivery history tracking
   - Status monitoring
+  - Health metrics calculation
 
 - **`routes.py`**: API endpoints for webhook management
   - Subscription creation, listing, and deletion
   - Delivery history tracking
   - Test functionality
+  - Event type listing
+
+- **`services.py`**: Business logic services
+  - Subscription validation
+  - Event queueing
+  - Webhook triggering
+  - Delivery management
 
 - **`subscription.py`**: Subscription management functionality
   - Subscription creation with validation
   - Secret generation
   - Event filtering
+  - Subscription health monitoring
 
 - **`delivery.py`**: Event delivery processing
   - Payload preparation and signing
   - HTTP request handling
   - Retry logic and exponential backoff
+  - Circuit breaking for failing endpoints
 
 - **`testing.py`**: Testing utilities
   - MockWebhookServer for unit testing
   - Delivery verification
   - Response simulation
+  - Signature validation testing
 
 ## Directory Structure
 
@@ -90,13 +102,16 @@ api/webhooks/
 
 | Endpoint | Method | Description | Rate Limit |
 |----------|--------|-------------|------------|
-| webhooks | GET | List webhook subscriptions | 60/minute |
-| webhooks | POST | Create a webhook subscription | 30/minute |
+| `/api/webhooks` | GET | List webhook subscriptions | 60/minute |
+| `/api/webhooks` | POST | Create a webhook subscription | 30/minute |
 | `/api/webhooks/<id>` | GET | Get a specific subscription | 60/minute |
+| `/api/webhooks/<id>` | PUT | Update a subscription | 30/minute |
 | `/api/webhooks/<id>` | DELETE | Delete a subscription | 30/minute |
 | `/api/webhooks/<id>/deliveries` | GET | Get delivery history | 60/minute |
 | `/api/webhooks/test` | POST | Test a webhook delivery | 10/minute |
 | `/api/webhooks/events` | GET | List available event types | 30/minute |
+| `/api/webhooks/<id>/rotate-secret` | POST | Rotate webhook secret | 5/minute |
+| `/api/webhooks/deliveries/<id>/retry` | POST | Retry a failed delivery | 20/minute |
 
 ## Database Models
 
@@ -112,9 +127,13 @@ Represents an external endpoint registration to receive webhook events:
 - `headers`: Custom HTTP headers to include with webhook requests
 - `secret`: Secret key used to sign webhook payloads
 - `max_retries`: Maximum number of retry attempts for failed deliveries
+- `retry_interval`: Base interval in seconds between retries
+- `created_at`: When the subscription was created
+- `updated_at`: When the subscription was last updated
+- `last_used_at`: When the subscription was last triggered
 - `is_active`: Whether the subscription is currently active
 
-### WebhookDelivery
+### WebhookDeliveryAttempt
 
 Tracks the delivery attempt history and outcomes for webhook events:
 
@@ -122,13 +141,16 @@ Tracks the delivery attempt history and outcomes for webhook events:
 - `subscription_id`: ID of the webhook subscription
 - `event_type`: Type of event delivered
 - `payload`: Event payload data
-- `status`: Current delivery status
+- `status`: Current delivery status (pending, delivered, failed, retrying)
 - `attempts`: Number of delivery attempts made
 - `response_code`: HTTP status code from the most recent attempt
 - `response_body`: Response body from the most recent attempt
-- `duration_ms`: Request duration in milliseconds
+- `request_id`: Correlation ID for tracking the request
+- `error_message`: Error details if delivery failed
+- `request_duration`: Request duration in milliseconds
 - `created_at`: When the delivery was first attempted
-- `delivered_at`: When the delivery was successfully completed
+- `completed_at`: When the delivery was successfully completed
+- `updated_at`: When the delivery record was last updated
 - `last_attempt_at`: Timestamp of the most recent delivery attempt
 
 ## Delivery Process
@@ -141,6 +163,17 @@ Tracks the delivery attempt history and outcomes for webhook events:
 6. Success/failure is recorded along with response details
 7. Failed deliveries are retried with exponential backoff up to max_retries
 
+### Delivery Headers
+
+Every webhook delivery includes these standard headers:
+
+- `Content-Type: application/json`
+- `User-Agent: Cloud-Platform-Webhook-Service`
+- `X-Webhook-Signature`: HMAC-SHA256 signature of payload
+- `X-Event-Type`: Type of event being delivered
+- `X-Webhook-ID`: Unique identifier for the webhook delivery
+- `X-Request-ID`: Correlation ID for request tracking
+
 ## Security Considerations
 
 - All webhook payloads are signed using HMAC-SHA256 with a per-subscription secret
@@ -152,6 +185,9 @@ Tracks the delivery attempt history and outcomes for webhook events:
 - URL validation prevents callbacks to internal network addresses
 - Request timeouts prevent hanging connections
 - Payload size limits prevent abuse of the system
+- Circuit breakers automatically disable failing subscriptions
+- HTTPS is required for all webhook endpoints
+- Secrets can be rotated without disrupting service
 
 ## Event Types
 
@@ -174,6 +210,11 @@ The platform supports these event categories:
 - `alert.resolved` - When an alert is resolved
 - `alert.escalated` - When an alert is escalated
 - `alert.comment` - When a comment is added to an alert
+- `alert.suppressed` - When an alert is suppressed
+- `alert.correlated` - When an alert is correlated with others
+- `alert.metric_threshold` - When a metric threshold is reached
+- `alert.notification_sent` - When an alert notification is sent
+- `alert.notification_failed` - When sending an alert notification fails
 
 ### 3. Security
 
@@ -234,6 +275,33 @@ The system includes tools for testing webhooks:
   - Records timing information
   - Maintains retry history
 
+### Example Testing Code
+
+```python
+# Using the MockWebhookServer in tests
+from api.webhooks.testing import MockWebhookServer
+
+def test_webhook_delivery(client, auth):
+    # Create test server
+    mock_server = MockWebhookServer(secret="test_secret")
+
+    # Create subscription pointing to mock server
+    subscription = create_subscription(
+        target_url=mock_server.url,
+        event_types=["resource.created"],
+        secret=mock_server.secret
+    )
+
+    # Trigger webhook
+    trigger_event("resource.created", {"id": "res-123", "name": "test-resource"})
+
+    # Verify delivery
+    deliveries = mock_server.get_deliveries()
+    assert len(deliveries) == 1
+    assert deliveries[0]["event_type"] == "resource.created"
+    assert deliveries[0]["data"]["id"] == "res-123"
+```
+
 ## Best Practices
 
 When using webhooks in your application:
@@ -246,6 +314,35 @@ When using webhooks in your application:
 6. **Include Correlation IDs**: Add request IDs in your responses for troubleshooting
 7. **Limit Subscription Scope**: Subscribe only to events your application needs
 8. **Handle Duplicates**: Design for the possibility of receiving the same event twice
+9. **Implement Proper Error Handling**: Log and alert on webhook delivery failures
+10. **Rotate Secrets Regularly**: Change webhook secrets periodically for security
+
+### Example Signature Verification (Python)
+
+```python
+import hmac
+import hashlib
+
+def verify_signature(payload, signature, secret):
+    """
+    Verify the webhook signature using the shared secret.
+
+    Args:
+        payload (str): The raw payload as a string
+        signature (str): The X-Webhook-Signature header value
+        secret (str): The webhook secret
+
+    Returns:
+        bool: True if signature is valid, False otherwise
+    """
+    computed_signature = hmac.new(
+        secret.encode('utf-8'),
+        payload.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+
+    return hmac.compare_digest(computed_signature, signature)
+```
 
 ## Extending the System
 
@@ -253,7 +350,7 @@ To add new event types:
 
 1. Add the event type to the `EventType` class in **init**.py
 2. Add the event to the appropriate category in `EVENT_CATEGORIES`
-3. Trigger the new event type using `deliver_webhook()` from your code
+3. Trigger the new event type using `trigger_webhook()` from your code
 
 To enhance the webhook system:
 
@@ -261,10 +358,14 @@ To enhance the webhook system:
 2. Add webhook subscription groups for easier management
 3. Implement webhook delivery metrics and dashboards
 4. Create subscription templates for common use cases
+5. Add filtering capabilities for more precise event selection
+6. Implement webhook payload transformations
+7. Add support for different payload formats (e.g., XML)
 
 ## Related Documentation
 
 - API Reference
-- Integration Guide
+- Webhook Integration Guide
 - Security Best Practices
 - Event Catalog
+- Webhook Testing Framework

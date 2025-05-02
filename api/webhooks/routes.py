@@ -11,12 +11,13 @@ import json
 from typing import Dict, Any
 from datetime import datetime
 
-from extensions import db, limiter
-from models.communication.webhook import WebhookSubscription, WebhookDelivery
+
 from . import EVENT_TYPES, EVENT_CATEGORIES
-from .subscription import create_subscription
 from .delivery import deliver_webhook
-from core.auth import login_required, require_role
+from .subscription import create_subscription
+from extensions import db, limiter
+from blueprints.auth.decorators import login_required, require_role
+from models.communication.webhook import WebhookSubscription, WebhookDelivery
 
 # Create webhook blueprint
 webhooks_api = Blueprint('webhooks', __name__, url_prefix='/webhooks')

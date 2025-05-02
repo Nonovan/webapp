@@ -11,8 +11,7 @@ import uuid
 import secrets
 from datetime import datetime
 
-from models import db
-from models.webhook import WebhookSubscription
+from models import db, WebhookSubscription
 from . import EventType, EVENT_TYPES, EVENT_CATEGORIES, generate_webhook_signature
 
 def create_subscription(
@@ -25,7 +24,7 @@ def create_subscription(
 ) -> Dict:
     """
     Create a new webhook subscription.
-    
+
     Args:
         target_url: URL to send webhook events to
         event_types: List of event types to subscribe to
@@ -33,7 +32,7 @@ def create_subscription(
         headers: Optional custom headers to include with webhook requests
         user_id: ID of user creating the subscription
         max_retries: Maximum number of retries for failed deliveries
-        
+
     Returns:
         Dict containing the created subscription information
     """
@@ -41,15 +40,15 @@ def create_subscription(
     invalid_events = [e for e in event_types if e not in EVENT_TYPES]
     if invalid_events:
         raise ValueError(f"Invalid event types: {', '.join(invalid_events)}")
-    
+
     # Validate URL
     if not target_url.startswith(('http://', 'https://')):
         raise ValueError("Target URL must use HTTP or HTTPS protocol")
-    
+
     # Generate subscription ID and secret
     subscription_id = str(uuid.uuid4())
     secret = secrets.token_hex(32)
-    
+
     # Create subscription
     subscription = WebhookSubscription(
         id=subscription_id,
@@ -63,11 +62,11 @@ def create_subscription(
         created_at=datetime.utcnow(),
         is_active=True
     )
-    
+
     try:
         db.session.add(subscription)
         db.session.commit()
-        
+
         # Don't return the secret in the response, only show it once
         return {
             "id": subscription.id,

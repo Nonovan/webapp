@@ -13,10 +13,17 @@ includes authentication via a shared secret for payload verification.
 import hmac
 import hashlib
 import json
+import logging
 import uuid
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Union
-from flask import Blueprint, current_app
+from flask import Blueprint, current_app, Flask
+
+# Initialize logger for this package
+logger = logging.getLogger(__name__)
+
+# Flag to track initialization state
+_initialized = False
 
 # Available webhook event types
 class EventType:
@@ -297,8 +304,91 @@ def register_webhook_metrics(metrics):
         current_app.logger.warning(f"Failed to register webhook metrics: {e}")
 
 
+def init_app(app: Flask) -> None:
+    """
+    Initialize the webhooks module with the Flask application.
+
+    This function:
+    - Registers the webhook blueprint with the application
+    - Configures rate limits for webhook endpoints
+    - Sets up periodic background tasks for delivery monitoring
+    - Registers necessary metrics
+    - Initializes circuit breakers for external webhook targets
+
+    Args:
+        app: Flask application instance
+    """
+    global _initialized
+
+    if _initialized:
+        logger.debug("Webhooks system already initialized, skipping")
+        return
+
+    logger.info("Initializing webhooks system")
+
+    # Register the blueprint with the application
+    if not app.blueprints.get('webhooks_api'):
+        app.register_blueprint(webhooks_api)
+
+    # Configure rate limits if limiter is available
+    if hasattr(app, 'extensions') and 'limiter' in app.extensions:
+        limiter = app.extensions['limiter']
+        limits = {
+            'create': app.config.get('WEBHOOK_RATE_LIMIT_CREATE', '30/minute'),
+            'test': app.config.get('WEBHOOK_RATE_LIMIT_TEST', '10/minute'),
+            'list': app.config.get('WEBHOOK_RATE_LIMIT_LIST', '60/minute')
+        }
+
+        # Apply rate limits to webhook endpoints
+        try:
+            limiter.limit(limits['create'])(webhooks_api)
+            logger.debug(f"Applied rate limit {limits['create']} to webhook creation")
+        except Exception as e:
+            logger.warning(f"Failed to apply rate limit to webhook creation: {e}")
+
+    # Setup metrics if available
+    try:
+        from extensions import metrics
+        register_webhook_metrics(metrics)
+        logger.debug("Webhook metrics registered")
+    except (ImportError, AttributeError) as e:
+        logger.warning(f"Could not register webhook metrics: {e}")
+
+    # Initialize circuit breakers for webhook delivery targets
+    try:
+        from core.security.cs_general_sec import CircuitBreaker
+
+        delivery_breaker = CircuitBreaker(
+            name="webhook.delivery",
+            failure_threshold=app.config.get('WEBHOOK_CIRCUIT_THRESHOLD', 5),
+            reset_timeout=app.config.get('WEBHOOK_CIRCUIT_RESET', 300),
+            half_open_after=app.config.get('WEBHOOK_CIRCUIT_HALFOPEN', 60)
+        )
+        delivery_breaker.initialize()
+
+        logger.debug("Webhook delivery circuit breaker initialized")
+    except ImportError:
+        logger.info("Circuit breaker not available for webhook delivery")
+
+    # Set up background tasks for retrying failed deliveries if applicable
+    if app.config.get('WEBHOOK_ENABLE_BACKGROUND_RETRY', True):
+        try:
+            from .delivery import setup_retry_task
+            setup_retry_task(app)
+            logger.debug("Webhook retry background task initialized")
+        except (ImportError, AttributeError) as e:
+            logger.warning(f"Could not set up webhook retry background task: {e}")
+
+    _initialized = True
+    logger.info("Webhooks system initialized successfully")
+
+
 # Import routes and models at the end to avoid circular imports
 from . import routes
+
+
+# Version information
+__version__ = '0.1.1'
 
 
 __all__ = [
@@ -312,5 +402,7 @@ __all__ = [
     "validate_event_type",
     "filter_events_by_category",
     "webhooks_api",
-    "register_webhook_metrics"
+    "register_webhook_metrics",
+    "init_app",
+    "__version__"
 ]
