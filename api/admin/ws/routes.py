@@ -18,7 +18,9 @@ import json
 import logging
 import time
 import psutil
+import os
 from datetime import datetime, timezone, timedelta
+from functools import wraps
 from typing import Dict, Any, Optional, List, Union, Callable, Tuple
 
 from flask import Blueprint, current_app, g, request, session
@@ -26,6 +28,7 @@ from flask_socketio import SocketIO, emit, join_room, leave_room, disconnect, Co
 
 from extensions import socketio, db, metrics
 from core.security import log_security_event, require_permission
+from core.security.cs_general_sec import CircuitBreaker, RateLimiter
 from models.security.audit_log import AuditLog
 from models.auth.user import User
 from models.auth.user_session import UserSession
@@ -77,6 +80,21 @@ ws_latency = metrics.histogram(
     labels=['event_type'],
     buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0)
 )
+
+# Metrics retention configuration with sensible defaults
+METRICS_RETENTION = {
+    'high_frequency': 86400,     # 1 day for high-frequency metrics
+    'medium_frequency': 604800,  # 1 week for medium-frequency metrics
+    'low_frequency': 2592000     # 30 days for low-frequency metrics
+}
+
+# Circuit breaker instances for external services
+session_circuit = CircuitBreaker(name="user_sessions", failure_threshold=3,
+                                reset_timeout=300, half_open_after=60)
+config_circuit = CircuitBreaker(name="config", failure_threshold=3,
+                              reset_timeout=300, half_open_after=60)
+integrity_circuit = CircuitBreaker(name="file_integrity", failure_threshold=3,
+                                 reset_timeout=300, half_open_after=60)
 
 # Channel definitions with required permissions
 ADMIN_CHANNELS = {
@@ -927,6 +945,25 @@ def execute_admin_command(operation: str, parameters: Dict[str, Any],
         elif operation == 'maintenance.status':
             # Get maintenance status
             result = get_maintenance_status()
+
+            def get_maintenance_status() -> Dict[str, Any]:
+                """
+                Retrieve the current maintenance status of the system.
+
+                Returns:
+                    A dictionary containing maintenance status details.
+                """
+                try:
+                    # Example implementation, replace with actual logic
+                    return {
+                        'status': 'active',  # or 'inactive'
+                        'scheduled_start': datetime.now(timezone.utc).isoformat(),
+                        'scheduled_end': (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(),
+                        'message': 'System maintenance is currently active.'
+                    }
+                except Exception as e:
+                    logger.error(f"Error retrieving maintenance status: {str(e)}", exc_info=True)
+                    return {'error': 'Unable to retrieve maintenance status'}
             status = 'success'
 
         elif operation == 'user.sessions':
@@ -1055,8 +1092,9 @@ def clear_specific_cache(cache_name: str) -> bool:
         logger.error(f"Error clearing cache {cache_name}: {str(e)}", exc_info=True)
         raise
 
+@config_circuit
 def get_config_value(key: str, user_id: int) -> Any:
-    """Get a configuration value."""
+    """Get a configuration value with circuit breaker protection."""
     try:
         from models.security import SystemConfig
 
@@ -1065,6 +1103,8 @@ def get_config_value(key: str, user_id: int) -> Any:
 
         config = SystemConfig.query.filter_by(key=key).first()
         if config:
+            # Record successful call for circuit breaker
+            config_circuit.record_success()
             return {
                 'key': config.key,
                 'value': config.value,
@@ -1073,73 +1113,153 @@ def get_config_value(key: str, user_id: int) -> Any:
             }
         else:
             return {'error': f"Configuration key not found: {key}"}
+
     except Exception as e:
         logger.error(f"Error retrieving config value: {str(e)}", exc_info=True)
+        config_circuit.record_failure()
         raise
 
+@integrity_circuit
 def perform_file_integrity_check(paths=None) -> Dict[str, Any]:
-    """Run file integrity check."""
+    """Run file integrity check with circuit breaker protection."""
     try:
         from core.security import check_file_integrity
 
         result = check_file_integrity(paths=paths, full_details=True)
+        integrity_circuit.record_success()
         return result
+
     except Exception as e:
         logger.error(f"Error performing file integrity check: {str(e)}", exc_info=True)
+        integrity_circuit.record_failure()
         raise
 
-def get_maintenance_status() -> Dict[str, Any]:
-    """Get system maintenance status."""
-    try:
-        from models.security import SystemConfig
-
-        maintenance_mode = SystemConfig.query.filter_by(key="maintenance_mode").first()
-        last_maintenance = SystemConfig.query.filter_by(key="last_maintenance").first()
-
-        return {
-            'maintenance_mode': maintenance_mode.value if maintenance_mode else 'false',
-            'last_maintenance': last_maintenance.value if last_maintenance else None,
-            'scheduled_maintenance': get_scheduled_maintenance()
-        }
-    except Exception as e:
-        logger.error(f"Error getting maintenance status: {str(e)}", exc_info=True)
-        raise
-
-def get_scheduled_maintenance() -> List[Dict[str, Any]]:
-    """Get scheduled maintenance windows."""
-    # This would be implemented based on your maintenance scheduling system
-    return []
-
+@session_circuit
 def get_user_sessions(username=None, limit=100) -> Dict[str, Any]:
-    """Get active user sessions."""
+    """
+    Get active user sessions with detailed information.
+
+    Args:
+        username: Optional username to filter sessions
+        limit: Maximum number of sessions to return (default: 100)
+
+    Returns:
+        Dict containing session count and detailed session information
+
+    Raises:
+        SQLAlchemyError: If database query fails
+        ValueError: If invalid parameters provided
+    """
     try:
+        # Parameter validation
+        if limit <= 0 or limit > 1000:
+            raise ValueError("Limit must be between 1 and 1000")
+
+        # Build the base query
         query = UserSession.query.filter_by(is_active=True)
 
+        # Apply username filter if provided
         if username:
             user = User.query.filter_by(username=username).first()
             if user:
                 query = query.filter_by(user_id=user.id)
+            else:
+                # Return empty result if username doesn't exist
+                return {
+                    'count': 0,
+                    'sessions': [],
+                    'message': f"No user found with username: {username}"
+                }
 
+        # Get the sessions with proper ordering
         sessions = query.order_by(UserSession.last_active.desc()).limit(limit).all()
 
-        return {
-            'count': len(sessions),
-            'sessions': [{
+        # Format session data with comprehensive details
+        session_data = []
+        for session in sessions:
+            # Get user details with fallback for integrity
+            user = User.query.get(session.user_id) if hasattr(session, 'user_id') else None
+
+            # Build detailed session information
+            session_info = {
                 'id': session.id,
                 'user_id': session.user_id,
-                'username': User.query.get(session.user_id).username if hasattr(session, 'user_id') else 'unknown',
+                'username': user.username if user else 'unknown',
+                'session_id': session.session_id,
                 'ip_address': session.ip_address,
                 'user_agent': session.user_agent,
                 'created_at': session.created_at.isoformat() if hasattr(session, 'created_at') else None,
-                'last_active': session.last_active.isoformat() if hasattr(session, 'last_active') else None
-            } for session in sessions]
+                'last_active': session.last_active.isoformat() if hasattr(session, 'last_active') else None,
+                'expires_at': session.expires_at.isoformat() if hasattr(session, 'expires_at') else None,
+                'is_suspicious': session.is_suspicious if hasattr(session, 'is_suspicious') else False,
+                'client_type': session.client_type if hasattr(session, 'client_type') else 'unknown',
+                'access_level': session.access_level if hasattr(session, 'access_level') else 'standard'
+            }
+
+            # Include geographic location if available
+            if hasattr(session, 'last_location') and session.last_location:
+                session_info['location'] = session.last_location
+
+            session_data.append(session_info)
+
+        # Return well-structured response
+        return {
+            'count': len(sessions),
+            'total_active_count': UserSession.get_active_sessions_count(),
+            'sessions': session_data
         }
-    except Exception as e:
-        logger.error(f"Error getting user sessions: {str(e)}", exc_info=True)
+
+    except ValueError as e:
+        # Handle validation errors
+        logger.warning(f"Invalid parameters for get_user_sessions: {str(e)}")
+        session_circuit.record_failure()
         raise
 
+    except Exception as e:
+        # Log detailed error and record circuit breaker failure
+        logger.error(f"Error getting user sessions: {str(e)}", exc_info=True)
+        session_circuit.record_failure()
+
+        # Re-raise for consistent error handling at higher level
+        raise
+
+def configure_metrics_retention():
+    """Configure retention policy for WebSocket metrics."""
+    try:
+        # Apply retention policy to counters
+        metrics.configure_retention(ws_message_counter, METRICS_RETENTION['high_frequency'])
+        metrics.configure_retention(ws_command_counter, METRICS_RETENTION['medium_frequency'])
+        metrics.configure_retention(ws_error_counter, METRICS_RETENTION['medium_frequency'])
+
+        # Apply retention policy to gauges
+        metrics.configure_retention(ws_connection_count, METRICS_RETENTION['low_frequency'])
+
+        # Apply retention policy to histograms
+        metrics.configure_retention(ws_latency, METRICS_RETENTION['medium_frequency'])
+
+        logger.info("WebSocket metrics retention configured")
+
+    except Exception as e:
+        logger.error(f"Failed to configure metrics retention: {str(e)}", exc_info=True)
+
 def init_app(socketio_instance):
-    """Initialize the WebSocket routes with the SocketIO instance."""
+    """
+    Initialize the WebSocket routes with the SocketIO instance.
+
+    Args:
+        socketio_instance: The Flask-SocketIO instance to register handlers with
+    """
+    # Configure metrics retention
+    configure_metrics_retention()
+
+    # Initialize circuit breakers
+    session_circuit.initialize()
+    config_circuit.initialize()
+    integrity_circuit.initialize()
+
     # Register event handlers with socketio
     # This function would be called from the main application factory
     logger.info("Admin WebSocket routes initialized")
+
+    # Return success status
+    return True

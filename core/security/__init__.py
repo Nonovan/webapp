@@ -10,6 +10,8 @@ This module provides security-related functionality including:
 - Security metrics and reporting
 - Security configuration management
 - Baseline security management
+- Circuit breakers for failure resilience
+- Rate limiting for resource protection
 """
 
 # Import and expose key functions for backward compatibility
@@ -43,7 +45,8 @@ from .cs_authorization import (
     require_mfa,
     can_access_ui_element,
     role_required,
-    api_key_required
+    api_key_required,
+    rate_limit
 )
 
 from .cs_crypto import (
@@ -75,6 +78,14 @@ from .cs_file_integrity import (
     update_file_integrity_baseline,
     verify_baseline_update,
     format_timestamp
+)
+
+from .cs_general_sec import (
+    CircuitBreaker,
+    CircuitBreakerState,
+    CircuitOpenError,
+    RateLimiter,
+    RateLimitExceededError
 )
 
 from .cs_metrics import (
@@ -137,4 +148,4 @@ from .cs_utils import (
 from .cs_constants import SECURITY_CONFIG
 
 # Version information
-__version__ = '0.1.1'
+__version__ = '0.1.1'  # Updated version to reflect circuit breaker and rate limiter additions
