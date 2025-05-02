@@ -18,11 +18,12 @@ Key services in this package:
 - WebhookService: Management of webhooks, subscriptions, and event delivery
 """
 
+import yaml
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple, Union, Set, Callable
+from typing import Dict, List, Any, Optional, Tuple, Union, Set, Callable, TypeVar
 
 from .auth_service import AuthService
 from .email_service import EmailService, send_email, send_template_email, validate_email_address, test_email_configuration
@@ -59,6 +60,8 @@ __all__ = [
     'schedule_integrity_check',
     'update_file_integrity_baseline',
     'update_file_baseline',
+    'verify_baseline_consistency',
+    'export_baseline',
 
     # Scanning functions
     'get_scan_profiles',
@@ -73,11 +76,15 @@ __all__ = [
     'get_webhook_subscription',
     'update_webhook_subscription',
     'delete_webhook_subscription',
-    'check_subscription_health'
+    'check_subscription_health',
+
+    # Feature flags
+    'SECURITY_SERVICE_AVAILABLE',
+    'SCANNING_SERVICE_AVAILABLE'
 ]
 
 # Version information - incremented to reflect security service enhancements
-__version__ = '0.1.1'
+__version__ = '0.1.1'  # Version bumped for new security baseline features
 
 def check_integrity(paths: Optional[List[str]] = None) -> Tuple[bool, List[Dict[str, Any]]]:
     """
@@ -147,10 +154,11 @@ def get_integrity_status() -> Dict[str, Any]:
     Returns:
         Dictionary with integrity status information:
         - last_check_time: DateTime of the last integrity check
-        - baseline_status: Status of the baseline file
+        - baseline_status: Status of the baseline file ('valid', 'empty', 'missing', 'error')
         - file_count: Number of files monitored
         - changes_detected: Number of changes since last baseline update
         - critical_changes: List of critical file changes
+        - monitoring_enabled: Whether file integrity monitoring is enabled
     """
     return SecurityService.get_integrity_status()
 
@@ -169,11 +177,12 @@ def schedule_integrity_check(interval_seconds: int = 3600,
     return SecurityService.schedule_integrity_check(interval_seconds, callback)
 
 def update_file_integrity_baseline(app, baseline_path: str, changes: List[Dict[str, Any]],
-                                 auto_update_limit: int = 10) -> Tuple[bool, str]:
+                                 auto_update_limit: int = 10,
+                                 bypass_critical_check: bool = False) -> Tuple[bool, str]:
     """
     Update the file integrity baseline with changes.
 
-    This function is used to update the baseline when non-critical changes are detected.
+    This function is used to update the baseline when changes are detected.
     It incorporates new file hashes into the baseline, typically used in development
     or controlled update scenarios.
 
@@ -182,6 +191,7 @@ def update_file_integrity_baseline(app, baseline_path: str, changes: List[Dict[s
         baseline_path: Path to the baseline JSON file
         changes: List of change dictionaries from integrity check
         auto_update_limit: Maximum number of files to auto-update (safety limit)
+        bypass_critical_check: If True, allows updating critical files (use with caution)
 
     Returns:
         Tuple containing (success, message)
@@ -191,8 +201,11 @@ def update_file_integrity_baseline(app, baseline_path: str, changes: List[Dict[s
         from core.security.cs_file_integrity import update_file_integrity_baseline as core_update_baseline
 
         # Filter changes to include only those that should be updated
-        # Typically exclude critical and high severity changes
-        non_critical = [c for c in changes if c.get('severity') not in ('critical', 'high')]
+        if bypass_critical_check:
+            non_critical = changes
+        else:
+            # Exclude critical/high severity changes
+            non_critical = [c for c in changes if c.get('severity') not in ('critical', 'high')]
 
         # Safety check - don't update if too many files changed
         if len(non_critical) > auto_update_limit and not app.config.get('BYPASS_UPDATE_LIMITS', False):
@@ -200,7 +213,7 @@ def update_file_integrity_baseline(app, baseline_path: str, changes: List[Dict[s
             return False, f"Too many files to update: {len(non_critical)} exceeds safety limit"
 
         if not non_critical:
-            return True, "No non-critical changes to update"
+            return True, "No changes to update"
 
         # Format the changes for the core function
         # The core function expects updates with 'path' and 'current_hash' keys
@@ -211,13 +224,21 @@ def update_file_integrity_baseline(app, baseline_path: str, changes: List[Dict[s
                     'path': change['path'],
                     'current_hash': change['actual_hash']
                 })
+            # Support alternate key names for backward compatibility
+            elif 'path' in change and 'current_hash' in change:
+                formatted_updates.append({
+                    'path': change['path'],
+                    'current_hash': change['current_hash']
+                })
 
         if not formatted_updates:
             logger.warning("No valid changes found to update baseline")
             return False, "No valid changes to update"
 
-        # Update the baseline with these non-critical changes
-        logger.info(f"Auto-updating baseline for {len(formatted_updates)} non-critical changes")
+        # Log the update details
+        logger.info(f"Updating baseline at {baseline_path} with {len(formatted_updates)} changes")
+
+        # Update the baseline with these changes
         result = core_update_baseline(app, baseline_path, formatted_updates)
 
         if result:
@@ -228,15 +249,19 @@ def update_file_integrity_baseline(app, baseline_path: str, changes: List[Dict[s
             return False, "Failed to update baseline"
 
     except ImportError as e:
-        logger.warning(f"Could not auto-update baseline: cs_file_integrity module not available - {e}")
+        logger.warning(f"Could not update baseline: cs_file_integrity module not available - {e}")
         return False, "File integrity module not available"
+    except PermissionError as e:
+        logger.error(f"Permission error updating baseline: {str(e)}")
+        return False, f"Permission denied: {str(e)}"
     except Exception as e:
-        logger.error(f"Error auto-updating baseline: {str(e)}")
+        logger.error(f"Error updating baseline: {str(e)}")
         return False, f"Error updating baseline: {str(e)}"
 
 def update_file_baseline(baseline_path: str,
                         updates: Dict[str, str],
-                        remove_missing: bool = False) -> Tuple[bool, str]:
+                        remove_missing: bool = False,
+                        create_if_missing: bool = False) -> Tuple[bool, str]:
     """
     Update file integrity baseline with new hashes.
 
@@ -247,19 +272,46 @@ def update_file_baseline(baseline_path: str,
         baseline_path: Path to the baseline JSON file
         updates: Dictionary mapping file paths to new hashes
         remove_missing: Whether to remove entries for files that no longer exist
+        create_if_missing: Whether to create the baseline file if it doesn't exist
 
     Returns:
         Tuple of (success, message)
     """
     try:
         # Try to use the utility from core
-        from core.utils import update_file_integrity_baseline as core_update_baseline
-        return core_update_baseline(baseline_path, updates, remove_missing)
-    except ImportError:
-        logger.debug("Core utility not available, using SecurityService directly")
+        try:
+            from core.utils import update_file_integrity_baseline as core_update_baseline
+            return core_update_baseline(baseline_path, updates, remove_missing)
+        except ImportError:
+            logger.debug("Core utility not available, using SecurityService directly")
 
         # Convert baseline_path to Path object for consistency
         baseline_file = Path(baseline_path)
+
+        # Handle case where baseline doesn't exist but create_if_missing is True
+        if create_if_missing and not baseline_file.exists():
+            logger.info(f"Creating new baseline at {baseline_path}")
+            baseline_dir = baseline_file.parent
+            if not baseline_dir.exists():
+                baseline_dir.mkdir(parents=True, exist_ok=True)
+                # Set secure permissions on Unix systems
+                if os.name == 'posix':
+                    try:
+                        os.chmod(baseline_dir, 0o750)  # rwxr-x---
+                    except OSError:
+                        logger.warning(f"Could not set permissions on directory: {baseline_dir}")
+
+            # Create a new baseline with the provided updates
+            baseline_data = {
+                "files": updates,
+                "metadata": {
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "last_updated_at": datetime.now(timezone.utc).isoformat(),
+                    "hash_algorithm": "sha256"
+                }
+            }
+            SecurityService._save_baseline(baseline_data, baseline_file)
+            return True, f"Created baseline with {len(updates)} entries"
 
         # Format updates for SecurityService
         paths = list(updates.keys())
@@ -295,6 +347,183 @@ def update_file_baseline(baseline_path: str,
                     logger.error(f"Failed to force hash updates: {e}")
 
         return success, message
+
+    except Exception as e:
+        logger.error(f"Unexpected error updating file baseline: {str(e)}")
+        return False, f"Error: {str(e)}"
+
+def verify_baseline_consistency(baseline_path: Optional[str] = None) -> Tuple[bool, Dict[str, Any]]:
+    """
+    Verify the internal consistency and integrity of the baseline file itself.
+
+    This function checks if the baseline file exists, has valid format, and contains
+    expected metadata. It's useful for validating the baseline's trustworthiness.
+
+    Args:
+        baseline_path: Optional path to baseline file. If None, uses default path.
+
+    Returns:
+        Tuple of (consistency_status, details)
+        - consistency_status: True if baseline is consistent, False otherwise
+        - details: Dictionary with verification details
+    """
+    try:
+        # Use either provided path or default path
+        if baseline_path:
+            baseline_file = Path(baseline_path)
+        else:
+            # Get default baseline file path from SecurityService
+            baseline_file = SecurityService._get_default_baseline_path()
+
+        result = {
+            "exists": baseline_file.exists(),
+            "readable": os.access(baseline_file, os.R_OK) if baseline_file.exists() else False,
+            "last_modified": None,
+            "size": None,
+            "file_count": 0,
+            "has_required_fields": False,
+            "has_metadata": False,
+            "valid_format": False,
+            "errors": []
+        }
+
+        # Validate file existence and basic properties
+        if not result["exists"]:
+            result["errors"].append("Baseline file does not exist")
+            return False, result
+
+        if not result["readable"]:
+            result["errors"].append("Baseline file is not readable")
+            return False, result
+
+        # Get file stats
+        try:
+            stats = baseline_file.stat()
+            result["last_modified"] = datetime.fromtimestamp(stats.st_mtime, tz=timezone.utc).isoformat()
+            result["size"] = stats.st_size
+        except OSError as e:
+            result["errors"].append(f"Error getting file stats: {e}")
+
+        # Check file permissions
+        if os.name == 'posix':
+            permissions = stats.st_mode & 0o777
+            result["permissions"] = oct(permissions)[2:]
+            if permissions & 0o077:  # Check if world or group has any access
+                result["errors"].append(f"Insecure permissions: {result['permissions']}")
+
+        # Try to load baseline and validate content
+        try:
+            baseline_data = SecurityService._load_baseline(baseline_file)
+
+            # Check required fields
+            if "files" in baseline_data:
+                result["has_required_fields"] = True
+                result["file_count"] = len(baseline_data["files"])
+            else:
+                result["errors"].append("Missing 'files' in baseline data")
+
+            # Check metadata
+            if "metadata" in baseline_data:
+                result["has_metadata"] = True
+                result["metadata_keys"] = list(baseline_data["metadata"].keys())
+            else:
+                result["metadata_keys"] = []
+
+            # Passed all checks
+            result["valid_format"] = result["has_required_fields"]
+
+        except Exception as e:
+            result["errors"].append(f"Error parsing baseline file: {str(e)}")
+            result["valid_format"] = False
+
+        # Determine overall consistency status
+        consistency_status = (
+            result["exists"] and
+            result["readable"] and
+            result["valid_format"] and
+            len(result["errors"]) == 0
+        )
+
+        return consistency_status, result
+
+    except Exception as e:
+        logger.error(f"Error verifying baseline consistency: {str(e)}")
+        return False, {"error": str(e), "exists": False, "valid_format": False}
+
+def export_baseline(baseline_path: Optional[str] = None, destination: Optional[str] = None,
+                   format_type: str = "json") -> Tuple[bool, str]:
+    """
+    Export the file integrity baseline to another location or format.
+
+    This function helps create distributable or backup copies of baselines.
+
+    Args:
+        baseline_path: Source baseline path. If None, uses default.
+        destination: Destination path. If None, creates a timestamped copy.
+        format_type: Export format ('json' or 'yaml')
+
+    Returns:
+        Tuple of (success, message)
+    """
+    try:
+        import shutil
+        import json
+
+        # Use either provided path or default path
+        if baseline_path:
+            source_file = Path(baseline_path)
+        else:
+            # Get default baseline file path from SecurityService
+            source_file = SecurityService._get_default_baseline_path()
+
+        # Verify source exists
+        if not source_file.exists():
+            return False, "Source baseline file does not exist"
+
+        # Create destination path if not provided
+        if not destination:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            if format_type == "json":
+                destination = str(source_file.with_name(f"{source_file.stem}_{timestamp}.json"))
+            elif format_type == "yaml":
+                destination = str(source_file.with_name(f"{source_file.stem}_{timestamp}.yaml"))
+            else:
+                return False, f"Unsupported format: {format_type}"
+
+        # Ensure destination directory exists
+        dest_path = Path(destination)
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Handle different export formats
+        baseline_data = SecurityService._load_baseline(source_file)
+
+        if format_type == "json":
+            with open(dest_path, 'w') as f:
+                json.dump(baseline_data, f, indent=2)
+
+        elif format_type == "yaml":
+            try:
+                with open(dest_path, 'w') as f:
+                    yaml.dump(baseline_data, f, default_flow_style=False)
+            except ImportError:
+                # Fall back to JSON if yaml module is not available
+                logger.warning("YAML module not available, falling back to JSON format")
+                with open(dest_path, 'w') as f:
+                    json.dump(baseline_data, f, indent=2)
+
+        # Set secure permissions on Unix systems
+        if os.name == 'posix':
+            try:
+                os.chmod(dest_path, 0o600)  # rw-------
+            except OSError:
+                logger.warning(f"Could not set secure permissions on {dest_path}")
+
+        logger.info(f"Baseline exported to {dest_path}")
+        return True, f"Baseline exported to {destination}"
+
+    except Exception as e:
+        logger.error(f"Error exporting baseline: {str(e)}")
+        return False, f"Error exporting baseline: {str(e)}"
 
 # Security scanning convenience functions
 def get_scan_profiles() -> List[Dict[str, Any]]:

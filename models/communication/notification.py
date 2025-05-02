@@ -14,6 +14,7 @@ from flask import current_app
 
 from extensions import db
 from models import BaseModel
+from models.auth.user import User
 
 
 class Notification(BaseModel):
@@ -61,12 +62,13 @@ class Notification(BaseModel):
     data = db.Column(db.JSON, nullable=True)  # Additional structured data
 
     # Constants for notification types
-    TYPE_INFO = 'info'
-    TYPE_WARNING = 'warning'
-    TYPE_SUCCESS = 'success'
     TYPE_ERROR = 'error'
+    TYPE_INFO = 'info'
     TYPE_SECURITY_ALERT = 'security_alert'
+    TYPE_SUCCESS = 'success'
     TYPE_SYSTEM = 'system'
+    TYPE_USER_ACCOUNT = 'user_account'
+    TYPE_WARNING = 'warning'
 
     # Constants for priority levels
     PRIORITY_LOW = 'low'
@@ -75,18 +77,19 @@ class Notification(BaseModel):
     PRIORITY_CRITICAL = 'critical'
 
     # Valid notification types and priorities
-    VALID_TYPES = [TYPE_INFO, TYPE_WARNING, TYPE_SUCCESS, TYPE_ERROR,
-                  TYPE_SECURITY_ALERT, TYPE_SYSTEM]
+    VALID_TYPES = [TYPE_ERROR, TYPE_INFO, TYPE_SECURITY_ALERT, TYPE_SUCCESS,
+                  TYPE_SYSTEM, TYPE_USER_ACCOUNT, TYPE_WARNING]
     VALID_PRIORITIES = [PRIORITY_LOW, PRIORITY_MEDIUM, PRIORITY_HIGH, PRIORITY_CRITICAL]
 
     # Type title mappings
     TYPE_TITLES = {
-        TYPE_SECURITY_ALERT: 'Security Alert',
-        TYPE_SYSTEM: 'System Notification',
+        TYPE_ERROR: 'Error',
         TYPE_INFO: 'Information',
-        TYPE_WARNING: 'Warning',
+        TYPE_SECURITY_ALERT: 'Security Alert',
         TYPE_SUCCESS: 'Success',
-        TYPE_ERROR: 'Error'
+        TYPE_SYSTEM: 'System Notification',
+        TYPE_USER_ACCOUNT: 'User Account Notification',
+        TYPE_WARNING: 'Warning'
     }
 
     # Relationships

@@ -26,12 +26,9 @@ from werkzeug.exceptions import BadRequest, Forbidden, NotFound
 from marshmallow import ValidationError
 
 from extensions import db, limiter, metrics
-from models.auth.user import User
-from models.auth.role import Role
+from models.auth import Role, User
 from models.auth.permission import Permission
-from models.security.audit_log import AuditLog
-from models.security.system_config import SystemConfig
-from models.security.security_incident import SecurityIncident
+from models.security import AuditLog, SecurityIncident, SystemConfig
 
 from .user_management import (
     get_users,

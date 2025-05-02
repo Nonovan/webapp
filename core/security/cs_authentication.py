@@ -934,3 +934,105 @@ def is_safe_redirect_url(url: str, allowed_hosts: List[str] = None) -> bool:
 
     # If no allowed hosts specified, only allow relative URLs
     return False
+
+
+def is_valid_username(username: str) -> bool:
+    """
+    Validate username format according to security requirements.
+
+    Enforces username rules:
+    - Contains only alphanumerics, dots, hyphens, and underscores
+    - Between 3 and 64 characters
+    - Doesn't consist entirely of non-alphanumeric characters
+    - Not a reserved system name
+
+    Args:
+        username: The username to validate
+
+    Returns:
+        bool: True if valid, False otherwise
+    """
+    if not username or not isinstance(username, str):
+        return False
+
+    # Check length constraints
+    if len(username) < 3 or len(username) > 64:
+        return False
+
+    # Check character constraints - allow letters, numbers, dots, hyphens, underscores
+    pattern = r'^[a-zA-Z0-9._-]+$'
+    if not re.match(pattern, username):
+        return False
+
+    # Don't allow usernames starting or ending with dots or hyphens
+    if username.startswith(('.', '-', '_')) or username.endswith(('.', '-', '_')):
+        return False
+
+    # Check if username consists entirely of non-alphanumeric characters
+    if not any(c.isalnum() for c in username):
+        return False
+
+    # Check for reserved or potentially dangerous usernames
+    reserved_names = ['admin', 'administrator', 'system', 'root', 'superuser',
+                      'anonymous', 'user', 'support', 'security', 'guest',
+                      'test', 'postgres', 'mysql', 'oracle', 'sa', 'sys',
+                      'config', 'default', 'account', 'staff']
+
+    if username.lower() in reserved_names:
+        # Note: In an actual implementation, you might want to have a configuration
+        # option to control whether reserved usernames are allowed
+        # But for validation within a schema, we'll just reject them
+        return False
+
+    # Track successful validation
+    metrics.increment('security.username_validation_success')
+    return True
+
+
+def is_request_secure() -> bool:
+    """
+    Determine if the current request is using a secure channel (HTTPS).
+
+    This function checks various request headers and server environment
+    settings to determine if the current request uses secure transport.
+
+    Returns:
+        bool: True if the request is secure, False otherwise
+    """
+    if not has_request_context():
+        return False
+
+    # Direct check if Flask knows the connection is secure
+    if request.is_secure:
+        return True
+
+    # Check for secure forwarding headers set by proxies
+    forwarded_proto = request.headers.get('X-Forwarded-Proto')
+    if forwarded_proto and forwarded_proto.lower() == 'https':
+        return True
+
+    # Check for HTTPS in server environment variables
+    if request.environ.get('HTTPS', '').lower() == 'on':
+        return True
+
+    if request.environ.get('HTTP_X_FORWARDED_SSL', '').lower() == 'on':
+        return True
+
+    if request.environ.get('HTTP_X_FORWARDED_SCHEME', '').lower() == 'https':
+        return True
+
+    # Check for standard HTTPS port
+    server_port = request.environ.get('SERVER_PORT')
+    if server_port and server_port == '443':
+        return True
+
+    # Check if we're in a test environment with secure transport simulation
+    if has_app_context() and (current_app.testing or current_app.debug):
+        if current_app.config.get('SIMULATE_HTTPS', False):
+            return True
+
+    # Track metrics for insecure requests (if they should be secure)
+    if has_app_context() and current_app.config.get('REQUIRE_SECURE', False):
+        metrics.increment('security.insecure_request')
+
+    return False

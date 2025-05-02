@@ -9,6 +9,7 @@ a clean, Pythonic interface to the underlying database. It includes:
 - Type definitions and annotations for static type checking
 - Custom model exception types
 - Helper methods for data serialization and validation
+- Security-focused audit logging for sensitive operations
 
 The models implement the Active Record pattern through SQLAlchemy, where each model
 instance represents a row in the database and provides methods for CRUD operations.
@@ -16,18 +17,25 @@ This approach encapsulates database operations within the models themselves, pro
 code organization and reusability.
 """
 
+import logging
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, List, Type, Union, cast, Set
+from typing import Dict, Any, Optional, List, Type, Union, cast, Set, TypeVar
 
 from flask import current_app, g, request, has_request_context
 from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.declarative import declared_attr
 
-from extensions import db
+from extensions import db, metrics
+
+# Set up package logger
+logger = logging.getLogger(__name__)
 
 # Import base classes first to avoid circular imports
 from .base import BaseModel, TimestampMixin, AuditableMixin
+
+# Define a type variable for generic functions
+T_Model = TypeVar('T_Model', bound=BaseModel)
 
 # Export bulk operations directly from BaseModel
 bulk_create = BaseModel.bulk_create
@@ -54,6 +62,9 @@ from .communication.newsletter import Subscriber, MailingList, SubscriberList
 from .communication.notification import Notification
 from .communication.webhook import WebhookSubscription, WebhookDelivery
 from .communication.subscriber import SubscriberCategory
+from .communication.comm_log import CommunicationLog
+from .communication.comm_channel import CommunicationChannel
+from .communication.comm_scheduler import CommunicationScheduler
 
 # Security models
 from .security.security_incident import SecurityIncident
@@ -84,6 +95,20 @@ from .alerts.alert_escalation import AlertEscalation
 from .alerts.alert_suppression import AlertSuppression
 from .alerts.alert_metrics import AlertMetrics
 
+# Import threat intelligence conditionally
+try:
+    from .security.threat_intelligence import ThreatIndicator, ThreatFeed
+    THREAT_INTELLIGENCE_AVAILABLE = True
+except ImportError:
+    THREAT_INTELLIGENCE_AVAILABLE = False
+
+# Import security baseline conditionally
+try:
+    from .security.security_baseline import SecurityBaseline
+    SECURITY_BASELINE_AVAILABLE = True
+except ImportError:
+    SECURITY_BASELINE_AVAILABLE = False
+
 # Build the __all__ list for proper exports
 __all__ = [
     # Core components
@@ -99,6 +124,7 @@ __all__ = [
     # Communication models
     'Subscriber', 'MailingList', 'SubscriberList', 'Notification',
     'WebhookSubscription', 'WebhookDelivery', 'SubscriberCategory',
+    'CommunicationLog', 'CommunicationChannel', 'CommunicationScheduler',
 
     # Security models
     'SecurityIncident', 'AuditLog', 'SystemConfig', 'LoginAttempt',
@@ -115,6 +141,13 @@ __all__ = [
     # Alert models
     'Alert', 'AlertCorrelation', 'AlertNotification', 'AlertEscalation', 'AlertSuppression', 'AlertMetrics',
 ]
+
+# Add conditionally imported models to __all__
+if THREAT_INTELLIGENCE_AVAILABLE:
+    __all__.extend(['ThreatIndicator', 'ThreatFeed'])
+
+if SECURITY_BASELINE_AVAILABLE:
+    __all__.append('SecurityBaseline')
 
 # Define constants for security-sensitive fields
 # This centralized list makes it easier to maintain and update
@@ -162,11 +195,20 @@ def _setup_audit_listeners() -> None:
         LoginAttempt
     ]
 
+    # Add conditionally imported models
+    if THREAT_INTELLIGENCE_AVAILABLE:
+        models_to_audit.extend([ThreatIndicator, ThreatFeed])
+
+    if SECURITY_BASELINE_AVAILABLE:
+        models_to_audit.append(SecurityBaseline)
+
     for model in models_to_audit:
         # Set up listeners for each audit event type
         event.listen(model, 'after_insert', _log_model_insert)
         event.listen(model, 'after_update', _log_model_update)
         event.listen(model, 'after_delete', _log_model_delete)
+
+    logger.debug(f"Set up audit listeners for {len(models_to_audit)} models")
 
 def _log_model_insert(_mapper, _connection, target) -> None:
     """
@@ -219,6 +261,21 @@ def _log_model_insert(_mapper, _connection, target) -> None:
             details=details,
             severity=severity
         )
+
+        # Track model creation in metrics
+        if hasattr(metrics, 'counter'):
+            try:
+                metrics.counter(
+                    'model_operations_total',
+                    labels={
+                        'operation': 'create',
+                        'model': target.__class__.__name__,
+                        'security_level': severity
+                    }
+                ).inc()
+            except Exception:
+                pass
+
     except Exception as e:
         if current_app:
             current_app.logger.error(f"Failed to log model insert: {str(e)}")
@@ -283,6 +340,30 @@ def _log_model_update(_mapper, _connection, target) -> None:
             details=details,
             severity=severity
         )
+
+        # Track model update in metrics
+        if hasattr(metrics, 'counter'):
+            try:
+                metrics.counter(
+                    'model_operations_total',
+                    labels={
+                        'operation': 'update',
+                        'model': target.__class__.__name__,
+                        'security_level': severity
+                    }
+                ).inc()
+
+                # Track critical updates separately
+                if details.get("security_critical", False):
+                    metrics.counter(
+                        'model_critical_updates_total',
+                        labels={
+                            'model': target.__class__.__name__
+                        }
+                    ).inc()
+            except Exception:
+                pass
+
     except Exception as e:
         if current_app:
             current_app.logger.error(f"Failed to log model update: {str(e)}")
@@ -321,6 +402,14 @@ def _log_model_delete(_mapper, _connection, target) -> None:
                 # If to_dict fails, at least capture the ID
                 details["deleted_object_id"] = obj_id
 
+        # Determine severity based on model type
+        severity = AuditLog.SEVERITY_WARNING  # Default severity for deletions
+
+        # Higher severity for critical models
+        critical_model_classes = [User, Role, Permission, SecurityIncident, SystemConfig]
+        if any(isinstance(target, cls) for cls in critical_model_classes):
+            severity = AuditLog.SEVERITY_ERROR
+
         AuditLog.create(
             event_type=AuditLog.EVENT_OBJECT_DELETED,
             user_id=user_id,
@@ -328,9 +417,24 @@ def _log_model_delete(_mapper, _connection, target) -> None:
             object_id=obj_id,
             description=f"Deleted {target.__class__.__name__} with ID {obj_id_str}",
             ip_address=ip_address,
-            severity=AuditLog.SEVERITY_WARNING,  # Deletions get higher severity
+            severity=severity,
             details=details
         )
+
+        # Track model deletion in metrics
+        if hasattr(metrics, 'counter'):
+            try:
+                metrics.counter(
+                    'model_operations_total',
+                    labels={
+                        'operation': 'delete',
+                        'model': target.__class__.__name__,
+                        'security_level': severity
+                    }
+                ).inc()
+            except Exception:
+                pass
+
     except Exception as e:
         if current_app:
             current_app.logger.error(f"Failed to log model delete: {str(e)}")
@@ -514,6 +618,13 @@ def bulk_update_models(model_class: Type[BaseModel], model_ids: List[int],
                     user_id = getattr(g, 'user_id', None)
                     ip_address = request.remote_addr if request else None
 
+                    # Determine if any security-critical fields are being updated
+                    security_critical = False
+                    if hasattr(model_class, 'SECURITY_CRITICAL_FIELDS'):
+                        security_critical = any(field in model_class.SECURITY_CRITICAL_FIELDS for field in update_data.keys())
+
+                    severity = AuditLog.SEVERITY_WARNING if security_critical else AuditLog.SEVERITY_INFO
+
                     AuditLog.create(
                         event_type=AuditLog.EVENT_BULK_UPDATE,
                         user_id=user_id,
@@ -523,10 +634,23 @@ def bulk_update_models(model_class: Type[BaseModel], model_ids: List[int],
                         details={
                             "updated_fields": list(update_data.keys()),
                             "updated_count": result["updated_count"],
-                            "skipped_ids": result["skipped"]
+                            "skipped_ids": result["skipped"],
+                            "security_critical": security_critical
                         },
-                        severity=AuditLog.SEVERITY_INFO
+                        severity=severity
                     )
+
+                    # Track bulk updates in metrics
+                    if hasattr(metrics, 'counter'):
+                        metrics.counter(
+                            'model_bulk_operations_total',
+                            labels={
+                                'model': model_class.__name__,
+                                'operation': 'update',
+                                'security_level': severity
+                            }
+                        ).inc()
+
                 except Exception as e:
                     if current_app:
                         current_app.logger.error(f"Failed to log bulk update: {str(e)}")
@@ -544,4 +668,7 @@ def bulk_update_models(model_class: Type[BaseModel], model_ids: List[int],
 _setup_audit_listeners()
 
 # Version information
-__version__ = '0.0.1'
+__version__ = '0.1.1'
+
+# Log initialization
+logger.debug(f"Models package initialized, version {__version__}")

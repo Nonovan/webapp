@@ -853,6 +853,117 @@ def send_warning_notification(user_ids: Union[int, List[int]], message: str, **k
     )
 
 
+def send_user_notification(
+    user_id: int,
+    notification_type: str,
+    data: Optional[Dict[str, Any]] = None,
+    priority: str = Notification.PRIORITY_MEDIUM,
+    send_email: bool = True
+) -> bool:
+    """
+    Send a user account-related notification through appropriate channels.
+
+    This is a specialized wrapper around the general notification system
+    for user account management notifications such as account creation,
+    password resets, and other user-specific events.
+
+    Args:
+        user_id: ID of the user to notify
+        notification_type: Type of user notification (account_created, password_reset, etc.)
+        data: Additional context data for the notification
+        priority: Priority level for the notification
+        send_email: Whether to send email in addition to in-app notification
+
+    Returns:
+        Boolean indicating if at least one notification was sent successfully
+    """
+    try:
+        data = data or {}
+        user = User.query.get(user_id)
+
+        if not user:
+            logger.error(f"Cannot send notification: User ID {user_id} not found")
+            return False
+
+        # Configure notification params based on notification_type
+        if notification_type == "account_created":
+            title = "Welcome to the Platform"
+            message = f"Your account has been created successfully."
+            email_subject = "Welcome - Your Account Has Been Created"
+            email_template = "emails/account_created"
+
+        elif notification_type == "password_reset":
+            title = "Password Reset"
+            message = "Your password has been reset by an administrator."
+            email_subject = "Your Password Has Been Reset"
+            email_template = "emails/password_reset"
+
+        elif notification_type == "role_changed":
+            title = "Role Assignment"
+            message = f"Your role has been updated to {data.get('new_role', 'a new role')}."
+            email_subject = "Your User Role Has Changed"
+            email_template = "emails/role_changed"
+
+        elif notification_type == "account_locked":
+            title = "Account Locked"
+            message = "Your account has been locked. Please contact an administrator."
+            email_subject = "Your Account Has Been Locked"
+            email_template = "emails/account_locked"
+            priority = Notification.PRIORITY_HIGH
+
+        elif notification_type == "account_unlocked":
+            title = "Account Unlocked"
+            message = "Your account has been unlocked and is now accessible."
+            email_subject = "Your Account Has Been Unlocked"
+            email_template = "emails/account_unlocked"
+
+        else:
+            # Generic user notification
+            title = "Account Notification"
+            message = "There's a new notification regarding your account."
+            email_subject = "Account Notification"
+            email_template = "emails/account_notification"
+
+        # Add username and other standard fields to template data
+        template_data = {
+            "username": user.username,
+            "email": user.email,
+            "first_name": user.first_name or user.username,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
+        # Merge with provided data
+        template_data.update(data)
+
+        # Send notification using the service
+        result = NotificationService.send_notification(
+            user_ids=user_id,
+            message=message,
+            title=title,
+            notification_type=Notification.TYPE_USER_ACCOUNT,
+            priority=priority,
+            data=data,
+            send_email=send_email,
+            email_subject=email_subject,
+            email_template=email_template,
+            email_template_data=template_data
+        )
+
+        # Log the notification
+        logger.info(
+            f"User notification sent: type={notification_type}, user_id={user_id}, "
+            f"success={result.get('success', False)}"
+        )
+
+        # Return overall success status
+        return result.get('success', False)
+
+    except Exception as e:
+        logger.error(f"Failed to send user notification: {str(e)}")
+        metrics.increment('notification.user_notification_error')
+        return False
+
+
 # Define what's exported from this module
 __all__ = [
     'NotificationService',
@@ -860,6 +971,7 @@ __all__ = [
     'send_security_alert',
     'send_success_notification',
     'send_warning_notification',
+    'send_user_notification',
     'CHANNEL_IN_APP',
     'CHANNEL_EMAIL',
     'CHANNEL_SMS',
