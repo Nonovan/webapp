@@ -22,7 +22,6 @@ timestamp tracking and CRUD operations while adding content-specific features.
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Union, Tuple
 import re
-from slugify import slugify
 from sqlalchemy.exc import SQLAlchemyError
 from flask import current_app, g
 from sqlalchemy import desc, and_, or_, text, func
@@ -30,8 +29,9 @@ from sqlalchemy.orm import joinedload
 
 from .. import db, BaseModel
 from ..content import Category
-from ..security.audit_log import AuditLog
+from ..security import AuditLog
 from core.security.cs_audit import log_model_event
+from core.utils.string import slugify
 
 
 class Post(BaseModel):
@@ -221,19 +221,41 @@ class Post(BaseModel):
         """
         Generate URL-friendly slug from title.
 
+        This method creates a unique, URL-friendly slug based on the post title,
+        using the core slugify utility to ensure consistent slug formatting across
+        the application. It automatically handles uniqueness by appending numbers
+        to avoid duplicates.
+
         Returns:
             str: A URL-friendly slug based on the post title
         """
-        # Use python-slugify for better slug generation
-        base_slug = slugify(self.title, separator="-", lowercase=True)
+        if not self.title:
+            return ""
+
+        # Use default settings from core utility for consistency
+        base_slug = slugify(
+            self.title,
+            separator="-",
+            lowercase=True,
+            strip_diacritics=True,
+            allow_unicode=False
+        )
 
         # Ensure slug is unique
         slug = base_slug
         counter = 1
 
-        while Post.query.filter_by(slug=slug).first() is not None:
+        # Query to check uniqueness should exclude current post when updating
+        query = Post.query.filter_by(slug=slug)
+        if self.id:
+            query = query.filter(Post.id != self.id)
+
+        while query.first() is not None:
             slug = f"{base_slug}-{counter}"
             counter += 1
+            query = Post.query.filter_by(slug=slug)
+            if self.id:
+                query = query.filter(Post.id != self.id)
 
         return slug
 

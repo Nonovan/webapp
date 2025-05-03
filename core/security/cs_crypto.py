@@ -691,35 +691,6 @@ def sanitize_username(username: str) -> str:
     return sanitized
 
 
-def generate_token(length: int = 32, url_safe: bool = True, prefix: str = None) -> str:
-    """
-    Generate a cryptographically secure random token.
-
-    Args:
-        length: The desired length in bytes
-        url_safe: Whether to generate a URL-safe token
-        prefix: Optional prefix to add to the token
-
-    Returns:
-        str: The generated token
-    """
-    if length < 16:
-        # Ensure minimum security
-        length = 16
-
-    token_bytes = secrets.token_bytes(length)
-
-    if url_safe:
-        token = base64.urlsafe_b64encode(token_bytes).decode('utf-8').rstrip('=')
-    else:
-        token = base64.b64encode(token_bytes).decode('utf-8')
-
-    if prefix:
-        token = f"{prefix}_{token}"
-
-    return token
-
-
 def constant_time_compare(val1: Union[str, bytes], val2: Union[str, bytes]) -> bool:
     """
     Perform a constant-time comparison of two strings or bytes.

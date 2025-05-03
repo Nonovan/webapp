@@ -25,21 +25,22 @@ import secrets
 import string
 from typing import Optional, Dict, Any, Tuple, Union, List, Callable
 
+# Setup package logging
+logger = logging.getLogger(__name__)
+
 # Internal imports
 try:
     # Attempt to import core security components
+    from core.security.cs_authentication import generate_secure_token
     from core.security.cs_crypto import (
         encrypt_sensitive_data,
         decrypt_sensitive_data,
-        generate_token,
         encrypt_with_rotation,
         decrypt_with_rotation,
         generate_secure_hash as core_secure_hash,
         constant_time_compare,
         _get_encryption_key
     )
-    from core.loggings import get_logger
-    logger = get_logger(__name__)
     CORE_SECURITY_AVAILABLE = True
 except ImportError:
     # Fall back to basic logging if core is unavailable
@@ -57,8 +58,8 @@ except ImportError:
         logger.error("Core security module not available: decrypt_sensitive_data")
         raise NotImplementedError("Core security module required for decryption")
 
-    def generate_token(*args, **kwargs) -> str:
-        logger.error("Core security module not available: generate_token")
+    def generate_secure_token(*args, **kwargs) -> str:
+        logger.error("Core security module not available: generate_secure_token")
         raise NotImplementedError("Core security module required for token generation")
 
     def encrypt_with_rotation(*args, **kwargs) -> str:
@@ -374,7 +375,7 @@ def generate_admin_token(prefix: str = "adm", length: int = 32) -> str:
         Secure administrative token
     """
     if CORE_SECURITY_AVAILABLE:
-        return generate_token(length=length, url_safe=True, prefix=prefix)
+        return generate_secure_token(length=length, url_safe=True, prefix=prefix)
     else:
         # Fallback implementation
         token_bytes = secrets.token_bytes(length)

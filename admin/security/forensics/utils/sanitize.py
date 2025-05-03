@@ -16,6 +16,17 @@ import logging
 import json
 from typing import List, Optional, Union, Dict, Any, Pattern
 
+# Attempt to import core security utilities
+try:
+    from core.security.cs_utils import obfuscate_sensitive_data
+    CORE_OBFUSCATION_AVAILABLE = True
+    logger = logging.getLogger(__name__)
+    logger.debug("Using core implementation of obfuscate_sensitive_data")
+except ImportError:
+    CORE_OBFUSCATION_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning("Core security module not found. Using fallback obfuscation.")
+
 # Attempt to import forensic-specific logging
 try:
     from admin.security.forensics.utils.logging_utils import log_forensic_operation
@@ -38,8 +49,6 @@ except ImportError:
     logging.warning("Forensic constants not found. Using default values for sanitization.")
     CONSTANTS_AVAILABLE = False
     FALLBACK_REDACTION_PLACEHOLDER = "[REDACTED]"
-
-logger = logging.getLogger(__name__)
 
 # --- Default Redaction Patterns ---
 # These are examples; a production system would need more comprehensive and configurable patterns.
@@ -135,7 +144,13 @@ def redact_sensitive_data(
                 redactions_made += 1
                 # For credential assignments, only redact the value part
                 if pattern == CREDENTIAL_ASSIGNMENT_PATTERN and len(match.groups()) >= 2:
-                     return f"{match.group(1)}{match.group(0)[len(match.group(1)):].split(match.group(2))[0]}{placeholder}"
+                    value_part = match.group(2)
+                    # Use core obfuscation for credential values
+                    if CORE_OBFUSCATION_AVAILABLE:
+                        obfuscated_value = obfuscate_sensitive_data(value_part, prefix_visible=0, suffix_visible=0, mask_char='*')
+                        return f"{match.group(1)}{match.group(0)[len(match.group(1)):].split(match.group(2))[0]}{obfuscated_value}"
+                    else:
+                        return f"{match.group(1)}{match.group(0)[len(match.group(1)):].split(match.group(2))[0]}{placeholder}"
                 return placeholder
 
             sanitized_content = pattern.sub(replacer, sanitized_content)
@@ -148,6 +163,54 @@ def redact_sensitive_data(
     operation_details["redactions_count"] = redactions_made
     log_forensic_operation("redact_sensitive_data", True, operation_details)
     return sanitized_content
+
+
+def mask_sensitive_value(
+    value: str,
+    prefix_visible: int = 0,
+    suffix_visible: int = 4,
+    placeholder: Optional[str] = None
+) -> str:
+    """
+    Masks sensitive values using the core obfuscation implementation.
+
+    This function serves as a wrapper around the core obfuscate_sensitive_data
+    function to ensure consistent masking of sensitive values across the application.
+
+    Args:
+        value: The sensitive string to mask
+        prefix_visible: Number of characters to show at beginning
+        suffix_visible: Number of characters to show at end
+        placeholder: If provided, uses this placeholder instead of masked characters
+                     (ignored when using core implementation)
+
+    Returns:
+        The masked string with only specified portions visible
+    """
+    if not value:
+        return ""
+
+    # If a full placeholder is requested, don't use partial masking
+    if placeholder is not None and prefix_visible == 0 and suffix_visible == 0:
+        return placeholder
+
+    # Use the core implementation if available
+    if CORE_OBFUSCATION_AVAILABLE:
+        return obfuscate_sensitive_data(value, prefix_visible, suffix_visible, '*')
+
+    # Otherwise use placeholder or default masking
+    if placeholder is not None:
+        if prefix_visible > 0 or suffix_visible > 0:
+            # If showing portions, create a hybrid with placeholder
+            data_len = len(value)
+            prefix = value[:prefix_visible] if prefix_visible > 0 and prefix_visible < data_len else ""
+            suffix = value[-suffix_visible:] if suffix_visible > 0 and suffix_visible < data_len else ""
+            return f"{prefix}{placeholder}{suffix}"
+        else:
+            return placeholder
+    else:
+        # Use fallback implementation with default '*' masking
+        return obfuscate_sensitive_data(value, prefix_visible, suffix_visible, '*')
 
 
 def sanitize_json_object(
@@ -203,7 +266,12 @@ def sanitize_json_object(
                         redact_key = True
                         break
             if redact_key:
-                sanitized_dict[key] = placeholder
+                # For sensitive keys that match patterns, use the core obfuscation
+                # instead of a simple placeholder to maintain consistent masking
+                if isinstance(value, str) and CORE_OBFUSCATION_AVAILABLE:
+                    sanitized_dict[key] = mask_sensitive_value(value, prefix_visible=0, suffix_visible=0, placeholder=placeholder)
+                else:
+                    sanitized_dict[key] = placeholder
             else:
                 # Recursively sanitize the value
                 sanitized_dict[key] = sanitize_json_object(
@@ -329,7 +397,6 @@ def prepare_external_report(
 
 
 # --- Example Usage ---
-
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 

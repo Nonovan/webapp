@@ -14,13 +14,13 @@ investigations that may be subject to legal scrutiny.
 import logging
 import os
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Set, Tuple, Union
+from typing import Dict, Any, List, Optional, Set, Tuple, Union, Callable
 
 # Set up package-level logger
 logger = logging.getLogger(__name__)
 
 # Package version information
-__version__ = '1.0.0'
+__version__ = '0.1.1'
 __author__ = 'Security Team'
 __email__ = 'security@example.com'
 __status__ = 'Production'
@@ -36,6 +36,7 @@ ADVANCED_TIMESTAMP_AVAILABLE = False
 SANITIZATION_AVAILABLE = False
 NETWORK_UTILS_AVAILABLE = False
 VALIDATION_UTILS_AVAILABLE = False
+CORE_INTEGRITY_AVAILABLE = False
 
 # Package path constants
 PACKAGE_PATH = Path(__file__).parent
@@ -63,6 +64,14 @@ try:
     FORENSIC_CONSTANTS_LOADED = True
 except ImportError as e:
     logger.warning(f"Could not import forensic constants: {e}")
+
+# Try to import core security module for baseline functionality
+try:
+    from core.security.cs_file_integrity import update_file_integrity_baseline as core_update_baseline
+    CORE_INTEGRITY_AVAILABLE = True
+    logger.debug("Core file integrity module available")
+except ImportError as e:
+    logger.warning(f"Core file integrity module not available: {e}")
 
 # Load modules and track their availability
 try:
@@ -246,6 +255,149 @@ try:
 except (OSError, PermissionError) as e:
     logger.warning(f"Could not create forensic temporary directory: {e}")
 
+def update_file_integrity_baseline(
+    baseline_path: str,
+    updates: List[Dict[str, Any]],
+    app=None,
+    remove_missing: bool = False,
+    analyst: Optional[str] = None
+) -> Tuple[bool, str]:
+    """
+    Update a file integrity baseline with new or modified files.
+
+    This function integrates with the core security baseline functionality when available
+    or performs a standalone update when the core security module is not present.
+    All updates are logged for forensic auditing purposes.
+
+    Args:
+        baseline_path: Path to the baseline file
+        updates: List of dicts with file paths and hashes to update
+                Each dict should have "path" and either "current_hash" or "hash"
+        app: Flask application instance (optional, required for core integration)
+        remove_missing: If True, files no longer existing are removed from baseline
+        analyst: Name of the analyst performing the update (for audit log)
+
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    operation_details = {
+        "baseline_path": baseline_path,
+        "updates_count": len(updates),
+        "remove_missing": remove_missing,
+        "analyst": analyst or "system"
+    }
+
+    # Validate input parameters
+    if not baseline_path:
+        msg = "Invalid baseline path"
+        log_forensic_operation("update_file_baseline", False, {**operation_details, "error": msg}, level=logging.ERROR)
+        return False, msg
+
+    if not updates or not isinstance(updates, list):
+        msg = "No updates provided or invalid format"
+        log_forensic_operation("update_file_baseline", False, {**operation_details, "error": msg}, level=logging.ERROR)
+        return False, msg
+
+    # Log operation start
+    log_forensic_operation("update_file_baseline", True, {**operation_details, "status": "started"})
+
+    try:
+        if CORE_INTEGRITY_AVAILABLE:
+            # Use core security module implementation
+            logger.debug("Using core security file integrity update")
+            success = core_update_baseline(
+                app=app,
+                baseline_path=baseline_path,
+                updates=updates,
+                remove_missing=remove_missing
+            )
+
+            if success:
+                msg = f"Baseline updated successfully via core security module: {len(updates)} changes applied"
+                log_forensic_operation("update_file_baseline", True, {**operation_details, "status": "completed"})
+                return True, msg
+            else:
+                msg = "Failed to update baseline via core security module"
+                log_forensic_operation("update_file_baseline", False, {**operation_details, "error": msg})
+                return False, msg
+        else:
+            # Standalone implementation
+            logger.debug("Using standalone file integrity update")
+
+            # Create parent directory if it doesn't exist
+            os.makedirs(os.path.dirname(baseline_path), exist_ok=True)
+
+            # Load existing baseline or create new one
+            baseline = {}
+            if os.path.exists(baseline_path):
+                try:
+                    with open(baseline_path, 'r') as f:
+                        import json
+                        baseline = json.load(f)
+                except (json.JSONDecodeError, IOError) as e:
+                    msg = f"Error reading baseline file: {str(e)}"
+                    log_forensic_operation("update_file_baseline", False, {**operation_details, "error": msg})
+                    return False, msg
+
+            # Process updates
+            applied_changes = 0
+            for update in updates:
+                if not isinstance(update, dict):
+                    logger.warning(f"Skipping invalid update entry: {update}")
+                    continue
+
+                path = update.get('path')
+                if not path:
+                    logger.warning("Skipping update with missing path")
+                    continue
+
+                # Get hash value from update (support both "hash" and "current_hash" keys)
+                hash_value = update.get('current_hash') or update.get('hash')
+                if not hash_value:
+                    logger.warning(f"Skipping update with missing hash for {path}")
+                    continue
+
+                # Update baseline entry
+                baseline[path] = hash_value
+                applied_changes += 1
+
+            # Handle file removals
+            removed_count = 0
+            if remove_missing:
+                to_remove = []
+                for path in baseline:
+                    if os.path.exists(path):
+                        continue
+                    to_remove.append(path)
+
+                for path in to_remove:
+                    del baseline[path]
+                    removed_count += 1
+
+            # Write updated baseline
+            try:
+                with open(baseline_path, 'w') as f:
+                    import json
+                    json.dump(baseline, f, indent=2)
+            except IOError as e:
+                msg = f"Error writing baseline file: {str(e)}"
+                log_forensic_operation("update_file_baseline", False, {**operation_details, "error": msg})
+                return False, msg
+
+            msg = f"Baseline updated successfully: {applied_changes} changes applied, {removed_count} entries removed"
+            log_forensic_operation("update_file_baseline", True, {
+                **operation_details,
+                "status": "completed",
+                "changes_applied": applied_changes,
+                "entries_removed": removed_count
+            })
+            return True, msg
+
+    except Exception as e:
+        msg = f"Unexpected error updating baseline: {str(e)}"
+        log_forensic_operation("update_file_baseline", False, {**operation_details, "error": msg}, level=logging.ERROR)
+        return False, msg
+
 # Define the package's public API
 __all__ = [
     # Core package info
@@ -265,13 +417,15 @@ __all__ = [
     'SANITIZATION_AVAILABLE',
     'NETWORK_UTILS_AVAILABLE',
     'VALIDATION_UTILS_AVAILABLE',
+    'CORE_INTEGRITY_AVAILABLE',
 
     # Path constants
     'PACKAGE_PATH',
     'TEMPLATES_DIR',
 
-    # Helper function to get package capabilities
+    # Helper functions
     'get_capabilities',
+    'update_file_integrity_baseline',
 
     # Module imports that will be included only if available
 ]
@@ -548,6 +702,13 @@ def get_capabilities() -> Dict[str, Dict[str, Any]]:
                 "COMMON_TIMESTAMP_FORMATS", "SUPPORTED_HASH_ALGORITHMS",
                 "SAFE_FILE_EXTENSIONS", "ALLOWED_MIME_TYPES", "MAX_FILE_SIZE_BYTES"
             ] if FORENSIC_CONSTANTS_LOADED else []
+        },
+        "file_integrity": {
+            "available": True,  # Standalone implementation always available
+            "core_integration": CORE_INTEGRITY_AVAILABLE,
+            "functions": [
+                "update_file_integrity_baseline"
+            ]
         }
     }
 
@@ -567,7 +728,8 @@ if ADVANCED_LOGGING_AVAILABLE:
             "timestamp": ADVANCED_TIMESTAMP_AVAILABLE,
             "sanitization": SANITIZATION_AVAILABLE,
             "network": NETWORK_UTILS_AVAILABLE,
-            "validation": VALIDATION_UTILS_AVAILABLE
+            "validation": VALIDATION_UTILS_AVAILABLE,
+            "core_integrity_integration": CORE_INTEGRITY_AVAILABLE
         },
         level=logging.INFO
     )
@@ -586,7 +748,8 @@ else:
         ("timestamp", ADVANCED_TIMESTAMP_AVAILABLE),
         ("sanitization", SANITIZATION_AVAILABLE),
         ("network", NETWORK_UTILS_AVAILABLE),
-        ("validation", VALIDATION_UTILS_AVAILABLE)
+        ("validation", VALIDATION_UTILS_AVAILABLE),
+        ("core_integrity_integration", CORE_INTEGRITY_AVAILABLE)
     ]:
         if avail:
             components_available.append(component)

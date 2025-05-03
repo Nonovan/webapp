@@ -27,7 +27,7 @@ from extensions import metrics, db, cache, limiter
 from extensions.circuit_breaker import CircuitOpenError, RateLimitExceededError
 from core.security import log_security_event
 from core.security.cs_authentication import is_request_secure
-from core.utils import generate_request_id
+from core import generate_request_id
 from models.security import AuditLog
 
 # Initialize module-level logger
