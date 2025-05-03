@@ -62,17 +62,6 @@ The supporting scripts enhance the core assessment tools by providing shared fun
   - Progress metrics and analytics
   - Historical trend analysis
 
-- **`evidence_collector.py`**: Securely collects and stores assessment evidence
-  - Secure evidence acquisition
-  - Proper chain of custody
-  - Metadata tagging
-  - Evidence validation
-  - Secure storage management
-  - Evidence retrieval interface
-  - Cryptographic verification
-  - Tamper detection
-  - Retention policy enforcement
-
 - **`assessment_coordinator.py`**: Coordinates multi-component assessments
   - Assessment scheduling
   - Component orchestration
@@ -91,7 +80,6 @@ admin/security/assessment_tools/supporting_scripts/
 ├── README.md                     # This documentation
 ├── assessment_coordinator.py     # Assessment coordination functionality
 ├── assessment_utils.py           # Shared assessment utilities
-├── evidence_collector.py         # Evidence collection and management
 ├── finding_classifier.py         # Finding classification and prioritization
 ├── remediation_tracker.py        # Remediation status tracking
 ├── report_generator.py           # Report generation engine
@@ -311,51 +299,6 @@ verification_result = tracker.verify_remediation(
 
 if verification_result["status"] == "verified":
     tracker.close_task(task_id, resolution="fixed")
-```
-
-### Evidence Collection
-
-```python
-from evidence_collector import EvidenceCollector
-
-collector = EvidenceCollector(
-    assessment_id="sec-assess-20240712-01",
-    storage_path="/secure/evidence/"
-)
-
-# Collect configuration evidence
-config_evidence_id = collector.collect_configuration(
-    target_system="web-server-01",
-    config_type="web_server",
-    method="api"
-)
-
-# Collect network evidence
-network_evidence_id = collector.collect_network_traffic(
-    target_system="web-server-01",
-    duration=120,
-    filter_expression="port 443"
-)
-
-# Store screenshot evidence
-screenshot_evidence_id = collector.store_file_evidence(
-    file_path="/tmp/vulnerability-screenshot.png",
-    evidence_type="screenshot",
-    description="XSS vulnerability demonstration",
-    metadata={"finding_id": "CVE-2024-12345"}
-)
-
-# Add chain of custody entry
-collector.add_custody_entry(
-    evidence_id=screenshot_evidence_id,
-    action="analysis",
-    performed_by="security-analyst",
-    notes="Initial analysis completed"
-)
-
-# Retrieve evidence for reporting
-evidence_items = collector.get_evidence_for_finding("CVE-2024-12345")
-evidence_package = collector.create_evidence_package(evidence_items)
 ```
 
 ### Assessment Coordination

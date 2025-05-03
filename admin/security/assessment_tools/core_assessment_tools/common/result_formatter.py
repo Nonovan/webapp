@@ -731,3 +731,406 @@ class ResultFormatter:
         else:
             self.logger.error(f"Conversion from {input_format} to {output_format} not supported")
             return f"Conversion from {input_format} to {output_format} not supported"
+
+
+def generate_summary(
+    results: AssessmentResult,
+    format_type: str = FORMAT_MARKDOWN,
+    severity_threshold: str = "low",
+    max_findings: int = 10
+) -> str:
+    """
+    Generate a summary of assessment findings.
+
+    This standalone function creates a concise summary of assessment results
+    without requiring direct instantiation of ResultFormatter. It's useful
+    for quick reporting and dashboard displays.
+
+    Args:
+        results: Assessment results to summarize
+        format_type: Output format type (markdown, html, text, etc.)
+        severity_threshold: Minimum severity level to include in summary
+        max_findings: Maximum number of findings to include in summary details
+
+    Returns:
+        Formatted summary in the requested format
+    """
+    # Use ResultFormatter to keep format consistency with other outputs
+    formatter = ResultFormatter()
+
+    # Map severity threshold to internal levels
+    severity_order = {
+        "critical": 0,
+        "high": 1,
+        "medium": 2,
+        "low": 3,
+        "info": 4
+    }
+    threshold_value = severity_order.get(severity_threshold.lower(), 3)  # Default to low
+
+    # Filter findings by threshold
+    filtered_findings = [
+        f for f in results.findings
+        if severity_order.get(f.severity.value, 4) <= threshold_value
+    ]
+
+    # Count findings by severity
+    severity_counts = {s.value: 0 for s in FindingSeverity}
+    for finding in filtered_findings:
+        severity_counts[finding.severity.value] += 1
+
+    # Sort findings by severity for top findings section
+    sorted_findings = sorted(
+        filtered_findings,
+        key=lambda f: (severity_order.get(f.severity.value, 4), f.finding_id)
+    )
+
+    # Calculate total risk score
+    risk_score = formatter._calculate_risk_score(results)
+
+    # Determine overall risk level
+    if risk_score >= 75:
+        risk_level = "Critical"
+    elif risk_score >= 50:
+        risk_level = "High"
+    elif risk_score >= 25:
+        risk_level = "Medium"
+    elif risk_score > 0:
+        risk_level = "Low"
+    else:
+        risk_level = "Negligible"
+
+    # Generate output based on requested format
+    if format_type == FORMAT_MARKDOWN:
+        output = [
+            f"# Assessment Summary - {results.name}",
+            "",
+            f"**Assessment ID:** {results.assessment_id}",
+            f"**Date:** {results.end_time.strftime('%Y-%m-%d') if results.end_time else datetime.datetime.now().strftime('%Y-%m-%d')}",
+            f"**Risk Level:** {risk_level}",
+            "",
+            "## Findings Overview",
+            "",
+            "| Severity | Count |",
+            "|----------|-------|"
+        ]
+
+        for severity in ["critical", "high", "medium", "low", "info"]:
+            if severity_counts[severity] > 0:
+                output.append(f"| {severity.capitalize()} | {severity_counts[severity]} |")
+
+        output.append("")
+        output.append(f"**Total Findings:** {len(filtered_findings)}")
+        output.append("")
+
+        # Add top findings section if any exist
+        if sorted_findings:
+            output.append("## Top Findings")
+            output.append("")
+
+            for i, finding in enumerate(sorted_findings[:max_findings]):
+                if i >= max_findings:
+                    break
+                output.append(f"**{i+1}. {finding.title}** ({finding.severity.value.upper()})")
+                # Add first sentence of description for context
+                first_sentence = finding.description.split('.')[0] + '.'
+                output.append(f"   - {first_sentence}")
+                output.append("")
+
+            if len(sorted_findings) > max_findings:
+                output.append(f"*Plus {len(sorted_findings) - max_findings} additional findings...*")
+
+        return "\n".join(output)
+
+    elif format_type == FORMAT_HTML:
+        # Basic HTML summary implementation
+        output = [
+            "<!DOCTYPE html>",
+            "<html>",
+            "<head>",
+            f"<title>Assessment Summary - {results.name}</title>",
+            "<style>",
+            "body { font-family: Arial, sans-serif; margin: 20px; }",
+            "h1, h2 { color: #333; }",
+            "table { border-collapse: collapse; width: 100%; margin: 20px 0; }",
+            "th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }",
+            "th { background-color: #f2f2f2; }",
+            ".critical { color: #721c24; background-color: #f8d7da; }",
+            ".high { color: #856404; background-color: #fff3cd; }",
+            ".medium { color: #0c5460; background-color: #d1ecf1; }",
+            ".low { color: #155724; background-color: #d4edda; }",
+            ".info { color: #383d41; background-color: #e2e3e5; }",
+            "</style>",
+            "</head>",
+            "<body>",
+            f"<h1>Assessment Summary - {results.name}</h1>",
+            f"<p><strong>Assessment ID:</strong> {results.assessment_id}</p>",
+            f"<p><strong>Date:</strong> {results.end_time.strftime('%Y-%m-%d') if results.end_time else datetime.datetime.now().strftime('%Y-%m-%d')}</p>",
+            f"<p><strong>Risk Level:</strong> {risk_level}</p>",
+            "<h2>Findings Overview</h2>",
+            "<table>",
+            "<tr><th>Severity</th><th>Count</th></tr>"
+        ]
+
+        for severity in ["critical", "high", "medium", "low", "info"]:
+            if severity_counts[severity] > 0:
+                output.append(f"<tr class='{severity}'><td>{severity.capitalize()}</td><td>{severity_counts[severity]}</td></tr>")
+
+        output.append("</table>")
+        output.append(f"<p><strong>Total Findings:</strong> {len(filtered_findings)}</p>")
+
+        # Add top findings section if any exist
+        if sorted_findings:
+            output.append("<h2>Top Findings</h2>")
+            output.append("<ol>")
+
+            for i, finding in enumerate(sorted_findings[:max_findings]):
+                if i >= max_findings:
+                    break
+                severity_class = finding.severity.value.lower()
+                output.append(f"<li><strong class='{severity_class}'>{finding.title} ({finding.severity.value.upper()})</strong><br>")
+                # Add first sentence of description for context
+                first_sentence = finding.description.split('.')[0] + '.'
+                output.append(f"<p>{first_sentence}</p></li>")
+
+            output.append("</ol>")
+
+            if len(sorted_findings) > max_findings:
+                output.append(f"<p><em>Plus {len(sorted_findings) - max_findings} additional findings...</em></p>")
+
+        output.append("</body>")
+        output.append("</html>")
+
+        return "\n".join(output)
+
+    elif format_type == FORMAT_JSON:
+        # Create structured summary data
+        summary_data = {
+            "assessment_id": results.assessment_id,
+            "name": results.name,
+            "date": (results.end_time if results.end_time else datetime.datetime.now()).isoformat(),
+            "risk_level": risk_level,
+            "risk_score": risk_score,
+            "findings": {
+                "total": len(filtered_findings),
+                "severity_counts": severity_counts,
+                "top_findings": [
+                    {
+                        "id": f.finding_id,
+                        "title": f.title,
+                        "severity": f.severity.value,
+                        "category": f.category,
+                        "status": f.status.value if f.status else "new"
+                    }
+                    for f in sorted_findings[:max_findings]
+                ]
+            }
+        }
+
+        return json.dumps(summary_data, indent=2)
+
+    elif format_type == FORMAT_TEXT:
+        # Simple text summary
+        width = 80
+        separator = "=" * width
+
+        output = [
+            separator,
+            f"ASSESSMENT SUMMARY - {results.name}".center(width),
+            separator,
+            f"Assessment ID: {results.assessment_id}",
+            f"Date: {results.end_time.strftime('%Y-%m-%d') if results.end_time else datetime.datetime.now().strftime('%Y-%m-%d')}",
+            f"Risk Level: {risk_level}",
+            "",
+            "FINDINGS OVERVIEW".center(width),
+            "-" * width
+        ]
+
+        # Format severity counts as a simple table
+        output.append(f"{'Severity':<15} {'Count':<10}")
+        output.append("-" * 25)
+        for severity in ["critical", "high", "medium", "low", "info"]:
+            if severity_counts[severity] > 0:
+                output.append(f"{severity.capitalize():<15} {severity_counts[severity]:<10}")
+
+        output.append("")
+        output.append(f"Total Findings: {len(filtered_findings)}")
+        output.append("")
+
+        # Add top findings section if any exist
+        if sorted_findings:
+            output.append("TOP FINDINGS".center(width))
+            output.append("-" * width)
+
+            for i, finding in enumerate(sorted_findings[:max_findings]):
+                if i >= max_findings:
+                    break
+                output.append(f"{i+1}. {finding.title} ({finding.severity.value.upper()})")
+                # Add first sentence of description for context
+                first_sentence = finding.description.split('.')[0] + '.'
+                wrapped_text = textwrap.fill(first_sentence, width=width-3)
+                # Indent the wrapped text
+                wrapped_lines = wrapped_text.split('\n')
+                output.append(f"   {wrapped_lines[0]}")
+                for line in wrapped_lines[1:]:
+                    output.append(f"   {line}")
+                output.append("")
+
+            if len(sorted_findings) > max_findings:
+                output.append(f"Plus {len(sorted_findings) - max_findings} additional findings...")
+
+        return "\n".join(output)
+
+    else:
+        # Use default formatter for other formats
+        formatter = ResultFormatter()
+        filtered_result = AssessmentResult(
+            assessment_id=results.assessment_id,
+            name=f"Summary - {results.name}",
+            target=results.target,
+            findings=sorted_findings[:max_findings],
+            start_time=results.start_time,
+            end_time=results.end_time,
+            status="completed",
+            summary={
+                "severity_counts": severity_counts,
+                "risk_level": risk_level,
+                "risk_score": risk_score,
+                "total_findings": len(filtered_findings)
+            }
+        )
+
+        return formatter.format(filtered_result, format_type=format_type)
+
+
+def export_findings(
+    results: AssessmentResult,
+    output_file: str,
+    format_type: str = FORMAT_JSON,
+    filter_severity: Optional[List[str]] = None,
+    findings_only: bool = False,
+    include_evidence: bool = False,
+    compliance_map: Optional[List[str]] = None
+) -> bool:
+    """
+    Export assessment findings to a file in specified format.
+
+    This standalone function exports assessment findings to a file without requiring
+    direct instantiation of ResultFormatter. It provides a simplified interface
+    for the most common use case of exporting findings.
+
+    Args:
+        results: Assessment results to export
+        output_file: Path to output file
+        format_type: Output format (json, csv, xml, html, markdown, etc.)
+        filter_severity: Optional list of severity levels to include
+        findings_only: If True, export only findings without assessment metadata
+        include_evidence: Whether to include evidence details
+        compliance_map: Optional list of compliance frameworks to map findings to
+
+    Returns:
+        True if export was successful, False otherwise
+    """
+    try:
+        # Validate output format
+        if format_type.lower() not in VALID_OUTPUT_FORMATS:
+            logger.warning(f"Unsupported format '{format_type}', using '{FORMAT_STANDARD}'")
+            format_type = FORMAT_STANDARD
+
+        formatter = ResultFormatter()
+
+        # Apply severity filter if specified
+        if filter_severity is not None:
+            filtered_findings = formatter._filter_findings_by_severity(results.findings, filter_severity)
+        else:
+            filtered_findings = results.findings
+
+        # Apply compliance mapping if requested
+        if compliance_map is not None:
+            filtered_findings = formatter._map_findings_to_compliance(filtered_findings, compliance_map)
+
+        # Create output path directory if it doesn't exist
+        output_path = Path(output_file)
+        if not output_path.parent.exists():
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if findings_only:
+            # Export only the findings without the full assessment context
+            if format_type.lower() == FORMAT_JSON:
+                # For JSON, export findings as array of dictionaries
+                findings_data = [finding.to_dict() for finding in filtered_findings]
+                with open(output_file, "w", encoding="utf-8") as f:
+                    json.dump(findings_data, f, indent=2, default=str)
+                return True
+
+            elif format_type.lower() == FORMAT_CSV:
+                # For CSV, convert findings to flat structure
+                if not filtered_findings:
+                    logger.warning("No findings to export")
+                    with open(output_file, "w", encoding="utf-8") as f:
+                        f.write("No findings to export")
+                    return True
+
+                # Extract common fields from findings
+                finding_dicts = []
+                for finding in filtered_findings:
+                    finding_dict = {
+                        "id": finding.finding_id,
+                        "title": finding.title,
+                        "description": finding.description,
+                        "severity": finding.severity.value,
+                        "category": finding.category,
+                        "status": finding.status.value if finding.status else "new"
+                    }
+
+                    if finding.remediation:
+                        finding_dict["remediation"] = finding.remediation
+
+                    if include_evidence and finding.evidence:
+                        # Simplify evidence to comma-separated list of titles
+                        finding_dict["evidence"] = ", ".join(e.title for e in finding.evidence)
+
+                    finding_dicts.append(finding_dict)
+
+                with open(output_file, "w", encoding="utf-8", newline='') as f:
+                    writer = csv.DictWriter(f, fieldnames=finding_dicts[0].keys())
+                    writer.writeheader()
+                    writer.writerows(finding_dicts)
+                return True
+
+            else:
+                # For other formats, create a minimal assessment result
+                minimal_result = AssessmentResult(
+                    assessment_id="findings-export",
+                    name="Exported Findings",
+                    target={},  # Empty target as we're just exporting findings
+                    findings=filtered_findings,
+                    start_time=datetime.datetime.now(),
+                    end_time=datetime.datetime.now(),
+                    status="completed"
+                )
+
+                # Use the formatter to format and write the minimal result
+                formatted_content = formatter.format(
+                    results=minimal_result,
+                    format_type=format_type,
+                    include_evidence=include_evidence
+                )
+
+                return formatter.write_to_file(formatted_content, output_file)
+
+        else:
+            # Format and export the full assessment result
+            formatted_content = formatter.format(
+                results=results,
+                format_type=format_type,
+                include_evidence=include_evidence,
+                filter_severity=filter_severity,
+                compliance_map=compliance_map
+            )
+
+            return formatter.write_to_file(formatted_content, output_file)
+
+    except Exception as e:
+        logger.error(f"Error exporting findings: {e}", exc_info=True)
+        return False

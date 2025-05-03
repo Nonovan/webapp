@@ -91,7 +91,10 @@ try:
         collect_file_evidence,
         collect_command_output,
         collect_screenshot,
-        create_evidence_directory
+        create_evidence_directory,
+        create_evidence_package,
+        verify_evidence_integrity,
+        add_chain_of_custody_entry
     )
 
     from .output_formatters import (

@@ -1973,3 +1973,334 @@ def create_evidence_collector(
     finally:
         # Ensure evidence is finalized when the context exits
         collector.finalize()
+
+
+def collect_file_evidence(
+    file_path: Union[str, Path],
+    assessment_id: str,
+    target_id: str,
+    assessor: str,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    evidence_type: Optional[EvidenceType] = None
+) -> str:
+    """
+    Collect file evidence without needing to instantiate EvidenceCollector.
+
+    This is a convenience function that creates a temporary EvidenceCollector
+    instance, collects the file, and returns the evidence ID.
+
+    Args:
+        file_path: Path to the file to collect
+        assessment_id: Unique identifier for the assessment
+        target_id: Identifier for the target system
+        assessor: Name or identifier of the person collecting evidence
+        title: Title for this evidence (defaults to filename)
+        description: Description of this evidence
+        evidence_type: Type of evidence if known, otherwise determined from file extension
+
+    Returns:
+        Evidence ID of the collected file
+
+    Raises:
+        OSError: If file cannot be read or saved
+        ValueError: If file_path is not valid
+    """
+    with create_evidence_collector(
+        assessment_id=assessment_id,
+        target_id=target_id,
+        assessor=assessor
+    ) as collector:
+        return collector.collect_file(
+            file_path=file_path,
+            evidence_type=evidence_type,
+            title=title,
+            description=description
+        )
+
+
+def collect_command_output(
+    command: Union[str, List[str]],
+    assessment_id: str,
+    target_id: str,
+    assessor: str,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    shell: bool = False,
+    timeout: int = 60,
+    working_dir: Optional[str] = None,
+    env: Optional[Dict[str, str]] = None,
+    include_stderr: bool = True
+) -> str:
+    """
+    Collect command output without needing to instantiate EvidenceCollector.
+
+    This is a convenience function that creates a temporary EvidenceCollector
+    instance, executes the command, collects the output, and returns the evidence ID.
+
+    Args:
+        command: Command to execute (string or list of arguments)
+        assessment_id: Unique identifier for the assessment
+        target_id: Identifier for the target system
+        assessor: Name or identifier of the person collecting evidence
+        title: Title for this evidence
+        description: Description of this evidence
+        shell: Whether to execute command in a shell
+        timeout: Command execution timeout in seconds
+        working_dir: Directory to execute command in
+        env: Environment variables for command execution
+        include_stderr: Whether to include stderr in the output
+
+    Returns:
+        Evidence ID of the collected command output
+
+    Raises:
+        subprocess.SubprocessError: If command execution fails
+        OSError: If output cannot be saved
+    """
+    with create_evidence_collector(
+        assessment_id=assessment_id,
+        target_id=target_id,
+        assessor=assessor
+    ) as collector:
+        return collector.collect_command_output(
+            command=command,
+            title=title,
+            description=description,
+            shell=shell,
+            timeout=timeout,
+            working_dir=working_dir,
+            env=env,
+            include_stderr=include_stderr
+        )
+
+
+def collect_screenshot(
+    name: str,
+    assessment_id: str,
+    target_id: str,
+    assessor: str,
+    description: Optional[str] = None,
+    source: Optional[Union[str, bytes, Path]] = None
+) -> str:
+    """
+    Collect screenshot evidence without needing to instantiate EvidenceCollector.
+
+    This is a convenience function that creates a temporary EvidenceCollector
+    instance, captures or saves a screenshot, and returns the evidence ID.
+
+    Args:
+        name: Name/title for the screenshot
+        assessment_id: Unique identifier for the assessment
+        target_id: Identifier for the target system
+        assessor: Name or identifier of the person collecting evidence
+        description: Description of this evidence
+        source: Optional source for the screenshot (file path or image data)
+               If None, attempts to capture screenshot automatically
+
+    Returns:
+        Evidence ID of the collected screenshot
+
+    Raises:
+        OSError: If screenshot cannot be captured or saved
+        ValueError: If source is unsupported
+    """
+    with create_evidence_collector(
+        assessment_id=assessment_id,
+        target_id=target_id,
+        assessor=assessor
+    ) as collector:
+        return collector.collect_screenshot(
+            name=name,
+            description=description,
+            source=source
+        )
+
+
+def create_evidence_directory(
+    assessment_id: str,
+    target_id: str,
+    base_dir: Optional[str] = None
+) -> str:
+    """
+    Create and secure an evidence directory structure without creating a collector.
+
+    This is a convenience function that creates a properly structured and secured
+    evidence directory that follows the same structure used by EvidenceCollector.
+
+    Args:
+        assessment_id: Unique identifier for the assessment
+        target_id: Identifier for the target system
+        base_dir: Base directory for evidence storage (defaults to DEFAULT_EVIDENCE_BASE_DIR)
+
+    Returns:
+        Path to the created evidence directory
+
+    Raises:
+        OSError: If directory creation fails or permissions cannot be set
+    """
+    base_dir = base_dir or DEFAULT_EVIDENCE_BASE_DIR
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    evidence_dir = os.path.join(
+        base_dir,
+        f"{assessment_id}_{timestamp}"
+    )
+
+    # Create main evidence directory
+    try:
+        os.makedirs(evidence_dir, exist_ok=True)
+        os.chmod(evidence_dir, DEFAULT_EVIDENCE_PERMISSIONS)
+
+        # Create standard subdirectories
+        for evidence_type in EvidenceType:
+            type_dir = os.path.join(evidence_dir, evidence_type.value)
+            os.makedirs(type_dir, exist_ok=True)
+            os.chmod(type_dir, DEFAULT_EVIDENCE_PERMISSIONS)
+
+        # Create metadata directory
+        metadata_dir = os.path.join(evidence_dir, "metadata")
+        os.makedirs(metadata_dir, exist_ok=True)
+        os.chmod(metadata_dir, DEFAULT_EVIDENCE_PERMISSIONS)
+
+        # Initialize basic metadata files
+        with open(os.path.join(metadata_dir, "evidence_info.json"), "w", encoding="utf-8") as f:
+            json.dump({
+                "assessment_id": assessment_id,
+                "target_id": target_id,
+                "created_at": datetime.datetime.now().isoformat(),
+                "evidence_dir": evidence_dir
+            }, f, indent=2)
+
+        logger.info(f"Evidence directory created: {evidence_dir}")
+        return evidence_dir
+
+    except (OSError, PermissionError) as e:
+        logger.error(f"Failed to create evidence directory: {e}")
+        raise OSError(f"Failed to create evidence directory: {e}") from e
+
+
+def create_evidence_package(
+    evidence_ids: List[str],
+    assessment_id: str,
+    target_id: str,
+    assessor: str,
+    format: str = "zip",
+    output_path: Optional[str] = None,
+    include_metadata: bool = True
+) -> str:
+    """
+    Create a package of evidence items without needing to instantiate EvidenceCollector.
+
+    This is a convenience function that creates a temporary EvidenceCollector
+    instance, packages the specified evidence items, and returns the path to the package.
+
+    Args:
+        evidence_ids: List of evidence IDs to include in the package
+        assessment_id: Unique identifier for the assessment
+        target_id: Identifier for the target system
+        assessor: Name or identifier of the person creating the package
+        format: Package format ('zip', 'tar', or 'directory')
+        output_path: Path for the output package
+        include_metadata: Whether to include metadata
+
+    Returns:
+        Path to the evidence package
+
+    Raises:
+        ValueError: If format is invalid or no evidence is found
+        OSError: If packaging fails
+    """
+    with create_evidence_collector(
+        assessment_id=assessment_id,
+        target_id=target_id,
+        assessor=assessor
+    ) as collector:
+        return collector.create_evidence_package(
+            evidence_ids=evidence_ids,
+            format=format,
+            output_path=output_path,
+            include_metadata=include_metadata
+        )
+
+
+def verify_evidence_integrity(
+    evidence_id: str,
+    assessment_id: str,
+    target_id: str,
+    assessor: str
+) -> bool:
+    """
+    Verify the integrity of evidence without needing to instantiate EvidenceCollector.
+
+    This is a convenience function that creates a temporary EvidenceCollector
+    instance, verifies the integrity of the specified evidence, and returns
+    whether verification passed.
+
+    Args:
+        evidence_id: ID of the evidence to verify
+        assessment_id: Unique identifier for the assessment
+        target_id: Identifier for the target system
+        assessor: Name or identifier of the person verifying
+
+    Returns:
+        True if integrity check passes, False otherwise
+
+    Raises:
+        ValueError: If evidence is not found
+    """
+    with create_evidence_collector(
+        assessment_id=assessment_id,
+        target_id=target_id,
+        assessor=assessor
+    ) as collector:
+        return collector.verify_evidence_integrity(evidence_id)
+
+
+def add_chain_of_custody_entry(
+    evidence_id: str,
+    assessment_id: str,
+    target_id: str,
+    performed_by: str,
+    action: Union[EvidenceAction, str],
+    details: Optional[Dict[str, Any]] = None
+) -> bool:
+    """
+    Add an entry to the chain of custody log for evidence.
+
+    This is a convenience function that adds a custody entry for evidence
+    without needing to instantiate the full EvidenceCollector.
+
+    Args:
+        evidence_id: ID of the evidence
+        assessment_id: Unique identifier for the assessment
+        target_id: Identifier for the target system
+        performed_by: Name or identifier of the person performing the action
+        action: Action performed on the evidence
+        details: Additional details about the action
+
+    Returns:
+        True if successful, False otherwise
+
+    Raises:
+        ValueError: If evidence or chain of custody log not found
+        OSError: If updating the log fails
+    """
+    with create_evidence_collector(
+        assessment_id=assessment_id,
+        target_id=target_id,
+        assessor=performed_by
+    ) as collector:
+        # Add the custody entry - note that _add_custody_entry is a private method
+        # We need to wrap it to expose a public interface
+        evidence = collector._get_evidence_by_id(evidence_id)
+        if not evidence:
+            logger.warning(f"Evidence not found: {evidence_id}")
+            return False
+
+        collector._add_custody_entry(
+            evidence_id=evidence_id,
+            action=action,
+            details=details
+        )
+
+        return True
