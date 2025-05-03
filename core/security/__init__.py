@@ -2,7 +2,7 @@
 Security utilities for the Cloud Infrastructure Platform.
 
 This module provides security-related functionality including:
-- File integrity verification
+- File integrity verification and monitoring
 - Access control and authentication
 - Encryption and decryption of sensitive data
 - Security event logging
@@ -13,6 +13,16 @@ This module provides security-related functionality including:
 - Circuit breakers for failure resilience
 - Rate limiting for resource protection
 """
+
+# Version information - increment for significant changes
+__version__ = '0.1.1'  # Updated for reorganized file integrity monitoring
+
+# Standard imports
+import logging
+from typing import Dict, Any, List, Optional, Union, Tuple
+
+# Initialize module logger
+logger = logging.getLogger(__name__)
 
 # Import and expose key functions for backward compatibility
 from .cs_audit import (
@@ -55,7 +65,6 @@ from .cs_crypto import (
     encrypt_aes_gcm,
     decrypt_aes_gcm,
     sanitize_url,
-    sanitize_filename,
     sanitize_username,
     generate_secure_hash,
     generate_random_token,
@@ -64,7 +73,9 @@ from .cs_crypto import (
     hash_password,
     verify_password_hash,
     generate_secure_password,
-    compute_hash
+    compute_hash,
+    generate_sri_hash,  # Moved from utils.py
+    calculate_file_hash  # Merged from utils.py (previously compute_file_hash)
 )
 
 from .cs_file_integrity import (
@@ -77,16 +88,43 @@ from .cs_file_integrity import (
     get_last_integrity_status,
     update_file_integrity_baseline,
     verify_baseline_update,
-    format_timestamp
+    format_timestamp,
+    detect_file_changes,  # Moved from utils.py
+    _check_known_files,   # Moved from utils.py
+    _check_file_permissions,  # Moved from utils.py
+    _check_critical_files,  # Moved from utils.py
+    _check_critical_file,  # Moved from utils.py
+    _check_file_ownership,  # Moved from utils.py
+    _check_file_signatures,  # Moved from utils.py
+    log_file_integrity_event  # Moved from utils.py
 )
 
-from ...models.security.circuit_breaker import (
-    CircuitBreaker,
-    CircuitBreakerState,
-    CircuitOpenError,
-    RateLimiter,
-    RateLimitExceededError
-)
+# Import circuit breaker and rate limiting from models
+try:
+    from ...models.security.circuit_breaker import (
+        CircuitBreaker,
+        CircuitBreakerState,
+        CircuitOpenError,
+        RateLimiter,
+        RateLimitExceededError
+    )
+    CIRCUIT_BREAKER_AVAILABLE = True
+except (ImportError, AttributeError):
+    CIRCUIT_BREAKER_AVAILABLE = False
+    logger.warning("Circuit breaker functionality not available")
+    # Define placeholder classes to avoid import errors
+    class CircuitBreakerState:
+        OPEN = "open"
+        CLOSED = "closed"
+        HALF_OPEN = "half_open"
+
+    class CircuitOpenError(Exception):
+        """Raised when circuit is open"""
+        pass
+
+    class RateLimitExceededError(Exception):
+        """Raised when rate limit is exceeded"""
+        pass
 
 from .cs_metrics import (
     get_security_metrics,
@@ -140,12 +178,180 @@ from .cs_utils import (
     get_security_status_summary,
     generate_csp_nonce,
     check_security_dependencies,
-    sanitize_filename,
+    sanitize_filename,  # Also exposed in cs_crypto, maintained for backward compatibility
+    sanitize_path,      # Moved from utils.py
+    is_within_directory, # Moved from utils.py
+    is_safe_file_operation, # Moved from utils.py
     obfuscate_sensitive_data
 )
 
 # Constants available at package level
-from .cs_constants import SECURITY_CONFIG
+from .cs_constants import (
+    SECURITY_CONFIG,
+    SENSITIVE_EXTENSIONS,
+    FILE_HASH_ALGORITHM,
+    REQUEST_ID_PREFIX,
+    FILE_INTEGRITY_SEVERITY,
+    FILE_INTEGRITY_PRIORITIES,
+    SECURITY_EVENT_SEVERITIES
+)
 
-# Version information
-__version__ = '0.1.1'  # Updated version to reflect circuit breaker and rate limiter additions
+# Track initialization status
+INITIALIZED = False
+
+def init_security():
+    """Initialize security components."""
+    global INITIALIZED
+    if INITIALIZED:
+        return
+
+    try:
+        # Initialize crypto components
+        from .cs_crypto import initialize_crypto
+        initialize_crypto()
+
+        # Log successful initialization
+        logger.info("Security package initialized successfully")
+        INITIALIZED = True
+    except Exception as e:
+        logger.error(f"Failed to initialize security package: {e}")
+
+# Initialize automatically when imported
+init_security()
+
+# Package exports definition
+__all__ = [
+    # Version and constants
+    '__version__',
+    'SECURITY_CONFIG',
+    'SENSITIVE_EXTENSIONS',
+    'FILE_HASH_ALGORITHM',
+    'REQUEST_ID_PREFIX',
+    'FILE_INTEGRITY_SEVERITY',
+    'FILE_INTEGRITY_PRIORITIES',
+    'SECURITY_EVENT_SEVERITIES',
+
+    # Circuit breaker components
+    'CircuitBreaker',
+    'CircuitBreakerState',
+    'CircuitOpenError',
+    'RateLimiter',
+    'RateLimitExceededError',
+
+    # Audit functions
+    'log_security_event',
+    'log_model_event',
+    'log_error',
+    'log_warning',
+    'log_info',
+    'log_debug',
+    'detect_security_anomalies',
+    'get_recent_security_events',
+    'get_security_event_counts',
+    'get_critical_security_events',
+
+    # Authentication functions
+    'is_valid_ip',
+    'verify_token',
+    'validate_password_strength',
+    'generate_secure_token',
+    'regenerate_session',
+    'invalidate_user_sessions',
+    'validate_url',
+    'is_safe_redirect_url',
+
+    # Authorization functions
+    'require_permission',
+    'require_mfa',
+    'can_access_ui_element',
+    'role_required',
+    'api_key_required',
+    'rate_limit',
+
+    # Crypto functions
+    'encrypt_sensitive_data',
+    'decrypt_sensitive_data',
+    'encrypt_aes_gcm',
+    'decrypt_aes_gcm',
+    'sanitize_url',
+    'sanitize_username',
+    'sanitize_filename',
+    'generate_secure_hash',
+    'generate_random_token',
+    'generate_hmac_token',
+    'verify_hmac_token',
+    'hash_password',
+    'verify_password_hash',
+    'generate_secure_password',
+    'compute_hash',
+    'calculate_file_hash',
+    'generate_sri_hash',
+
+    # File integrity functions
+    'check_file_integrity',
+    'check_config_integrity',
+    'check_critical_file_integrity',
+    'verify_file_signature',
+    'create_file_hash_baseline',
+    'initialize_file_monitoring',
+    'get_last_integrity_status',
+    'update_file_integrity_baseline',
+    'verify_baseline_update',
+    'format_timestamp',
+    'detect_file_changes',
+
+    # Metrics functions
+    'get_security_metrics',
+    'calculate_risk_score',
+    'generate_security_recommendations',
+    'get_risk_trend',
+    'get_threat_intelligence_summary',
+    'update_daily_risk_score',
+    'get_ip_geolocation',
+    'setup_security_metrics',
+    'setup_auth_metrics',
+
+    # Monitoring functions
+    'get_suspicious_ips',
+    'get_failed_login_count',
+    'get_account_lockout_count',
+    'get_active_session_count',
+    'is_suspicious_ip',
+    'block_ip',
+    'check_ip_blocked',
+    'unblock_ip',
+    'get_blocked_ips',
+    'detect_permission_issues',
+    'get_security_anomalies',
+    'get_threat_summary',
+    'analyze_location_change',
+    'detect_suspicious_activity',
+
+    # Session functions
+    'initialize_secure_session',
+    'regenerate_session_safely',
+    'check_session_attacks',
+    'track_session_anomaly',
+    'mark_requiring_mfa',
+    'mark_mfa_verified',
+    'is_mfa_verified',
+    'revoke_all_user_sessions',
+    'revoke_session',
+    'initialize_session_security',
+
+    # Security utility functions
+    'initialize_security_components',
+    'validate_security_config',
+    'get_security_config',
+    'apply_security_headers',
+    'register_security_check_handler',
+    'get_file_integrity_report',
+    'get_security_status_summary',
+    'generate_csp_nonce',
+    'check_security_dependencies',
+    'obfuscate_sensitive_data',
+    'sanitize_path',
+    'is_within_directory',
+    'is_safe_file_operation',
+    'log_file_integrity_event'
+]

@@ -15,82 +15,143 @@ import os
 import re
 import tempfile
 import hashlib
+import logging
 import base64
 import shutil
 import json
-import yaml
+import time
 import pwd
+import yaml
+import stat
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, BinaryIO, TextIO, Iterator
 from contextlib import contextmanager
 from datetime import datetime
+
+# Import required security functions
+from core.security.cs_crypto import compute_hash as compute_file_hash
+from core.utils.logging_utils import log_error
+
+# Type definitions
+FileMetadata = Dict[str, Any]
+ResourceMetrics = Dict[str, Any]
+FileChangeInfo = Dict[str, Any]
 
 # Constants
 DEFAULT_CHUNK_SIZE = 8192  # 8KB chunks for file reading
 DEFAULT_HASH_ALGORITHM = 'sha256'
 SECURE_TEMP_DIR_PERMISSIONS = 0o700
 SECURE_TEMP_FILE_PERMISSIONS = 0o600
+SMALL_FILE_THRESHOLD = 1024 * 1024  # 1MB threshold for small files
+SUSPICIOUS_PATTERNS = ['backdoor', 'hack', 'exploit', 'rootkit', 'trojan', 'payload', 'malware']
+SENSITIVE_EXTENSIONS = ['.key', '.pem', '.p12', '.pfx', '.keystore', '.jks', '.env', '.secret']
+
+# Setup module-level logger
+logger = logging.getLogger(__name__)
 
 
-def generate_sri_hash(file_path: str, algorithm: str = DEFAULT_HASH_ALGORITHM) -> str:
+def get_file_metadata(file_path: str) -> FileMetadata:
     """
-    Generate a Subresource Integrity hash for a file.
+    Get metadata about a file for security and integrity checks.
 
-    Creates a base64-encoded hash suitable for use in SRI attributes
-    in HTML to verify resource integrity.
+    This function collects detailed metadata about a file that can be used
+    for security analysis, integrity monitoring, and compliance purposes.
+    Particularly useful for ICS and critical infrastructure files.
 
     Args:
-        file_path: Path to the file
-        algorithm: Hash algorithm to use
+        file_path: Path to the file to analyze
 
     Returns:
-        SRI hash string in the format "{algorithm}-{hash}"
+        Dictionary containing file metadata including:
+        - size: File size in bytes
+        - created_at: Creation timestamp
+        - modified_at: Last modification timestamp
+        - accessed_at: Last access timestamp
+        - owner: File owner username
+        - permissions: File permissions as octal string
+        - hash: SHA-256 hash of the file content
 
     Raises:
         FileNotFoundError: If the specified file does not exist
         IOError: If the file cannot be read
     """
-    if not os.path.isfile(file_path):
+    if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
 
-    hasher = hashlib.new(algorithm)
+    stat_info = os.stat(file_path)
 
-    with open(file_path, 'rb') as f:
-        for chunk in iter(lambda: f.read(DEFAULT_CHUNK_SIZE), b''):
-            hasher.update(chunk)
-
-    hash_value = base64.b64encode(hasher.digest()).decode('utf-8')
-    return f"{algorithm}-{hash_value}"
-
-
-def compute_file_hash(file_path: str, algorithm: str = DEFAULT_HASH_ALGORITHM) -> str:
-    """
-    Compute hash for a file using specified algorithm.
-
-    Args:
-        file_path: Path to the file
-        algorithm: Hash algorithm to use
-
-    Returns:
-        Hex digest of file hash
-
-    Raises:
-        FileNotFoundError: If the specified file doesn't exist
-        ValueError: If the algorithm is not supported
-    """
-    if not os.path.isfile(file_path):
-        raise FileNotFoundError(f"File not found: {file_path}")
+    # Get absolute and normalized path
+    abs_path = os.path.abspath(file_path)
+    normalized_path = os.path.normpath(abs_path)
 
     try:
-        hasher = hashlib.new(algorithm)
-    except ValueError:
-        raise ValueError(f"Unsupported hash algorithm: {algorithm}")
+        # Get owner name (Unix-specific)
+        owner = pwd.getpwuid(stat_info.st_uid).pw_name
+    except (KeyError, ImportError):
+        # Fallback for Windows or if user lookup fails
+        owner = str(stat_info.st_uid)
 
-    with open(file_path, 'rb') as f:
-        for chunk in iter(lambda: f.read(DEFAULT_CHUNK_SIZE), b''):
-            hasher.update(chunk)
+    try:
+        # Generate hash for content verification
+        file_hash = compute_file_hash(file_path)
+    except IOError as e:
+        log_error(f"Failed to hash file {file_path}: {e}")
+        file_hash = None
 
-    return hasher.hexdigest()
+    try:
+        # Get file type using file command if available
+        file_type = None
+        if os.path.exists('/usr/bin/file'):
+            import subprocess
+            result = subprocess.run(
+                ['/usr/bin/file', '-b', file_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=2,
+                check=False
+            )
+            if result.returncode == 0:
+                file_type = result.stdout.decode('utf-8', 'replace').strip()
+    except (subprocess.SubprocessError, OSError):
+        file_type = None
+
+    # Extract filename and extension
+    basename = os.path.basename(file_path)
+    filename, extension = os.path.splitext(basename)
+    if extension:
+        # Remove the dot from extension
+        extension = extension[1:]
+
+    # Check for suspicious content in filename
+    is_suspicious = any(pattern in basename.lower() for pattern in SUSPICIOUS_PATTERNS)
+    is_sensitive = any(file_path.endswith(ext) for ext in SENSITIVE_EXTENSIONS)
+
+    metadata = {
+        'path': abs_path,
+        'normalized_path': normalized_path,
+        'filename': basename,
+        'extension': extension,
+        'size': stat_info.st_size,
+        'size_kb': round(stat_info.st_size / 1024, 2),
+        'created_at': datetime.fromtimestamp(stat_info.st_ctime, tz=timezone.utc),
+        'modified_at': datetime.fromtimestamp(stat_info.st_mtime, tz=timezone.utc),
+        'accessed_at': datetime.fromtimestamp(stat_info.st_atime, tz=timezone.utc),
+        'owner': owner,
+        'permissions': oct(stat_info.st_mode & 0o777),
+        'is_executable': bool(stat_info.st_mode & stat.S_IXUSR),
+        'is_world_writable': bool(stat_info.st_mode & stat.S_IWOTH),
+        'is_world_readable': bool(stat_info.st_mode & stat.S_IROTH),
+        'is_setuid': bool(stat_info.st_mode & stat.S_ISUID),
+        'is_setgid': bool(stat_info.st_mode & stat.S_ISGID),
+        'is_hidden': basename.startswith('.'),
+        'is_suspicious': is_suspicious,
+        'is_sensitive': is_sensitive,
+        'hash': file_hash,
+        'file_type': file_type
+    }
+
+    return metadata
 
 
 @contextmanager

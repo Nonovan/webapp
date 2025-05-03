@@ -20,24 +20,33 @@ The security module implements a defense-in-depth security approach with multipl
   - Session management functions
   - IP validation utilities
   - URL validation and security checks
+  - Secure token generation (migrated from core/utils.py)
 
 - **`cs_authorization.py`**: Permission and access control
   - Role-based permission decorators
   - Multi-factor authentication enforcement
   - UI access control functions
   - Authorization enforcement
+  - Rate limiting implementation
 
 - **`cs_constants.py`**: Security configuration settings
   - Centralized security parameters
   - Environment-specific configurations
   - Security thresholds and timeouts
   - Default security values
+  - File integrity severity classifications
+  - Request tracking constants
+  - Integrity monitoring priorities
 
 - **`cs_crypto.py`**: Cryptographic operations
   - Encryption/decryption of sensitive data
   - AES-GCM encryption implementation
   - URL and filename sanitization
   - Secure key management
+  - Unified hash computation (merged from utils.py)
+  - SRI hash generation (migrated from utils.py)
+  - File hash calculation with various output formats
+  - Password hashing and verification
 
 - **`cs_file_integrity.py`**: File integrity monitoring
   - Critical file integrity verification
@@ -52,6 +61,9 @@ The security module implements a defense-in-depth security approach with multipl
   - Directory traversal prevention
   - Security event logging for violations
   - Redis-based caching of integrity status
+  - Baseline creation and management (migrated from utils.py)
+  - Detection of file changes (migrated from utils.py)
+  - Integrity status retrieval and reporting
 
 - **`cs_metrics.py`**: Security metrics collection
   - Security posture measurement
@@ -63,6 +75,7 @@ The security module implements a defense-in-depth security approach with multipl
   - Metrics initialization and setup
   - Authentication metrics tracking
   - Customizable security dashboards
+  - Integrity metrics collection
 
 - **`cs_monitoring.py`**: Security monitoring capabilities
   - Failed login tracking
@@ -72,6 +85,8 @@ The security module implements a defense-in-depth security approach with multipl
   - Location change analysis
   - Permission violation detection
   - Security anomaly detection
+  - Integrity status monitoring
+  - File integrity violation tracking
 
 - **`cs_session.py`**: Session security management
   - Session timeout enforcement
@@ -92,6 +107,10 @@ The security module implements a defense-in-depth security approach with multipl
   - Security status reporting
   - Security headers management
   - CSP nonce generation
+  - Sanitization utilities (path, file operations)
+  - Safe file operation validation (migrated from utils.py)
+  - Directory traversal prevention (migrated from utils.py)
+  - Sensitive data obfuscation
 
 ## Directory Structure
 
@@ -110,6 +129,23 @@ core/security/
 ├── cs_utils.py              # Security utility functions
 └── README.md                # This documentation
 ```
+
+## Recent Changes
+
+The security module has been enhanced with the following improvements:
+
+- **Code Reorganization**: Security-related functions from monolithic `core/utils.py` have been relocated to appropriate specialized modules in the security package.
+- **Function Merges**: Several overlapping functions were consolidated:
+  - `calculate_file_hash` and `compute_file_hash` merged into unified `compute_hash`
+  - `generate_sri_hash` now leverages the enhanced `compute_hash`
+- **Function Migrations**:
+  - File integrity functions moved to cs_file_integrity.py
+  - Path safety utilities moved to cs_utils.py
+  - Crypto functions moved to `cs_crypto.py`
+- **Enhanced Constants**: New constants added to `cs_constants.py` for file integrity priorities and severity classifications
+- **Improved Initialization**: Enhanced automatic initialization using `init_security()`
+- **Circuit Breaker**: Added graceful fallback for circuit breaker functionality
+- **Improved Error Handling**: Better error handling for file integrity operations
 
 ## Usage
 
@@ -173,13 +209,18 @@ log_debug("Authentication process started")
 ### Cryptographic Operations
 
 ```python
-from core.security import encrypt_sensitive_data, decrypt_sensitive_data
+from core.security import encrypt_sensitive_data, decrypt_sensitive_data, compute_hash
 
 # Encrypt sensitive data
 encrypted = encrypt_sensitive_data(plaintext)
 
 # Decrypt sensitive data
 plaintext = decrypt_sensitive_data(encrypted)
+
+# Unified hash computation (new method)
+file_hash = compute_hash(file_path="/path/to/file.txt", algorithm="sha256")
+data_hash = compute_hash(data="String to hash", algorithm="sha384", output_format="base64")
+sri_hash = compute_hash(data="Integrity data", algorithm="sha384", output_format="sri")
 ```
 
 ### File Integrity Verification
@@ -220,6 +261,28 @@ update_file_integrity_baseline(
     updates=changes,
     remove_missing=True
 )
+```
+
+### File Path Safety (Migrated Functions)
+
+```python
+from core.security import sanitize_path, is_within_directory, is_safe_file_operation
+
+# Validate path safety
+safe_path = sanitize_path(user_input, base_dir="/safe/directory")
+if safe_path:
+    # Process the safe path
+    process_file(safe_path)
+
+# Check if a path is within an allowed directory
+if is_within_directory(file_path, allowed_directory):
+    # Path is safe to use
+    read_file(file_path)
+
+# Check if a file operation is safe
+if is_safe_file_operation("write", target_path, safe_dirs=["/app/uploads", "/app/temp"]):
+    # Operation is safe
+    write_to_file(target_path, data)
 ```
 
 ### Session Security
@@ -328,9 +391,4 @@ def configure_metrics(app):
 - Compliance Requirements
 - File Integrity Monitoring Guide
 - Security Metrics Dashboard
-
-## Version Information
-
-- **Version**: 0.1.2
-- **Last Updated**: 2024-07-24
-- **Maintainers**: Security Engineering Team
+- Core Security Utility Migration Guide

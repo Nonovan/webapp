@@ -133,8 +133,6 @@ from .file import (
     ensure_directory_exists,
 
     # File security and integrity
-    generate_sri_hash,
-    compute_file_hash,
     get_critical_file_hashes,
     is_path_safe,
     sanitize_filename,
@@ -257,8 +255,6 @@ __all__ = [
     'write_file',
     'append_to_file',
     'ensure_directory_exists',
-    'generate_sri_hash',
-    'compute_file_hash',
     'get_critical_file_hashes',
     'is_path_safe',
     'sanitize_filename',

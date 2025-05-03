@@ -379,43 +379,106 @@ def decrypt_aes_gcm(encrypted_data: str, key: Optional[bytes] = None) -> str:
         raise RuntimeError("Failed to decrypt with AES-GCM")
 
 
-def generate_secure_hash(data: Union[str, bytes], algorithm: str = 'sha256') -> str:
+def compute_hash(
+    data: Union[str, bytes, None] = None,
+    file_path: Optional[str] = None,
+    algorithm: str = 'sha256',
+    encoding: str = 'utf-8',
+    output_format: str = 'hex'
+) -> str:
     """
-    Generate a secure hash of the provided data.
+    Compute a hash of data or a file using the specified algorithm.
 
-    This function creates a cryptographic hash of the input data using
-    the specified algorithm.
+    This function provides a unified interface for hashing both in-memory data
+    and file contents with support for different output formats including
+    hexadecimal digests (for general use) and base64 encoding (for SRI attributes).
 
     Args:
-        data: The data to hash (string or bytes)
-        algorithm: Hash algorithm to use ('sha256', 'sha384', 'sha512')
+        data: Data to hash (string or bytes)
+        file_path: Path to file to hash (used if data is None)
+        algorithm: Hash algorithm to use ('sha256', 'sha384', 'sha512', etc.)
+        encoding: Encoding to use if data is a string
+        output_format: Output format ('hex', 'base64', or 'sri')
+                      'sri' format returns "algorithm-hash" for Subresource Integrity
 
     Returns:
-        str: Hexadecimal hash digest
+        String representation of the hash in the specified format
 
     Raises:
-        ValueError: If an unsupported algorithm is specified
+        ValueError: If algorithm is not supported
+        FileNotFoundError: If file_path is specified but file does not exist
+        IOError: If file cannot be read
+        RuntimeError: If neither data nor file_path is provided
     """
-    if not data:
-        return ""
+    # Validate inputs
+    if data is None and file_path is None:
+        raise RuntimeError("Either data or file_path must be provided")
 
-    # Convert string to bytes if needed
-    if isinstance(data, str):
-        data = data.encode('utf-8')
-
-    # Select hash algorithm
-    if algorithm == 'sha256':
-        hash_obj = hashlib.sha256()
-    elif algorithm == 'sha384':
-        hash_obj = hashlib.sha384()
-    elif algorithm == 'sha512':
-        hash_obj = hashlib.sha512()
-    else:
+    # Validate algorithm
+    if algorithm not in hashlib.algorithms_guaranteed:
         raise ValueError(f"Unsupported hash algorithm: {algorithm}")
 
-    # Update hash with data and return hex digest
-    hash_obj.update(data)
-    return hash_obj.hexdigest()
+    # Create hash object
+    hasher = hashlib.new(algorithm)
+
+    # Process input data
+    if file_path is not None:
+        try:
+            with open(file_path, 'rb') as f:
+                # Read and hash file in chunks to handle large files efficiently
+                for chunk in iter(lambda: f.read(4096), b''):
+                    hasher.update(chunk)
+        except FileNotFoundError:
+            log_error(f"Hash computation failed: File not found: {file_path}")
+            raise
+        except IOError as e:
+            log_error(f"Hash computation failed: I/O error: {str(e)}")
+            raise
+    else:
+        # Convert string to bytes if needed
+        if isinstance(data, str):
+            data = data.encode(encoding)
+
+        # Update hash with data
+        hasher.update(data)
+
+    # Generate output in requested format
+    if output_format == 'hex':
+        return hasher.hexdigest()
+    elif output_format == 'base64':
+        return base64.b64encode(hasher.digest()).decode('ascii')
+    elif output_format == 'sri':
+        b64_hash = base64.b64encode(hasher.digest()).decode('ascii')
+        return f"{algorithm}-{b64_hash}"
+    else:
+        raise ValueError(f"Unsupported output format: {output_format}")
+
+
+def generate_sri_hash(file_path: str) -> str:
+    """
+    Generate a Subresource Integrity hash for a file.
+
+    Creates a base64-encoded SHA-384 hash suitable for use in SRI attributes
+    in HTML to verify resource integrity.
+
+    This function is maintained for backward compatibility and delegates to compute_hash.
+
+    Args:
+        file_path: Path to the file
+
+    Returns:
+        SRI hash string in the format "sha384-{hash}"
+
+    Raises:
+        FileNotFoundError: If the specified file does not exist
+        IOError: If the file cannot be read
+    """
+    # Use sha384 as it's commonly used for SRI
+    return compute_hash(file_path=file_path, algorithm='sha384', output_format='sri')
+
+
+# For backward compatibility
+generate_secure_hash = compute_hash
 
 
 def generate_hmac(data: Union[str, bytes], key: Optional[bytes] = None,
@@ -1306,35 +1369,3 @@ def generate_secure_password(
     secrets.SystemRandom().shuffle(password)
 
     return ''.join(password)
-
-
-def compute_hash(
-    data: Union[str, bytes],
-    algorithm: str = 'sha256',
-    encoding: str = 'utf-8'
-) -> str:
-    """
-    Compute a hash of data using specified algorithm.
-
-    Args:
-        data: Data to hash
-        algorithm: Hash algorithm to use
-        encoding: Encoding to use if data is a string
-
-    Returns:
-        Hexadecimal digest of hash
-
-    Raises:
-        ValueError: If algorithm is not supported
-    """
-    if algorithm not in hashlib.algorithms_guaranteed:
-        raise ValueError(f"Unsupported hash algorithm: {algorithm}")
-
-    hasher = hashlib.new(algorithm)
-
-    # Convert string to bytes if needed
-    if isinstance(data, str):
-        data = data.encode(encoding)
-
-    hasher.update(data)
-    return hasher.hexdigest()

@@ -35,11 +35,11 @@ The core package serves as the backbone of the Cloud Infrastructure Platform, pr
   - Supports dependency health verification (database, cache, external services)
   - Includes file integrity monitoring status verification
 
-- **`loggings.py`**: Centralized logging configuration
-  - Configures structured logging with appropriate formatting
-  - Implements security event logging with proper sanitization
-  - Provides context-aware logging with request IDs and correlation
-  - Contains file integrity monitoring event handlers and reporting
+- **`middleware.py`**: HTTP request/response middleware
+  - Implements security headers (CSP, HSTS, XSS protection)
+  - Sets up request timing and performance tracking with request ID generation
+  - Provides response compression and request logging
+  - Performs periodic file integrity checks during requests
 
 - **`metrics.py`**: System and application metrics collection
   - Tracks performance metrics for API endpoints and critical functions
@@ -47,38 +47,23 @@ The core package serves as the backbone of the Cloud Infrastructure Platform, pr
   - Provides security metrics for compliance and monitoring
   - Records file integrity verification metrics and status
 
-- **`middleware.py`**: HTTP request/response middleware
-  - Implements security headers (CSP, HSTS, XSS protection)
-  - Sets up request timing and performance tracking
-  - Provides response compression and request logging
-  - Performs periodic file integrity checks during requests
-
 - **`seeder.py`**: Data seeding functionality
   - Populates initial data for development and testing
   - Creates default users, roles, and permissions
   - Sets up sample cloud resources and configurations
   - Generates file integrity test scenarios and baseline data
 
-- **`utils.py`**: General utility functions
-  - Provides commonly used helper functions
-  - Implements reusable patterns across the application
-  - Contains formatting and conversion utilities
-  - Includes file integrity verification and baseline management
-
 - **`utils/`**: Specialized utility modules
-  - Contains modular, reusable functionality across the application
-  - Provides string manipulation utilities for text processing
-  - Implements date/time handling with timezone support
-  - Offers file operations with security features
-  - Includes collection manipulation and data validation tools
-  - Provides basic security utilities for common operations
+  - Organized collection of focused utility modules
+  - Each module provides specialized functionality for a specific domain
+  - Modules include string, date/time, file, collection, system, validation, and logging utilities
+  - Promotes code reuse and proper separation of concerns
 
-- **`security/cs_file_integrity.py`**: File integrity monitoring system
-  - Detects unauthorized changes to critical system files
-  - Compares file hashes against known good baselines
-  - Supports permission change detection for critical files
-  - Implements configurable severity classification for changes
-  - Provides baseline management with secure update mechanisms
+- **`security/`**: Comprehensive security module
+  - Centralized security implementation spanning multiple security domains
+  - Modular approach with specialized components for different security concerns
+  - Includes file integrity monitoring, cryptographic operations, and authentication services
+  - Implements audit logging, security monitoring, and metrics collection
 
 ## Directory Structure
 
@@ -88,28 +73,25 @@ core/
 ├── config.py             # Configuration management
 ├── factory.py            # Application factory
 ├── health.py             # Health check functionality
-├── loggings.py           # Logging configuration
 ├── metrics.py            # Metrics collection
-├── middleware.py         # HTTP middleware
+├── middleware.py         # HTTP middleware (now includes request_id generation)
 ├── README.md             # This documentation
 ├── seeder.py             # Data seeding functionality
-├── utils.py              # General utilities
 ├── security/             # Security components
 │   ├── __init__.py       # Security package initialization
 │   ├── cs_audit.py       # Security audit implementation
 │   ├── cs_authentication.py # Authentication services
 │   ├── cs_authorization.py  # Authorization services
-│   ├── cs_constants.py      # Security constants
-│   ├── cs_crypto.py         # Cryptographic operations
-│   ├── cs_file_integrity.py # File integrity monitoring
+│   ├── cs_constants.py      # Security constants with integrity settings
+│   ├── cs_crypto.py         # Cryptographic operations (includes merged hash functions)
+│   ├── cs_file_integrity.py # File integrity monitoring (moved from utils.py)
 │   ├── cs_metrics.py        # Security metrics
 │   ├── cs_monitoring.py     # Security monitoring
 │   ├── cs_session.py        # Session management
-│   ├── cs_utils.py          # Security utilities
+│   ├── cs_utils.py          # Security utilities (includes path safety functions)
 │   └── README.md            # Security module documentation
 ├── templates/            # Core templates
 │   ├── README.md         # Templates documentation
-│   ├── cs_file_integrity_2.py # File integrity template utility
 │   ├── errors/           # Error page templates
 │   │   ├── 400.html      # Bad request error template
 │   │   ├── 401.html      # Unauthorized error template
@@ -121,13 +103,15 @@ core/
 │       ├── base.html     # Core layout template
 │       ├── minimal.html  # Minimal layout without navigation
 │       └── secure.html   # Security-enhanced layout
-└── utils/                # Specialized utilities
+└── utils/                # Specialized utilities (reorganized from monolithic utils.py)
     ├── __init__.py       # Utility package initialization
     ├── collection.py     # Collection data structure manipulation
     ├── date_time.py      # Date and time handling utilities
     ├── file.py           # File handling utilities
+    ├── logging_utils.py  # Logging configuration utilities (new)
     ├── README.md         # Utility modules documentation
     ├── string.py         # String manipulation utilities
+    ├── system.py         # System resource utilities (new)
     └── validation.py     # Input validation utilities
 ```
 
@@ -164,7 +148,14 @@ The core package uses the following configuration settings:
 'FILE_BASELINE_PATH': 'instance/file_baseline.json',
 'FILE_HASH_ALGORITHM': 'sha256',
 'FILE_INTEGRITY_CHECK_FREQUENCY': 100,
-'SECURITY_CRITICAL_FILES': ['app.py', 'config.py', 'core/security_utils.py', 'core/middleware.py']
+'SECURITY_CRITICAL_FILES': ['app.py', 'config.py', 'core/security/*.py', 'core/middleware.py'],
+
+# Request tracking settings
+'REQUEST_ID_PREFIX': 'req',
+'REQUEST_ID_INCLUDE_TIMESTAMP': True,
+'REQUEST_ID_INCLUDE_HOST': True,
+'REQUEST_ID_INCLUDE_PID': True,
+'TRACK_SLOW_REQUESTS': True
 ```
 
 ## Best Practices & Security
@@ -183,6 +174,8 @@ The core package uses the following configuration settings:
 - **String Manipulation Safety**: Secure string handling with proper encoding
 - **Timezone Awareness**: Date/time handling properly manages timezone information
 - **Thread Safety**: Utilities designed for concurrent environment safety
+- **Modular Organization**: Code organized by feature area with specialized modules
+- **Request Tracing**: Consistent request ID generation and propagation
 
 ## Common Features
 
@@ -202,6 +195,8 @@ The core package uses the following configuration settings:
 - Collection manipulation for complex data structures
 - Input validation with comprehensive schema support
 - Secure file operations with atomic writing
+- Request ID generation for tracing requests through the system
+- System resource monitoring and tracking
 
 ## Usage Examples
 
@@ -254,10 +249,10 @@ update_file_integrity_baseline(
 ### Checking for Modified Files
 
 ```python
-from core.security.cs_file_integrity import _detect_file_changes
+from core.security.cs_file_integrity import detect_file_changes
 
 # Detect changes in critical files
-changes = _detect_file_changes(
+changes = detect_file_changes(
     basedir="/app",
     reference_hashes=app.config["CRITICAL_FILE_HASHES"],
     critical_patterns=["*.py", "*.config"],
@@ -284,10 +279,19 @@ def health():
     return jsonify(result)
 ```
 
+### Request ID Generation
+
+```python
+from core.middleware import generate_request_id
+
+# Generate a unique request ID
+request_id = generate_request_id()
+```
+
 ### Logging
 
 ```python
-from core.loggings import get_logger
+from core.utils.logging_utils import get_logger
 
 logger = get_logger(__name__)
 logger.info("Operation completed", extra={"operation": "user_login", "user_id": user.id})
@@ -296,7 +300,7 @@ logger.info("Operation completed", extra={"operation": "user_login", "user_id": 
 ### Logging File Integrity Events
 
 ```python
-from core.loggings import log_file_integrity_event
+from core.utils.logging_utils import log_file_integrity_event
 
 # Log file integrity violations with appropriate severity levels
 log_file_integrity_event([
@@ -311,25 +315,29 @@ log_file_integrity_event([
 ])
 ```
 
-### Metrics Collection
+### Cryptographic Operations
 
 ```python
-from core.metrics import track_metrics
+from core.security.cs_crypto import compute_hash
 
-@track_metrics('user_registration')
-def register_user(data):
-    # Function implementation
-    pass
+# Use the unified hash computation function (merged from previous functions)
+file_hash = compute_hash(file_path="/path/to/file.txt", algorithm="sha256")
+data_hash = compute_hash(data="Text to hash", algorithm="sha384", output_format="base64")
+sri_hash = compute_hash(data="SRI data", algorithm="sha384", output_format="sri")
 ```
 
-### Security Headers
+### Path Safety Validation
 
 ```python
-from flask import Flask
-from core.middleware import init_middleware
+from core.security.cs_utils import is_safe_file_operation, sanitize_path
 
-app = Flask(__name__)
-init_middleware(app)  # Sets up security headers, CSP, etc.
+# Validate path safety to prevent path traversal
+safe_path = sanitize_path(user_input, base_dir="/safe/directory")
+
+# Check if a file operation is safe
+if is_safe_file_operation("write", target_path, safe_dirs=["/app/uploads", "/app/temp"]):
+    # Operation is safe
+    write_to_file(target_path, data)
 ```
 
 ### String Utilities
@@ -344,25 +352,25 @@ post_slug = slugify("My Blog Post Title!")  # Output: "my-blog-post-title"
 excerpt = truncate_text(long_content, length=150)  # Truncates at word boundary
 ```
 
-### Date/Time Utilities
+### System Resource Utilities
 
 ```python
-from core.utils.date_time import utcnow, format_relative_time, parse_iso_datetime
+from core.utils.system import get_system_resources, measure_execution_time
 
-# Get current UTC time
-current_time = utcnow()
+# Get current system resources
+resources = get_system_resources()
+print(f"CPU: {resources['cpu_percent']}%, Memory: {resources['memory_used']} MB")
 
-# Format relative time string
-relative = format_relative_time(event_date)  # e.g., "2 hours ago"
-
-# Parse ISO format date
-event_date = parse_iso_datetime("2024-07-15T14:30:00Z")
+# Time a function's execution
+with measure_execution_time() as timer:
+    result = expensive_operation()
+print(f"Operation took {timer.duration:.2f} seconds")
 ```
 
 ### Collection Utilities
 
 ```python
-from core.utils.collection import deep_get, deep_set, flatten_dict
+from core.utils.collection import deep_get, deep_set, safe_json_serialize
 
 # Safely access nested dictionary values
 user_name = deep_get(data, "user.profile.name", default="Unknown User")
@@ -370,24 +378,8 @@ user_name = deep_get(data, "user.profile.name", default="Unknown User")
 # Set value in nested structure
 deep_set(config, "security.headers.content_security_policy.enabled", True)
 
-# Convert nested dictionary to flat structure
-flat_data = flatten_dict(nested_data, separator=".")
-```
-
-### File Utilities
-
-```python
-from core.utils.file import compute_file_hash, save_json_file, is_path_safe
-
-# Compute secure hash of file
-file_hash = compute_file_hash("/path/to/file.txt", algorithm="sha256")
-
-# Safely save JSON data atomically
-save_json_file("/path/to/output.json", {"key": "value"}, indent=2)
-
-# Validate path safety to prevent path traversal
-if is_path_safe(user_path, allowed_base_dirs=["/allowed/path"]):
-    process_file(user_path)
+# Safely serialize complex objects to JSON
+json_string = safe_json_serialize(complex_object_with_dates_and_custom_classes)
 ```
 
 ## Related Documentation
@@ -404,8 +396,4 @@ if is_path_safe(user_path, allowed_base_dirs=["/allowed/path"]):
 - File Utility Reference
 - URL Generation Guidelines
 - Validation Framework Guide
-
-## Version History
-
-- **Version**: 0.1.1
-- **Last Updated**: 2024-07-25
+- Core Security Utility Migration Guide

@@ -22,6 +22,10 @@ from flask import Flask, current_app, has_app_context, Response, g
 from .cs_constants import SECURITY_CONFIG
 from extensions import metrics, get_redis_client
 
+# Constants
+SUSPICIOUS_PATTERNS = ['backdoor', 'hack', 'exploit', 'rootkit', 'trojan', 'payload', 'malware']
+SENSITIVE_EXTENSIONS = ['.key', '.pem', '.p12', '.pfx', '.keystore', '.jks', '.env', '.secret']
+
 # Set up module-level logger
 logger = logging.getLogger(__name__)
 
@@ -537,6 +541,109 @@ def sanitize_filename(filename: str) -> str:
         sanitized = "unnamed_file"
 
     return sanitized
+
+
+def sanitize_path(path: str, base_dir: str) -> Optional[str]:
+    """
+    Sanitize and validate a file path to prevent path traversal attacks.
+
+    Args:
+        path: The file path to sanitize
+        base_dir: The base directory that the path should be within
+
+    Returns:
+        Sanitized absolute path or None if path is invalid or outside base_dir
+    """
+    if not path or not isinstance(path, str):
+        return None
+
+    # Normalize the path to resolve '..' and '.'
+    norm_path = os.path.normpath(os.path.join(base_dir, path))
+    norm_base = os.path.normpath(base_dir)
+
+    # Check if path is within the base directory
+    if not norm_path.startswith(norm_base):
+        return None
+
+    # Check if path exists
+    if not os.path.exists(norm_path):
+        return None
+
+    return norm_path
+
+
+def is_within_directory(file_path: str, directory: str) -> bool:
+    """
+    Check if a file is within a specified directory.
+
+    Args:
+        file_path: Path to the file to check
+        directory: Base directory to check against
+
+    Returns:
+        True if file is within the directory, False otherwise
+    """
+    # Normalize both paths
+    norm_file = os.path.abspath(file_path)
+    norm_dir = os.path.abspath(directory)
+
+    # Check if the normalized file path starts with the normalized directory
+    # and add a path separator check to avoid partial directory name matches
+    return norm_file.startswith(norm_dir) and (
+        len(norm_dir) == len(norm_file) or
+        norm_file[len(norm_dir)] == os.sep or
+        norm_dir.endswith(os.sep)
+    )
+
+
+def is_safe_file_operation(operation: str, file_path: str, safe_dirs: List[str]) -> bool:
+    """
+    Check if a file operation is considered safe.
+
+    Args:
+        operation: The operation to be performed ('read', 'write', 'delete')
+        file_path: Path to the file to check
+        safe_dirs: List of directories where operations are allowed
+
+    Returns:
+        True if operation is safe, False otherwise
+    """
+    # Validate inputs
+    if not operation or not file_path:
+        return False
+
+    # Convert to lowercase for consistent checking
+    operation = operation.lower()
+
+    # Check if operation is supported
+    if operation not in ('read', 'write', 'delete', 'append'):
+        return False
+
+    # Add security check for suspicious files
+    if operation in ('write', 'append'):
+        basename = os.path.basename(file_path).lower()
+        if any(pattern in basename for pattern in SUSPICIOUS_PATTERNS):
+            return False
+
+    # Always deny operations on sensitive files outside safe dirs
+    if any(file_path.endswith(ext) for ext in SENSITIVE_EXTENSIONS):
+        # Check if the file is in a safe directory
+        is_safe = False
+        for safe_dir in safe_dirs:
+            if is_within_directory(file_path, safe_dir):
+                is_safe = True
+                break
+
+        # If it's a sensitive file and not in safe dirs, deny
+        if not is_safe:
+            return False
+
+    # Check if the file is in a safe directory
+    for safe_dir in safe_dirs:
+        if is_within_directory(file_path, safe_dir):
+            return True
+
+    return False
 
 
 def obfuscate_sensitive_data(

@@ -27,6 +27,7 @@ import time
 import gzip
 import uuid
 import re
+import hashlib
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 from typing import Dict, Any, Optional, Tuple, List, Pattern
@@ -189,6 +190,45 @@ def generate_csp_nonce() -> str:
     return nonce
 
 
+def generate_request_id() -> str:
+    """
+    Generate a unique request ID for tracking and security monitoring.
+
+    This function creates a unique identifier that combines:
+    - UUID v4 for global uniqueness
+    - Timestamp component for chronological sorting
+    - Process ID to differentiate between application instances
+    - Host identifier to track across distributed systems
+
+    The resulting ID is useful for:
+    - Request tracing across microservices
+    - Security event correlation
+    - Log analysis and filtering
+    - Performance monitoring
+    - Distributed tracing in cloud environments
+
+    Returns:
+        str: Unique request ID in format: 'req-{timestamp}-{uuid}-{host}-{pid}'
+    """
+    timestamp = int(time.time() * 1000)  # Millisecond precision
+    unique_id = uuid.uuid4().hex[:12]    # Use first 12 chars of UUID for brevity
+    process_id = os.getpid() % 10000     # Include process ID (truncated)
+
+    # Get a host identifier (first 4 chars of hostname hash)
+    try:
+        import socket
+        hostname = socket.gethostname()
+        host_id = hashlib.md5(hostname.encode()).hexdigest()[:4]
+    except (OSError, ImportError):
+        host_id = "0000"  # Fallback if hostname can't be retrieved
+
+    # Format: req-{timestamp}-{uuid}-{host}-{pid}
+    # Example: req-1635789042513-a7de31f8b4c2-1a2b-3478
+    request_id = f"req-{timestamp}-{unique_id}-{host_id}-{process_id}"
+
+    return request_id
+
+
 def track_request_timing() -> None:
     """
     Track request timing and store in Flask g object.
@@ -196,9 +236,18 @@ def track_request_timing() -> None:
     This middleware records the start time of each request for calculating
     request duration metrics, which are useful for performance monitoring
     and identifying potential DoS vectors.
+
+    The function stores:
+    - A unique request ID with embedded timestamp and host information
+    - Request start time for performance tracking
+    - UTC timestamp for chronological analysis
+    - Template context variables for consistent rendering
     """
+    # Record timing information
     g.request_start_time = time.time()
-    g.request_id = str(uuid.uuid4())
+
+    # Use enhanced request ID that includes timestamp, host and process info
+    g.request_id = generate_request_id()
 
     # Store current timestamp in UTC
     g.request_timestamp = datetime.now(timezone.utc)

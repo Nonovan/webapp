@@ -4,14 +4,14 @@ This directory contains specialized utility modules that provide reusable functi
 
 ## Contents
 
-- [Overview](#overview)
-- [Key Modules](#key-modules)
-- [Directory Structure](#directory-structure)
-- [Usage Examples](#usage-examples)
-- [Best Practices & Security](#best-practices--security)
-- [Common Features](#common-features)
-- [Related Documentation](#related-documentation)
-- [Version Information](#version-information)
+- Overview
+- Key Modules
+- Directory Structure
+- Usage Examples
+- Best Practices & Security
+- Common Features
+- Related Documentation
+- Version Information
 
 ## Overview
 
@@ -29,11 +29,11 @@ The utility modules provide standardized implementations of common operations ne
 
 - **`file.py`**: File operation utilities
   - Secure file handling with appropriate permissions
-  - Integrity verification and hash generation
-  - Atomic file operations to prevent corruption
   - File format handling and validation
   - Path manipulation and normalization
   - Secure temporary file management
+  - Configuration file reading and writing (JSON, YAML)
+  - Directory operations with permission management
 
 - **`collection.py`**: Collection data structure manipulation
   - Deep dictionary operations (get, set, merge)
@@ -43,6 +43,7 @@ The utility modules provide standardized implementations of common operations ne
   - Collection filtering and transformation
   - Duplicate detection and key-based uniqueness
   - Efficient batch operations and list chunking
+  - Safe JSON serialization for complex objects
 
 - **`validation.py`**: Input validation and sanitation
   - Type checking and validation
@@ -62,7 +63,22 @@ The utility modules provide standardized implementations of common operations ne
   - Date comparison and validation with business logic support
   - ISO 8601 compliant timestamp handling
   - Timestamp conversions (epoch, ISO, custom formats)
-  - Business calendar operations
+
+- **`system.py`**: System resource and request utilities
+  - System resource monitoring
+  - Process information retrieval
+  - Request context management
+  - Execution time measurement
+  - Redis client management
+  - Performance monitoring and tracking
+
+- **`logging_utils.py`**: Logging configuration and utilities
+  - Application logging setup
+  - Security event logging
+  - Audit logging capabilities
+  - File integrity event logging
+  - Logger creation and management
+  - Module logging initialization
 
 ## Directory Structure
 
@@ -73,7 +89,9 @@ core/utils/
 ├── collection.py      # Collection manipulation utilities
 ├── date_time.py       # Date and time handling utilities
 ├── file.py            # File handling utilities
+├── logging_utils.py   # Logging configuration utilities
 ├── string.py          # String manipulation utilities
+├── system.py          # System resource utilities
 └── validation.py      # Input validation utilities
 ```
 
@@ -107,10 +125,10 @@ filename = generate_secure_filename(user_supplied_filename)
 ### File Utilities
 
 ```python
-from core.utils.file import compute_file_hash, save_json_file, is_path_safe, read_yaml_file
+from core.utils.file import read_file, save_json_file, is_path_safe, read_yaml_file, ensure_directory_exists
 
-# Compute hash of file content
-file_hash = compute_file_hash("/path/to/file.txt", algorithm="sha256")
+# Safely read file with encoding handling
+content = read_file("/path/to/file.txt", encoding="utf-8")
 
 # Atomically save JSON data to file
 save_json_file("/path/to/output.json", {"key": "value"}, indent=2)
@@ -127,8 +145,8 @@ config = read_yaml_file("/path/to/config.yaml", default={})
 # Ensure directory exists before writing
 ensure_directory_exists("/path/to/output/directory")
 
-# Read file with proper encoding handling
-content = read_file("/path/to/file.txt", encoding="utf-8")
+# Get file metadata
+metadata = get_file_metadata("/path/to/file.txt")
 ```
 
 ### Collection Utilities
@@ -137,7 +155,8 @@ content = read_file("/path/to/file.txt", encoding="utf-8")
 from core.utils.collection import (
     deep_get, deep_set, flatten_dict, group_by, filter_none,
     unique_by, find_duplicates, chunk_list, filter_empty,
-    filter_dict_by_keys, transform_keys, transform_values
+    filter_dict_by_keys, transform_keys, transform_values,
+    safe_json_serialize
 )
 
 # Safely navigate nested dictionaries
@@ -163,27 +182,8 @@ clean_data = filter_empty(user_input)
 # Filter dictionary to include only specific keys
 filtered_data = filter_dict_by_keys(data, ['id', 'name', 'email'], include=True)
 
-# Filter dictionary to exclude specific keys
-filtered_data = filter_dict_by_keys(data, ['password', 'token'], include=False)
-
-# Get unique items based on a key function
-unique_users = unique_by(users, key=lambda u: u.email)
-
-# Find duplicate items in a list
-duplicates = find_duplicates(items, key=lambda x: x.id)
-
-# Split a list into chunks of specified size
-batches = chunk_list(items, size=100)
-
-# Transform all keys in a dictionary
-transformed = transform_keys(data, lambda k: k.lower())
-
-# Transform all values in a dictionary
-doubled_values = transform_values(data, lambda v: v * 2 if isinstance(v, int) else v)
-
-# Merge dictionaries with customizable conflict resolution
-merged_config = merge_dicts(base_config, user_config,
-                           conflict_resolver=lambda k, v1, v2: v2)
+# Safe JSON serialization for complex objects
+json_string = safe_json_serialize(complex_object)
 ```
 
 ### Validation Utilities
@@ -218,41 +218,15 @@ if not is_valid:
 if is_valid_ip_address(client_ip):
     # Process valid IP
     pass
-
-# Check if string is valid UUID
-if is_valid_uuid(resource_id):
-    # Use UUID in database query
-    pass
-
-# Check if port number is valid
-if is_valid_port(port_number):
-    # Configure service with port
-    pass
-
-# Type checking for more reliable code
-if is_iterable(data) and not isinstance(data, str):
-    # Process iterable (but not string)
-    pass
-
-if is_mapping(data):
-    # Process dictionary-like object
-    pass
-
-if is_sequence(data):
-    # Process sequence-like object
-    pass
-
-if is_numeric(value):
-    # Process numeric value (int, float, Decimal, etc.)
-    pass
 ```
 
-### Date and Time Utilities
+### Date/Time Utilities
 
 ```python
 from core.utils.date_time import (
     utcnow, now_with_timezone, format_datetime, parse_iso_datetime,
-    format_relative_time, date_range, calculate_time_difference
+    format_relative_time, date_range, calculate_time_difference,
+    format_timestamp
 )
 
 # Get current UTC time with timezone information
@@ -267,33 +241,58 @@ event_date = parse_iso_datetime("2024-07-15T14:30:00Z")
 # Format as human-readable relative time
 time_display = format_relative_time(event_date)  # e.g., "2 hours ago" or "in 3 days"
 
-# Format with specific format string
-formatted_date = format_datetime(event_date, "%Y-%m-%d %H:%M", use_utc=True)
+# Format timestamp for logging or display
+formatted = format_timestamp(current_time)  # ISO 8601 format
+```
 
-# Generate a date range for the next week
-next_week = date_range(utcnow(), utcnow() + timedelta(days=7))
+### System Utilities
 
-# Calculate time difference with proper timezone handling
-time_diff = calculate_time_difference(start_time, end_time)
-duration_str = format_duration(time_diff)  # e.g., "2 hours 30 minutes"
+```python
+from core.utils.system import (
+    get_system_resources, get_process_info, get_request_context,
+    measure_execution_time, get_redis_client
+)
 
-# Check if a date is in the future
-if is_future_date(event_date):
-    # Schedule event
-    pass
+# Get system resource information
+resources = get_system_resources()
+print(f"CPU usage: {resources['cpu_percent']}%, Memory: {resources['memory_used']} MB")
 
-# Check if two dates are on the same day
-if is_same_day(date1, date2):
-    # Combine events
-    pass
+# Get process information
+process_info = get_process_info()
 
-# Get start and end of business day
-day_start = beginning_of_day(current_time)
-day_end = end_of_day(current_time)
+# Time a function's execution
+with measure_execution_time() as timer:
+    result = expensive_operation()
+print(f"Operation took {timer.duration:.2f} seconds")
 
-# Convert between timestamp formats
-epoch_time = to_timestamp(current_time)  # Get Unix timestamp
-datetime_obj = from_timestamp(epoch_time)  # Convert back to datetime
+# Get Redis client with proper connection pooling
+redis = get_redis_client()
+```
+
+### Logging Utilities
+
+```python
+from core.utils.logging_utils import (
+    get_logger, get_security_logger, log_security_event
+)
+
+# Get logger for current module
+logger = get_logger(__name__)
+logger.info("Operation completed successfully")
+
+# Get specialized security logger
+security_logger = get_security_logger()
+security_logger.warning("Unauthorized access attempt",
+    extra={"ip": "192.168.1.1", "user_id": "guest"})
+
+# Log security event
+log_security_event(
+    event_type="authorization_failure",
+    description="User attempted to access restricted resource",
+    severity="warning",
+    user_id="user123",
+    details={"resource": "/admin/users", "ip": "192.168.1.100"}
+)
 ```
 
 ## Best Practices & Security
@@ -314,6 +313,7 @@ datetime_obj = from_timestamp(epoch_time)  # Convert back to datetime
 - **Parameter Validation**: Functions validate parameters before processing
 - **Secure Defaults**: Conservative defaults that prioritize security
 - **Atomic Operations**: File operations use atomic patterns to prevent partial writes
+- **Separation of Concerns**: Security-related functions moved to security module
 
 ## Common Features
 
@@ -343,13 +343,9 @@ All utility modules share these common features:
 - Collection Utilities Reference
 - Validation Utilities Reference
 - Date/Time Utilities Reference
+- System Utilities Reference
+- Logging Utilities Reference
 - Security Controls Framework
 - Configuration Management Guide
 - Error Handling Standards
 - Coding Standards
-
-## Version Information
-
-- **Version**: 0.0.1
-- **Last Updated**: 2024-07-22
-- **Maintainers**: Platform Engineering Team

@@ -17,16 +17,6 @@ from typing import Optional, Union, Tuple, List, Dict, Any
 from datetime import datetime, timezone, timedelta
 
 
-def utcnow() -> datetime:
-    """
-    Get current UTC datetime with timezone information.
-
-    Returns:
-        Current UTC datetime with timezone set to UTC
-    """
-    return datetime.now(timezone.utc)
-
-
 def localnow() -> datetime:
     """
     Get current local datetime with timezone information.
@@ -35,6 +25,36 @@ def localnow() -> datetime:
         Current local datetime with local timezone
     """
     return datetime.now()
+
+
+def utcnow() -> datetime:
+    """
+    Get current UTC datetime with timezone information.
+
+    Returns:
+        datetime: Current time in UTC with timezone info
+    """
+    return datetime.now(timezone.utc)
+
+
+def format_timestamp(dt: Optional[datetime] = None) -> str:
+    """
+    Format datetime as ISO 8601 string.
+
+    Args:
+        dt: Datetime to format (default: current time)
+
+    Returns:
+        ISO 8601 formatted timestamp string
+    """
+    if dt is None:
+        dt = utcnow()
+
+    # Ensure it has timezone info
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+
+    return dt.isoformat()
 
 
 def now_with_timezone(tz=None) -> datetime:

@@ -15,6 +15,7 @@ handling across the application.
 import functools
 import itertools
 from typing import Any, Dict, List, Optional, Set, Tuple, TypeVar, Union, Callable, Iterator, Iterable, Mapping, MutableMapping, Sequence
+from datetime import datetime
 
 
 T = TypeVar('T')
@@ -569,6 +570,34 @@ def dict_transform(
             result[new_key] = new_value
 
     return result
+
+
+def safe_json_serialize(obj: Any) -> Any:
+    """
+    Convert object to JSON-serializable format.
+
+    Handles datetime objects, sets, and other common non-serializable types.
+
+    Args:
+        obj: Object to serialize
+
+    Returns:
+        JSON-serializable representation of the object
+    """
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, set):
+        return list(obj)
+    elif isinstance(obj, bytes):
+        try:
+            return obj.decode('utf-8')
+        except UnicodeDecodeError:
+            return str(obj)
+    elif hasattr(obj, 'to_dict') and callable(getattr(obj, 'to_dict')):
+        return obj.to_dict()
+    else:
+        # Let the JSON serializer handle the type error
+        return str(obj)
 
 
 def filter_none(data: Dict) -> Dict:
