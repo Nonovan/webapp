@@ -24,8 +24,8 @@ from typing import Dict, Any, Optional, List, Tuple
 # Configure module logger
 logger = logging.getLogger(__name__)
 
-# Version information - should be updated with each significant change
-__version__ = '0.1.1'  # Incremented to reflect utils reorganization
+# Version information
+__version__ = '0.1.1'
 
 # Constants
 DEFAULT_HASH_ALGORITHM = 'sha256'
@@ -99,36 +99,58 @@ from .utils.system import (
     measure_execution_time
 )
 
+# Import validation utilities from new module
+from .utils.validation import (
+    is_valid_email,
+    is_valid_url,
+    validate_with_schema,
+    is_valid_ip_address,
+    is_valid_uuid
+)
+
 # Import security utilities from their new specialized locations
 from .security.cs_crypto import (
     compute_hash as compute_file_hash,  # Aliased for backward compatibility
     generate_sri_hash,
-    secure_compare
+    secure_compare,
+    encrypt_sensitive_data,
+    decrypt_sensitive_data
 )
 
 from .security.cs_utils import (
     sanitize_path,
     is_within_directory,
     is_safe_file_operation,
-    obfuscate_sensitive_data
+    obfuscate_sensitive_data,
+    initialize_security_components,
+    generate_csp_nonce
 )
 
 from .security.cs_authentication import (
-    generate_secure_token
+    generate_secure_token,
+    validate_password_strength,
+    validate_url
 )
 
 from .security.cs_file_integrity import (
     check_critical_file_integrity,
     detect_file_changes,
     update_file_integrity_baseline,
-    create_file_hash_baseline
+    create_file_hash_baseline,
+    get_last_integrity_status,
+    log_file_integrity_event,
+    _consider_baseline_update
 )
 
 from .security import (
     require_permission,
     detect_suspicious_activity,
-    validate_request_security
+    validate_request_security,
+    init_security
 )
+
+# Initialize security components
+init_security()
 
 # Initialize module logging when imported directly
 initialize_module_logging()
@@ -163,6 +185,7 @@ __all__ = [
     'get_audit_logger',
     'log_security_event',
     'log_file_integrity_event',
+    'initialize_module_logging',
 
     # Common utility functions
     'generate_request_id',
@@ -178,6 +201,8 @@ __all__ = [
     'deep_set',
     'merge_dicts',
     'obfuscate_sensitive_data',
+    'encrypt_sensitive_data',
+    'decrypt_sensitive_data',
 
     # String utilities
     'slugify',
@@ -201,13 +226,27 @@ __all__ = [
     'is_within_directory',
     'is_safe_file_operation',
 
+    # Validation utilities
+    'is_valid_email',
+    'is_valid_url',
+    'validate_with_schema',
+    'is_valid_ip_address',
+    'is_valid_uuid',
+    'validate_password_strength',
+    'validate_url',
+
     # Security and cryptographic functions
     'generate_sri_hash',
     'check_critical_file_integrity',
     'detect_file_changes',
     'update_file_integrity_baseline',
     'create_file_hash_baseline',
+    'get_last_integrity_status',
     'require_permission',
     'detect_suspicious_activity',
-    'validate_request_security'
+    'validate_request_security',
+    'initialize_security_components',
+    'generate_csp_nonce',
+    '_consider_baseline_update',
+    'init_security'
 ]

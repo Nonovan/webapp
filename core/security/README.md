@@ -37,6 +37,8 @@ The security module implements a defense-in-depth security approach with multipl
   - File integrity severity classifications
   - Request tracking constants
   - Integrity monitoring priorities
+  - File extension security classifications
+  - Monitored file patterns by priority
 
 - **`cs_crypto.py`**: Cryptographic operations
   - Encryption/decryption of sensitive data
@@ -64,6 +66,8 @@ The security module implements a defense-in-depth security approach with multipl
   - Baseline creation and management (migrated from utils.py)
   - Detection of file changes (migrated from utils.py)
   - Integrity status retrieval and reporting
+  - Baseline update consideration functionality
+  - Additional critical files checking
 
 - **`cs_metrics.py`**: Security metrics collection
   - Security posture measurement
@@ -76,6 +80,7 @@ The security module implements a defense-in-depth security approach with multipl
   - Authentication metrics tracking
   - Customizable security dashboards
   - Integrity metrics collection
+  - Performance tracking for security operations
 
 - **`cs_monitoring.py`**: Security monitoring capabilities
   - Failed login tracking
@@ -87,6 +92,8 @@ The security module implements a defense-in-depth security approach with multipl
   - Security anomaly detection
   - Integrity status monitoring
   - File integrity violation tracking
+  - Circuit breaker pattern implementation
+  - Service resilience monitoring
 
 - **`cs_session.py`**: Session security management
   - Session timeout enforcement
@@ -97,6 +104,7 @@ The security module implements a defense-in-depth security approach with multipl
   - Suspicious activity detection
   - MFA enforcement for sensitive operations
   - Session regeneration with secure state preservation
+  - Session invalidation controls
 
 - **`cs_utils.py`**: General security utilities
   - Security component initialization
@@ -129,23 +137,6 @@ core/security/
 ├── cs_utils.py              # Security utility functions
 └── README.md                # This documentation
 ```
-
-## Recent Changes
-
-The security module has been enhanced with the following improvements:
-
-- **Code Reorganization**: Security-related functions from monolithic `core/utils.py` have been relocated to appropriate specialized modules in the security package.
-- **Function Merges**: Several overlapping functions were consolidated:
-  - `calculate_file_hash` and `compute_file_hash` merged into unified `compute_hash`
-  - `generate_sri_hash` now leverages the enhanced `compute_hash`
-- **Function Migrations**:
-  - File integrity functions moved to cs_file_integrity.py
-  - Path safety utilities moved to cs_utils.py
-  - Crypto functions moved to `cs_crypto.py`
-- **Enhanced Constants**: New constants added to `cs_constants.py` for file integrity priorities and severity classifications
-- **Improved Initialization**: Enhanced automatic initialization using `init_security()`
-- **Circuit Breaker**: Added graceful fallback for circuit breaker functionality
-- **Improved Error Handling**: Better error handling for file integrity operations
 
 ## Usage
 
@@ -260,6 +251,35 @@ update_file_integrity_baseline(
     baseline_path="instance/file_baseline.json",
     updates=changes,
     remove_missing=True
+)
+```
+
+### Advanced Integrity Operations
+
+```python
+from core.security import _detect_file_changes, _consider_baseline_update, _check_for_permission_changes
+
+# Perform low-level integrity check with detailed control
+changes = _detect_file_changes(
+    basedir="/app",
+    reference_hashes=app.config["CRITICAL_FILE_HASHES"],
+    critical_patterns=["*.py", "*.config", "*.json"],
+    detect_permissions=True,
+    check_signatures=True
+)
+
+# Check specifically for permission issues
+_check_for_permission_changes(
+    basedir="/app",
+    reference_hashes=app.config["CRITICAL_FILE_HASHES"],
+    modified_files=detected_changes
+)
+
+# Consider automatic baseline updates for low-severity changes
+_consider_baseline_update(
+    app,
+    changes=detected_changes,
+    expected_hashes=app.config["CRITICAL_FILE_HASHES"]
 )
 ```
 
@@ -381,6 +401,10 @@ def configure_metrics(app):
 - Use atomic file operations for baseline updates to prevent corruption
 - Create and verify file integrity baselines after system updates
 - Ensure proper permissions on security baseline files themselves
+- Use constants from cs_constants.py rather than hardcoded values
+- Verify security dependencies are available during initialization
+- Include context data in security events for better correlation
+- Store only hashed/encrypted sensitive data in monitoring systems
 
 ## Related Documentation
 
@@ -392,3 +416,7 @@ def configure_metrics(app):
 - File Integrity Monitoring Guide
 - Security Metrics Dashboard
 - Core Security Utility Migration Guide
+- Circuit Breaker Implementation Guide
+- Redis Security Cache Documentation
+- Security Monitoring Strategy
+- API Security Best Practices

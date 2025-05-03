@@ -15,7 +15,7 @@ This module provides security-related functionality including:
 """
 
 # Version information - increment for significant changes
-__version__ = '0.1.1'  # Updated for reorganized file integrity monitoring
+__version__ = '0.1.1'
 
 # Standard imports
 import logging
@@ -78,6 +78,7 @@ from .cs_crypto import (
     calculate_file_hash  # Merged from utils.py (previously compute_file_hash)
 )
 
+# File integrity functions - enhanced with new capabilities
 from .cs_file_integrity import (
     check_file_integrity,
     check_config_integrity,
@@ -96,7 +97,12 @@ from .cs_file_integrity import (
     _check_critical_file,  # Moved from utils.py
     _check_file_ownership,  # Moved from utils.py
     _check_file_signatures,  # Moved from utils.py
-    log_file_integrity_event  # Moved from utils.py
+    log_file_integrity_event,  # Moved from utils.py
+    _detect_file_changes,  # Exposed for direct usage
+    _check_for_permission_changes,  # Exposed for direct usage
+    _check_additional_critical_files,  # Exposed for direct usage
+    _consider_baseline_update,  # Newly exposed function
+    get_critical_file_hashes  # Added to expose to other modules
 )
 
 # Import circuit breaker and rate limiting from models
@@ -193,7 +199,9 @@ from .cs_constants import (
     REQUEST_ID_PREFIX,
     FILE_INTEGRITY_SEVERITY,
     FILE_INTEGRITY_PRIORITIES,
-    SECURITY_EVENT_SEVERITIES
+    SECURITY_EVENT_SEVERITIES,
+    MONITORED_FILES_BY_PRIORITY,  # New export for file monitoring
+    INTEGRITY_MONITORED_SERVICES  # New export for file integrity
 )
 
 # Track initialization status
@@ -209,6 +217,9 @@ def init_security():
         # Initialize crypto components
         from .cs_crypto import initialize_crypto
         initialize_crypto()
+
+        # Initialize file integrity baseline if needed
+        from .cs_file_integrity import initialize_file_monitoring
 
         # Log successful initialization
         logger.info("Security package initialized successfully")
@@ -230,6 +241,8 @@ __all__ = [
     'FILE_INTEGRITY_SEVERITY',
     'FILE_INTEGRITY_PRIORITIES',
     'SECURITY_EVENT_SEVERITIES',
+    'MONITORED_FILES_BY_PRIORITY',
+    'INTEGRITY_MONITORED_SERVICES',
 
     # Circuit breaker components
     'CircuitBreaker',
@@ -297,8 +310,13 @@ __all__ = [
     'get_last_integrity_status',
     'update_file_integrity_baseline',
     'verify_baseline_update',
+    'get_critical_file_hashes',  # Added to exports
     'format_timestamp',
     'detect_file_changes',
+    '_detect_file_changes',  # Now exposed
+    '_check_for_permission_changes',  # Now exposed
+    '_check_additional_critical_files',  # Now exposed
+    '_consider_baseline_update',  # Now exposed
 
     # Metrics functions
     'get_security_metrics',

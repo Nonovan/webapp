@@ -155,7 +155,8 @@ The core package uses the following configuration settings:
 'REQUEST_ID_INCLUDE_TIMESTAMP': True,
 'REQUEST_ID_INCLUDE_HOST': True,
 'REQUEST_ID_INCLUDE_PID': True,
-'TRACK_SLOW_REQUESTS': True
+'TRACK_SLOW_REQUESTS': True,
+'SLOW_REQUEST_THRESHOLD': 2.0  # Seconds
 ```
 
 ## Best Practices & Security
@@ -382,6 +383,32 @@ deep_set(config, "security.headers.content_security_policy.enabled", True)
 json_string = safe_json_serialize(complex_object_with_dates_and_custom_classes)
 ```
 
+### Validation Utilities
+
+```python
+from core.utils.validation import validate_with_schema, is_valid_email
+
+# Validate data against a schema
+user_schema = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string", "minLength": 2},
+        "email": {"type": "string", "format": "email"},
+        "age": {"type": "integer", "minimum": 18}
+    },
+    "required": ["name", "email"]
+}
+
+is_valid, errors = validate_with_schema(user_data, user_schema)
+if not is_valid:
+    raise ValidationError(f"Invalid user data: {errors}")
+
+# Check if email is valid
+if is_valid_email(user_input):
+    # Process email
+    send_welcome_email(user_input)
+```
+
 ## Related Documentation
 
 - Application Architecture
@@ -397,3 +424,4 @@ json_string = safe_json_serialize(complex_object_with_dates_and_custom_classes)
 - URL Generation Guidelines
 - Validation Framework Guide
 - Core Security Utility Migration Guide
+- System Resource Monitoring Guide

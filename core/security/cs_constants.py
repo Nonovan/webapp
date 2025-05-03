@@ -89,6 +89,16 @@ SECURITY_CONFIG: Dict[str, Any] = {
         'tmp/*'
     ],
     'SECURITY_EVENT_ON_CRITICAL_CHANGE': True,  # Log security event on critical file change
+    'FILE_INTEGRITY_CHECK_FREQUENCY': 100,  # Check file integrity every N requests
+    'MAX_BASELINE_FILE_SIZE': 10 * 1024 * 1024,  # Maximum file size for baseline inclusion (10MB)
+    'MALICIOUS_CONTENT_PATTERNS': [  # Patterns that could indicate malicious content
+        r'eval\(\$_POST',
+        r'passthru\(',
+        r'shell_exec\(',
+        r'base64_decode\(.+\)',
+        r'preg_replace\(.+/e'
+    ],
+    'SAFE_BASELINE_UPDATE_PATH': 'instance/security/baseline',  # Default path for storing baselines
 
     # API security
     'API_RATE_LIMIT': 100,  # Default rate limit for API endpoints (requests per minute)
@@ -141,13 +151,29 @@ SECURITY_CONFIG: Dict[str, Any] = {
     'EMERGENCY_MODE_ENABLED': False,  # Emergency mode with stricter security controls
     'EMERGENCY_IP_ALLOWLIST': [],  # IPs allowed during emergency mode
     'BREAK_GLASS_ENABLED': True,  # Enable break-glass emergency access
-    'BREAK_GLASS_EXPIRY': 4 * 3600  # Break-glass access expires after 4 hours
+    'BREAK_GLASS_EXPIRY': 4 * 3600,  # Break-glass access expires after 4 hours
+
+    # Request tracking (moved from utils.py)
+    'REQUEST_ID_LENGTH': 16,  # Length of generated request IDs
+    'REQUEST_ID_PREFIX': 'req-',  # Prefix for request IDs
+    'REQUEST_ID_INCLUDE_TIMESTAMP': True,  # Include timestamp in request IDs
+    'REQUEST_ID_INCLUDE_HOST': True,  # Include host in request IDs
+    'REQUEST_ID_INCLUDE_PID': True,  # Include process ID in request IDs
+    'TRACK_SLOW_REQUESTS': True,  # Track slow requests
+    'SLOW_REQUEST_THRESHOLD': 2.0,  # Threshold for slow requests in seconds
+
+    # Circuit breaker settings (for external service calls)
+    'CIRCUIT_BREAKER_ENABLED': True,  # Enable circuit breaker pattern
+    'CIRCUIT_BREAKER_THRESHOLD': 5,  # Number of failures before opening circuit
+    'CIRCUIT_BREAKER_TIMEOUT': 30,  # Time (seconds) before retrying after circuit opens
+    'CIRCUIT_BREAKER_HALF_OPEN_RATIO': 0.1,  # Ratio of requests to let through when half-open
 }
 
 # Export individual constants for easier access in other modules
 ENCRYPTION_KEY = SECURITY_CONFIG.get('ENCRYPTION_KEY')
 FILE_HASH_ALGORITHM = SECURITY_CONFIG.get('FILE_HASH_ALGORITHM')
 MAX_LOGIN_ATTEMPTS = SECURITY_CONFIG.get('MAX_LOGIN_ATTEMPTS')
+REQUEST_ID_PREFIX = SECURITY_CONFIG.get('REQUEST_ID_PREFIX')
 
 # Security-sensitive fields for automatic redaction in logs
 SENSITIVE_FIELDS: Set[str] = {
@@ -168,13 +194,75 @@ SECURITY_EVENT_SEVERITIES: Dict[str, str] = {
     'emergency_access': 'critical',
     'permission_change': 'info',
     'system_startup': 'info',
-    'system_shutdown': 'info'
+    'system_shutdown': 'info',
+    'baseline_updated': 'info',
+    'baseline_update_failed': 'warning'
 }
 
 # Map of services requiring integrity monitoring
 INTEGRITY_MONITORED_SERVICES: Dict[str, List[str]] = {
-    'web': ['app.py', 'wsgi.py', 'core/security/*', 'core/middleware.py'],
-    'api': ['api/*', 'core/security/*'],
-    'worker': ['worker.py', 'tasks/*', 'core/security/*'],
+    'web': ['app.py', 'wsgi.py', 'core/security/*.py', 'core/middleware.py'],
+    'api': ['api/*', 'core/security/*.py'],
+    'worker': ['worker.py', 'tasks/*', 'core/security/*.py'],
     'config': ['config/*', 'core/config.py', 'settings.py']
+}
+
+# File integrity severity classifications (new)
+FILE_INTEGRITY_SEVERITY: Dict[str, str] = {
+    'missing': 'high',
+    'modified': 'high',
+    'world_writable': 'high',
+    'world_writable_sensitive': 'critical',
+    'world_executable': 'medium',
+    'new_critical_file': 'medium',
+    'signature_invalid': 'high',
+    'recent_change': 'medium',
+    'permission_changed': 'medium',
+    'suspicious_content': 'high'
+}
+
+# File integrity monitoring priorities (new)
+FILE_INTEGRITY_PRIORITIES: Dict[str, int] = {
+    'critical': 1,    # Security-critical system files
+    'high': 2,        # Important application files
+    'medium': 3,      # General application files
+    'low': 4,         # Non-essential files
+    'informational': 5 # Files that only generate informational events
+}
+
+# File extensions considered sensitive from a security perspective (new)
+SENSITIVE_EXTENSIONS: List[str] = [
+    '.key', '.pem', '.p12', '.pfx', '.keystore', '.jks', '.env', '.secret'
+]
+
+# Monitored file patterns by priority (new)
+MONITORED_FILES_BY_PRIORITY: Dict[str, List[str]] = {
+    'critical': [
+        'core/security/*.py',
+        'core/middleware.py',
+        'core/auth.py',
+        'models/security/*.py',
+        'config/security.ini',
+        'app.py',
+        'wsgi.py'
+    ],
+    'high': [
+        'api/*.py',
+        'models/*.py',
+        'core/*.py',
+        'config/*.ini',
+        'config/*.json',
+        'config/*.yaml'
+    ],
+    'medium': [
+        'blueprints/*.py',
+        'services/*.py',
+        'templates/*.html',
+        'static/js/*.js'
+    ],
+    'low': [
+        'static/css/*.css',
+        'static/img/*',
+        'docs/*'
+    ]
 }
