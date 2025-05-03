@@ -24,13 +24,13 @@ from typing import Any, Dict, List, Optional, Tuple, Union, Callable, cast
 from urllib.parse import urlparse
 
 # Import error handling utilities for connection management
+from .validation import ValidationError
 from .error_handlers import (
     handle_assessment_error,
     retry_operation,
     circuit_breaker,
     ExponentialBackoff,
     safe_execute,
-    ValidationError
 )
 
 logger = logging.getLogger(__name__)

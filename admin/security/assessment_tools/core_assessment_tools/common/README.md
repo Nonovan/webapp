@@ -51,12 +51,16 @@ The common components provide a foundation for all security assessment tools, im
   - Reusable rendering components
 
 - **`evidence_collector.py`**: Assessment evidence collection
-  - Secure evidence gathering and storage
-  - Screenshot capture functionality
-  - File and configuration extraction
-  - Response data collection
-  - Evidence chain of custody tracking
-  - Evidence metadata management
+  - Secure evidence gathering and storage with chain of custody
+  - Evidence collection for multiple types (files, screenshots, logs, command output, database queries, text, network captures)
+  - Screenshot capture functionality across different platforms
+  - Multi-format evidence packaging (zip, tar, directory)
+  - Evidence metadata management and tagging
+  - Evidence integrity verification through cryptographic hashing
+  - Evidence classification and retention management
+  - Proper evidence directory structure with secure permissions
+  - Chain of custody tracking for all evidence actions
+  - Evidence search and retrieval capabilities
 
 - **`assessment_logging.py`**: Secure logging functionality
   - Assessment activity audit logging
@@ -280,26 +284,43 @@ except Exception as e:
 ### Evidence Collection
 
 ```python
-from common.evidence_collector import EvidenceCollector
+from common.evidence_collector import EvidenceCollector, collect_file_evidence, collect_command_output, collect_screenshot
 from datetime import datetime
 
-# Create evidence collector for an assessment
-collector = EvidenceCollector(
+# Method 1: Using the EvidenceCollector class
+with create_evidence_collector(
+    assessment_id="vuln-scan-20240712-01",
+    target_id="db-server-03",
+    assessor="security-team"
+) as collector:
+    # Collect various types of evidence
+    collector.collect_file("/etc/nginx/nginx.conf")
+    collector.collect_command_output("netstat -tuln")
+    collector.collect_screenshot("login_page")
+    collector.add_text_evidence("Found unencrypted password in config file",
+                               severity="critical")
+
+    # Add metadata and tags
+    collector.add_evidence_tags("nginx-config", ["webserver", "configuration"])
+    collector.add_finding_evidence_link("nginx-config", "FINDING-001")
+
+    # Create evidence package
+    package_path = collector.create_evidence_package(format="zip")
+
+# Method 2: Using standalone functions
+file_evidence_id = collect_file_evidence(
+    file_path="/etc/ssh/sshd_config",
     assessment_id="vuln-scan-20240712-01",
     target_id="db-server-03",
     assessor="security-team"
 )
 
-# Collect various types of evidence
-collector.collect_file("/etc/nginx/nginx.conf")
-collector.collect_command_output("netstat -tuln")
-collector.collect_screenshot("login_page")
-collector.add_text_evidence("Found unencrypted password in config file",
-                           severity="critical")
-
-# Finalize and get evidence report
-evidence_report = collector.finalize()
-evidence_path = collector.get_evidence_path()
+cmd_evidence_id = collect_command_output(
+    command="ps aux | grep nginx",
+    assessment_id="vuln-scan-20240712-01",
+    target_id="db-server-03",
+    assessor="security-team"
+)
 ```
 
 ### Result Formatting

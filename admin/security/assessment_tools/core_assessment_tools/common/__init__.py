@@ -112,6 +112,7 @@ try:
     )
 
     from .validation import (
+        ValidationError,
         validate_target,
         validate_profile,
         validate_output_format,
@@ -154,7 +155,8 @@ try:
     from .permission_utils import (
         check_assessment_permission,
         verify_target_access,
-        has_required_permissions
+        has_required_permissions,
+        secure_operation
     )
 
     from .result_cache import (
@@ -356,6 +358,7 @@ __all__ = [
     'VALID_OUTPUT_FORMATS',
 
     # Utilities
+    'ValidationError',
     'validate_target',
     'validate_profile',
     'validate_output_format',
@@ -394,6 +397,7 @@ __all__ = [
     'check_assessment_permission',
     'verify_target_access',
     'has_required_permissions',
+    'secure_operation',
 
     # Result cache
     'ResultCache',
