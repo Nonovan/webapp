@@ -45,7 +45,7 @@ PROJECT_ROOT = SCRIPT_DIR.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 try:
-    from core.loggings import get_logger
+    from core.utils.logging_utils import logger as get_logger
     LOGGER_AVAILABLE = True
 except ImportError:
     LOGGER_AVAILABLE = False

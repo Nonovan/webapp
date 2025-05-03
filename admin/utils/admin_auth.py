@@ -28,7 +28,7 @@ try:
     from core.security.cs_authorization import (
         verify_permission as core_verify_permission
     )
-    from core.loggings import get_logger
+    from core.utils.logging_utils import logger as get_logger
     logger = get_logger(__name__)
 except ImportError:
     # Fallback basic logger if core logging is unavailable

@@ -46,8 +46,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 # Import the relevant modules
 try:
-    from core.loggings import get_logger
-    from core.security import audit_log, , generate_token
+    from core.utils.logging_utils import logger as get_logger
+    from core.security.cs_authentication import generate_secure_token
     from admin.utils.admin_auth import (
         get_admin_session, check_permission,
         require_permission as require_admin_permission,
@@ -58,6 +58,7 @@ try:
     from models.auth.role import Role
     from models.auth.permission import Permission
     from models.auth.permission_delegation import PermissionDelegation
+    from models.security import AuditLog
     from extensions import db
 except ImportError as e:
     print(f"Error importing required modules: {e}", file=sys.stderr)
@@ -68,7 +69,7 @@ except ImportError as e:
 logger = get_logger(__name__)
 
 # Constants
-VERSION = "1.0.0"
+VERSION = "0.1.1"
 EXIT_SUCCESS = 0
 EXIT_ERROR = 1
 EXIT_PERMISSION_ERROR = 2

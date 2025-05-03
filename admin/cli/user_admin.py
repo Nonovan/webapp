@@ -40,7 +40,7 @@ from models.auth.permission import Permission
 from extensions import db
 
 # Core utilities
-from core.loggings import logger as core_logger
+from core.utils.logging_utils import logger as core_logger
 
 # Create a module-level logger
 logger = logging.getLogger(__name__)

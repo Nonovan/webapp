@@ -324,6 +324,106 @@ def setup_app_logging(app: Flask) -> None:
     })
 
 
+def setup_logging(log_file: Optional[str] = None, level: str = 'INFO') -> None:
+    """
+    Set up application logging to a specified file with a given log level.
+
+    Args:
+        log_file: Path to the log file (if None, logs to console only)
+        level: Logging level (e.g., 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')
+    """
+    log_level = getattr(logging, level.upper(), logging.INFO)
+
+    # Create a formatter
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+
+    # Configure the root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+
+    # Clear any existing handlers to avoid duplicate logging
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    # Add console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    console_handler.setLevel(log_level)
+    root_logger.addHandler(console_handler)
+
+    # Add file handler if specified
+    if log_file:
+        try:
+            # Create directory if it doesn't exist
+            log_dir = os.path.dirname(log_file)
+            if log_dir and not os.path.exists(log_dir):
+                os.makedirs(log_dir, exist_ok=True)
+
+            # Set secure permissions on log directory
+            if log_dir:
+                try:
+                    os.chmod(log_dir, 0o750)
+                except (OSError, PermissionError):
+                    pass
+
+            file_handler = logging.FileHandler(log_file)
+            file_handler.setFormatter(formatter)
+            file_handler.setLevel(log_level)
+            root_logger.addHandler(file_handler)
+
+            # Secure the log file with appropriate permissions
+            try:
+                os.chmod(log_file, 0o640)
+            except (OSError, PermissionError):
+                pass
+
+        except (IOError, OSError) as e:
+            logger.error(f"Failed to set up file logging: {e}")
+
+
+def log_critical(message: str) -> None:
+    """Log a critical message using the appropriate logger."""
+    if has_app_context():
+        current_app.logger.critical(message)
+    else:
+        logger.critical(message)
+
+
+def log_error(message: str) -> None:
+    """Log an error message using the appropriate logger."""
+    if has_app_context():
+        current_app.logger.error(message)
+    else:
+        logger.error(message)
+
+
+def log_warning(message: str) -> None:
+    """Log a warning message using the appropriate logger."""
+    if has_app_context():
+        current_app.logger.warning(message)
+    else:
+        logger.warning(message)
+
+
+def log_info(message: str) -> None:
+    """Log an info message using the appropriate logger."""
+    if has_app_context():
+        current_app.logger.info(message)
+    else:
+        logger.info(message)
+
+
+def log_debug(message: str) -> None:
+    """Log a debug message using the appropriate logger."""
+    if has_app_context():
+        current_app.logger.debug(message)
+    else:
+        logger.debug(message)
+
+
 def get_security_logger() -> logging.Logger:
     """
     Get the security logger instance.

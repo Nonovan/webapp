@@ -27,7 +27,7 @@ from typing import Dict, List, Any, Optional, Union, Set
 from functools import wraps  # Add this for decorator functions
 
 # Core utilities
-from core.loggings import logger as core_logger
+from core.utils.logging_utils import logger as core_logger
 
 # Create a module-level logger
 logger = logging.getLogger(__name__)

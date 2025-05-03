@@ -17,7 +17,7 @@ from functools import wraps
 
 # Attempt to import admin-specific logging and core logging
 try:
-    from core.loggings import get_logger
+    from core.utils.logging_utils import logger as get_logger
     logger = get_logger(__name__)
 except ImportError:
     # Fallback basic logger if core logging is unavailable

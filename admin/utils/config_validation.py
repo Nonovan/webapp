@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union, NamedTuple, Set, Cal
 from jsonschema import validate, ValidationError as JsonSchemaValidationError, FormatChecker
 
 try:
-    from core.loggings import get_logger
+    from core.utils.logging_utils import logger as get_logger
     logger = get_logger(__name__)
 except ImportError:
     # Fallback basic logger if core logging is unavailable
