@@ -684,6 +684,678 @@ def convert_file_format(
                               {**operation_details, "error": str(e)})
         return False
 
+
+# --- Encoding Conversion Functions ---
+
+def convert_between_timestamp_types(
+    timestamp: Union[str, int, float, datetime],
+    target_format: str
+) -> Optional[Union[str, int, float, datetime]]:
+    """
+    Converts a timestamp from any recognized format to a specific target format.
+
+    Args:
+        timestamp: The input timestamp in any supported format
+        target_format: The desired output format:
+          - 'datetime': Python datetime object
+          - 'iso8601': ISO 8601 string
+          - 'epoch' or 'unix': Unix timestamp (seconds)
+          - 'javascript' or 'js': JavaScript timestamp (milliseconds)
+          - 'filetime' or 'windows': Windows FILETIME (100ns intervals)
+          - 'mac_time': Mac Absolute Time (seconds since 2001)
+          - Any strftime format string
+
+    Returns:
+        Converted timestamp in the requested format, or None if conversion fails
+    """
+    # First normalize to datetime
+    dt = normalize_timestamp(timestamp)
+    if dt is None:
+        log_forensic_operation(
+            "convert_between_timestamp_types",
+            False,
+            {"input": str(timestamp)[:50], "target_format": target_format, "error": "Failed to normalize timestamp"}
+        )
+        return None
+
+    # Return datetime object if requested
+    if target_format.lower() == 'datetime':
+        log_forensic_operation(
+            "convert_between_timestamp_types",
+            True,
+            {"input": str(timestamp)[:50], "target_format": target_format}
+        )
+        return dt
+
+    # For other formats, use format_timestamp
+    if target_format.lower() in ('epoch', 'unix', 'javascript', 'js',
+                               'filetime', 'windows', 'mac_time', 'iso8601',
+                               'rfc2822', 'rfc3339', 'http'):
+        formatted = format_timestamp(dt, target_format)
+        if formatted is not None:
+            try:
+                # Convert to appropriate numeric type for epoch/js/etc.
+                if target_format.lower() in ('epoch', 'unix'):
+                    result = float(formatted)
+                    if result.is_integer():
+                        result = int(result)
+                    log_forensic_operation(
+                        "convert_between_timestamp_types",
+                        True,
+                        {"input": str(timestamp)[:50], "target_format": target_format}
+                    )
+                    return result
+
+                if target_format.lower() in ('javascript', 'js', 'filetime', 'windows', 'mac_time'):
+                    result = int(formatted)
+                    log_forensic_operation(
+                        "convert_between_timestamp_types",
+                        True,
+                        {"input": str(timestamp)[:50], "target_format": target_format}
+                    )
+                    return result
+
+                log_forensic_operation(
+                    "convert_between_timestamp_types",
+                    True,
+                    {"input": str(timestamp)[:50], "target_format": target_format}
+                )
+                return formatted
+            except (ValueError, TypeError):
+                log_forensic_operation(
+                    "convert_between_timestamp_types",
+                    False,
+                    {
+                        "input": str(timestamp)[:50],
+                        "target_format": target_format,
+                        "error": "Failed to convert to numeric type"
+                    }
+                )
+                return formatted  # Return as string if numeric conversion fails
+    else:
+        # Use as strftime format string
+        formatted = format_timestamp(dt, target_format)
+        log_forensic_operation(
+            "convert_between_timestamp_types",
+            formatted is not None,
+            {"input": str(timestamp)[:50], "target_format": target_format}
+        )
+        return formatted
+
+
+def convert_hex_to_binary(hex_input: str) -> bytes:
+    """
+    Converts a hex string to binary data.
+
+    Args:
+        hex_input: Hexadecimal string to convert
+
+    Returns:
+        Binary data as bytes
+
+    Example:
+        >>> convert_hex_to_binary("48656c6c6f")
+        b'Hello'
+    """
+    try:
+        # Remove any whitespace or formatting
+        cleaned_hex = ''.join(hex_input.split())
+
+        # Convert to binary
+        binary_data = bytes.fromhex(cleaned_hex)
+
+        log_forensic_operation("convert_hex_to_binary", True, {"input_len": len(hex_input), "output_len": len(binary_data)})
+        return binary_data
+    except Exception as e:
+        logger.error("Failed to convert hex to binary: %s", e)
+        log_forensic_operation("convert_hex_to_binary", False, {"error": str(e)})
+        raise ValueError(f"Hex to binary conversion failed: {e}") from e
+
+
+def convert_binary_to_hex(binary_data: bytes, separator: str = "") -> str:
+    """
+    Converts binary data to a hex string.
+
+    Args:
+        binary_data: Binary data to convert
+        separator: Optional separator between hex bytes (e.g., "" or " " or ":")
+
+    Returns:
+        Hex string
+
+    Example:
+        >>> convert_binary_to_hex(b'Hello')
+        '48656c6c6f'
+        >>> convert_binary_to_hex(b'Hello', separator=" ")
+        '48 65 6c 6c 6f'
+    """
+    try:
+        hex_string = binary_data.hex(separator)
+        log_forensic_operation("convert_binary_to_hex", True, {"input_len": len(binary_data), "output_len": len(hex_string)})
+        return hex_string
+    except Exception as e:
+        logger.error("Failed to convert binary to hex: %s", e)
+        log_forensic_operation("convert_binary_to_hex", False, {"error": str(e)})
+        raise ValueError(f"Binary to hex conversion failed: {e}") from e
+
+
+def convert_base64_to_binary(base64_input: str) -> bytes:
+    """
+    Converts a Base64 string to binary data.
+
+    Args:
+        base64_input: Base64 encoded string
+
+    Returns:
+        Decoded binary data
+
+    Example:
+        >>> convert_base64_to_binary("SGVsbG8=")
+        b'Hello'
+    """
+    try:
+        # Clean up whitespace and handle padding
+        base64_clean = ''.join(base64_input.split())
+
+        # Ensure correct padding
+        padding_needed = len(base64_clean) % 4
+        if padding_needed:
+            base64_clean += '=' * (4 - padding_needed)
+
+        # Decode
+        binary_data = base64.b64decode(base64_clean)
+
+        log_forensic_operation("convert_base64_to_binary", True, {"input_len": len(base64_input), "output_len": len(binary_data)})
+        return binary_data
+    except (binascii.Error, ValueError) as e:
+        logger.error("Failed to convert Base64 to binary: %s", e)
+        log_forensic_operation("convert_base64_to_binary", False, {"error": str(e)})
+        raise ValueError(f"Base64 to binary conversion failed: {e}") from e
+
+
+def convert_binary_to_base64(binary_data: bytes) -> str:
+    """
+    Converts binary data to a Base64 encoded string.
+
+    Args:
+        binary_data: Binary data to encode
+
+    Returns:
+        Base64 encoded string
+
+    Example:
+        >>> convert_binary_to_base64(b'Hello')
+        'SGVsbG8='
+    """
+    try:
+        base64_string = base64.b64encode(binary_data).decode('ascii')
+        log_forensic_operation("convert_binary_to_base64", True, {"input_len": len(binary_data), "output_len": len(base64_string)})
+        return base64_string
+    except Exception as e:
+        logger.error("Failed to convert binary to Base64: %s", e)
+        log_forensic_operation("convert_binary_to_base64", False, {"error": str(e)})
+        raise ValueError(f"Binary to Base64 conversion failed: {e}") from e
+
+
+def convert_json_to_xml(json_input: Union[str, Dict, List], root_name: str = "root") -> Optional[str]:
+    """
+    Converts JSON data to XML format.
+
+    This function takes JSON input (either as a string, dictionary, or list)
+    and converts it to an XML string representation.
+
+    Args:
+        json_input: JSON data as string, dictionary, or list
+        root_name: Name of the root XML element (default: "root")
+
+    Returns:
+        XML string representation, or None if conversion fails
+
+    Example:
+        >>> data = {"person": {"name": "John", "age": 30, "addresses": [{"type": "home", "city": "New York"}]}}
+        >>> xml_output = convert_json_to_xml(data, "data")
+        >>> print(xml_output)
+        <?xml version="1.0" ?>
+        <data>
+          <person>
+            <name>John</name>
+            <age>30</age>
+            <addresses>
+              <type>home</type>
+              <city>New York</city>
+            </addresses>
+          </person>
+        </data>
+    """
+    try:
+        # Parse JSON if input is a string
+        if isinstance(json_input, str):
+            try:
+                parsed_data = json.loads(json_input)
+            except json.JSONDecodeError as e:
+                logger.error("Failed to parse JSON string: %s", e)
+                log_forensic_operation("convert_json_to_xml", False, {"error": str(e)})
+                return None
+        else:
+            # Already a Python object
+            parsed_data = json_input
+
+        # For lists, wrap in a container object with the given root name
+        if isinstance(parsed_data, list):
+            parsed_data = {"items": {"item": parsed_data}}
+
+        # Convert to XML using dict_to_xml
+        xml_output = dict_to_xml(parsed_data, root_name)
+
+        if xml_output:
+            log_forensic_operation("convert_json_to_xml", True, {"root_element": root_name})
+            return xml_output
+        else:
+            log_forensic_operation("convert_json_to_xml", False, {"error": "dict_to_xml returned None"})
+            return None
+
+    except Exception as e:
+        logger.error("Error converting JSON to XML: %s", e)
+        log_forensic_operation("convert_json_to_xml", False, {"error": str(e)})
+        return None
+
+
+def convert_xml_to_json(xml_input: str, indent: int = 2) -> Optional[str]:
+    """
+    Converts XML data to JSON format.
+
+    This function takes an XML string and converts it to a JSON string representation.
+
+    Args:
+        xml_input: XML data as string
+        indent: Number of spaces for JSON indentation (default: 2)
+
+    Returns:
+        JSON string representation, or None if conversion fails
+
+    Example:
+        >>> xml_data = '<data><person><name>John</name><age>30</age></person></data>'
+        >>> json_output = convert_xml_to_json(xml_data)
+        >>> print(json_output)
+        {
+          "data": {
+            "person": {
+              "name": "John",
+              "age": "30"
+            }
+          }
+        }
+    """
+    try:
+        # First convert XML to Python dictionary
+        data_dict = xml_to_dict(xml_input)
+
+        if data_dict is None:
+            log_forensic_operation("convert_xml_to_json", False, {"error": "xml_to_dict returned None"})
+            return None
+
+        # Convert dictionary to JSON string
+        json_output = json.dumps(data_dict, indent=indent)
+
+        log_forensic_operation("convert_xml_to_json", True, {})
+        return json_output
+
+    except Exception as e:
+        logger.error("Error converting XML to JSON: %s", e)
+        log_forensic_operation("convert_xml_to_json", False, {"error": str(e)})
+        return None
+
+
+def convert_json_to_csv(json_input: Union[str, List[Dict[str, Any]]], headers: Optional[List[str]] = None) -> Optional[str]:
+    """
+    Converts JSON data to CSV format.
+
+    This function takes JSON data representing an array of objects and converts
+    it to a CSV string. Each object should have the same structure/keys.
+
+    Args:
+        json_input: JSON array as string or list of dictionaries
+        headers: Optional list of headers to include (and their order)
+                If not specified, all keys from the first object are used
+
+    Returns:
+        CSV string representation, or None if conversion fails
+
+    Example:
+        >>> data = [
+        ...     {"id": 1, "name": "Alice", "role": "Engineer"},
+        ...     {"id": 2, "name": "Bob", "role": "Manager"}
+        ... ]
+        >>> csv_output = convert_json_to_csv(data)
+        >>> print(csv_output)
+        id,name,role
+        1,Alice,Engineer
+        2,Bob,Manager
+    """
+    try:
+        # Parse JSON if input is a string
+        if isinstance(json_input, str):
+            try:
+                parsed_data = json.loads(json_input)
+            except json.JSONDecodeError as e:
+                logger.error("Failed to parse JSON string: %s", e)
+                log_forensic_operation("convert_json_to_csv", False, {"error": str(e)})
+                return None
+        else:
+            # Already a Python object
+            parsed_data = json_input
+
+        # Handle case of a single object (convert to list)
+        if isinstance(parsed_data, dict):
+            parsed_data = [parsed_data]
+
+        # Verify we have a list of dictionaries
+        if not isinstance(parsed_data, list) or not all(isinstance(item, dict) for item in parsed_data):
+            error_msg = "JSON data must be an array of objects or a single object"
+            logger.error(error_msg)
+            log_forensic_operation("convert_json_to_csv", False, {"error": error_msg})
+            return None
+
+        # If no rows, return empty string
+        if not parsed_data:
+            return ""
+
+        # Convert to CSV string using dict_list_to_csv_string
+        csv_output = dict_list_to_csv_string(parsed_data, headers)
+
+        if csv_output:
+            log_forensic_operation("convert_json_to_csv", True, {"rows": len(parsed_data)})
+            return csv_output
+        else:
+            log_forensic_operation("convert_json_to_csv", False, {"error": "dict_list_to_csv_string returned None"})
+            return None
+
+    except Exception as e:
+        logger.error("Error converting JSON to CSV: %s", e)
+        log_forensic_operation("convert_json_to_csv", False, {"error": str(e)})
+        return None
+
+
+def convert_to_utf8(
+    data: Union[bytes, str],
+    source_encoding: Optional[str] = None,
+    errors: str = 'replace'
+) -> str:
+    """
+    Converts data to UTF-8 string format from various source encodings.
+
+    This function handles both string and binary inputs, detecting the source
+    encoding if not provided. It's useful for normalizing text data from
+    various sources to a consistent UTF-8 representation for forensic analysis.
+
+    Args:
+        data: Text data as bytes or string
+        source_encoding: Source encoding if known (auto-detected if None)
+        errors: How to handle encoding errors ('strict', 'replace', 'ignore')
+            - strict: Raise an exception for encoding errors
+            - replace: Replace characters that can't be decoded (default)
+            - ignore: Skip characters that can't be decoded
+
+    Returns:
+        UTF-8 encoded string
+
+    Example:
+        >>> text_bytes = b'Caf\xe9'  # Latin-1 encoded
+        >>> convert_to_utf8(text_bytes, 'latin-1')
+        'Café'
+    """
+    operation_details = {
+        "data_type": type(data).__name__,
+        "source_encoding": source_encoding,
+        "error_handling": errors
+    }
+
+    try:
+        # Already a string
+        if isinstance(data, str):
+            log_forensic_operation("convert_to_utf8", True, {
+                **operation_details,
+                "from_type": "str",
+                "detection": "not_needed"
+            })
+            return data
+
+        # We need to convert from bytes
+        if not isinstance(data, bytes):
+            error_msg = f"Invalid input type: {type(data).__name__}. Expected bytes or str."
+            log_forensic_operation("convert_to_utf8", False, {
+                **operation_details,
+                "error": error_msg
+            })
+            raise TypeError(error_msg)
+
+        # If source encoding is provided, use it
+        if source_encoding:
+            result = data.decode(source_encoding, errors=errors)
+            log_forensic_operation("convert_to_utf8", True, {
+                **operation_details,
+                "from_type": "bytes",
+                "detection": "explicit"
+            })
+            return result
+
+        # Try to detect encoding
+        detected_encoding = detect_encoding(data)
+        if not detected_encoding:
+            # Fallback to UTF-8 with error handling
+            detected_encoding = 'utf-8'
+
+        result = data.decode(detected_encoding, errors=errors)
+        log_forensic_operation("convert_to_utf8", True, {
+            **operation_details,
+            "from_type": "bytes",
+            "detection": "auto",
+            "detected_encoding": detected_encoding
+        })
+        return result
+
+    except Exception as e:
+        log_forensic_operation("convert_to_utf8", False, {
+            **operation_details,
+            "error": str(e)
+        })
+        logger.error(f"Failed to convert data to UTF-8: {e}")
+        raise ValueError(f"Failed to convert data to UTF-8: {e}") from e
+
+
+def detect_encoding(
+    data: bytes,
+    candidates: Optional[List[str]] = None,
+    threshold: float = 0.7,
+    fallback: Optional[str] = 'utf-8'
+) -> Optional[str]:
+    """
+    Attempts to detect the character encoding of binary data.
+
+    This function uses a combination of methods to determine the most likely
+    encoding of the provided binary data:
+    1. Uses chardet/charset-normalizer if available for statistical detection
+    2. Tests common encodings by attempting to decode the data
+    3. Examines byte patterns for encoding signatures (BOMs, etc.)
+
+    Args:
+        data: Binary data to analyze
+        candidates: List of encodings to test (default: common encodings)
+        threshold: Confidence threshold for detection (0.0-1.0)
+        fallback: Encoding to return if detection fails (None for no fallback)
+
+    Returns:
+        Detected encoding name or fallback if detection fails
+
+    Example:
+        >>> detect_encoding(b'Caf\xe9')
+        'latin-1'
+        >>> detect_encoding(b'\xff\xfeH\x00e\x00l\x00l\x00o\x00')
+        'utf-16-le'
+    """
+    operation_details = {
+        "data_length": len(data),
+        "threshold": threshold
+    }
+
+    if not data:
+        logger.warning("Empty data provided to detect_encoding")
+        log_forensic_operation("detect_encoding", False, {
+            **operation_details,
+            "error": "Empty data"
+        })
+        return fallback
+
+    # BOM detection for Unicode encodings
+    if data.startswith(b'\xef\xbb\xbf'):
+        log_forensic_operation("detect_encoding", True, {
+            **operation_details,
+            "method": "bom",
+            "encoding": "utf-8-sig",
+            "confidence": 1.0
+        })
+        return 'utf-8-sig'
+    elif data.startswith(b'\xff\xfe\x00\x00') or data.startswith(b'\x00\x00\xfe\xff'):
+        log_forensic_operation("detect_encoding", True, {
+            **operation_details,
+            "method": "bom",
+            "encoding": "utf-32",
+            "confidence": 1.0
+        })
+        return 'utf-32'
+    elif data.startswith(b'\xff\xfe') or data.startswith(b'\xfe\xff'):
+        log_forensic_operation("detect_encoding", True, {
+            **operation_details,
+            "method": "bom",
+            "encoding": "utf-16",
+            "confidence": 1.0
+        })
+        return 'utf-16'
+
+    # Try to use chardet or charset_normalizer if available
+    try:
+        try:
+            # Prefer chardet if available
+            import chardet
+            result = chardet.detect(data)
+            if result and result['encoding'] and result['confidence'] >= threshold:
+                log_forensic_operation("detect_encoding", True, {
+                    **operation_details,
+                    "method": "chardet",
+                    "encoding": result['encoding'],
+                    "confidence": result['confidence']
+                })
+                return result['encoding']
+        except ImportError:
+            try:
+                # Fall back to charset_normalizer
+                import charset_normalizer
+                result = charset_normalizer.detect(data)
+                if result and result.best() and result.best().confidence >= threshold:
+                    log_forensic_operation("detect_encoding", True, {
+                        **operation_details,
+                        "method": "charset_normalizer",
+                        "encoding": result.best().encoding,
+                        "confidence": result.best().confidence
+                    })
+                    return result.best().encoding
+            except ImportError:
+                # Neither library available, use manual detection
+                pass
+    except Exception as e:
+        logger.debug(f"Error during automatic encoding detection: {e}")
+
+    # Define default candidates if not provided
+    if candidates is None:
+        candidates = [
+            'utf-8', 'ascii', 'latin-1', 'cp1252', 'utf-16',
+            'utf-16-le', 'utf-16-be', 'utf-32', 'utf-32-le',
+            'utf-32-be', 'iso-8859-1', 'windows-1252'
+        ]
+
+    # Manual detection by trying to decode with various encodings
+    valid_encodings = []
+
+    # First check for ASCII (if all bytes are < 128, it's ASCII)
+    if all(b < 128 for b in data):
+        log_forensic_operation("detect_encoding", True, {
+            **operation_details,
+            "method": "byte_pattern",
+            "encoding": "ascii",
+            "confidence": 1.0
+        })
+        return 'ascii'
+
+    # Try to decode with each candidate encoding
+    for encoding in candidates:
+        try:
+            data.decode(encoding, errors='strict')
+            # If we get here, the decoding succeeded without errors
+            valid_encodings.append(encoding)
+
+            # Preference order: utf-8 > ascii > others
+            if encoding == 'utf-8':
+                log_forensic_operation("detect_encoding", True, {
+                    **operation_details,
+                    "method": "decode_test",
+                    "encoding": "utf-8",
+                    "confidence": 0.9
+                })
+                return 'utf-8'
+        except (UnicodeDecodeError, LookupError):
+            continue
+
+    # Select the first valid encoding if any were found
+    if valid_encodings:
+        log_forensic_operation("detect_encoding", True, {
+            **operation_details,
+            "method": "decode_test",
+            "encoding": valid_encodings[0],
+            "confidence": 0.8,
+            "valid_candidates": valid_encodings
+        })
+        return valid_encodings[0]
+
+    # Pattern-based heuristics for common encodings
+    # Check for UTF-16 pattern (every other byte is zero)
+    if len(data) > 4:
+        # Check for UTF-16-LE pattern
+        if all(data[i] == 0 for i in range(1, min(100, len(data)), 2)):
+            log_forensic_operation("detect_encoding", True, {
+                **operation_details,
+                "method": "byte_pattern",
+                "encoding": "utf-16-le",
+                "confidence": 0.8
+            })
+            return 'utf-16-le'
+
+        # Check for UTF-16-BE pattern
+        if all(data[i] == 0 for i in range(0, min(100, len(data)), 2)):
+            log_forensic_operation("detect_encoding", True, {
+                **operation_details,
+                "method": "byte_pattern",
+                "encoding": "utf-16-be",
+                "confidence": 0.8
+            })
+            return 'utf-16-be'
+
+    # Return fallback if provided or None
+    if fallback:
+        log_forensic_operation("detect_encoding", False, {
+            **operation_details,
+            "method": "fallback",
+            "encoding": fallback,
+            "error": "Detection failed, using fallback"
+        })
+        return fallback
+
+    log_forensic_operation("detect_encoding", False, {
+        **operation_details,
+        "error": "Could not detect encoding and no fallback provided"
+    })
+    return None
+
+
 def detect_file_format(file_path: str) -> str:
     """
     Attempts to detect the format of a file.

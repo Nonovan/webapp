@@ -41,10 +41,11 @@ The forensic analysis utilities implement core functionality needed by multiple 
 
 - **`timestamp_utils.py`**: Timestamp normalization tools
   - Timestamp conversion across timezones
-  - Timeline normalization
+  - Timeline normalization and creation
   - Timestamp correlation across sources
   - Timestamp validation and verification
-  - Time skew detection and correction
+  - Time skew detection and anomaly identification
+  - Timezone offset handling and conversions
 
 - **`file_utils.py`**: Forensic file operations
   - Secure file reading with integrity checks
@@ -52,6 +53,8 @@ The forensic analysis utilities implement core functionality needed by multiple 
   - Forensic file copying with metadata preservation
   - File attribute preservation and extraction
   - Secure temporary file handling
+  - Directory hash calculations
+  - Secure archive extraction
 
 - **`evidence_tracker.py`**: Evidence management utilities
   - Evidence tagging and classification
@@ -59,6 +62,9 @@ The forensic analysis utilities implement core functionality needed by multiple 
   - Evidence metadata management
   - Access tracking for evidence
   - Evidence relationship mapping
+  - Evidence container creation
+  - Chain of custody exports in multiple formats
+  - Case-based evidence listing and management
 
 - **`validation_utils.py`**: Input validation functions
   - Command parameter validation
@@ -70,8 +76,8 @@ The forensic analysis utilities implement core functionality needed by multiple 
 - **`format_converter.py`**: File format conversion utilities
   - Binary to text conversions (base64, hex)
   - Timestamp format standardization
-  - Data structure transformations
-  - Character encoding handling
+  - Data structure transformations (JSON, XML, CSV)
+  - Character encoding detection and handling
   - Safe format conversion with validation
 
 - **`report_builder.py`**: Report generation utilities
@@ -99,7 +105,7 @@ The forensic analysis utilities implement core functionality needed by multiple 
 
 ```plaintext
 admin/security/forensics/utils/
-├── [README.md](http://_vscodecontentref_/1)              # This documentation
+├── README.md              # This documentation
 ├── crypto.py              # Cryptographic verification tools
 ├── evidence_tracker.py    # Evidence management utilities
 ├── file_utils.py          # Forensic file operations
@@ -160,6 +166,90 @@ evidence_tracker.track_access(
 
 # Retrieve chain of custody for reporting
 custody_chain = evidence_tracker.get_chain_of_custody(evidence_id)
+
+# List evidence for a specific case
+case_evidence = evidence_tracker.list_evidence_by_case("incident-42")
+
+# Create an evidence container for transfer or storage
+container_path = evidence_tracker.create_evidence_container(
+    case_id="incident-42",
+    evidence_ids=["EV-2023-001", "EV-2023-002"],
+    analyst="johndoe",
+    container_type="zip",
+    encryption_password="secure-password-123"
+)
+
+# Export chain of custody documentation
+export_path = evidence_tracker.export_chain_of_custody(
+    case_id="incident-42",
+    evidence_id="EV-2023-001",
+    format="pdf",
+    include_signatures=True
+)
+```
+
+### Timestamp Handling
+
+```python
+from admin.security.forensics.utils import timestamp_utils
+
+# Parse timestamps from various formats
+parsed_time = timestamp_utils.parse_timestamp("Oct 15, 2023 14:30:45 -0700")
+
+# Convert between timestamp formats
+iso_time = timestamp_utils.convert_timestamp_format(
+    timestamp=1697401845,  # Unix timestamp
+    target_format="iso8601"
+)
+
+# Calculate time difference between events
+time_diff = timestamp_utils.calculate_timestamp_difference(
+    "2023-10-15T12:00:00Z",
+    "2023-10-15T14:30:00Z"
+)
+
+# Create a timeline from events with different timestamp formats
+timeline = timestamp_utils.create_timeline([
+    {"id": 1, "timestamp": 1697342400, "event": "System startup"},
+    {"id": 2, "timestamp": "2023-10-15T10:30:00Z", "event": "User login"},
+    {"id": 3, "timestamp": "Oct 15 11:45:23 2023", "event": "Configuration change"}
+])
+
+# Detect timestamp anomalies in a dataset
+anomalies = timestamp_utils.detect_timestamp_anomalies([
+    "2023-10-15T08:00:00Z",
+    "2023-10-15T08:15:00Z",
+    "2023-10-15T10:30:00Z",  # Potential gap
+    "2025-10-15T08:30:00Z"   # Future timestamp
+])
+```
+
+### Format Conversion
+
+```python
+from admin.security.forensics.utils import format_converter
+
+# Convert between binary and encoding formats
+hex_data = format_converter.convert_binary_to_hex(binary_data)
+original_binary = format_converter.convert_hex_to_binary(hex_data)
+
+base64_data = format_converter.convert_binary_to_base64(binary_data)
+original_binary = format_converter.convert_base64_to_binary(base64_data)
+
+# Convert between data structure formats
+xml_data = format_converter.convert_json_to_xml(json_data, root_name="evidence")
+json_data = format_converter.convert_xml_to_json(xml_data)
+csv_data = format_converter.convert_json_to_csv(json_data)
+
+# Convert between timestamp types
+epoch_time = format_converter.convert_between_timestamp_types(
+    "2023-10-15T12:30:00Z",
+    target_format="epoch"
+)
+
+# Handle text encodings
+utf8_text = format_converter.convert_to_utf8(binary_data, source_encoding="latin-1")
+encoding = format_converter.detect_encoding(binary_data)
 ```
 
 ### Sanitization
@@ -208,6 +298,29 @@ report_builder.generate_forensic_report(
 )
 ```
 
+### File Operations
+
+```python
+from admin.security.forensics.utils import file_utils
+
+# Calculate hash of an entire directory
+hash_results = file_utils.hash_directory_contents(
+    directory_path="/secure/evidence/incident-42/extracted_files",
+    output_file="/secure/evidence/incident-42/hashes.json",
+    recursive=True,
+    algorithms=["sha256", "md5"]
+)
+
+# Securely extract an archive
+success, results = file_utils.extract_archive_securely(
+    archive_path="/secure/evidence/incident-42/evidence.zip",
+    output_dir="/secure/evidence/incident-42/extracted",
+    verify_hash=True,
+    expected_hash="a1b2c3...",
+    allowed_extensions=[".txt", ".log", ".xml", ".json"]
+)
+```
+
 ## Security Features
 
 - **Evidence Integrity**: All file operations maintain integrity through hashing
@@ -220,6 +333,8 @@ report_builder.generate_forensic_report(
 - **Least Privilege**: Functions operate with minimal required access
 - **Secure Cleanup**: Proper cleanup of temporary files and sensitive data in memory
 - **Compliance Support**: Features designed to maintain legal admissibility of evidence
+- **Anomaly Detection**: Automated identification of timestamp inconsistencies
+- **Secure Archive Handling**: Protection against zip bombs and path traversal
 
 ## Best Practices
 
@@ -254,6 +369,7 @@ When using these utilities:
    - Include all required metadata in reports
    - Maintain separation between facts and analysis
    - Ensure proper handling of sensitive information in reports
+   - Use proper output formats based on audience needs
 
 ## Related Documentation
 

@@ -478,6 +478,191 @@ def validate_timestamp_string(
     return True
 
 
+def parse_timestamp(
+    timestamp_str: str,
+    expected_formats: Optional[List[str]] = None,
+    assume_utc: bool = True
+) -> Optional[datetime]:
+    """
+    Parses a timestamp string into a datetime object using specified formats.
+
+    This function attempts to parse a string timestamp using either specified
+    formats or common formats defined in the module. It provides a convenient
+    way to attempt parsing with multiple formats in sequence.
+
+    Args:
+        timestamp_str: String representation of timestamp to parse
+        expected_formats: List of format strings to try (if None, uses COMMON_TIMESTAMP_FORMATS)
+        assume_utc: If True and timestamp has no timezone info, assume UTC timezone
+
+    Returns:
+        Parsed datetime object (timezone-aware) or None if parsing fails
+
+    Example:
+        >>> parse_timestamp("2023-10-15T14:30:00Z")
+        datetime.datetime(2023, 10, 15, 14, 30, tzinfo=timezone.utc)
+        >>> parse_timestamp("10/15/2023 14:30:00", ["%m/%d/%Y %H:%M:%S"])
+        datetime.datetime(2023, 10, 15, 14, 30, tzinfo=timezone.utc)
+    """
+    operation = "parse_timestamp"
+    details = {"timestamp": timestamp_str[:100], "assume_utc": assume_utc}
+
+    if not timestamp_str:
+        log_forensic_operation(operation, False, {**details, "error": "Empty timestamp string"})
+        return None
+
+    timestamp_str = timestamp_str.strip()
+    formats_to_try = expected_formats or COMMON_TIMESTAMP_FORMATS
+
+    # Handle 'Z' explicitly by replacing it for formats that expect offset
+    if timestamp_str.endswith('Z'):
+        timestamp_str = timestamp_str[:-1] + '+00:00'
+
+    # Handle space before timezone offset
+    if ' +' in timestamp_str or ' -' in timestamp_str:
+        # Replace space before timezone with nothing ("+0000" instead of " +0000")
+        timestamp_str = re.sub(r' ([+-]\d{2}:?\d{2})', r'\1', timestamp_str)
+
+    # Try each format in the list
+    for fmt in formats_to_try:
+        try:
+            parsed_dt = datetime.strptime(timestamp_str, fmt)
+
+            # Handle timezone
+            if parsed_dt.tzinfo is None and assume_utc:
+                parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
+                log_forensic_operation(operation, True, {**details, "matched_format": fmt, "status": "Assumed UTC"})
+                return parsed_dt
+            elif parsed_dt.tzinfo is None and not assume_utc:
+                log_forensic_operation(operation, False, {**details, "matched_format": fmt, "error": "No timezone specified and assume_utc=False"})
+                return None
+            else:
+                # Convert timezone-aware datetime to UTC
+                dt_utc = parsed_dt.astimezone(timezone.utc)
+                log_forensic_operation(operation, True, {**details, "matched_format": fmt})
+                return dt_utc
+        except ValueError:
+            continue
+
+    # If we got here, all formats failed
+    log_forensic_operation(operation, False, {**details, "error": "No matching format found"})
+
+    # Last resort: Try special patterns
+    for pattern_info in SPECIAL_TIMESTAMP_PATTERNS:
+        match = re.match(pattern_info['pattern'], timestamp_str)
+        if match:
+            try:
+                dt = pattern_info['converter'](match)
+                log_forensic_operation(operation, True, {**details, "status": f"Matched special pattern: {pattern_info['pattern']}"})
+                return dt
+            except (ValueError, OverflowError, OSError):
+                # Continue to next pattern if this one failed
+                pass
+
+    # Final fallback: dateutil if available
+    try:
+        import dateutil.parser
+        dt = dateutil.parser.parse(timestamp_str)
+        if dt.tzinfo is None and assume_utc:
+            dt = dt.replace(tzinfo=timezone.utc)
+        elif dt.tzinfo is None and not assume_utc:
+            log_forensic_operation(operation, False, {**details, "error": "Parsed with dateutil but no timezone and assume_utc=False"})
+            return None
+
+        dt_utc = dt.astimezone(timezone.utc)
+        log_forensic_operation(operation, True, {**details, "status": "Parsed with dateutil.parser"})
+        return dt_utc
+    except (ImportError, ValueError, AttributeError):
+        pass
+
+    return None
+
+def convert_timestamp_format(
+    timestamp: Union[str, int, float, datetime],
+    source_format: Optional[str] = None,
+    target_format: str = DEFAULT_TIMESTAMP_FORMAT,
+    assume_utc: bool = True
+) -> Optional[str]:
+    """
+    Converts a timestamp from one format to another.
+
+    This function takes a timestamp in various input formats (string, epoch,
+    datetime object) and converts it to a specified output format string.
+
+    Args:
+        timestamp: Input timestamp (string, epoch seconds, or datetime)
+        source_format: Optional format string for parsing string timestamps
+        target_format: Format for the output (strftime format or special format name)
+        assume_utc: If True and input has no timezone, assume UTC
+
+    Returns:
+        Formatted timestamp string or None if conversion fails
+
+    Special format names:
+        - 'iso8601': ISO 8601 format (e.g., "2023-10-15T14:30:00Z")
+        - 'rfc2822': RFC 2822 format (e.g., "Sun, 15 Oct 2023 14:30:00 +0000")
+        - 'rfc3339': RFC 3339 format (same as ISO 8601)
+        - 'http': HTTP date format (e.g., "Sun, 15 Oct 2023 14:30:00 GMT")
+        - 'epoch': Unix epoch timestamp in seconds
+        - 'javascript': JavaScript timestamp in milliseconds
+        - 'filetime': Windows FILETIME format
+        - 'mac_time': Mac Absolute Time format
+
+    Example:
+        >>> convert_timestamp_format("2023-10-15T14:30:00Z", target_format="%Y/%m/%d %H:%M:%S")
+        "2023/10/15 14:30:00"
+        >>> convert_timestamp_format(1697383800, target_format="iso8601")
+        "2023-10-15T14:30:00Z"
+    """
+    operation = "convert_timestamp_format"
+    details = {
+        "input": str(timestamp)[:50],
+        "source_format": source_format,
+        "target_format": target_format,
+        "assume_utc": assume_utc
+    }
+
+    # First normalize to datetime
+    if isinstance(timestamp, str) and source_format:
+        # Use specific source format if provided
+        try:
+            dt = parse_timestamp(timestamp, [source_format], assume_utc)
+        except ValueError:
+            dt = normalize_timestamp(timestamp, assume_utc=assume_utc)
+    else:
+        # Otherwise use general normalization
+        dt = normalize_timestamp(timestamp, assume_utc=assume_utc)
+
+    if dt is None:
+        log_forensic_operation(
+            operation,
+            False,
+            {**details, "error": "Failed to normalize input timestamp"}
+        )
+        return None
+
+    # Format using the target format
+    try:
+        formatted = format_timestamp(dt, target_format)
+        if formatted is None:
+            log_forensic_operation(
+                operation,
+                False,
+                {**details, "error": "Failed to format timestamp with target format"}
+            )
+            return None
+
+        log_forensic_operation(operation, True, details)
+        return formatted
+    except Exception as e:
+        log_forensic_operation(
+            operation,
+            False,
+            {**details, "error": f"Error formatting timestamp: {str(e)}"}
+        )
+        return None
+
+
 def compare_timestamps(
     ts1: Union[str, int, float, datetime],
     ts2: Union[str, int, float, datetime]
@@ -557,6 +742,196 @@ def calculate_time_difference(
         }
     )
     return difference
+
+
+def calculate_timestamp_difference(
+    ts1: Union[str, int, float, datetime],
+    ts2: Union[str, int, float, datetime]
+) -> Optional[timedelta]:
+    """
+    Calculates the time difference (ts2 - ts1) between two timestamps after normalization.
+
+    Args:
+        ts1: The earlier timestamp in any supported format
+        ts2: The later timestamp in any supported format
+
+    Returns:
+        A timedelta object representing the difference, or None if normalization fails
+
+    Example:
+        >>> calculate_timestamp_difference("2023-01-01T12:00:00Z", "2023-01-01T14:30:00Z")
+        datetime.timedelta(seconds=9000)
+    """
+    dt1 = normalize_timestamp(ts1)
+    dt2 = normalize_timestamp(ts2)
+
+    if dt1 is None or dt2 is None:
+        log_forensic_operation(
+            "calculate_timestamp_difference",
+            False,
+            {"ts1": str(ts1)[:50], "ts2": str(ts2)[:50], "error": "Normalization failed"}
+        )
+        return None
+
+    difference = dt2 - dt1
+    log_forensic_operation(
+        "calculate_timestamp_difference",
+        True,
+        {
+            "ts1": str(ts1)[:50],
+            "ts2": str(ts2)[:50],
+            "difference_seconds": difference.total_seconds()
+        }
+    )
+    return difference
+
+
+def normalize_timestamps(
+    timestamps: List[Union[str, int, float, datetime]],
+    assume_utc: bool = True
+) -> Tuple[List[datetime], List[Union[str, int, float]]]:
+    """
+    Normalize a list of timestamps to consistent UTC datetime objects.
+
+    This function processes multiple timestamps at once, handling various formats,
+    and returns both successful conversions and any items that failed to normalize.
+
+    Args:
+        timestamps: List of timestamps in various formats to normalize
+        assume_utc: If True, assume timezone is UTC for timestamps without timezone info
+
+    Returns:
+        Tuple containing (successful_conversions, failed_items)
+
+    Example:
+        >>> successful, failed = normalize_timestamps([
+        ...     "2023-05-01T12:30:00Z",
+        ...     1683035400,
+        ...     "not a timestamp"
+        ... ])
+        >>> len(successful), len(failed)
+        (2, 1)
+    """
+    operation = "normalize_timestamps"
+    successful = []
+    failed = []
+
+    for ts in timestamps:
+        normalized = normalize_timestamp(ts, assume_utc=assume_utc)
+        if normalized is not None:
+            successful.append(normalized)
+        else:
+            failed.append(ts)
+
+    log_forensic_operation(
+        operation,
+        len(failed) == 0,  # Success if no failures
+        {
+            "total_items": len(timestamps),
+            "successful": len(successful),
+            "failed": len(failed)
+        }
+    )
+
+    return successful, failed
+
+
+def create_timeline(
+    events: List[Dict[str, Any]],
+    timestamp_field: str = "timestamp",
+    output_format: str = "iso8601"
+) -> List[Dict[str, Any]]:
+    """
+    Creates a normalized timeline from a list of event dictionaries.
+
+    This function processes a list of event records, normalizes their timestamps
+    to a consistent format, and returns them sorted chronologically.
+
+    Args:
+        events: List of event dictionaries
+        timestamp_field: Name of the field containing timestamp data in each event
+        output_format: Format to use for normalized timestamps (iso8601, unix, etc.)
+
+    Returns:
+        List of event dictionaries with normalized timestamps, sorted chronologically
+
+    Example:
+        >>> events = [
+        ...     {"id": 2, "timestamp": "2023-05-02T10:30:00Z", "event": "login"},
+        ...     {"id": 1, "timestamp": 1682942400, "event": "system start"}
+        ... ]
+        >>> timeline = create_timeline(events)
+        >>> timeline[0]["id"], timeline[1]["id"]  # Sorted by time
+        (1, 2)
+    """
+    operation = "create_timeline"
+    result = []
+    skipped = []
+
+    # Process each event
+    for event in events:
+        if not isinstance(event, dict):
+            skipped.append(event)
+            continue
+
+        # Skip events without the timestamp field
+        if timestamp_field not in event:
+            skipped.append(event)
+            continue
+
+        timestamp_value = event[timestamp_field]
+        normalized_dt = normalize_timestamp(timestamp_value)
+
+        if normalized_dt is None:
+            skipped.append(event)
+            continue
+
+        # Create a new event dict with the normalized timestamp
+        normalized_event = event.copy()
+
+        # Convert to the desired output format
+        if output_format != "datetime":
+            formatted_ts = format_timestamp(normalized_dt, output_format)
+            if formatted_ts is not None:
+                normalized_event[timestamp_field] = formatted_ts
+                # Add an ISO format timestamp for reference if not already using iso8601
+                if output_format.lower() != "iso8601":
+                    normalized_event[f"{timestamp_field}_iso"] = normalized_dt.isoformat()
+        else:
+            normalized_event[timestamp_field] = normalized_dt
+
+        result.append(normalized_event)
+
+    # Sort the timeline by timestamp
+    try:
+        # Sort by timestamp field, accommodating different data types
+        result.sort(key=lambda x:
+                    normalize_timestamp(x[timestamp_field]) or
+                    datetime.fromtimestamp(0, timezone.utc))
+    except Exception as e:
+        log_forensic_operation(
+            operation,
+            False,
+            {"error": f"Timeline sorting failed: {str(e)}",
+             "events_count": len(events),
+             "processed_count": len(result),
+             "skipped_count": len(skipped)}
+        )
+        # Return unsorted result if sorting fails
+
+    log_forensic_operation(
+        operation,
+        True,
+        {
+            "events_count": len(events),
+            "processed_count": len(result),
+            "skipped_count": len(skipped),
+            "start_time": result[0][timestamp_field] if result else None,
+            "end_time": result[-1][timestamp_field] if result else None
+        }
+    )
+
+    return result
 
 
 # --- Additional Forensic Timestamp Functions ---
@@ -870,6 +1245,222 @@ def detect_timestamp_type(timestamp: Union[str, int, float]) -> str:
     result = "unknown"
     log_forensic_operation(operation, True, {**details, "type": result})
     return result
+
+
+def detect_timestamp_anomalies(
+    timestamps: List[Union[str, int, float, datetime]],
+    reference_time: Optional[Union[str, int, float, datetime]] = None,
+    max_gap: Optional[timedelta] = None,
+    max_future_skew: Optional[timedelta] = None,
+    max_past_skew: Optional[timedelta] = None
+) -> List[Dict[str, Any]]:
+    """
+    Detect potential anomalies in a collection of timestamps.
+
+    This function analyzes a list of timestamps to identify various anomalies:
+    1. Timestamps that are unusually far in the future or past compared to reference time
+    2. Unusually large gaps between sequential timestamps
+    3. Timestamps that are exact duplicates
+    4. Timestamps that appear out of order if sequential ordering is expected
+
+    Args:
+        timestamps: List of timestamps to analyze for anomalies
+        reference_time: Optional reference time for comparison (defaults to current time)
+        max_gap: Maximum allowed gap between sequential timestamps (default is 24 hours)
+        max_future_skew: Maximum allowed time in the future (default is 10 minutes)
+        max_past_skew: Maximum allowed time in the past (default is None, no limit)
+
+    Returns:
+        List of dicts containing details of detected anomalies
+
+    Example:
+        >>> anomalies = detect_timestamp_anomalies([
+        ...     "2023-10-15T12:00:00Z",
+        ...     "2023-10-15T12:00:15Z",
+        ...     "2023-10-17T12:00:00Z",  # Large gap
+        ...     "2025-10-15T12:00:00Z"   # Far future
+        ... ])
+        >>> len(anomalies)
+        2
+        >>> anomalies[0]['type']
+        'large_gap'
+    """
+    operation = "detect_timestamp_anomalies"
+    anomalies = []
+
+    # Set default values
+    if max_gap is None:
+        max_gap = timedelta(hours=24)
+
+    if max_future_skew is None:
+        max_future_skew = timedelta(minutes=10)
+
+    # If reference_time is None, use current time
+    if reference_time is None:
+        ref_time = get_current_utc_timestamp()
+    else:
+        ref_time = normalize_timestamp(reference_time)
+        if ref_time is None:
+            log_forensic_operation(
+                operation,
+                False,
+                {"error": "Failed to normalize reference time"}
+            )
+            return anomalies
+
+    # Normalize all timestamps
+    normalized_timestamps, failed_timestamps = normalize_timestamp_batch(timestamps)
+
+    # Report timestamps that couldn't be normalized
+    for i, ts in enumerate([t for i, t in enumerate(timestamps) if i in failed_timestamps]):
+        anomalies.append({
+            'type': 'invalid_format',
+            'timestamp': str(ts)[:100],
+            'position': i,
+            'error': "Failed to normalize timestamp"
+        })
+
+    if len(normalized_timestamps) < 2:
+        # Not enough valid timestamps to perform anomaly detection
+        return anomalies
+
+    # Sort timestamps (to detect ordering issues and gaps)
+    timestamp_ordering = [(i, ts) for i, ts in enumerate(normalized_timestamps)]
+    timestamp_ordering.sort(key=lambda x: x[1])
+
+    # Check for exact duplicates
+    seen_values = {}
+    for i, ts in enumerate(normalized_timestamps):
+        ts_str = ts.isoformat()
+        if ts_str in seen_values:
+            anomalies.append({
+                'type': 'duplicate',
+                'timestamp': ts_str,
+                'positions': [seen_values[ts_str], i],
+                'severity': 'low'
+            })
+        else:
+            seen_values[ts_str] = i
+
+    # Check for timestamps in the future
+    for i, ts in enumerate(normalized_timestamps):
+        if ts > ref_time + max_future_skew:
+            time_diff = ts - ref_time
+            anomalies.append({
+                'type': 'future_timestamp',
+                'timestamp': ts.isoformat(),
+                'position': i,
+                'difference_seconds': time_diff.total_seconds(),
+                'reference_time': ref_time.isoformat(),
+                'severity': 'medium'
+            })
+
+    # Check for timestamps too far in the past (if a limit is set)
+    if max_past_skew is not None:
+        for i, ts in enumerate(normalized_timestamps):
+            if ts < ref_time - max_past_skew:
+                time_diff = ref_time - ts
+                anomalies.append({
+                    'type': 'past_timestamp',
+                    'timestamp': ts.isoformat(),
+                    'position': i,
+                    'difference_seconds': time_diff.total_seconds(),
+                    'reference_time': ref_time.isoformat(),
+                    'severity': 'medium'
+                })
+
+    # Check for unusually large gaps between sequential timestamps
+    sorted_ts = [ts for _, ts in sorted(timestamp_ordering, key=lambda x: x[1])]
+    for i in range(len(sorted_ts) - 1):
+        gap = sorted_ts[i + 1] - sorted_ts[i]
+        if gap > max_gap:
+            anomalies.append({
+                'type': 'large_gap',
+                'start_timestamp': sorted_ts[i].isoformat(),
+                'end_timestamp': sorted_ts[i + 1].isoformat(),
+                'gap_seconds': gap.total_seconds(),
+                'threshold_seconds': max_gap.total_seconds(),
+                'severity': 'medium'
+            })
+
+    # Check for potential out-of-order timestamps
+    # Only if the original positions don't match the sorted order
+    original_positions = [i for i, _ in timestamp_ordering]
+    if original_positions != sorted(original_positions):
+        # There are out-of-order timestamps
+        for i, pos in enumerate(original_positions):
+            if pos != i:
+                # This timestamp is out of order in the original sequence
+                anomalies.append({
+                    'type': 'out_of_order',
+                    'timestamp': normalized_timestamps[pos].isoformat(),
+                    'expected_position': i,
+                    'actual_position': pos,
+                    'severity': 'medium'
+                })
+
+    log_forensic_operation(
+        operation,
+        True,
+        {
+            "total_timestamps": len(timestamps),
+            "valid_timestamps": len(normalized_timestamps),
+            "anomalies_detected": len(anomalies)
+        }
+    )
+
+    return anomalies
+
+
+def timezone_from_offset(offset_seconds: int) -> Optional[timezone]:
+    """
+    Creates a timezone object with the specified UTC offset in seconds.
+
+    This is useful when working with timestamps that have specific timezone
+    offsets but don't include the actual timezone name.
+
+    Args:
+        offset_seconds: UTC offset in seconds (positive for east of UTC, negative for west)
+
+    Returns:
+        A timezone object with the specified offset, or None if the offset is invalid
+
+    Example:
+        >>> tz = timezone_from_offset(3600)  # UTC+1
+        >>> dt = datetime(2023, 10, 15, 12, 0, tzinfo=tz)
+        >>> dt.isoformat()
+        '2023-10-15T12:00:00+01:00'
+    """
+    operation = "timezone_from_offset"
+
+    try:
+        # Validate that offset is within reasonable bounds
+        if abs(offset_seconds) > 86400:  # More than 24 hours offset is invalid
+            log_forensic_operation(
+                operation,
+                False,
+                {"offset_seconds": offset_seconds, "error": "Offset beyond valid range"}
+            )
+            return None
+
+        # Create timezone with the specified offset
+        tz = timezone(timedelta(seconds=offset_seconds))
+
+        log_forensic_operation(
+            operation,
+            True,
+            {"offset_seconds": offset_seconds, "hours": offset_seconds / 3600}
+        )
+
+        return tz
+
+    except (ValueError, OverflowError) as e:
+        log_forensic_operation(
+            operation,
+            False,
+            {"offset_seconds": offset_seconds, "error": str(e)}
+        )
+        return None
 
 
 def convert_between_timestamp_types(

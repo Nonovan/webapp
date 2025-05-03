@@ -185,16 +185,37 @@ except ImportError as e:
 
 try:
     from .format_converter import (
+        # Encoding/decoding conversions
+        bytes_to_base64,
+        base64_to_bytes,
+        bytes_to_hex,
+        hex_to_bytes,
+
+        # Binary conversions
         convert_hex_to_binary,
         convert_binary_to_hex,
         convert_base64_to_binary,
         convert_binary_to_base64,
+
+        # Timestamp conversions
         convert_between_timestamp_types,
+
+        # Structured data format conversions
         convert_json_to_xml,
         convert_xml_to_json,
         convert_json_to_csv,
+        dict_to_xml,
+        xml_to_dict,
+        dict_list_to_csv_string,
+        csv_string_to_dict_list,
+
+        # Text encoding
         convert_to_utf8,
-        detect_encoding
+        detect_encoding,
+
+        # File format conversion
+        convert_file_format,
+        detect_file_format
     )
     FORMAT_CONVERSION_AVAILABLE = True
 except ImportError as e:
@@ -209,7 +230,7 @@ try:
         prepare_external_report,
         detect_credentials,
         sanitize_ip_addresses,
-        mask_sensitive_fields
+        mask_sensitive_value
     )
     SANITIZATION_AVAILABLE = True
 except ImportError as e:
@@ -539,16 +560,37 @@ if VALIDATION_UTILS_AVAILABLE:
 
 if FORMAT_CONVERSION_AVAILABLE:
     __all__.extend([
+        # Encoding/decoding functions
+        'bytes_to_base64',
+        'base64_to_bytes',
+        'bytes_to_hex',
+        'hex_to_bytes',
+
+        # Binary conversions
         'convert_hex_to_binary',
         'convert_binary_to_hex',
         'convert_base64_to_binary',
         'convert_binary_to_base64',
+
+        # Timestamp conversions
         'convert_between_timestamp_types',
+
+        # Structured data format conversions
         'convert_json_to_xml',
         'convert_xml_to_json',
         'convert_json_to_csv',
+        'dict_to_xml',
+        'xml_to_dict',
+        'dict_list_to_csv_string',
+        'csv_string_to_dict_list',
+
+        # Text encoding
         'convert_to_utf8',
-        'detect_encoding'
+        'detect_encoding',
+
+        # File format conversion
+        'convert_file_format',
+        'detect_file_format'
     ])
 
 if SANITIZATION_AVAILABLE:
@@ -560,7 +602,7 @@ if SANITIZATION_AVAILABLE:
         'prepare_external_report',
         'detect_credentials',
         'sanitize_ip_addresses',
-        'mask_sensitive_fields'
+        'mask_sensitive_value'
     ])
 
 if NETWORK_UTILS_AVAILABLE:
@@ -659,11 +701,20 @@ def get_capabilities() -> Dict[str, Dict[str, Any]]:
         "format_converter": {
             "available": FORMAT_CONVERSION_AVAILABLE,
             "functions": [
+                # Encoding/decoding
+                "bytes_to_base64", "base64_to_bytes", "bytes_to_hex", "hex_to_bytes",
+                # Binary conversions
                 "convert_hex_to_binary", "convert_binary_to_hex",
                 "convert_base64_to_binary", "convert_binary_to_base64",
-                "convert_between_timestamp_types", "convert_json_to_xml",
-                "convert_xml_to_json", "convert_json_to_csv",
-                "convert_to_utf8", "detect_encoding"
+                # Timestamp conversions
+                "convert_between_timestamp_types",
+                # Structured data conversions
+                "convert_json_to_xml", "convert_xml_to_json", "convert_json_to_csv",
+                "dict_to_xml", "xml_to_dict", "dict_list_to_csv_string", "csv_string_to_dict_list",
+                # Text encoding
+                "convert_to_utf8", "detect_encoding",
+                # File format conversion
+                "convert_file_format", "detect_file_format"
             ] if FORMAT_CONVERSION_AVAILABLE else []
         },
         "sanitize": {
@@ -671,7 +722,7 @@ def get_capabilities() -> Dict[str, Dict[str, Any]]:
             "functions": [
                 "redact_sensitive_data", "detect_pii", "sanitize_filename",
                 "remove_metadata", "prepare_external_report", "detect_credentials",
-                "sanitize_ip_addresses", "mask_sensitive_fields"
+                "sanitize_ip_addresses", "mask_sensitive_value"
             ] if SANITIZATION_AVAILABLE else []
         },
         "network_utils": {

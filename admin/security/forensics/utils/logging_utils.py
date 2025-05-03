@@ -170,6 +170,163 @@ except (OSError, PermissionError) as e:
 
 # --- Logging Functions ---
 
+def setup_forensic_logger(log_to_console: bool = True,
+                          log_to_file: bool = True,
+                          log_level: int = logging.INFO,
+                          log_file_path: Optional[str] = None,
+                          enable_json_formatting: bool = True) -> logging.Logger:
+    """
+    Configure a forensic logger with appropriate handlers and formatters.
+
+    This function initializes a dedicated logger for forensic operations with
+    secure settings appropriate for maintaining chain of custody and evidence
+    integrity in forensic logging. The logger supports both console and file output
+    with optional JSON formatting.
+
+    Args:
+        log_to_console: Whether to log to console/stdout (default: True)
+        log_to_file: Whether to log to file (default: True)
+        log_level: Logging level to use (default: logging.INFO)
+        log_file_path: Custom log file path (if None, uses default from constants)
+        enable_json_formatting: Whether to use JSON formatting for logs (default: True)
+
+    Returns:
+        Configured forensic logger instance
+    """
+    global forensic_logger
+
+    # Configure logger level
+    forensic_logger.setLevel(log_level)
+
+    # Remove any existing handlers
+    for handler in forensic_logger.handlers[:]:
+        forensic_logger.removeHandler(handler)
+
+    # Add console handler if requested
+    if log_to_console:
+        console_handler = logging.StreamHandler()
+        if enable_json_formatting:
+            # Use JSON formatter for structured logs
+            log_format = {
+                'timestamp': '%(asctime)s',
+                'level': '%(levelname)s',
+                'logger': '%(name)s',
+                'operation': '%(operation)s',
+                'success': '%(success)s',
+                'details': '%(details)s',
+                'message': '%(message)s',
+                'hostname': socket.gethostname()
+            }
+            formatter = SecurityAwareJsonFormatter(json.dumps(log_format))
+        else:
+            # Use standard formatter for readable console output
+            formatter = logging.Formatter(
+                '[%(asctime)s] [%(levelname)s] %(name)s: %(message)s'
+            )
+
+        console_handler.setFormatter(formatter)
+        console_handler.setLevel(log_level)
+        forensic_logger.addHandler(console_handler)
+
+    # Add file handler if requested
+    if log_to_file:
+        # Determine log file path
+        if log_file_path:
+            # Use provided path
+            custom_log_path = log_file_path
+            log_directory = os.path.dirname(custom_log_path)
+        else:
+            # Use default path from constants (or fallback)
+            if CONSTANTS_AVAILABLE:
+                log_directory = FORENSIC_LOG_DIR
+                custom_log_path = os.path.join(log_directory, FORENSIC_LOG_FILE)
+            else:
+                log_directory = os.environ.get("FORENSIC_LOG_DIR", "/var/log/forensics")
+                custom_log_path = os.path.join(log_directory, "forensic_operations.log")
+
+        # Ensure log directory exists with secure permissions
+        try:
+            if not os.path.exists(log_directory):
+                os.makedirs(log_directory, mode=0o700, exist_ok=True)
+            else:
+                # Ensure directory permissions are secure if it already exists
+                os.chmod(log_directory, 0o700)
+
+            # Create a rotating file handler
+            max_size = MAX_LOG_SIZE if CONSTANTS_AVAILABLE else (10 * 1024 * 1024)  # 10 MB
+            backup_count = LOG_BACKUP_COUNT if CONSTANTS_AVAILABLE else 10
+
+            file_handler = logging.handlers.RotatingFileHandler(
+                custom_log_path,
+                maxBytes=max_size,
+                backupCount=backup_count,
+                encoding='utf-8'
+            )
+
+            # Ensure the log file exists before chmod
+            if not os.path.exists(custom_log_path):
+                with open(custom_log_path, 'a'):
+                    pass
+
+            # Set secure permissions on the log file itself
+            os.chmod(custom_log_path, 0o600)
+
+            # Use JSON formatter for structured logs in file
+            if enable_json_formatting:
+                log_format = {
+                    'timestamp': '%(asctime)s',
+                    'level': '%(levelname)s',
+                    'logger': '%(name)s',
+                    'operation': '%(operation)s',
+                    'success': '%(success)s',
+                    'details': '%(details)s',
+                    'message': '%(message)s',
+                    'hostname': socket.gethostname(),
+                    'process_id': '%(process)d'
+                }
+                formatter = SecurityAwareJsonFormatter(json.dumps(log_format))
+            else:
+                formatter = logging.Formatter(
+                    '[%(asctime)s] [%(levelname)s] %(name)s: %(message)s'
+                )
+
+            file_handler.setFormatter(formatter)
+            file_handler.setLevel(log_level)
+            forensic_logger.addHandler(file_handler)
+
+            logger.info(f"Forensic logger configured with log file: {custom_log_path}")
+
+        except (OSError, PermissionError) as e:
+            logger.error(
+                f"Failed to configure forensic file logging: {e}. "
+                f"Forensic logs might only go to standard output."
+            )
+            # If file logging setup fails but console logging is disabled,
+            # add a console handler as fallback
+            if not log_to_console and not forensic_logger.handlers:
+                console_handler = logging.StreamHandler()
+                console_handler.setFormatter(logging.Formatter(
+                    '[%(asctime)s] [%(levelname)s] %(name)s: %(message)s'
+                ))
+                forensic_logger.addHandler(console_handler)
+
+    # Log successful configuration
+    log_forensic_operation(
+        operation="setup_logger",
+        success=True,
+        details={
+            "log_level": logging.getLevelName(log_level),
+            "console_logging": log_to_console,
+            "file_logging": log_to_file,
+            "log_file": log_file_path if log_file_path else "default",
+            "json_formatting": enable_json_formatting
+        },
+        level=logging.INFO
+    )
+
+    return forensic_logger
+
+
 def log_forensic_operation(
     operation: str,
     success: bool,

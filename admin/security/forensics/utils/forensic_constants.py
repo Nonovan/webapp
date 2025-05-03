@@ -251,6 +251,35 @@ MAX_REPORT_GENERATION_TIME: Final[int] = 300  # 5 minutes
 #: Valid report formats
 VALID_REPORT_FORMATS: Final[Tuple[str, ...]] = ("html", "pdf", "json", "text")
 
+# --- Static Analysis Constants ---
+
+#: Safe file extensions that are considered low risk for execution
+SAFE_FILE_EXTENSIONS: Final[FrozenSet[str]] = frozenset([
+    ".txt", ".log", ".csv", ".json", ".xml", ".html", ".htm", ".pdf",
+    ".md", ".yaml", ".yml", ".ini", ".conf", ".cfg"
+])
+
+#: Allowed MIME types for file processing
+ALLOWED_MIME_TYPES: Final[FrozenSet[str]] = frozenset([
+    "text/plain", "text/html", "text/csv", "text/xml",
+    "application/json", "application/xml", "application/pdf"
+])
+
+#: Maximum file size for analysis in bytes
+MAX_FILE_SIZE_BYTES: Final[int] = 100 * 1024 * 1024  # 100MB
+
+#: Maximum length for filenames
+MAX_FILENAME_LENGTH: Final[int] = 255
+
+#: Default minimum string length for extraction during analysis
+DEFAULT_MIN_STRING_LENGTH: Final[int] = 6
+
+#: Hash comparison threshold for similarity
+HASH_COMPARISON_THRESHOLD: Final[float] = 1.0
+
+#: Fuzzy hash threshold for similarity
+FUZZY_HASH_THRESHOLD: Final[int] = 70
+
 # --- Environment-specific configuration ---
 # Check environment for operational mode
 ENV_TYPE = os.environ.get("APP_ENV", "production").lower()

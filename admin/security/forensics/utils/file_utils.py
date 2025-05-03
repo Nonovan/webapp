@@ -204,6 +204,496 @@ def secure_copy(
         return False
 
 
+def hash_directory_contents(
+    directory_path: str,
+    output_file: Optional[str] = None,
+    recursive: bool = True,
+    algorithms: Optional[List[str]] = None,
+    exclude_patterns: Optional[List[str]] = None
+) -> Dict[str, Dict[str, str]]:
+    """
+    Calculate hash values for all files in a directory and optionally save to a file.
+
+    This function hashes all files in the specified directory, optionally recursing into
+    subdirectories, and can output the results to a structured file. This is useful for
+    creating baseline measurements of directories for integrity verification.
+
+    Args:
+        directory_path: Path to the directory to hash
+        output_file: Optional path to save the hash results (JSON format)
+        recursive: Whether to include files in subdirectories
+        algorithms: List of hash algorithms to use (defaults to SHA-256)
+        exclude_patterns: List of glob patterns for files to exclude
+
+    Returns:
+        Dictionary mapping relative file paths to their hash values.
+        Format: {
+            "file/path.txt": {
+                "sha256": "hash_value",
+                "sha1": "hash_value"
+            }
+        }
+    """
+    import os
+    import fnmatch
+    import json
+    from datetime import datetime, timezone
+
+    if not os.path.isdir(directory_path):
+        error_msg = f"Invalid directory path: {directory_path}"
+        logger.error(error_msg)
+        log_forensic_operation("hash_directory_contents", False,
+                              {"directory": directory_path, "error": error_msg},
+                              level=logging.ERROR)
+        return {}
+
+    operation_details = {
+        "directory": directory_path,
+        "recursive": recursive,
+        "algorithms": algorithms,
+        "output_file": output_file
+    }
+
+    # Set default algorithm if none specified
+    if not algorithms:
+        algorithms = [DEFAULT_HASH_ALGORITHM]
+
+    # Validate algorithms
+    if VALIDATION_UTILS_AVAILABLE:
+        for algorithm in algorithms:
+            is_valid, msg = validate_hash_format(algorithm)
+            if not is_valid:
+                logger.error(f"Invalid hash algorithm: {algorithm}")
+                log_forensic_operation("hash_directory_contents", False,
+                                     {**operation_details, "error": f"Invalid algorithm: {algorithm}"})
+                return {}
+
+    result = {}
+    processed_count = 0
+    error_count = 0
+
+    try:
+        # Walk through directory
+        for root, dirs, files in os.walk(directory_path):
+            if not recursive and root != directory_path:
+                continue
+
+            for filename in files:
+                file_path = os.path.join(root, filename)
+                rel_path = os.path.relpath(file_path, directory_path)
+
+                # Skip if matches exclude pattern
+                if exclude_patterns:
+                    skip = False
+                    for pattern in exclude_patterns:
+                        if fnmatch.fnmatch(rel_path, pattern):
+                            skip = True
+                            break
+                    if skip:
+                        continue
+
+                # Calculate hashes
+                try:
+                    file_hashes = {}
+                    for algorithm in algorithms:
+                        if CRYPTO_AVAILABLE:
+                            hash_value = calculate_file_hash(file_path, algorithm)
+                            if hash_value:
+                                file_hashes[algorithm] = hash_value
+                        else:
+                            # Fallback implementation if crypto is not available
+                            import hashlib
+                            try:
+                                if algorithm.lower() not in hashlib.algorithms_available:
+                                    logger.warning(f"Hash algorithm {algorithm} not available")
+                                    continue
+
+                                hash_obj = hashlib.new(algorithm.lower())
+
+                                with open(file_path, 'rb') as f:
+                                    for chunk in iter(lambda: f.read(65536), b''):
+                                        hash_obj.update(chunk)
+
+                                file_hashes[algorithm] = hash_obj.hexdigest()
+                            except Exception as hash_error:
+                                logger.warning(f"Error calculating {algorithm} hash for {rel_path}: {hash_error}")
+
+                    if file_hashes:  # Only add if we have at least one valid hash
+                        result[rel_path] = file_hashes
+                        processed_count += 1
+                except (IOError, OSError) as e:
+                    logger.warning(f"Error accessing file {rel_path}: {e}")
+                    error_count += 1
+
+            # Don't process subdirectories if not recursive
+            if not recursive:
+                break
+
+        # Write output file if requested
+        if output_file and result:
+            output_dir = os.path.dirname(output_file)
+            if output_dir and not os.path.exists(output_dir):
+                os.makedirs(output_dir, exist_ok=True)
+
+            metadata = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "directory": directory_path,
+                "file_count": processed_count,
+                "algorithms": algorithms,
+                "recursive": recursive
+            }
+
+            with open(output_file, 'w') as f:
+                json.dump({
+                    "metadata": metadata,
+                    "hashes": result
+                }, f, indent=2)
+
+            # Set secure permissions on output file
+            try:
+                os.chmod(output_file, DEFAULT_SECURE_FILE_PERMS)
+            except OSError as e:
+                logger.warning(f"Failed to set secure permissions on hash database file: {e}")
+
+        operation_details.update({
+            "files_processed": processed_count,
+            "files_with_errors": error_count
+        })
+
+        log_forensic_operation("hash_directory_contents", True, operation_details)
+        return result
+
+    except Exception as e:
+        error_msg = f"Error hashing directory contents: {str(e)}"
+        logger.error(error_msg)
+        log_forensic_operation("hash_directory_contents", False,
+                              {**operation_details, "error": error_msg},
+                              level=logging.ERROR)
+        return {}
+
+
+def extract_archive_securely(
+    archive_path: str,
+    output_dir: str,
+    archive_type: Optional[str] = None,
+    verify_hash: bool = True,
+    expected_hash: Optional[str] = None,
+    hash_algorithm: str = DEFAULT_HASH_ALGORITHM,
+    max_size: Optional[int] = None,
+    allowed_extensions: Optional[List[str]] = None
+) -> Tuple[bool, Dict[str, Any]]:
+    """
+    Extract an archive file to a directory with security controls and verification.
+
+    This function implements forensic best practices for archive extraction, including
+    integrity verification, output path validation, and protection against path traversal
+    attacks and zip bombs.
+
+    Args:
+        archive_path: Path to the archive file to extract
+        output_dir: Directory where extracted files will be placed
+        archive_type: Type of archive (auto-detected if None)
+        verify_hash: Whether to verify archive integrity before extraction
+        expected_hash: Expected hash value of archive (if verify_hash is True)
+        hash_algorithm: Algorithm to use for hash verification
+        max_size: Maximum allowed size for extracted files (bytes)
+        allowed_extensions: List of file extensions allowed for extraction
+
+    Returns:
+        Tuple of (success: bool, results: Dict)
+        Results dict contains:
+            - extracted_files: List of paths to extracted files
+            - skipped_files: List of files skipped (with reasons)
+            - total_size: Total size of extracted files
+    """
+    import os
+    import shutil
+    import zipfile
+    import tarfile
+    import tempfile
+    from pathlib import Path
+
+    operation_details = {
+        "archive_path": archive_path,
+        "output_dir": output_dir,
+        "archive_type": archive_type,
+        "verify_hash": verify_hash,
+        "hash_algorithm": hash_algorithm
+    }
+
+    # Default max size if not specified
+    if max_size is None:
+        max_size = MAX_FILE_SIZE_BYTES if FORENSIC_CONSTANTS_LOADED else (100 * 1024 * 1024)  # 100MB
+
+    # Default allowed extensions if not specified
+    if allowed_extensions is None:
+        allowed_extensions = list(SAFE_FILE_EXTENSIONS) if FORENSIC_CONSTANTS_LOADED else [
+            ".txt", ".log", ".csv", ".json", ".xml", ".html", ".htm", ".pdf",
+            ".md", ".yaml", ".yml", ".ini", ".conf", ".cfg"
+        ]
+
+    result = {
+        "extracted_files": [],
+        "skipped_files": [],
+        "total_size": 0
+    }
+
+    try:
+        # Validate input parameters
+        if not os.path.isfile(archive_path):
+            error_msg = f"Archive file not found: {archive_path}"
+            logger.error(error_msg)
+            log_forensic_operation("extract_archive_securely", False,
+                                 {**operation_details, "error": error_msg})
+            return False, result
+
+        # Validate path if validation module is available
+        if VALIDATION_AVAILABLE:
+            is_valid, msg = validate_path(archive_path, check_exists=True)
+            if not is_valid:
+                error_msg = f"Invalid archive path: {msg}"
+                logger.error(error_msg)
+                log_forensic_operation("extract_archive_securely", False,
+                                     {**operation_details, "error": error_msg})
+                return False, result
+
+            is_valid, msg = validate_path(output_dir)
+            if not is_valid:
+                error_msg = f"Invalid output directory: {msg}"
+                logger.error(error_msg)
+                log_forensic_operation("extract_archive_securely", False,
+                                     {**operation_details, "error": error_msg})
+                return False, result
+
+        # Verify hash if requested
+        if verify_hash:
+            if expected_hash:
+                if CRYPTO_AVAILABLE:
+                    if not verify_file_hash(archive_path, expected_hash, hash_algorithm):
+                        error_msg = f"Archive integrity verification failed. Hash mismatch."
+                        logger.error(error_msg)
+                        log_forensic_operation("extract_archive_securely", False,
+                                             {**operation_details, "error": error_msg})
+                        return False, result
+                else:
+                    logger.warning("Crypto module not available. Hash verification skipped.")
+            else:
+                # Just calculate hash for logging purposes
+                if CRYPTO_AVAILABLE:
+                    hash_value = calculate_file_hash(archive_path, hash_algorithm)
+                    operation_details["archive_hash"] = hash_value
+
+        # Create output directory if it doesn't exist
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Create a temporary directory for extraction
+        with tempfile.TemporaryDirectory(prefix="forensic_extract_") as temp_dir:
+            # Detect archive type if not specified
+            if not archive_type:
+                if archive_path.endswith(('.zip', '.ZIP')):
+                    archive_type = 'zip'
+                elif archive_path.endswith(('.tar', '.TAR')):
+                    archive_type = 'tar'
+                elif archive_path.endswith(('.tar.gz', '.tgz', '.TGZ')):
+                    archive_type = 'tar.gz'
+                elif archive_path.endswith(('.tar.bz2', '.tbz2', '.TBZ2')):
+                    archive_type = 'tar.bz2'
+                else:
+                    # Try to determine by content
+                    with open(archive_path, 'rb') as f:
+                        signature = f.read(4)
+                        if signature.startswith(b'PK\x03\x04'):
+                            archive_type = 'zip'
+                        elif signature.startswith(b'\x1f\x8b'):
+                            archive_type = 'tar.gz'
+                        elif signature.startswith(b'BZ'):
+                            archive_type = 'tar.bz2'
+                        else:
+                            archive_type = 'unknown'
+
+            # Extract based on archive type
+            extracted_files = []
+            skipped_files = []
+            total_size = 0
+
+            if archive_type == 'zip':
+                try:
+                    with zipfile.ZipFile(archive_path, 'r') as zip_ref:
+                        # First pass - validate files before extraction
+                        for file_info in zip_ref.infolist():
+                            file_path = file_info.filename
+
+                            # Check for path traversal attempts
+                            if file_path.startswith('/') or '..' in file_path:
+                                skip_reason = "Path traversal attempt detected"
+                                logger.warning(f"Skipping {file_path}: {skip_reason}")
+                                skipped_files.append({"path": file_path, "reason": skip_reason})
+                                continue
+
+                            # Check for excessive size (zip bomb protection)
+                            if file_info.file_size > max_size:
+                                skip_reason = f"File exceeds maximum size ({file_info.file_size} > {max_size})"
+                                logger.warning(f"Skipping {file_path}: {skip_reason}")
+                                skipped_files.append({"path": file_path, "reason": skip_reason})
+                                continue
+
+                            # Check file extension if we have allowed list
+                            if allowed_extensions:
+                                ext = os.path.splitext(file_path)[1].lower()
+                                if ext not in allowed_extensions:
+                                    skip_reason = f"File extension {ext} not in allowed list"
+                                    logger.warning(f"Skipping {file_path}: {skip_reason}")
+                                    skipped_files.append({"path": file_path, "reason": skip_reason})
+                                    continue
+
+                            # Sanitize path for extraction
+                            safe_path = os.path.normpath(os.path.join(temp_dir, file_path))
+
+                            # Ensure file is within temp directory (no directory traversal)
+                            if not safe_path.startswith(temp_dir):
+                                skip_reason = "Path traversal attempt detected"
+                                logger.warning(f"Skipping {file_path}: {skip_reason}")
+                                skipped_files.append({"path": file_path, "reason": skip_reason})
+                                continue
+
+                            # Create parent directory if needed
+                            os.makedirs(os.path.dirname(safe_path), exist_ok=True)
+
+                            # Extract the file
+                            zip_ref.extract(file_path, temp_dir)
+
+                            # Record the extracted file if it's a file (not directory)
+                            if not file_info.is_dir():
+                                extracted_files.append(file_path)
+                                total_size += os.path.getsize(safe_path)
+
+                except zipfile.BadZipFile as e:
+                    error_msg = f"Error extracting ZIP archive: {str(e)}"
+                    logger.error(error_msg)
+                    log_forensic_operation("extract_archive_securely", False,
+                                         {**operation_details, "error": error_msg})
+                    return False, result
+
+            elif archive_type in ['tar', 'tar.gz', 'tar.bz2']:
+                try:
+                    mode = 'r'
+                    if archive_type == 'tar.gz':
+                        mode = 'r:gz'
+                    elif archive_type == 'tar.bz2':
+                        mode = 'r:bz2'
+
+                    with tarfile.open(archive_path, mode) as tar_ref:
+                        # First pass - validate files before extraction
+                        for member in tar_ref.getmembers():
+                            file_path = member.name
+
+                            # Check for absolute paths or path traversal
+                            if file_path.startswith('/') or '..' in file_path:
+                                skip_reason = "Path traversal attempt detected"
+                                logger.warning(f"Skipping {file_path}: {skip_reason}")
+                                skipped_files.append({"path": file_path, "reason": skip_reason})
+                                continue
+
+                            # Check for excessive size
+                            if member.size > max_size:
+                                skip_reason = f"File exceeds maximum size ({member.size} > {max_size})"
+                                logger.warning(f"Skipping {file_path}: {skip_reason}")
+                                skipped_files.append({"path": file_path, "reason": skip_reason})
+                                continue
+
+                            # Check file extension
+                            if allowed_extensions and not member.isdir():
+                                ext = os.path.splitext(file_path)[1].lower()
+                                if ext not in allowed_extensions:
+                                    skip_reason = f"File extension {ext} not in allowed list"
+                                    logger.warning(f"Skipping {file_path}: {skip_reason}")
+                                    skipped_files.append({"path": file_path, "reason": skip_reason})
+                                    continue
+
+                            # Sanitize path for extraction
+                            safe_path = os.path.normpath(os.path.join(temp_dir, file_path))
+
+                            # Ensure file is within temp directory (no directory traversal)
+                            if not safe_path.startswith(temp_dir):
+                                skip_reason = "Path traversal attempt detected"
+                                logger.warning(f"Skipping {file_path}: {skip_reason}")
+                                skipped_files.append({"path": file_path, "reason": skip_reason})
+                                continue
+
+                            # Extract file
+                            tar_ref.extract(member, temp_dir)
+
+                            # Record extracted file if not directory
+                            if member.isreg():
+                                extracted_files.append(file_path)
+                                total_size += os.path.getsize(safe_path)
+
+                except tarfile.ReadError as e:
+                    error_msg = f"Error extracting TAR archive: {str(e)}"
+                    logger.error(error_msg)
+                    log_forensic_operation("extract_archive_securely", False,
+                                         {**operation_details, "error": error_msg})
+                    return False, result
+            else:
+                error_msg = f"Unsupported archive type: {archive_type}"
+                logger.error(error_msg)
+                log_forensic_operation("extract_archive_securely", False,
+                                     {**operation_details, "error": error_msg})
+                return False, result
+
+            # Copy files from temp directory to output directory
+            extracted_paths = []
+            for file_path in extracted_files:
+                src_path = os.path.join(temp_dir, file_path)
+                dst_path = os.path.join(output_dir, file_path)
+
+                # Ensure destination directory exists
+                os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+
+                # Securely copy the file with hash verification
+                if CRYPTO_AVAILABLE:
+                    source_hash = calculate_file_hash(src_path)
+                    shutil.copy2(src_path, dst_path)
+                    dest_hash = calculate_file_hash(dst_path)
+
+                    if source_hash != dest_hash:
+                        logger.warning(f"Hash mismatch during copy of {file_path}")
+                else:
+                    shutil.copy2(src_path, dst_path)
+
+                # Set secure permissions on the file
+                try:
+                    os.chmod(dst_path, DEFAULT_SECURE_FILE_PERMS)
+                except OSError as e:
+                    logger.warning(f"Failed to set secure permissions on {dst_path}: {e}")
+
+                extracted_paths.append(dst_path)
+
+        # Update result
+        result["extracted_files"] = extracted_paths
+        result["skipped_files"] = skipped_files
+        result["total_size"] = total_size
+        result["file_count"] = len(extracted_paths)
+
+        # Log the successful operation
+        operation_details.update({
+            "files_extracted": len(extracted_paths),
+            "files_skipped": len(skipped_files),
+            "total_size_bytes": total_size
+        })
+
+        log_forensic_operation("extract_archive_securely", True, operation_details)
+        return True, result
+
+    except Exception as e:
+        error_msg = f"Error extracting archive: {str(e)}"
+        logger.error(error_msg)
+        log_forensic_operation("extract_archive_securely", False,
+                             {**operation_details, "error": error_msg},
+                             level=logging.ERROR)
+        return False, result
+
+
 def get_file_metadata(file_path: str, include_extended: bool = False) -> Optional[Dict[str, Any]]:
     """
     Retrieves forensic metadata for a file.

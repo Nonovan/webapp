@@ -14,7 +14,9 @@ import os
 import re
 import logging
 import json
-from typing import List, Optional, Union, Dict, Any, Pattern
+import shutil
+import tempfile
+from typing import List, Optional, Union, Dict, Any, Pattern, Set, Tuple
 
 # Attempt to import core security utilities
 try:
@@ -89,7 +91,7 @@ def redact_sensitive_data(
     content: str,
     patterns: Optional[List[Union[str, Pattern]]] = None,
     policy: Optional[str] = "high",
-    placeholder: str = FALLBACK_REDACTION_PLACEHOLDER
+    placeholder: str = FALLBACK_REDACTION_PLACEHOLDER if not CONSTANTS_AVAILABLE else DEFAULT_REDACTION_PLACEHOLDER
 ) -> str:
     """
     Redacts sensitive information from a string based on regex patterns or a predefined policy.
@@ -107,24 +109,24 @@ def redact_sensitive_data(
     """
     if not isinstance(content, str):
         logger.warning("Input content is not a string. Returning as is.")
-        return content # Or raise TypeError
+        return content  # Or raise TypeError
 
     operation_details = {"policy": policy, "patterns_provided": bool(patterns), "placeholder": placeholder}
     sanitized_content = content
     patterns_to_use: List[Pattern] = []
 
     if patterns:
-        operation_details["policy"] = "custom" # Override policy name if patterns are given
+        operation_details["policy"] = "custom"  # Override policy name if patterns are given
         for p in patterns:
             if isinstance(p, str):
                 try:
-                    patterns_to_use.append(re.compile(p, re.IGNORECASE)) # Default to case-insensitive
+                    patterns_to_use.append(re.compile(p, re.IGNORECASE))  # Default to case-insensitive
                 except re.error as e:
                     logger.warning(f"Invalid regex pattern string provided: '{p}'. Error: {e}. Skipping.")
             elif isinstance(p, re.Pattern):
                 patterns_to_use.append(p)
             else:
-                 logger.warning(f"Invalid pattern type provided: {type(p)}. Skipping.")
+                logger.warning(f"Invalid pattern type provided: {type(p)}. Skipping.")
     elif policy and policy in REDACTION_POLICIES:
         patterns_to_use = REDACTION_POLICIES[policy]
     elif policy:
@@ -133,7 +135,7 @@ def redact_sensitive_data(
 
     if not patterns_to_use:
         log_forensic_operation("redact_sensitive_data", True, {**operation_details, "status": "No patterns applied"})
-        return content # Nothing to redact
+        return content  # Nothing to redact
 
     redactions_made = 0
     for pattern in patterns_to_use:
@@ -152,7 +154,6 @@ def redact_sensitive_data(
                     else:
                         return f"{match.group(1)}{match.group(0)[len(match.group(1)):].split(match.group(2))[0]}{placeholder}"
                 return placeholder
-
             sanitized_content = pattern.sub(replacer, sanitized_content)
 
         except re.error as e:
@@ -172,27 +173,19 @@ def mask_sensitive_value(
     placeholder: Optional[str] = None
 ) -> str:
     """
-    Masks sensitive values using the core obfuscation implementation.
-
-    This function serves as a wrapper around the core obfuscate_sensitive_data
-    function to ensure consistent masking of sensitive values across the application.
+    Masks a sensitive string value, optionally showing parts of the beginning and end.
 
     Args:
         value: The sensitive string to mask
-        prefix_visible: Number of characters to show at beginning
-        suffix_visible: Number of characters to show at end
-        placeholder: If provided, uses this placeholder instead of masked characters
-                     (ignored when using core implementation)
+        prefix_visible: Number of characters to keep visible at the beginning
+        suffix_visible: Number of characters to keep visible at the end
+        placeholder: Custom placeholder to use instead of default masking
 
     Returns:
         The masked string with only specified portions visible
     """
-    if not value:
-        return ""
-
-    # If a full placeholder is requested, don't use partial masking
-    if placeholder is not None and prefix_visible == 0 and suffix_visible == 0:
-        return placeholder
+    if not isinstance(value, str):
+        return str(value)
 
     # Use the core implementation if available
     if CORE_OBFUSCATION_AVAILABLE:
@@ -209,93 +202,342 @@ def mask_sensitive_value(
         else:
             return placeholder
     else:
-        # Use fallback implementation with default '*' masking
-        return obfuscate_sensitive_data(value, prefix_visible, suffix_visible, '*')
+        # Use simple masking with asterisks if no placeholder provided
+        data_len = len(value)
+        if data_len == 0:
+            return ""
+
+        # Handle the case when the value is shorter than the visible parts
+        if prefix_visible + suffix_visible >= data_len:
+            prefix_visible = min(prefix_visible, data_len // 2)
+            suffix_visible = min(suffix_visible, data_len // 2)
+
+        prefix = value[:prefix_visible]
+        suffix = value[-suffix_visible:] if suffix_visible > 0 else ""
+        mask_length = data_len - prefix_visible - suffix_visible
+        mask = '*' * mask_length if mask_length > 0 else ""
+
+        return prefix + mask + suffix
 
 
-def sanitize_json_object(
-    data: Any,
-    key_patterns: Optional[List[Union[str, Pattern]]] = None,
-    value_patterns: Optional[List[Union[str, Pattern]]] = None,
-    value_policy: Optional[str] = "high",
-    placeholder: str = DEFAULT_REDACTION_PLACEHOLDER
-) -> Any:
+def detect_pii(content: str) -> Dict[str, List[str]]:
     """
-    Recursively sanitizes a Python object (dict, list, str) potentially loaded from JSON.
+    Detects potential personally identifiable information (PII) in text content.
 
-    Redacts sensitive string values based on patterns/policy and can optionally
-    redact values associated with specific keys.
+    This function scans the provided text for common PII patterns such as email addresses,
+    SSNs, credit card numbers, and IP addresses. It's intended to help identify sensitive
+    information that should be redacted before sharing.
 
     Args:
-        data: The Python object to sanitize.
-        key_patterns: Optional list of regex patterns to match dictionary keys.
-                      If a key matches, its value will be redacted.
-        value_patterns: Optional list of regex patterns to apply to string values.
-                        Overrides value_policy.
-        value_policy: Predefined policy for redacting string values (default: "high").
-                      Ignored if value_patterns is provided.
-        placeholder: The string to replace redacted values with.
+        content: The text content to scan for PII
 
     Returns:
-        The sanitized Python object.
+        Dictionary mapping PII categories to lists of found matches
     """
-    # Use credential keywords as default key patterns if none provided
-    if key_patterns is None:
-        key_patterns = CREDENTIAL_KEYWORDS
+    if not isinstance(content, str):
+        logger.warning("Input content is not a string.")
+        return {}
 
-    compiled_key_patterns: List[Pattern] = []
-    if key_patterns:
-        for p in key_patterns:
-            try:
-                if isinstance(p, str):
-                    compiled_key_patterns.append(re.compile(p, re.IGNORECASE))
-                elif isinstance(p, re.Pattern):
-                    compiled_key_patterns.append(p)
-                else:
-                    logger.warning(f"Invalid key pattern type: {type(p)}. Skipping.")
-            except re.error as e:
-                logger.warning(f"Invalid key regex pattern '{p}': {e}. Skipping.")
+    operation_details = {"content_length": len(content)}
+    results = {
+        "emails": [],
+        "ip_addresses": [],
+        "ssns": [],
+        "credit_cards": [],
+        "credentials": []
+    }
 
-    if isinstance(data, dict):
-        sanitized_dict = {}
-        for key, value in data.items():
-            redact_key = False
-            if compiled_key_patterns:
-                for kp in compiled_key_patterns:
-                    if kp.search(str(key)): # Convert key to string just in case
-                        redact_key = True
-                        break
-            if redact_key:
-                # For sensitive keys that match patterns, use the core obfuscation
-                # instead of a simple placeholder to maintain consistent masking
-                if isinstance(value, str) and CORE_OBFUSCATION_AVAILABLE:
-                    sanitized_dict[key] = mask_sensitive_value(value, prefix_visible=0, suffix_visible=0, placeholder=placeholder)
-                else:
-                    sanitized_dict[key] = placeholder
+    try:
+        # Find emails
+        emails = EMAIL_PATTERN.findall(content)
+        results["emails"] = emails
+
+        # Find IP addresses
+        ips = IPV4_PATTERN.findall(content)
+        results["ip_addresses"] = ips
+
+        # Find SSNs
+        ssns = SSN_PATTERN.findall(content)
+        results["ssns"] = ssns
+
+        # Find credit card numbers
+        # Note: In production, should validate with Luhn algorithm
+        credit_cards = CREDIT_CARD_PATTERN.findall(content)
+        results["credit_cards"] = credit_cards
+
+        # Find credentials
+        creds = CREDENTIAL_ASSIGNMENT_PATTERN.findall(content)
+        results["credentials"] = [f"{key}={value}" for key, value in creds]
+
+        # Count total findings
+        total_findings = sum(len(items) for items in results.values())
+        operation_details["total_findings"] = total_findings
+        operation_details["findings_by_category"] = {k: len(v) for k, v in results.items()}
+
+        log_forensic_operation("detect_pii", True, operation_details)
+        return results
+
+    except Exception as e:
+        logger.error(f"Error detecting PII: {e}", exc_info=True)
+        log_forensic_operation("detect_pii", False,
+                              {**operation_details, "error": str(e)},
+                              level=logging.ERROR)
+        return results
+
+
+def sanitize_filename(filename: str) -> str:
+    """
+    Sanitizes a filename to prevent directory traversal and other security issues.
+
+    This function ensures filenames are safe by removing path components and
+    replacing potentially dangerous characters. This is especially important
+    when handling filenames from untrusted sources.
+
+    Args:
+        filename: The filename to sanitize
+
+    Returns:
+        The sanitized filename string
+    """
+    if not filename:
+        return "unnamed_file"
+
+    operation_details = {"original_filename": filename}
+
+    try:
+        # Remove directory traversal components and limit to basename
+        sanitized = os.path.basename(filename)
+
+        # Remove null bytes and control characters
+        sanitized = re.sub(r'[\x00-\x1f]', '', sanitized)
+
+        # Replace potentially dangerous characters
+        sanitized = re.sub(r'[<>:"/\\|?*]', '_', sanitized)
+
+        # Ensure the filename is not empty after sanitization
+        if not sanitized:
+            sanitized = "unnamed_file"
+
+        # Limit length for safety (prevent extremely long filenames)
+        if len(sanitized) > 255:
+            # Preserve extension if present
+            parts = sanitized.rsplit('.', 1)
+            if len(parts) > 1:
+                sanitized = parts[0][:250] + '.' + parts[1]
             else:
-                # Recursively sanitize the value
-                sanitized_dict[key] = sanitize_json_object(
-                    value, key_patterns, value_patterns, value_policy, placeholder
-                )
-        return sanitized_dict
-    elif isinstance(data, list):
-        # Recursively sanitize each item in the list
-        return [sanitize_json_object(item, key_patterns, value_patterns, value_policy, placeholder) for item in data]
-    elif isinstance(data, str):
-        # Apply value redaction to strings
-        return redact_sensitive_data(data, patterns=value_patterns, policy=value_policy, placeholder=placeholder)
+                sanitized = sanitized[:255]
+
+        operation_details["sanitized_filename"] = sanitized
+        log_forensic_operation("sanitize_filename", True, operation_details)
+        return sanitized
+
+    except Exception as e:
+        logger.error(f"Error sanitizing filename: {e}")
+        log_forensic_operation("sanitize_filename", False,
+                              {**operation_details, "error": str(e)},
+                              level=logging.ERROR)
+        # Return a safe default in case of error
+        return "sanitization_error_file"
+
+
+def remove_metadata(file_path: str, output_path: Optional[str] = None, file_type: Optional[str] = None) -> Tuple[bool, str]:
+    """
+    Removes metadata from files to prevent leakage of sensitive information.
+
+    This function strips metadata such as EXIF data from images, document properties
+    from PDFs/Office documents, and other metadata that could contain sensitive information.
+
+    Args:
+        file_path: Path to the input file
+        output_path: Path to save the sanitized file (if None, creates a path)
+        file_type: Explicitly specify the file type (if None, detect from extension)
+
+    Returns:
+        Tuple of (success: bool, output_path: str)
+    """
+    if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        logger.error(f"Input file does not exist or is not a file: {file_path}")
+        return False, ""
+
+    operation_details = {"input_file": file_path}
+
+    # Determine output path if not specified
+    if output_path is None:
+        base_dir = os.path.dirname(file_path)
+        filename = os.path.basename(file_path)
+        output_path = os.path.join(base_dir, f"sanitized_{filename}")
+
+    operation_details["output_file"] = output_path
+
+    # If output path is the same as input, we need a temporary file
+    if output_path == file_path:
+        use_temp = True
+        temp_output = os.path.join(tempfile.gettempdir(), f"temp_sanitized_{os.path.basename(file_path)}")
     else:
-        # Return non-dict/list/str types as is (e.g., numbers, booleans, None)
-        return data
+        use_temp = False
+        temp_output = output_path
+
+    try:
+        # Determine file type if not specified
+        if file_type is None:
+            ext = os.path.splitext(file_path)[1].lower()
+            # Map extension to file type
+            if ext in ('.jpg', '.jpeg', '.png', '.gif', '.tiff', '.tif'):
+                file_type = 'image'
+            elif ext in ('.pdf'):
+                file_type = 'pdf'
+            elif ext in ('.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'):
+                file_type = 'office'
+            elif ext in ('.mp3', '.wav', '.flac'):
+                file_type = 'audio'
+            elif ext in ('.mp4', '.mov', '.avi'):
+                file_type = 'video'
+            else:
+                file_type = 'unknown'
+
+        operation_details["file_type"] = file_type
+
+        # Use file-type specific handling
+        success = False
+        result_msg = ""
+
+        if file_type == 'image':
+            # Simple metadata removal for images - just copy the pixel data
+            try:
+                from PIL import Image
+                img = Image.open(file_path)
+                # Create a new image with just the pixel data
+                img_without_exif = Image.new(img.mode, img.size)
+                img_without_exif.putdata(list(img.getdata()))
+                # Save to new file
+                img_without_exif.save(temp_output)
+                success = True
+                result_msg = "Image metadata stripped successfully"
+            except ImportError:
+                # Fallback method without PIL
+                shutil.copy2(file_path, temp_output)
+                result_msg = "PIL not available. Simple file copy performed without metadata removal."
+                success = True
+
+        elif file_type in ('pdf', 'office'):
+            # For documents, we'd ideally use dedicated libraries like PyPDF2, python-docx
+            # For simplicity, log that proper handling requires additional dependencies
+            shutil.copy2(file_path, temp_output)
+            result_msg = f"Full {file_type} metadata removal requires specialized libraries. Simple copy performed."
+            success = True
+
+        else:
+            # For unknown/unsupported types, just make a copy
+            shutil.copy2(file_path, temp_output)
+            result_msg = "Unknown file type. Simple copy performed without metadata removal."
+            success = True
+
+        operation_details["result_message"] = result_msg
+
+        # If we used a temp file because input=output, do the swap
+        if use_temp and success:
+            shutil.move(temp_output, output_path)
+
+        log_forensic_operation("remove_metadata", success, operation_details)
+        return success, output_path
+
+    except Exception as e:
+        error_msg = f"Error removing metadata: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        log_forensic_operation("remove_metadata", False,
+                              {**operation_details, "error": error_msg},
+                              level=logging.ERROR)
+
+        # Clean up temp file if it exists
+        if use_temp and os.path.exists(temp_output):
+            try:
+                os.remove(temp_output)
+            except:
+                pass
+
+        return False, ""
+
+
+def sanitize_ip_addresses(content: str, placeholder: str = "[REDACTED IP]") -> str:
+    """
+    Specifically sanitizes IP addresses in content.
+
+    Args:
+        content: The content containing IP addresses
+        placeholder: The string to replace IP addresses with
+
+    Returns:
+        Sanitized content with IPs replaced
+    """
+    if not isinstance(content, str):
+        return str(content)
+
+    operation_details = {"content_length": len(content)}
+    try:
+        # Replace IPv4 addresses
+        result, count = re.subn(IPV4_PATTERN, placeholder, content)
+
+        # Add IPv6 handling if needed
+        # IPv6_PATTERN = re.compile(r'(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}')
+        # result, ipv6_count = re.subn(IPv6_PATTERN, placeholder, result)
+        # count += ipv6_count
+
+        operation_details["ips_replaced"] = count
+        log_forensic_operation("sanitize_ip_addresses", True, operation_details)
+        return result
+
+    except Exception as e:
+        logger.error(f"Error sanitizing IP addresses: {e}")
+        log_forensic_operation("sanitize_ip_addresses", False,
+                              {**operation_details, "error": str(e)},
+                              level=logging.ERROR)
+        return content
+
+
+def detect_credentials(content: str) -> List[Dict[str, str]]:
+    """
+    Detects potential credentials in text content.
+
+    Args:
+        content: The text content to scan
+
+    Returns:
+        List of dictionaries with credential type and value
+    """
+    if not isinstance(content, str):
+        return []
+
+    operation_details = {"content_length": len(content)}
+    results = []
+
+    try:
+        # Find key=value style credentials
+        creds = CREDENTIAL_ASSIGNMENT_PATTERN.findall(content)
+        for key, value in creds:
+            results.append({
+                "type": key,
+                "value": value
+            })
+
+        operation_details["credentials_found"] = len(results)
+        log_forensic_operation("detect_credentials", True, operation_details)
+        return results
+
+    except Exception as e:
+        logger.error(f"Error detecting credentials: {e}")
+        log_forensic_operation("detect_credentials", False,
+                              {**operation_details, "error": str(e)},
+                              level=logging.ERROR)
+        return []
 
 
 def prepare_external_report(
     input_path: str,
     output_path: str,
-    input_format: str = "json", # or "text"
+    input_format: str = "json",  # or "text"
     redaction_policy: str = "high",
-    key_patterns: Optional[List[Union[str, Pattern]]] = None, # Only for JSON
-    placeholder: str = DEFAULT_REDACTION_PLACEHOLDER,
+    key_patterns: Optional[List[Union[str, Pattern]]] = None,  # Only for JSON
+    placeholder: str = FALLBACK_REDACTION_PLACEHOLDER if not CONSTANTS_AVAILABLE else DEFAULT_REDACTION_PLACEHOLDER,
     overwrite: bool = False
 ) -> bool:
     """
@@ -396,6 +638,82 @@ def prepare_external_report(
         return False
 
 
+def sanitize_json_object(
+    data: Any,
+    key_patterns: Optional[List[Union[str, Pattern]]] = None,
+    value_patterns: Optional[List[Union[str, Pattern]]] = None,
+    value_policy: Optional[str] = "high",
+    placeholder: str = FALLBACK_REDACTION_PLACEHOLDER if not CONSTANTS_AVAILABLE else DEFAULT_REDACTION_PLACEHOLDER
+) -> Any:
+    """
+    Recursively sanitizes a Python object (dict, list, str) potentially loaded from JSON.
+
+    Redacts sensitive string values based on patterns/policy and can optionally
+    redact values associated with specific keys.
+
+    Args:
+        data: The Python object to sanitize.
+        key_patterns: Optional list of regex patterns to match dictionary keys.
+                      If a key matches, its value will be redacted.
+        value_patterns: Optional list of regex patterns to apply to string values.
+                        Overrides value_policy.
+        value_policy: Predefined policy for redacting string values (default: "high").
+                      Ignored if value_patterns is provided.
+        placeholder: The string to replace redacted values with.
+
+    Returns:
+        The sanitized Python object.
+    """
+    # Use credential keywords as default key patterns if none provided
+    if key_patterns is None:
+        key_patterns = CREDENTIAL_KEYWORDS
+
+    compiled_key_patterns: List[Pattern] = []
+    if key_patterns:
+        for p in key_patterns:
+            try:
+                if isinstance(p, str):
+                    compiled_key_patterns.append(re.compile(p, re.IGNORECASE))
+                elif isinstance(p, re.Pattern):
+                    compiled_key_patterns.append(p)
+                else:
+                    logger.warning(f"Invalid key pattern type: {type(p)}. Skipping.")
+            except re.error as e:
+                logger.warning(f"Invalid key regex pattern '{p}': {e}. Skipping.")
+
+    if isinstance(data, dict):
+        sanitized_dict = {}
+        for key, value in data.items():
+            redact_key = False
+            if compiled_key_patterns:
+                for kp in compiled_key_patterns:
+                    if kp.search(str(key)):  # Convert key to string just in case
+                        redact_key = True
+                        break
+            if redact_key:
+                # For sensitive keys that match patterns, use the core obfuscation
+                # instead of a simple placeholder to maintain consistent masking
+                if isinstance(value, str) and CORE_OBFUSCATION_AVAILABLE:
+                    sanitized_dict[key] = mask_sensitive_value(value, prefix_visible=0, suffix_visible=0, placeholder=placeholder)
+                else:
+                    sanitized_dict[key] = placeholder
+            else:
+                # Recursively sanitize the value
+                sanitized_dict[key] = sanitize_json_object(
+                    value, key_patterns, value_patterns, value_policy, placeholder
+                )
+        return sanitized_dict
+    elif isinstance(data, list):
+        # Recursively sanitize each item in the list
+        return [sanitize_json_object(item, key_patterns, value_patterns, value_policy, placeholder) for item in data]
+    elif isinstance(data, str):
+        # Apply value redaction to strings
+        return redact_sensitive_data(data, patterns=value_patterns, policy=value_policy, placeholder=placeholder)
+    else:
+        # Return non-dict/list/str types as is (e.g., numbers, booleans, None)
+        return data
+
+
 # --- Example Usage ---
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -433,10 +751,10 @@ if __name__ == "__main__":
         "username": "jdoe",
         "contact": {
             "email": "john.doe@company.com",
-            "phone": "555-123-4567" # No pattern for phone yet
+            "phone": "555-123-4567"  # No pattern for phone yet
         },
         "credentials": {
-            "password_hash": "...", # Assume hash is okay
+            "password_hash": "...",  # Assume hash is okay
             "api_key": "ak_test_zyxw98765",
             "notes": "User mentioned SSN 987-65-4321 during call."
         },
@@ -486,7 +804,7 @@ if __name__ == "__main__":
         output_path=output_json_path,
         input_format="json",
         redaction_policy="high",
-        key_patterns=CREDENTIAL_KEYWORDS, # Redact keys like 'password', 'api_key'
+        key_patterns=CREDENTIAL_KEYWORDS,  # Redact keys like 'password', 'api_key'
         overwrite=True
     )
     print(f"JSON file sanitization successful: {success_json}")

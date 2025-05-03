@@ -1041,6 +1041,544 @@ def change_evidence_state(
 
     return update_success
 
+
+def list_evidence_by_case(case_id: str, filter_criteria: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """
+    Lists all evidence items for a specific case, with optional filtering.
+
+    Args:
+        case_id: The case identifier.
+        filter_criteria: Optional dictionary of criteria to filter evidence by.
+
+    Returns:
+        List of evidence metadata dictionaries.
+    """
+    if not case_id:
+        logger.error("Missing required case_id for listing evidence")
+        log_forensic_operation("list_evidence_by_case", False, {"error": "Missing case_id"})
+        return []
+
+    if filter_criteria is None:
+        filter_criteria = {}
+
+    try:
+        # Get all evidence for the case
+        all_evidence = search_evidence_by_criteria(case_id, filter_criteria)
+
+        log_forensic_operation("list_evidence_by_case", True, {
+            "case_id": case_id,
+            "filter_applied": bool(filter_criteria),
+            "evidence_count": len(all_evidence)
+        })
+
+        return all_evidence
+    except Exception as e:
+        logger.error(f"Error listing evidence for case {case_id}: {e}")
+        log_forensic_operation("list_evidence_by_case", False, {"case_id": case_id, "error": str(e)})
+        return []
+
+
+def create_evidence_container(
+    case_id: str,
+    evidence_ids: List[str],
+    analyst: str,
+    output_path: Optional[str] = None,
+    container_type: str = "zip",
+    include_metadata: bool = True,
+    encryption_password: Optional[str] = None
+) -> Optional[str]:
+    """
+    Creates a container (archive) with multiple evidence items for transfer or storage.
+
+    Args:
+        case_id: The case identifier.
+        evidence_ids: List of evidence IDs to include in the container.
+        analyst: The analyst creating the container.
+        output_path: Optional path where the container should be saved (default: temp directory)
+        container_type: Type of container to create ("zip", "tar", "7z")
+        include_metadata: Whether to include evidence metadata files
+        encryption_password: Optional encryption password for the container
+
+    Returns:
+        Path to the created container file, or None if creation failed.
+    """
+    if not case_id or not evidence_ids or not analyst:
+        logger.error("Missing required parameters for creating evidence container")
+        log_forensic_operation("create_evidence_container", False, {
+            "error": "Missing required parameters"
+        })
+        return None
+
+    if container_type not in ["zip", "tar", "7z"]:
+        logger.error(f"Unsupported container type: {container_type}")
+        log_forensic_operation("create_evidence_container", False, {
+            "error": f"Unsupported container type: {container_type}"
+        })
+        return None
+
+    try:
+        # Create a timestamp for the container filename
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+        # Create a temporary directory for staging the container contents
+        import tempfile
+        staging_dir = tempfile.mkdtemp(prefix=f"evidence_container_{case_id}_", dir=TEMP_DIR_FORENSICS)
+        os.chmod(staging_dir, DEFAULT_SECURE_DIR_PERMS)
+
+        # Create a metadata directory in the staging area
+        metadata_dir = os.path.join(staging_dir, "metadata")
+        os.makedirs(metadata_dir, mode=DEFAULT_SECURE_DIR_PERMS, exist_ok=True)
+
+        # Create an evidence directory in the staging area
+        evidence_dir = os.path.join(staging_dir, "evidence")
+        os.makedirs(evidence_dir, mode=DEFAULT_SECURE_DIR_PERMS, exist_ok=True)
+
+        # Track evidence items included in container
+        included_evidence = []
+        excluded_evidence = []
+        evidence_manifest = {
+            "case_id": case_id,
+            "container_created_at": datetime.now(timezone.utc).isoformat(),
+            "container_created_by": analyst,
+            "evidence_items": []
+        }
+
+        # Add each evidence item to the container
+        for evidence_id in evidence_ids:
+            metadata = get_evidence_details(case_id, evidence_id)
+            if not metadata:
+                logger.warning(f"Evidence {evidence_id} metadata not found, skipping")
+                excluded_evidence.append(evidence_id)
+                continue
+
+            # Get the current location of the evidence file
+            source_path = metadata.get("current_location")
+            if not source_path or not os.path.exists(source_path):
+                logger.warning(f"Evidence file not found for {evidence_id}, skipping")
+                excluded_evidence.append(evidence_id)
+                continue
+
+            # Copy the evidence file to the staging area
+            evidence_filename = os.path.basename(source_path)
+            dest_path = os.path.join(evidence_dir, f"{evidence_id}_{evidence_filename}")
+
+            try:
+                shutil.copy2(source_path, dest_path)
+                os.chmod(dest_path, DEFAULT_READ_ONLY_FILE_PERMS)
+                included_evidence.append(evidence_id)
+
+                # Include metadata if requested
+                if include_metadata:
+                    metadata_path = os.path.join(metadata_dir, f"{evidence_id}.json")
+                    with open(metadata_path, 'w', encoding='utf-8') as f:
+                        json.dump(metadata, f, indent=2)
+                    os.chmod(metadata_path, DEFAULT_READ_ONLY_FILE_PERMS)
+
+                # Add to manifest
+                evidence_manifest["evidence_items"].append({
+                    "evidence_id": evidence_id,
+                    "original_path": source_path,
+                    "container_path": f"evidence/{evidence_id}_{evidence_filename}",
+                    "metadata_included": include_metadata,
+                    "hash_algorithm": next(iter(metadata.get("initial_hashes", {}))),
+                    "hash_value": next(iter(metadata.get("initial_hashes", {}).values())),
+                    "description": metadata.get("description", "")
+                })
+            except Exception as e:
+                logger.error(f"Error copying evidence {evidence_id}: {e}")
+                excluded_evidence.append(evidence_id)
+
+        # Write the manifest file
+        manifest_path = os.path.join(metadata_dir, "container_manifest.json")
+        with open(manifest_path, 'w', encoding='utf-8') as f:
+            json.dump(evidence_manifest, f, indent=2)
+        os.chmod(manifest_path, DEFAULT_READ_ONLY_FILE_PERMS)
+
+        # Create the container file
+        if not output_path:
+            output_path = os.path.join(
+                TEMP_DIR_FORENSICS,
+                f"evidence_container_{case_id}_{timestamp}.{container_type}"
+            )
+
+        if container_type == "zip":
+            import zipfile
+            compression = zipfile.ZIP_DEFLATED
+            encryption = zipfile.ZIP_AES if encryption_password else None
+
+            with zipfile.ZipFile(output_path, 'w', compression=compression) as zf:
+                # Walk the staging directory and add all files
+                for root, _, files in os.walk(staging_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        # Get path relative to staging directory
+                        rel_path = os.path.relpath(file_path, staging_dir)
+                        zf.write(file_path, rel_path, compress_type=compression)
+
+        elif container_type == "tar":
+            import tarfile
+            with tarfile.open(output_path, "w:gz") as tar:
+                # Change to staging directory and add everything
+                current_dir = os.getcwd()
+                os.chdir(staging_dir)
+                try:
+                    for item in os.listdir('.'):
+                        tar.add(item)
+                finally:
+                    os.chdir(current_dir)
+
+        elif container_type == "7z":
+            # For 7z, we need to use subprocess to call the 7z command
+            import subprocess
+            cmd = ["7z", "a", output_path]
+
+            if encryption_password:
+                cmd.extend(["-p" + encryption_password])
+
+            cmd.append(os.path.join(staging_dir, "*"))
+
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        # Calculate the hash for the container
+        container_hash = calculate_file_hash(output_path)
+
+        # Track container creation in chain of custody for each included evidence
+        for evidence_id in included_evidence:
+            track_access(
+                case_id=case_id,
+                evidence_id=evidence_id,
+                analyst=analyst,
+                action="container_inclusion",
+                purpose="Evidence included in container package",
+                details={
+                    "container_path": output_path,
+                    "container_hash": container_hash,
+                    "container_type": container_type,
+                    "encryption": bool(encryption_password)
+                }
+            )
+
+        # Log the container creation
+        log_forensic_operation("create_evidence_container", True, {
+            "case_id": case_id,
+            "evidence_count": len(included_evidence),
+            "excluded_count": len(excluded_evidence),
+            "container_path": output_path,
+            "container_hash": container_hash,
+            "container_type": container_type,
+            "encryption": bool(encryption_password)
+        })
+
+        # Clean up the staging directory
+        shutil.rmtree(staging_dir)
+
+        return output_path
+
+    except Exception as e:
+        logger.error(f"Error creating evidence container for case {case_id}: {e}")
+        log_forensic_operation("create_evidence_container", False, {
+            "case_id": case_id,
+            "error": str(e)
+        })
+        return None
+
+
+def export_chain_of_custody(
+    case_id: str,
+    evidence_id: Optional[str] = None,
+    output_path: Optional[str] = None,
+    format: str = "pdf",
+    include_signatures: bool = True
+) -> Optional[str]:
+    """
+    Exports the chain of custody log for a case or specific evidence item.
+
+    Args:
+        case_id: The case identifier.
+        evidence_id: Optional evidence ID to export custody for a specific item.
+        output_path: Optional path to save the exported file.
+        format: Output format ('pdf', 'html', 'json', 'csv', 'text').
+        include_signatures: Whether to include signature fields in the export.
+
+    Returns:
+        Path to the exported file, or None if export failed.
+    """
+    if not case_id:
+        logger.error("Missing required case_id for exporting chain of custody")
+        log_forensic_operation("export_chain_of_custody", False, {"error": "Missing case_id"})
+        return None
+
+    if format not in ["pdf", "html", "json", "csv", "text"]:
+        logger.error(f"Unsupported export format: {format}")
+        log_forensic_operation("export_chain_of_custody", False, {"error": f"Unsupported format: {format}"})
+        return None
+
+    try:
+        # Get the chain of custody entries
+        custody_entries = get_chain_of_custody(case_id, evidence_id)
+        if not custody_entries:
+            logger.warning(f"No chain of custody entries found for case {case_id}{f', evidence {evidence_id}' if evidence_id else ''}")
+            return None
+
+        # Get case details if available
+        case_details = None
+        if os.path.exists(_get_case_metadata_dir(case_id)):
+            try:
+                case_info_path = os.path.join(_get_case_metadata_dir(case_id), "case_info.json")
+                if os.path.exists(case_info_path):
+                    with open(case_info_path, 'r', encoding='utf-8') as f:
+                        case_details = json.load(f)
+            except Exception as e:
+                logger.warning(f"Could not load case details: {e}")
+
+        # Get evidence details if applicable
+        evidence_details = None
+        if evidence_id:
+            evidence_details = get_evidence_details(case_id, evidence_id)
+
+        # Generate a timestamp for the filename
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+        # Determine output path if not provided
+        if not output_path:
+            evidence_suffix = f"_{evidence_id}" if evidence_id else ""
+            output_path = os.path.join(
+                TEMP_DIR_FORENSICS,
+                f"chain_of_custody_{case_id}{evidence_suffix}_{timestamp}.{format}"
+            )
+
+        # Prepare the export data
+        export_data = {
+            "case_id": case_id,
+            "evidence_id": evidence_id,
+            "export_timestamp": datetime.now(timezone.utc).isoformat(),
+            "entries": custody_entries,
+            "case_details": case_details,
+            "evidence_details": evidence_details,
+            "include_signatures": include_signatures
+        }
+
+        # Export based on format
+        if format == "json":
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(export_data, f, indent=2)
+
+        elif format == "csv":
+            import csv
+            with open(output_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                # Write header
+                writer.writerow([
+                    "Timestamp", "Evidence ID", "Analyst", "Action",
+                    "Purpose", "Details"
+                ])
+                # Write entries
+                for entry in custody_entries:
+                    writer.writerow([
+                        entry.get("timestamp", ""),
+                        entry.get("evidence_id", ""),
+                        entry.get("analyst", ""),
+                        entry.get("action", ""),
+                        entry.get("purpose", ""),
+                        json.dumps(entry.get("details", {}))
+                    ])
+
+        elif format == "text":
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(f"Chain of Custody Report\n")
+                f.write(f"Case ID: {case_id}\n")
+                if evidence_id:
+                    f.write(f"Evidence ID: {evidence_id}\n")
+                f.write(f"Generated: {datetime.now(timezone.utc).isoformat()}\n\n")
+
+                if evidence_details:
+                    f.write("Evidence Information:\n")
+                    f.write(f"Description: {evidence_details.get('description', 'N/A')}\n")
+                    f.write(f"Type: {evidence_details.get('evidence_type', 'N/A')}\n")
+                    f.write(f"Acquisition Date: {evidence_details.get('acquisition_timestamp', 'N/A')}\n")
+                    f.write(f"Acquired By: {evidence_details.get('acquisition_analyst', 'N/A')}\n\n")
+
+                f.write("Chain of Custody Log:\n")
+                f.write("-" * 80 + "\n")
+                for entry in custody_entries:
+                    f.write(f"Timestamp: {entry.get('timestamp', '')}\n")
+                    f.write(f"Analyst: {entry.get('analyst', '')}\n")
+                    f.write(f"Action: {entry.get('action', '')}\n")
+                    f.write(f"Purpose: {entry.get('purpose', '')}\n")
+                    details = entry.get("details", {})
+                    if details:
+                        f.write("Details:\n")
+                        for key, value in details.items():
+                            f.write(f"  {key}: {value}\n")
+                    f.write("-" * 80 + "\n")
+
+                if include_signatures:
+                    f.write("\nSignatures:\n\n")
+                    f.write("Report Generated By: ____________________________  Date: ____________\n\n")
+                    f.write("Reviewed By: ________________________________  Date: ____________\n\n")
+
+        elif format == "html" or format == "pdf":
+            # Create HTML version (for both HTML and PDF formats)
+            from datetime import datetime
+            html_content = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>Chain of Custody Report - Case {case_id}</title>
+                <style>
+                    body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                    h1, h2 {{ color: #2c3e50; }}
+                    table {{ border-collapse: collapse; width: 100%; margin-bottom: 20px; }}
+                    th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                    th {{ background-color: #f2f2f2; }}
+                    tr:nth-child(even) {{ background-color: #f9f9f9; }}
+                    .signature-line {{ border-top: 1px solid black; margin-top: 70px; width: 300px; }}
+                    .header {{ display: flex; justify-content: space-between; }}
+                    .evidence-info {{ background-color: #f8f9fa; padding: 10px; border: 1px solid #ddd; margin-bottom: 20px; }}
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <h1>Chain of Custody Report</h1>
+                    <div>
+                        <p><strong>Generated:</strong> {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")}</p>
+                    </div>
+                </div>
+                <div>
+                    <p><strong>Case ID:</strong> {case_id}</p>
+                    {f'<p><strong>Evidence ID:</strong> {evidence_id}</p>' if evidence_id else ''}
+                </div>
+            """
+
+            if evidence_details:
+                html_content += f"""
+                <h2>Evidence Information</h2>
+                <div class="evidence-info">
+                    <p><strong>Description:</strong> {evidence_details.get('description', 'N/A')}</p>
+                    <p><strong>Type:</strong> {evidence_details.get('evidence_type', 'N/A')}</p>
+                    <p><strong>Acquisition Date:</strong> {evidence_details.get('acquisition_timestamp', 'N/A')}</p>
+                    <p><strong>Acquired By:</strong> {evidence_details.get('acquisition_analyst', 'N/A')}</p>
+                    <p><strong>Classification:</strong> {evidence_details.get('classification', 'N/A')}</p>
+                </div>
+                """
+
+            html_content += """
+                <h2>Chain of Custody Log</h2>
+                <table>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Evidence ID</th>
+                        <th>Analyst</th>
+                        <th>Action</th>
+                        <th>Purpose</th>
+                        <th>Details</th>
+                    </tr>
+            """
+
+            for entry in custody_entries:
+                details_str = "<ul>"
+                for key, value in entry.get("details", {}).items():
+                    details_str += f"<li><strong>{key}:</strong> {value}</li>"
+                details_str += "</ul>"
+
+                html_content += f"""
+                    <tr>
+                        <td>{entry.get('timestamp', '')}</td>
+                        <td>{entry.get('evidence_id', '')}</td>
+                        <td>{entry.get('analyst', '')}</td>
+                        <td>{entry.get('action', '')}</td>
+                        <td>{entry.get('purpose', '')}</td>
+                        <td>{details_str}</td>
+                    </tr>
+                """
+
+            html_content += """
+                </table>
+            """
+
+            if include_signatures:
+                html_content += """
+                <h2>Signatures</h2>
+                <div>
+                    <div>
+                        <p class="signature-line"></p>
+                        <p>Report Generated By</p>
+                    </div>
+                    <div>
+                        <p class="signature-line"></p>
+                        <p>Date</p>
+                    </div>
+                    <div>
+                        <p class="signature-line"></p>
+                        <p>Reviewed By</p>
+                    </div>
+                    <div>
+                        <p class="signature-line"></p>
+                        <p>Date</p>
+                    </div>
+                </div>
+                """
+
+            html_content += """
+                </body>
+                </html>
+            """
+
+            # For HTML format, write directly to file
+            if format == "html":
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write(html_content)
+
+            # For PDF format, convert HTML to PDF
+            else:  # format == "pdf"
+                try:
+                    # Try to use weasyprint if available
+                    try:
+                        from weasyprint import HTML
+                        HTML(string=html_content).write_pdf(output_path)
+                    except ImportError:
+                        # Fall back to pdfkit if weasyprint is not available
+                        import pdfkit
+                        pdfkit.from_string(html_content, output_path)
+                except Exception as pdf_error:
+                    logger.error(f"Error creating PDF: {pdf_error}. Falling back to HTML.")
+                    # If PDF conversion fails, fall back to HTML
+                    html_path = output_path.replace('.pdf', '.html')
+                    with open(html_path, 'w', encoding='utf-8') as f:
+                        f.write(html_content)
+                    log_forensic_operation("export_chain_of_custody", False, {
+                        "case_id": case_id,
+                        "evidence_id": evidence_id,
+                        "error": f"PDF conversion failed: {str(pdf_error)}",
+                        "fallback": "HTML format"
+                    })
+                    return html_path
+
+        # Set proper file permissions
+        os.chmod(output_path, DEFAULT_READ_ONLY_FILE_PERMS)
+
+        # Log the export operation
+        log_forensic_operation("export_chain_of_custody", True, {
+            "case_id": case_id,
+            "evidence_id": evidence_id,
+            "format": format,
+            "output_path": output_path,
+            "entry_count": len(custody_entries)
+        })
+
+        return output_path
+
+    except Exception as e:
+        logger.error(f"Error exporting chain of custody for case {case_id}: {e}")
+        log_forensic_operation("export_chain_of_custody", False, {
+            "case_id": case_id,
+            "evidence_id": evidence_id,
+            "error": str(e)
+        })
+        return None
+
+
 # Example usage and testing
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
