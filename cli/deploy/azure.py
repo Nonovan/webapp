@@ -11,6 +11,7 @@ import logging
 import click
 from flask.cli import AppGroup
 from core.loggings import get_logger
+import time
 
 # Initialize CLI group and logger
 azure_cli = AppGroup('azure', help='Azure deployment commands')
@@ -26,25 +27,25 @@ def deploy_azure(env, location, template, params, resource_group):
     """Deploy application to Azure using ARM templates."""
     if resource_group is None:
         resource_group = f"cloud-platform-{env}"
-    
+
     click.echo(f"Deploying to Azure {location} environment: {env}")
-    
+
     try:
         # Check if Azure CLI is installed
         import subprocess
         result = subprocess.run(['az', '--version'], capture_output=True, text=True)
         if result.returncode != 0:
             raise click.ClickException("Azure CLI not found. Please install it first.")
-        
+
         # Create resource group if it doesn't exist
         subprocess.run([
             'az', 'group', 'create',
             '--name', resource_group,
             '--location', location
         ], check=True)
-        
+
         click.echo(f"Deploying ARM template: {template}")
-        
+
         # Deploy ARM template
         deployment_name = f"deployment-{env}-{int(time.time())}"
         result = subprocess.run([
@@ -54,10 +55,10 @@ def deploy_azure(env, location, template, params, resource_group):
             '--template-file', template,
             '--parameters', params
         ], capture_output=True, text=True, check=True)
-        
+
         click.echo(f"Deployment {deployment_name} initiated")
         click.echo("Check Azure portal for deployment status")
-        
+
     except subprocess.CalledProcessError as e:
         logger.error(f"Azure deployment failed: {e.stdout} {e.stderr}")
         raise click.ClickException(f"Deployment failed: {e.stderr}")
@@ -72,7 +73,7 @@ def check_status(env, resource_group):
     """Check deployment status in Azure."""
     if resource_group is None:
         resource_group = f"cloud-platform-{env}"
-    
+
     try:
         import subprocess
         result = subprocess.run([
@@ -80,16 +81,16 @@ def check_status(env, resource_group):
             '--resource-group', resource_group,
             '--query', '[0]'
         ], capture_output=True, text=True, check=True)
-        
+
         deployment = json.loads(result.stdout)
         if not deployment:
             click.echo(f"No deployments found in resource group {resource_group}")
             return
-        
+
         click.echo(f"Deployment name: {deployment.get('name')}")
         click.echo(f"Status: {deployment.get('properties', {}).get('provisioningState')}")
         click.echo(f"Timestamp: {deployment.get('properties', {}).get('timestamp')}")
-        
+
     except subprocess.CalledProcessError as e:
         if "ResourceGroupNotFound" in str(e.stderr):
             raise click.ClickException(f"Resource group {resource_group} does not exist")
@@ -106,7 +107,7 @@ def teardown_azure(env, resource_group):
     """Tear down Azure deployment."""
     if resource_group is None:
         resource_group = f"cloud-platform-{env}"
-    
+
     try:
         import subprocess
         click.echo(f"Deleting resource group: {resource_group}")
@@ -116,7 +117,7 @@ def teardown_azure(env, resource_group):
             '--yes'
         ], check=True)
         click.echo(f"Resource group {resource_group} deletion initiated")
-        
+
     except subprocess.CalledProcessError as e:
         logger.error(f"Azure teardown failed: {e.stdout} {e.stderr}")
         raise click.ClickException(f"Teardown failed: {e.stderr}")

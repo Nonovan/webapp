@@ -22,6 +22,7 @@ deployment_cli.add_command(azure_cli)
 deployment_cli.add_command(gcp_cli)
 deployment_cli.add_command(k8s_cli)
 deployment_cli.add_command(docker_cli)
+deployment_cli.add_command(deploy_cli)
 
 # Export command groups
 __all__ = [

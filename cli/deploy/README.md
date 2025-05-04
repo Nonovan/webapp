@@ -46,6 +46,7 @@ The deployment CLI implements a comprehensive set of commands for managing infra
   - Image registry operations
   - Resource cleanup and pruning
   - Container environment management
+  - Image verification and validation
 
 - **`gcp.py`**: Google Cloud Platform commands
   - Deployment Manager-based provisioning
@@ -56,10 +57,14 @@ The deployment CLI implements a comprehensive set of commands for managing infra
 
 - **`general.py`**: Provider-agnostic commands
   - Configuration validation
-  - Environment listing and selection
+  - Environment listing and creation
   - Deployment preparation
   - Cross-provider operations
   - Monitoring and reporting
+  - File integrity verification
+  - Environment comparison
+  - Deployment status monitoring
+  - Resource cleanup
 
 - **`kubernetes.py`**: Kubernetes deployment commands
   - Manifest-based deployment
@@ -67,6 +72,8 @@ The deployment CLI implements a comprehensive set of commands for managing infra
   - Deployment status monitoring
   - Cluster resource management
   - Deployment teardown
+  - Individual manifest application
+  - Detailed resource inspection
 
 ## Directory Structure
 
@@ -104,6 +111,7 @@ cli/deploy/
 - **Logging**: Detailed logging of all deployment operations
 - **Permission Verification**: Validation of required permissions before deployment
 - **Resource Isolation**: Proper namespace and resource group isolation
+- **File Integrity**: Verification of critical file integrity before deployment
 
 ## Common Features
 
@@ -129,8 +137,23 @@ flask deploy general prepare --env production
 # List available environments
 flask deploy general list
 
+# Initialize a new environment
+flask deploy general init-env staging --template production
+
 # Validate configuration files
 flask deploy general validate --env production
+
+# Verify file integrity
+flask deploy general verify-integrity --env production --fail-on-changes
+
+# Compare configurations between environments
+flask deploy general diff development production --output diff.txt
+
+# Check deployment status across environments
+flask deploy general status --env production
+
+# Clean up deployment artifacts
+flask deploy general cleanup --env development --artifacts --backup
 ```
 
 ### AWS Deployments
@@ -170,6 +193,9 @@ flask deploy docker compose --env production --action up
 
 # Clean up Docker resources
 flask deploy docker prune
+
+# Verify Docker image integrity
+flask deploy docker verify-image my-image:tag --output report.json
 ```
 
 ### GCP Deployments
@@ -192,10 +218,16 @@ flask deploy gcp teardown --env production
 flask deploy k8s deploy --env production --namespace my-namespace
 
 # Check Kubernetes deployment status
-flask deploy k8s status --env production
+flask deploy k8s status --env production --detailed
+
+# Apply a specific Kubernetes manifest
+flask deploy k8s apply --env production --file deployment/kubernetes/service.yaml
 
 # Tear down Kubernetes deployment
 flask deploy k8s teardown --env production
+
+# Tear down specific resources while retaining others
+flask deploy k8s teardown --env production --retain-resources configmaps --retain-resources secrets
 ```
 
 ## Related Documentation
@@ -208,3 +240,4 @@ flask deploy k8s teardown --env production
 - Kubernetes Deployment Guide
 - Release Management Process
 - Security Hardening Guidelines
+- File Integrity Monitoring
