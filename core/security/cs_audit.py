@@ -9,6 +9,7 @@ and the database audit log for compliance and investigation purposes.
 import json
 import logging
 from typing import Dict, Any, Optional, Union, List, Tuple
+import os
 from datetime import datetime, timezone, timedelta
 
 # SQLAlchemy imports
@@ -23,12 +24,10 @@ from .cs_constants import SECURITY_CONFIG
 from models.security import AuditLog
 from extensions import db, metrics, get_redis_client
 
-
 # Set up module-level logger
 logger = logging.getLogger(__name__)
 # Initialize security logger for security events
 security_logger = logging.getLogger('security')
-
 
 def log_security_event(
     event_type: str,
@@ -41,35 +40,32 @@ def log_security_event(
     object_id: Optional[Union[int, str]] = None
 ) -> bool:
     """
-    Log a security event to both application logs and audit log.
+    Log a security event to both application logs and the audit log database.
 
-    This function serves as the central point for all security event logging
-    in the application. It logs to both the application logs and the database
-    audit log for comprehensive security event tracking.
+    This function provides comprehensive security event logging, recording events
+    in both the application logs (for real-time monitoring) and the audit log
+    database (for compliance and investigation).
 
     Args:
-        event_type: Type of security event (e.g., 'login_failed', 'file_integrity')
+        event_type: Type of security event
         description: Human-readable description of the event
-        severity: Severity level ('info', 'warning', 'error', 'critical')
-        user_id: ID of the user associated with the event, if any
-        ip_address: IP address associated with the event, if any
+        severity: Severity level (info, warning, error, critical)
+        user_id: ID of the user associated with the event
+        ip_address: IP address associated with the event
         details: Additional details about the event
-        object_type: Type of object affected (e.g., 'User', 'Configuration')
-        object_id: ID of the affected object
+        object_type: Type of object affected by the event
+        object_id: ID of the object affected by the event
 
     Returns:
-        bool: True if logging was successful, False otherwise
+        bool: True if the event was successfully logged, False otherwise
     """
     try:
-        # Try to get user_id from flask.g if not provided
+        # Determine user ID from context if not provided
         if user_id is None and has_request_context() and hasattr(g, 'user_id'):
             user_id = g.user_id
 
-        # Try to get IP address from request if not provided
-        if ip_address is None and has_request_context():
-            ip_address = request.remote_addr
-
-            # Get proper forwarded IP if behind proxy
+        # Determine IP address from request if not provided
+        if has_request_context():
             if ip_address is None or ip_address == '127.0.0.1':
                 forwarded_for = request.headers.get('X-Forwarded-For')
                 if forwarded_for:
@@ -143,144 +139,27 @@ def log_security_event(
         logger.error(f"Fatal error in security logging: {e}")
         return False
 
-
-def log_model_event(
-    model_name: str,
-    event_type: str,
-    object_id: Optional[Union[int, str]] = None,
-    user_id: Optional[int] = None,
-    details: Optional[Dict[str, Any]] = None,
-    severity: str = 'info'
-) -> bool:
-    """
-    Log an event related to a model object.
-
-    This is a convenience wrapper around log_security_event that provides
-    standardized formatting for model-related events.
-
-    Args:
-        model_name: Name of the model being logged
-        event_type: Type of event (e.g., 'status_change', 'permission_update')
-        object_id: ID of the object being acted upon
-        user_id: ID of the user performing the action (optional)
-        details: Additional details about the event
-        severity: Event severity (info, warning, error, critical)
-
-    Returns:
-        bool: True if logging was successful, False otherwise
-    """
-    # Automatically detect user ID from context if not provided
-    if user_id is None and has_request_context() and hasattr(g, 'user_id'):
-        user_id = g.user_id
-
-    # Create a standardized event_type format
-    full_event_type = f"{model_name.lower()}_{event_type}"
-
-    # Generate a descriptive message
-    description = f"{model_name} {event_type}"
-    if object_id is not None:
-        description = f"{model_name} {event_type} for ID {object_id}"
-
-    # Pass to the main security event logging function
-    return log_security_event(
-        event_type=full_event_type,
-        description=description,
-        severity=severity,
-        user_id=user_id,
-        details=details,
-        object_type=model_name,
-        object_id=object_id
-    )
-
-
-def log_error(message: str) -> None:
-    """
-    Log an error message using the security logger.
-
-    Args:
-        message: Error message to log
-    """
-    if has_app_context():
-        security_logger.error(message)
-    else:
-        logger.error(message)
-
-
-def log_warning(message: str) -> None:
-    """
-    Log a warning message using the security logger.
-
-    Args:
-        message: Warning message to log
-    """
-    if has_app_context():
-        security_logger.warning(message)
-    else:
-        logger.warning(message)
-
-
-def log_info(message: str) -> None:
-    """
-    Log an info message using the security logger.
-
-    Args:
-        message: Info message to log
-    """
-    if has_app_context():
-        security_logger.info(message)
-    else:
-        logger.info(message)
-
-
-def log_debug(message: str) -> None:
-    """
-    Log a debug message using the security logger.
-
-    Args:
-        message: Debug message to log
-    """
-    if has_app_context():
-        security_logger.debug(message)
-    else:
-        logger.debug(message)
-
-
 def _prepare_log_details(details: Optional[Union[str, Dict[str, Any]]]) -> Optional[str]:
     """
-    Prepare details for logging by converting to a string format.
+    Prepare details for logging by converting to JSON if needed.
 
     Args:
-        details: Event details as string or dictionary
+        details: Details as string or dictionary
 
     Returns:
-        str: Formatted details string or None
+        str: JSON string representation of details
     """
-    if not details:
+    if details is None:
         return None
 
-    if isinstance(details, dict):
-        try:
-            # Remove any sensitive keys before serializing
-            sanitized_details = details.copy()
-            for sensitive_key in ['password', 'secret', 'token', 'key', 'credential']:
-                if sensitive_key in sanitized_details:
-                    sanitized_details[sensitive_key] = '[REDACTED]'
+    if isinstance(details, str):
+        return details
 
-            # Try with default encoder first
-            try:
-                return json.dumps(sanitized_details)
-            except (TypeError, ValueError):
-                # Fall back to custom encoding with str() for non-serializable values
-                for key, value in sanitized_details.items():
-                    if not isinstance(value, (str, int, float, bool, list, dict, type(None))):
-                        sanitized_details[key] = str(value)
-                return json.dumps(sanitized_details)
-        except (TypeError, ValueError) as e:
-            logger.warning(f"Failed to JSON encode details: {e}")
-            return str(details)
-
-    return str(details)
-
+    try:
+        return json.dumps(details)
+    except Exception as e:
+        logger.error(f"Error converting details to JSON: {e}")
+        return json.dumps({"error": "Failed to serialize details", "raw": str(details)[:500]})
 
 def _log_to_application_log(
     description: str,
@@ -294,27 +173,26 @@ def _log_to_application_log(
     object_id: Optional[Union[int, str]] = None
 ) -> None:
     """
-    Log security event to the application log.
+    Log security event to application log.
 
     Args:
         description: Event description
-        log_level: Logging level
+        log_level: Log level (INFO, WARNING, etc.)
         event_type: Type of security event
         user_id: Associated user ID
         ip_address: Associated IP address
         severity: Event severity
-        log_details: Formatted event details
+        log_details: JSON string of event details
         object_type: Type of object affected
-        object_id: ID of the affected object
+        object_id: ID of object affected
     """
     try:
-        # Create extra data dictionary for structured logging
+        # Create extra data for structured logging
         extra_data = {
             'event_type': event_type,
             'user_id': user_id,
             'ip_address': ip_address,
-            'severity': severity,
-            'timestamp': datetime.now(timezone.utc).isoformat()
+            'severity': severity
         }
 
         if object_type:
@@ -335,7 +213,6 @@ def _log_to_application_log(
     except Exception as e:
         logger.error(f"Error writing to security log: {e}")
 
-
 def _record_in_audit_log(
     event_type: str,
     description: str,
@@ -348,28 +225,25 @@ def _record_in_audit_log(
     session_id: Optional[str] = None
 ) -> Optional[int]:
     """
-    Record security event in the database audit log.
+    Record security event in the audit log database.
 
     Args:
         event_type: Type of security event
         description: Event description
         user_id: Associated user ID
         ip_address: Associated IP address
-        log_details: Formatted event details
-        db_severity: Database severity level
+        log_details: JSON string of event details
+        db_severity: Database severity constant
         object_type: Type of object affected
-        object_id: ID of the affected object
-        session_id: User session ID if available
+        object_id: ID of object affected
+        session_id: Session identifier
 
     Returns:
-        Optional[int]: ID of the created audit log entry or None on error
-
-    Raises:
-        SQLAlchemyError: Database error
+        Optional[int]: ID of the created audit log entry, or None on error
     """
     try:
-        # Add request path and method if available
-        request_data = {}
+        # Get request data if available
+        request_data = None
         if has_request_context():
             request_data = {
                 'path': request.path,
@@ -408,7 +282,6 @@ def _record_in_audit_log(
 
         return None
 
-
 def _fallback_log_to_redis(
     event_type: str,
     description: str,
@@ -420,35 +293,38 @@ def _fallback_log_to_redis(
     """
     Fallback logging to Redis when database is unavailable.
 
+    This function stores audit events in Redis temporarily until they can be
+    processed into the main audit log database.
+
     Args:
         event_type: Type of security event
         description: Event description
         user_id: Associated user ID
         ip_address: Associated IP address
-        log_details: Formatted event details
-        severity: Event severity
+        log_details: JSON string of event details
+        severity: Event severity level
 
     Returns:
-        bool: True if success, False otherwise
+        bool: True if successfully logged to Redis, False otherwise
     """
     redis_client = get_redis_client()
     if not redis_client:
         return False
 
     try:
-        # Create a simple event summary
+        # Create an event summary with all relevant info
         event_summary = {
             'event_type': event_type,
             'description': description,
             'user_id': user_id,
             'ip_address': ip_address,
-            'severity': severity,
             'details': log_details,
+            'severity': severity,
             'timestamp': datetime.now(timezone.utc).isoformat()
         }
 
-        # Add to fallback events list
-        key = 'security:fallback_events'
+        # Store in Redis list for later processing
+        key = 'security:fallback_logs'
         redis_client.lpush(key, json.dumps(event_summary))
 
         # Cap the list to prevent memory issues (store last 1000 events)
@@ -463,7 +339,6 @@ def _fallback_log_to_redis(
     except Exception as e:
         logger.error(f"Redis fallback logging failed: {e}")
         return False
-
 
 def _cache_critical_event(
     event_type: str,
@@ -537,7 +412,6 @@ def _cache_critical_event(
     except Exception as e:
         logger.error(f"Failed to cache critical event: {e}")
 
-
 def _add_to_event_correlation(
     event_type: str,
     user_id: Optional[int],
@@ -545,10 +419,7 @@ def _add_to_event_correlation(
     severity: str
 ) -> None:
     """
-    Add event to correlation database for pattern detection.
-
-    This function records events for later pattern analysis to detect
-    potential security threats based on event correlation.
+    Add security event to correlation tracking for pattern detection.
 
     Args:
         event_type: Type of security event
@@ -561,12 +432,11 @@ def _add_to_event_correlation(
         return
 
     try:
-        # Current timestamp
         now = datetime.now(timezone.utc)
         timestamp = now.timestamp()
 
-        # Store in correlation window
-        window = SECURITY_CONFIG.get('EVENT_CORRELATION_WINDOW', 300)  # Default 5 minutes
+        # Get correlation window from config
+        window = SECURITY_CONFIG.get('EVENT_CORRELATION_WINDOW', 3600)  # Default 1 hour
 
         # If user ID exists, track events by user
         if user_id:
@@ -589,46 +459,34 @@ def _add_to_event_correlation(
         # Track high severity events globally
         if severity in ('error', 'critical'):
             global_key = 'security:correlation:global_high_severity'
-            redis_client.zadd(global_key, {f"{event_type}:{user_id or 'none'}:{ip_address or 'none'}:{timestamp}": timestamp})
+            redis_client.zadd(global_key, {f"{event_type}:{user_id or 'anonymous'}:{timestamp}": timestamp})
             # Expire old entries
             redis_client.zremrangebyscore(global_key, 0, now.timestamp() - window)
             # Set key expiration
             redis_client.expire(global_key, window * 2)
     except Exception as e:
-        logger.error(f"Failed to add event to correlation database: {e}")
-
+        logger.error(f"Failed to add event to correlation tracking: {e}")
 
 def register_event_handlers():
     """
-    Register event handlers for authentication events.
-
-    This function sets up listeners for authentication-related events
-    to ensure they are properly logged in the security audit system.
-    Events include login attempts, logouts, password changes, MFA events,
-    and other security-relevant authentication operations.
+    Register event handlers for audit logging on model events.
 
     Returns:
-        bool: True if registration was successful
+        bool: True if handlers were registered successfully, False otherwise
     """
     try:
-        from flask import current_app
-        logger.info("Registering authentication event handlers")
-
-        # Track security metrics if available
-        if hasattr(metrics, 'counter'):
-            metrics.counter('security.auth.handlers_registered').inc()
-
-        # Import authentication event listeners
-        from models.auth import User, LoginAttempt, UserSession
         from sqlalchemy import event
+        from models.auth.login_attempt import LoginAttempt
+        from models.security.session import Session
 
-        # Set up event listeners for authentication events
+        # Register handlers for login attempts
         event.listen(LoginAttempt, 'after_insert', _handle_login_attempt)
-        event.listen(UserSession, 'after_insert', _handle_session_created)
-        event.listen(UserSession, 'after_update', _handle_session_updated)
-        event.listen(UserSession, 'after_delete', _handle_session_terminated)
 
-        # Set up handlers for authentication-related operations
+        # Register handlers for session events
+        event.listen(Session, 'after_insert', _handle_session_created)
+        event.listen(Session, 'after_update', _handle_session_updated)
+        event.listen(Session, 'after_delete', _handle_session_terminated)
+
         # These will be triggered by the respective operations in the auth module
 
         logger.info("Authentication event handlers registered successfully")
@@ -720,7 +578,6 @@ def _handle_session_terminated(mapper, connection, session):
     except Exception as e:
         logger.error(f"Error handling session terminated event: {e}")
 
-
 def get_recent_security_events(
     limit: int = 50,
     severity: Optional[str] = None,
@@ -731,7 +588,7 @@ def get_recent_security_events(
     end_time: Optional[datetime] = None
 ) -> List[Dict[str, Any]]:
     """
-    Get recent security events from the database with flexible filtering.
+    Get recent security events from the audit log.
 
     Args:
         limit: Maximum number of events to return
@@ -739,16 +596,16 @@ def get_recent_security_events(
         event_type: Filter by event type
         user_id: Filter by user ID
         ip_address: Filter by IP address
-        start_time: Filter events after this time
-        end_time: Filter events before this time
+        start_time: Filter by start time
+        end_time: Filter by end time
 
     Returns:
-        List[Dict[str, Any]]: List of security events as dictionaries
+        List[Dict[str, Any]]: List of security events
     """
     try:
-        query = AuditLog.query.order_by(AuditLog.created_at.desc())
+        query = AuditLog.query
 
-        # Apply filters
+        # Apply severity filter if specified
         if severity:
             severity_map = {
                 'info': AuditLog.SEVERITY_INFO,
@@ -775,410 +632,147 @@ def get_recent_security_events(
         if end_time:
             query = query.filter(AuditLog.created_at <= end_time)
 
-        events = query.limit(limit).all()
+        # Get events sorted by time (most recent first)
+        events = query.order_by(AuditLog.created_at.desc()).limit(limit).all()
+
+        # Convert to dictionaries
         return [event.to_dict() for event in events]
-    except SQLAlchemyError as e:
-        logger.error(f"Failed to retrieve recent security events: {e}")
-        return []
 
-
-def get_critical_security_events() -> List[Dict[str, Any]]:
-    """
-    Get cached critical security events from Redis.
-
-    Returns:
-        List[Dict[str, Any]]: List of critical security events
-    """
-    redis_client = get_redis_client()
-    if not redis_client:
-        return []
-
-    try:
-        key = 'security:recent_critical_events'
-        event_jsons = redis_client.lrange(key, 0, 99)
-
-        events = []
-        for event_json in event_jsons:
-            try:
-                event = json.loads(event_json)
-                events.append(event)
-            except json.JSONDecodeError:
-                # Skip invalid entries
-                continue
-
-        return events
     except Exception as e:
-        logger.error(f"Failed to retrieve critical security events from Redis: {e}")
+        logger.error(f"Error retrieving recent security events: {e}")
         return []
 
-
-def get_security_event_counts(hours: int = 24) -> Dict[str, int]:
+def get_audit_logs(**filters) -> List[Dict[str, Any]]:
     """
-    Get counts of security events by type for a given time period.
+    Retrieve audit logs with flexible filtering.
+
+    This function is intended to be used by the admin.utils.audit_utils module
+    but provides more generalized filtering capabilities.
 
     Args:
-        hours: Number of hours to look back
+        **filters: Arbitrary filters to apply to the query
+            - start_time (datetime): Start time for logs
+            - end_time (datetime): End time for logs
+            - user_id (int): Filter by user ID
+            - event_types (List[str]): Filter by event types
+            - severity (str): Filter by severity
+            - category (str): Filter by category
+            - object_type (str): Filter by object type
+            - object_id (str/int): Filter by object ID
+            - limit (int): Maximum number of logs to return
+            - offset (int): Number of logs to skip (for pagination)
 
     Returns:
-        Dict[str, int]: Mapping of event types to counts
+        List[Dict[str, Any]]: List of audit logs
     """
     try:
-        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+        query = AuditLog.query
 
-        # Query the database for event counts grouped by event type
-        results = db.session.query(
-            AuditLog.event_type,
-            func.count(AuditLog.id)
-        ).filter(
-            AuditLog.created_at >= cutoff_time
-        ).group_by(
-            AuditLog.event_type
-        ).all()
+        # Apply time filters
+        start_time = filters.get('start_time')
+        end_time = filters.get('end_time')
 
-        # Convert to dictionary
-        counts = {event_type: count for event_type, count in results}
+        if start_time:
+            query = query.filter(AuditLog.created_at >= start_time)
+        if end_time:
+            query = query.filter(AuditLog.created_at <= end_time)
 
-        return counts
-    except SQLAlchemyError as e:
-        logger.error(f"Failed to retrieve security event counts: {e}")
-        return {}
+        # Apply identity filters
+        user_id = filters.get('user_id')
+        if user_id:
+            query = query.filter(AuditLog.user_id == user_id)
 
+        # Apply event type filters
+        event_types = filters.get('event_types')
+        if event_types:
+            query = query.filter(AuditLog.event_type.in_(event_types))
 
-def get_security_event_severity_distribution(hours: int = 24) -> Dict[str, int]:
-    """
-    Get distribution of security events by severity for a given time period.
+        # Apply severity filter
+        severity = filters.get('severity')
+        if severity:
+            # Map string severity to DB constant if needed
+            severity_map = {
+                'info': AuditLog.SEVERITY_INFO,
+                'warning': AuditLog.SEVERITY_WARNING,
+                'error': AuditLog.SEVERITY_ERROR,
+                'critical': AuditLog.SEVERITY_CRITICAL
+            }
+            db_severity = severity_map.get(severity.lower(), severity)
+            query = query.filter(AuditLog.severity == db_severity)
 
-    Args:
-        hours: Number of hours to look back
+        # Apply category filter
+        category = filters.get('category')
+        if category:
+            query = query.filter(AuditLog.category == category)
 
-    Returns:
-        Dict[str, int]: Mapping of severities to counts
-    """
-    try:
-        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+        # Apply object filters
+        object_type = filters.get('object_type')
+        if object_type:
+            query = query.filter(AuditLog.object_type == object_type)
 
-        # Query the database for counts grouped by severity
-        results = db.session.query(
-            AuditLog.severity,
-            func.count(AuditLog.id)
-        ).filter(
-            AuditLog.created_at >= cutoff_time
-        ).group_by(
-            AuditLog.severity
-        ).all()
+        object_id = filters.get('object_id')
+        if object_id:
+            query = query.filter(AuditLog.object_id == str(object_id))
 
-        # Map database severity values to readable names
-        severity_map = {
-            AuditLog.SEVERITY_INFO: 'info',
-            AuditLog.SEVERITY_WARNING: 'warning',
-            AuditLog.SEVERITY_ERROR: 'error',
-            AuditLog.SEVERITY_CRITICAL: 'critical'
-        }
+        # Apply pagination
+        limit = filters.get('limit', 50)
+        offset = filters.get('offset', 0)
 
-        # Convert to dictionary with readable names
-        counts = {severity_map.get(severity, severity): count for severity, count in results}
+        # Execute query
+        query = query.order_by(AuditLog.created_at.desc())
+        if offset:
+            query = query.offset(offset)
+        if limit:
+            query = query.limit(limit)
 
-        # Ensure all severities are represented
-        for severity_name in ['info', 'warning', 'error', 'critical']:
-            if severity_name not in counts:
-                counts[severity_name] = 0
+        logs = query.all()
 
-        return counts
-    except SQLAlchemyError as e:
-        logger.error(f"Failed to retrieve security event severity distribution: {e}")
-        return {'info': 0, 'warning': 0, 'error': 0, 'critical': 0}
+        # Convert to dictionaries if needed
+        return logs
 
-
-def clear_old_security_logs(days: int = None) -> int:
-    """
-    Clear security logs older than the specified number of days.
-
-    Args:
-        days: Number of days to keep logs (uses configured retention period if None)
-
-    Returns:
-        int: Number of logs deleted
-    """
-    if not has_app_context():
-        logger.warning("Cannot clear security logs outside application context")
-        return 0
-
-    try:
-        # Use configured retention period if not specified
-        if days is None:
-            days = SECURITY_CONFIG.get('AUDIT_LOG_RETENTION_DAYS', 180)
-
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
-
-        # Archive logs before deletion if archiving is enabled
-        if SECURITY_CONFIG.get('ARCHIVE_LOGS_BEFORE_DELETE', False):
-            _archive_old_logs(cutoff_date)
-
-        # Delete logs older than the cutoff date
-        result = AuditLog.query.filter(AuditLog.created_at < cutoff_date).delete()
-        db.session.commit()
-
-        logger.info(f"Cleared {result} security logs older than {days} days")
-        metrics.gauge('security.logs_deleted', result)
-
-        return result
-    except SQLAlchemyError as e:
-        db.session.rollback()
-        logger.error(f"Failed to clear old security logs: {e}")
-        return 0
-
-
-def _archive_old_logs(cutoff_date: datetime) -> bool:
-    """
-    Archive logs before deletion.
-
-    Args:
-        cutoff_date: Archive logs older than this date
-
-    Returns:
-        bool: True if archiving was successful
-    """
-    try:
-        # This is a placeholder for actual archiving logic
-        # In a real implementation, this would export logs to a file or external system
-        logger.info(f"Archiving logs older than {cutoff_date.isoformat()}")
-        return True
     except Exception as e:
-        logger.error(f"Failed to archive old logs: {e}")
-        return False
-
-
-def detect_security_anomalies() -> List[Dict[str, Any]]:
-    """
-    Detect anomalies in recent security events.
-
-    Returns:
-        List[Dict[str, Any]]: List of detected anomalies
-    """
-    anomalies = []
-
-    try:
-        # Check for multiple failed login attempts from the same IP
-        login_failures = _check_login_anomalies()
-        if login_failures:
-            anomalies.extend(login_failures)
-
-        # Check for unusual access patterns
-        access_anomalies = _check_access_anomalies()
-        if access_anomalies:
-            anomalies.extend(access_anomalies)
-
-        # Check for permission violations
-        permission_anomalies = _check_permission_anomalies()
-        if permission_anomalies:
-            anomalies.extend(permission_anomalies)
-
-        # Add additional anomaly checks here
-
-        return anomalies
-    except Exception as e:
-        logger.error(f"Error detecting security anomalies: {e}")
+        logger.error(f"Error retrieving audit logs: {e}")
         return []
-
-
-def _check_login_anomalies() -> List[Dict[str, Any]]:
-    """
-    Check for login-related anomalies.
-
-    Returns:
-        List[Dict[str, Any]]: List of login anomalies
-    """
-    anomalies = []
-
-    try:
-        # Look back 1 hour for login failures
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
-
-        # Get IPs with multiple failed logins
-        results = db.session.query(
-            AuditLog.ip_address,
-            func.count(AuditLog.id).label('count')
-        ).filter(
-            AuditLog.event_type == 'login_failed',
-            AuditLog.created_at >= cutoff,
-            AuditLog.ip_address.isnot(None)
-        ).group_by(
-            AuditLog.ip_address
-        ).having(
-            func.count(AuditLog.id) >= 5  # Threshold for anomaly
-        ).all()
-
-        for ip, count in results:
-            anomalies.append({
-                'type': 'multiple_failed_logins',
-                'ip_address': ip,
-                'count': count,
-                'severity': 'high' if count >= 10 else 'medium',
-                'timestamp': datetime.now(timezone.utc).isoformat(),
-                'description': f"{count} failed login attempts from IP {ip} in the last hour"
-            })
-
-        # Check for distributed login attempts (many IPs for same username)
-        username_results = db.session.query(
-            func.json_extract(AuditLog.details, '$.username').label('username'),
-            func.count(func.distinct(AuditLog.ip_address)).label('ip_count')
-        ).filter(
-            AuditLog.event_type == 'login_failed',
-            AuditLog.created_at >= cutoff,
-            AuditLog.details.like('%username%')
-        ).group_by(
-            'username'
-        ).having(
-            func.count(func.distinct(AuditLog.ip_address)) >= 3  # Threshold for anomaly
-        ).all()
-
-        for username, ip_count in username_results:
-            if username:  # Ensure username is not None
-                anomalies.append({
-                    'type': 'distributed_login_attempts',
-                    'username': username,
-                    'ip_count': ip_count,
-                    'severity': 'high',
-                    'timestamp': datetime.now(timezone.utc).isoformat(),
-                    'description': f"Login attempts for user '{username}' from {ip_count} different IPs in the last hour"
-                })
-
-        return anomalies
-    except Exception as e:
-        logger.error(f"Error checking login anomalies: {e}")
-        return []
-
-
-def _check_access_anomalies() -> List[Dict[str, Any]]:
-    """
-    Check for unusual access patterns.
-
-    Returns:
-        List[Dict[str, Any]]: List of access anomalies
-    """
-    anomalies = []
-
-    try:
-        # Look back 24 hours
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-
-        # Check for unusual API access patterns
-        # This is a placeholder for more specific implementation
-        # In a real system, this would check for unusual API access times, volumes, etc.
-
-        # For now, we'll just check for high volume of access to sensitive endpoints
-        sensitive_endpoints = ['/api/admin/', '/api/users/', '/api/config/']
-
-        for endpoint in sensitive_endpoints:
-            # Count accesses to this endpoint by IP
-            results = db.session.query(
-                AuditLog.ip_address,
-                func.count(AuditLog.id).label('count')
-            ).filter(
-                AuditLog.created_at >= cutoff,
-                AuditLog.ip_address.isnot(None),
-                AuditLog.request_data.like(f'%"path": "{endpoint}%')
-            ).group_by(
-                AuditLog.ip_address
-            ).having(
-                func.count(AuditLog.id) >= 50  # Threshold for anomaly
-            ).all()
-
-            for ip, count in results:
-                anomalies.append({
-                    'type': 'high_volume_sensitive_access',
-                    'ip_address': ip,
-                    'endpoint': endpoint,
-                    'count': count,
-                    'severity': 'medium',
-                    'timestamp': datetime.now(timezone.utc).isoformat(),
-                    'description': f"High volume of access ({count}) to sensitive endpoint {endpoint} from IP {ip}"
-                })
-
-        return anomalies
-    except Exception as e:
-        logger.error(f"Error checking access anomalies: {e}")
-        return []
-
-
-def _check_permission_anomalies() -> List[Dict[str, Any]]:
-    """
-    Check for unusual permission violation patterns.
-
-    Returns:
-        List[Dict[str, Any]]: List of permission anomalies
-    """
-    anomalies = []
-
-    try:
-        # Look back 24 hours
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-
-        # Find users with multiple permission denied events
-        results = db.session.query(
-            AuditLog.user_id,
-            func.count(AuditLog.id).label('count')
-        ).filter(
-            AuditLog.event_type == 'permission_denied',
-            AuditLog.created_at >= cutoff,
-            AuditLog.user_id.isnot(None)
-        ).group_by(
-            AuditLog.user_id
-        ).having(
-            func.count(AuditLog.id) >= 5  # Threshold for anomaly
-        ).all()
-
-        for user_id, count in results:
-            anomalies.append({
-                'type': 'multiple_permission_violations',
-                'user_id': user_id,
-                'count': count,
-                'severity': 'high' if count >= 10 else 'medium',
-                'timestamp': datetime.now(timezone.utc).isoformat(),
-                'description': f"User {user_id} had {count} permission violations in the last 24 hours"
-            })
-
-        return anomalies
-    except Exception as e:
-        logger.error(f"Error checking permission anomalies: {e}")
-        return []
-
 
 def process_fallback_logs() -> int:
     """
-    Process security events that were logged to Redis when the database was unavailable.
+    Process logs stored in Redis fallback mechanism into the database.
+
+    This function retrieves audit events stored in Redis and inserts them
+    into the main audit log database. It should be called periodically
+    (e.g., by a scheduled task) to ensure logs are properly recorded.
 
     Returns:
-        int: Number of events processed
+        int: Number of logs processed
     """
     redis_client = get_redis_client()
     if not redis_client:
         return 0
 
+    key = 'security:fallback_logs'
+
     try:
-        key = 'security:fallback_events'
-        processed_count = 0
-
-        # Get all events from Redis
-        event_jsons = redis_client.lrange(key, 0, -1)
-
-        if not event_jsons:
+        # Get all fallback logs
+        fallback_logs = redis_client.lrange(key, 0, -1)
+        if not fallback_logs:
             return 0
 
-        # Process each event
-        for event_json in event_jsons:
+        processed_count = 0
+
+        for log_entry in fallback_logs:
             try:
-                event = json.loads(event_json)
+                # Parse the event data
+                event_data = json.loads(log_entry)
 
                 # Create audit log entry
                 audit_log = AuditLog(
-                    event_type=event.get('event_type', 'unknown'),
-                    description=event.get('description', ''),
-                    user_id=event.get('user_id'),
-                    ip_address=event.get('ip_address'),
-                    details=event.get('details'),
-                    severity=event.get('severity', AuditLog.SEVERITY_INFO),
-                    created_at=datetime.fromisoformat(event.get('timestamp', datetime.now(timezone.utc).isoformat()))
+                    event_type=event_data.get('event_type'),
+                    description=event_data.get('description'),
+                    user_id=event_data.get('user_id'),
+                    ip_address=event_data.get('ip_address'),
+                    details=event_data.get('details'),
+                    severity=event_data.get('severity'),
+                    created_at=datetime.fromisoformat(event_data.get('timestamp'))
                 )
 
                 db.session.add(audit_log)
@@ -1205,41 +799,55 @@ def process_fallback_logs() -> int:
         logger.error(f"Error processing fallback logs: {e}")
         return 0
 
+def get_critical_event_categories() -> List[str]:
+    """
+    Get list of event categories considered critical for security monitoring.
+
+    Returns:
+        List[str]: List of critical event categories
+    """
+    try:
+        # Get from config if available, otherwise use defaults
+        return SECURITY_CONFIG.get('CRITICAL_EVENT_CATEGORIES', [
+            'security',
+            'authentication',
+            'access_control'
+        ])
+    except Exception as e:
+        logger.error(f"Error retrieving critical event categories: {e}", exc_info=True)
+        # Return safe defaults on error
+        return ['security', 'authentication', 'admin']
 
 def initialize_audit_logging(app) -> None:
     """
-    Initialize audit logging components.
+    Initialize audit logging configuration for the application.
 
     Args:
-        app: Flask application
+        app: Flask application instance
     """
-    if not app:
-        logger.error("Cannot initialize audit logging: No app provided")
-        return
-
-    logger.info("Initializing security audit logging")
-
     try:
-        # Set up security logger based on app config
-        from logging.config import dictConfig
-
-        # Get log level from config or default to INFO
-        log_level = app.config.get('SECURITY_LOG_LEVEL', 'INFO')
-        log_file = app.config.get('SECURITY_LOG_FILE', 'logs/security.log')
-
-        # Create logs directory if it doesn't exist
-        import os
-        log_dir = os.path.dirname(log_file)
-        if log_dir and not os.path.exists(log_dir):
+        # Set up logging directory
+        log_dir = app.config.get('SECURITY_LOG_DIR', 'logs')
+        if not os.path.exists(log_dir):
             os.makedirs(log_dir)
 
-        # Configure security logger
-        dictConfig({
+        log_file = os.path.join(log_dir, 'security_audit.log')
+        log_level_name = app.config.get('SECURITY_LOG_LEVEL', 'INFO')
+
+        # Map log level name to logging constant
+        log_level = {
+            'DEBUG': logging.DEBUG,
+            'INFO': logging.INFO,
+            'WARNING': logging.WARNING,
+            'ERROR': logging.ERROR,
+            'CRITICAL': logging.CRITICAL
+        }.get(log_level_name.upper(), logging.INFO)
+
+        # Configure logging
+        logging.config.dictConfig({
             'version': 1,
+            'disable_existing_loggers': False,
             'formatters': {
-                'default': {
-                    'format': '[%(asctime)s] %(levelname)s: %(message)s',
-                },
                 'detailed': {
                     'format': '[%(asctime)s] %(levelname)s in %(module)s: %(message)s\nDetails: %(event_type)s User: %(user_id)s IP: %(ip_address)s',
                 },
@@ -1270,43 +878,3 @@ def initialize_audit_logging(app) -> None:
         logger.info(f"Security audit logging initialized (level: {log_level})")
     except Exception as e:
         logger.error(f"Failed to initialize audit logging: {e}")
-
-
-def get_critical_event_categories() -> List[str]:
-    """
-    Get a list of event categories that are considered critical for security metrics.
-
-    This function returns a list of audit log categories that are considered critical
-    for security monitoring and metrics calculation. It first tries to get the list
-    from application configuration, and falls back to sensible defaults if not configured.
-
-    Returns:
-        List[str]: List of critical event category names
-    """
-    try:
-        # Try to get critical categories from configuration
-        if has_app_context() and current_app.config:
-            # Try application config first
-            config_categories = current_app.config.get('AUDIT_CRITICAL_EVENT_CATEGORIES')
-            if config_categories and isinstance(config_categories, list):
-                return config_categories
-
-            # Try security config from constants
-            security_config_categories = SECURITY_CONFIG.get('CRITICAL_EVENT_CATEGORIES')
-            if security_config_categories and isinstance(security_config_categories, list):
-                return security_config_categories
-
-        # Default categories if not configured
-        return [
-            'security',
-            'authentication',
-            'authorization',
-            'admin',
-            'audit',
-            'compliance',
-            'access_control'
-        ]
-    except Exception as e:
-        logger.error(f"Error retrieving critical event categories: {e}", exc_info=True)
-        # Return safe defaults on error
-        return ['security', 'authentication', 'admin']

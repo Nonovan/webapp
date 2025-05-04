@@ -14,6 +14,7 @@ Key functionality includes:
 - Standardized error handling
 - Performance metrics collection
 - Password generation and validation
+- File integrity baseline management
 
 The utilities are designed to be imported and used by CLI tools, scripts,
 and other administrative components of the platform.
@@ -24,6 +25,7 @@ import os
 import re
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union, Callable, Tuple
+import sys
 
 # Setup package logging
 logger = logging.getLogger(__name__)
@@ -33,7 +35,11 @@ __version__ = '0.1.1'
 __author__ = 'Cloud Infrastructure Platform Team'
 __email__ = 'platform-team@example.com'
 
-# Initialize availability flags
+# Constants availability flags
+ADMIN_CONSTANTS_AVAILABLE = False
+AUDIT_CONSTANTS_AVAILABLE = False
+
+# Utility modules availability flags
 ADMIN_AUTH_AVAILABLE = False
 AUDIT_UTILS_AVAILABLE = False
 CONFIG_VALIDATION_AVAILABLE = False
@@ -42,6 +48,90 @@ ENCRYPTION_UTILS_AVAILABLE = False
 METRICS_UTILS_AVAILABLE = False
 SECURE_CREDENTIALS_AVAILABLE = False
 PASSWORD_UTILS_AVAILABLE = False
+FILE_INTEGRITY_AVAILABLE = False
+SECURITY_UTILS_AVAILABLE = False
+
+# Try importing admin constants
+try:
+    from .admin_constants import (
+        # Exit codes
+        EXIT_SUCCESS,
+        EXIT_ERROR,
+        EXIT_PERMISSION_ERROR,
+        EXIT_RESOURCE_ERROR,
+        EXIT_VALIDATION_ERROR,
+        EXIT_AUTHENTICATION_ERROR,
+        EXIT_CONFIGURATION_ERROR,
+        EXIT_OPERATION_CANCELLED,
+        EXIT_CONNECTIVITY_ERROR,
+        EXIT_TIMEOUT_ERROR,
+        EXIT_EXTERNAL_SERVICE_ERROR,
+
+        # Standard timeouts
+        DEFAULT_OPERATION_TIMEOUT,
+        DEFAULT_NETWORK_TIMEOUT,
+        DEFAULT_API_REQUEST_TIMEOUT,
+        DEFAULT_DATABASE_OPERATION_TIMEOUT,
+        DEFAULT_LOCK_TIMEOUT,
+        DEFAULT_SESSION_TIMEOUT,
+
+        # Resource limits
+        DEFAULT_API_RATE_LIMIT,
+        DEFAULT_BATCH_SIZE,
+        DEFAULT_MAX_RETRIES,
+        DEFAULT_RETRY_DELAY,
+        DEFAULT_MAX_RESULTS,
+
+        # Security settings
+        DEFAULT_PASSWORD_MIN_LENGTH,
+        DEFAULT_MFA_TIMEOUT,
+        DEFAULT_TOKEN_EXPIRY,
+        DEFAULT_EMERGENCY_ACCESS_DURATION
+    )
+    ADMIN_CONSTANTS_AVAILABLE = True
+except ImportError as e:
+    logger.debug(f"Admin constants not available: {e}")
+
+# Try importing audit constants
+try:
+    from .audit_constants import (
+        # Audit categories
+        ADMIN_ACTION_CATEGORY,
+        ADMIN_EVENT_PREFIX,
+
+        # Severity levels
+        SEVERITY_INFO,
+        SEVERITY_WARNING,
+        SEVERITY_ERROR,
+        SEVERITY_CRITICAL,
+
+        # Action statuses
+        STATUS_SUCCESS,
+        STATUS_FAILURE,
+        STATUS_ATTEMPTED,
+        STATUS_CANCELLED,
+
+        # Action types
+        ACTION_USER_CREATE,
+        ACTION_USER_UPDATE,
+        ACTION_USER_DELETE,
+        ACTION_ROLE_ASSIGN,
+        ACTION_ROLE_REVOKE,
+        ACTION_PERMISSION_GRANT,
+        ACTION_PERMISSION_REVOKE,
+        ACTION_CONFIG_CHANGE,
+        ACTION_SYSTEM_CHANGE,
+        ACTION_SECURITY_CHANGE,
+        ACTION_EMERGENCY_ACCESS,
+        ACTION_EMERGENCY_DEACTIVATE,
+        ACTION_DATA_EXPORT,
+        ACTION_AUDIT_ACCESS,
+        ACTION_API_KEY_CREATE,
+        ACTION_API_KEY_REVOKE
+    )
+    AUDIT_CONSTANTS_AVAILABLE = True
+except ImportError as e:
+    logger.debug(f"Audit constants not available: {e}")
 
 # Try importing admin_auth utilities
 try:
@@ -66,15 +156,7 @@ try:
         get_admin_audit_logs,
         export_admin_audit_logs,
         detect_admin_anomalies,
-        verify_audit_log_integrity,
-        SEVERITY_INFO,
-        SEVERITY_WARNING,
-        SEVERITY_ERROR,
-        SEVERITY_CRITICAL,
-        STATUS_SUCCESS,
-        STATUS_FAILURE,
-        ADMIN_ACTION_CATEGORY,
-        ADMIN_EVENT_PREFIX
+        verify_audit_log_integrity
     )
     AUDIT_UTILS_AVAILABLE = True
 except ImportError as e:
@@ -100,7 +182,10 @@ try:
         AdminError,
         AdminConfigurationError,
         AdminResourceNotFoundError,
-        AdminValidationError
+        AdminValidationError,
+        AdminPermissionError,
+        AdminConnectivityError,
+        AdminTimeoutError
     )
     ERROR_HANDLING_AVAILABLE = True
 except ImportError as e:
@@ -157,6 +242,84 @@ try:
 except ImportError as e:
     logger.debug(f"Password utilities not available: {e}")
 
+# Try importing security utilities
+try:
+    from .security_utils import (
+        generate_api_token,
+        compute_hash
+    )
+    SECURITY_UTILS_AVAILABLE = True
+except ImportError as e:
+    logger.debug(f"Security utilities not available: {e}")
+
+# Try importing file integrity utilities - first check for local implementation
+try:
+    from .file_integrity import (
+        update_file_integrity_baseline,
+        verify_file_integrity,
+        calculate_file_hash,
+        get_baseline_status,
+        validate_baseline_update,
+        check_critical_file_integrity,
+        create_file_hash_baseline,
+        detect_file_changes,
+        verify_file_signature,
+        get_last_integrity_status,
+        log_file_integrity_event,
+        initialize_file_monitoring
+    )
+    FILE_INTEGRITY_AVAILABLE = True
+except ImportError as e:
+    # If local implementation not available, try to import from core
+    try:
+        from core.security.cs_file_integrity import (
+            update_file_integrity_baseline,
+            check_critical_file_integrity,
+            detect_file_changes,
+            verify_file_signature,
+            calculate_file_hash,
+            create_file_hash_baseline,
+            get_last_integrity_status,
+            log_file_integrity_event
+        )
+
+        # Define aliases for consistent API if names differ
+        validate_baseline_update = getattr(
+            sys.modules.get('core.security.cs_file_integrity'),
+            'verify_baseline_update',
+            None
+        )
+        verify_file_integrity = getattr(
+            sys.modules.get('core.security.cs_file_integrity'),
+            'verify_file_integrity',
+            None
+        )
+        get_baseline_status = getattr(
+            sys.modules.get('core.security.cs_file_integrity'),
+            'get_baseline_status',
+            None
+        )
+        initialize_file_monitoring = getattr(
+            sys.modules.get('core.security.cs_file_integrity'),
+            'initialize_file_monitoring',
+            None
+        )
+
+        FILE_INTEGRITY_AVAILABLE = True
+        logger.debug("Using core security file integrity implementation")
+    except ImportError:
+        # As a last resort, check if the forensics utilities have this functionality
+        try:
+            from admin.security.forensics.utils import update_file_integrity_baseline
+            from admin.security.forensics.utils.crypto import (
+                calculate_file_hash,
+                verify_file_hash as verify_file_integrity
+            )
+            FILE_INTEGRITY_AVAILABLE = True
+            logger.debug("Using forensics utilities for file integrity functions")
+        except ImportError:
+            logger.debug("File integrity utilities not available from any source")
+
 def get_available_utilities() -> Dict[str, bool]:
     """
     Returns a dictionary of available utility modules in this package.
@@ -165,6 +328,8 @@ def get_available_utilities() -> Dict[str, bool]:
         Dict[str, bool]: Dictionary with utility names and availability flags
     """
     return {
+        "admin_constants": ADMIN_CONSTANTS_AVAILABLE,
+        "audit_constants": AUDIT_CONSTANTS_AVAILABLE,
         "admin_auth": ADMIN_AUTH_AVAILABLE,
         "audit_utils": AUDIT_UTILS_AVAILABLE,
         "config_validation": CONFIG_VALIDATION_AVAILABLE,
@@ -172,7 +337,9 @@ def get_available_utilities() -> Dict[str, bool]:
         "encryption_utils": ENCRYPTION_UTILS_AVAILABLE,
         "metrics_utils": METRICS_UTILS_AVAILABLE,
         "secure_credentials": SECURE_CREDENTIALS_AVAILABLE,
-        "password_utils": PASSWORD_UTILS_AVAILABLE
+        "password_utils": PASSWORD_UTILS_AVAILABLE,
+        "file_integrity": FILE_INTEGRITY_AVAILABLE,
+        "security_utils": SECURITY_UTILS_AVAILABLE
     }
 
 # Define public exports - only include symbols from available modules
@@ -187,6 +354,80 @@ __all__ = [
 ]
 
 # Conditionally add exports based on available modules
+if ADMIN_CONSTANTS_AVAILABLE:
+    __all__.extend([
+        # Exit codes
+        "EXIT_SUCCESS",
+        "EXIT_ERROR",
+        "EXIT_PERMISSION_ERROR",
+        "EXIT_RESOURCE_ERROR",
+        "EXIT_VALIDATION_ERROR",
+        "EXIT_AUTHENTICATION_ERROR",
+        "EXIT_CONFIGURATION_ERROR",
+        "EXIT_OPERATION_CANCELLED",
+        "EXIT_CONNECTIVITY_ERROR",
+        "EXIT_TIMEOUT_ERROR",
+        "EXIT_EXTERNAL_SERVICE_ERROR",
+
+        # Common timeouts
+        "DEFAULT_OPERATION_TIMEOUT",
+        "DEFAULT_NETWORK_TIMEOUT",
+        "DEFAULT_API_REQUEST_TIMEOUT",
+        "DEFAULT_DATABASE_OPERATION_TIMEOUT",
+        "DEFAULT_LOCK_TIMEOUT",
+        "DEFAULT_SESSION_TIMEOUT",
+
+        # Resource limits
+        "DEFAULT_API_RATE_LIMIT",
+        "DEFAULT_BATCH_SIZE",
+        "DEFAULT_MAX_RETRIES",
+        "DEFAULT_RETRY_DELAY",
+        "DEFAULT_MAX_RESULTS",
+
+        # Security settings
+        "DEFAULT_PASSWORD_MIN_LENGTH",
+        "DEFAULT_MFA_TIMEOUT",
+        "DEFAULT_TOKEN_EXPIRY",
+        "DEFAULT_EMERGENCY_ACCESS_DURATION"
+    ])
+
+if AUDIT_CONSTANTS_AVAILABLE:
+    __all__.extend([
+        # Audit categories
+        "ADMIN_ACTION_CATEGORY",
+        "ADMIN_EVENT_PREFIX",
+
+        # Severity levels
+        "SEVERITY_INFO",
+        "SEVERITY_WARNING",
+        "SEVERITY_ERROR",
+        "SEVERITY_CRITICAL",
+
+        # Action statuses
+        "STATUS_SUCCESS",
+        "STATUS_FAILURE",
+        "STATUS_ATTEMPTED",
+        "STATUS_CANCELLED",
+
+        # Action types
+        "ACTION_USER_CREATE",
+        "ACTION_USER_UPDATE",
+        "ACTION_USER_DELETE",
+        "ACTION_ROLE_ASSIGN",
+        "ACTION_ROLE_REVOKE",
+        "ACTION_PERMISSION_GRANT",
+        "ACTION_PERMISSION_REVOKE",
+        "ACTION_CONFIG_CHANGE",
+        "ACTION_SYSTEM_CHANGE",
+        "ACTION_SECURITY_CHANGE",
+        "ACTION_EMERGENCY_ACCESS",
+        "ACTION_EMERGENCY_DEACTIVATE",
+        "ACTION_DATA_EXPORT",
+        "ACTION_AUDIT_ACCESS",
+        "ACTION_API_KEY_CREATE",
+        "ACTION_API_KEY_REVOKE"
+    ])
+
 if ADMIN_AUTH_AVAILABLE:
     __all__.extend([
         "authenticate_admin",
@@ -205,15 +446,7 @@ if AUDIT_UTILS_AVAILABLE:
         "get_admin_audit_logs",
         "export_admin_audit_logs",
         "detect_admin_anomalies",
-        "verify_audit_log_integrity",
-        "SEVERITY_INFO",
-        "SEVERITY_WARNING",
-        "SEVERITY_ERROR",
-        "SEVERITY_CRITICAL",
-        "STATUS_SUCCESS",
-        "STATUS_FAILURE",
-        "ADMIN_ACTION_CATEGORY",
-        "ADMIN_EVENT_PREFIX"
+        "verify_audit_log_integrity"
     ])
 
 if CONFIG_VALIDATION_AVAILABLE:
@@ -231,7 +464,10 @@ if ERROR_HANDLING_AVAILABLE:
         "AdminError",
         "AdminConfigurationError",
         "AdminResourceNotFoundError",
-        "AdminValidationError"
+        "AdminValidationError",
+        "AdminPermissionError",
+        "AdminConnectivityError",
+        "AdminTimeoutError"
     ])
 
 if ENCRYPTION_UTILS_AVAILABLE:
@@ -268,6 +504,42 @@ if PASSWORD_UTILS_AVAILABLE:
         "check_password_history",
         "PASSWORD_MIN_LENGTH"
     ])
+
+if SECURITY_UTILS_AVAILABLE:
+    __all__.extend([
+        "generate_api_token",
+        "compute_hash"
+    ])
+
+if FILE_INTEGRITY_AVAILABLE:
+    file_integrity_exports = []
+    # Only add functions that are actually available
+    if 'update_file_integrity_baseline' in locals():
+        file_integrity_exports.append("update_file_integrity_baseline")
+    if 'verify_file_integrity' in locals():
+        file_integrity_exports.append("verify_file_integrity")
+    if 'calculate_file_hash' in locals():
+        file_integrity_exports.append("calculate_file_hash")
+    if 'get_baseline_status' in locals():
+        file_integrity_exports.append("get_baseline_status")
+    if 'validate_baseline_update' in locals():
+        file_integrity_exports.append("validate_baseline_update")
+    if 'check_critical_file_integrity' in locals():
+        file_integrity_exports.append("check_critical_file_integrity")
+    if 'create_file_hash_baseline' in locals():
+        file_integrity_exports.append("create_file_hash_baseline")
+    if 'detect_file_changes' in locals():
+        file_integrity_exports.append("detect_file_changes")
+    if 'verify_file_signature' in locals():
+        file_integrity_exports.append("verify_file_signature")
+    if 'get_last_integrity_status' in locals():
+        file_integrity_exports.append("get_last_integrity_status")
+    if 'log_file_integrity_event' in locals():
+        file_integrity_exports.append("log_file_integrity_event")
+    if 'initialize_file_monitoring' in locals():
+        file_integrity_exports.append("initialize_file_monitoring")
+
+    __all__.extend(file_integrity_exports)
 
 # Log initialization status
 logger.debug(f"Admin utils package initialized with: {', '.join([k for k, v in get_available_utilities().items() if v])}")

@@ -4,22 +4,23 @@ This directory contains utility modules and helper functions used by the adminis
 
 ## Contents
 
-- [Overview](#overview)
-- [Key Components](#key-components)
-- [Directory Structure](#directory-structure)
-- [Usage](#usage)
-  - [Authentication and Authorization](#authentication-and-authorization)
-  - [Multi-Factor Authentication](#multi-factor-authentication)
-  - [Audit Logging](#audit-logging)
-  - [Configuration Validation](#configuration-validation)
-  - [Secure Credential Handling](#secure-credential-handling)
-  - [Password Management](#password-management)
-  - [Error Handling](#error-handling)
-  - [Metrics Collection](#metrics-collection)
-  - [Security Utilities](#security-utilities)
-- [Best Practices & Security](#best-practices--security)
-- [Common Features](#common-features)
-- [Related Documentation](#related-documentation)
+- Overview
+- Key Components
+- Directory Structure
+- Usage
+  - Authentication and Authorization
+  - Multi-Factor Authentication
+  - Audit Logging
+  - Configuration Validation
+  - Secure Credential Handling
+  - Password Management
+  - Error Handling
+  - Metrics Collection
+  - Security Utilities
+  - File Integrity Monitoring
+- Best Practices & Security
+- Common Features
+- Related Documentation
 
 ## Overview
 
@@ -44,6 +45,7 @@ The administrative utilities implement shared functionality used by the CLI tool
   - Event filtering and search capabilities
   - Compliance-ready logging format
   - MFA verification auditing
+  - Anomaly detection in administrative actions
 
 - **`config_validation.py`**: Configuration validation tools
   - Schema-based configuration validation
@@ -73,6 +75,14 @@ The administrative utilities implement shared functionality used by the CLI tool
   - Exception logging and categorization
   - Graceful recovery mechanisms
 
+- **`file_integrity.py`**: File integrity monitoring
+  - File hash baseline management
+  - Critical file integrity verification
+  - Change detection algorithms
+  - Baseline update validation
+  - Integrity event logging
+  - File signature verification
+
 - **`metrics_utils.py`**: Performance and usage metrics collection
   - Resource usage monitoring (CPU, memory)
   - Execution time tracking for operations
@@ -101,6 +111,7 @@ admin/utils/
 ├── config_validation.py  # Configuration validation tools
 ├── encryption_utils.py   # Encryption and decryption utilities
 ├── error_handling.py     # Centralized error handling
+├── file_integrity.py     # File integrity monitoring utilities
 ├── metrics_utils.py      # Performance and usage metrics collection
 ├── password_utils.py     # Password generation and validation
 ├── secure_credentials.py # Secure credential management
@@ -159,7 +170,7 @@ result = perform_maintenance(
 ### Audit Logging
 
 ```python
-from admin.utils.audit_utils import log_admin_action, get_audit_logs
+from admin.utils.audit_utils import log_admin_action, get_admin_audit_logs, detect_admin_anomalies
 
 # Log an administrative action
 log_admin_action(
@@ -173,11 +184,18 @@ log_admin_action(
 )
 
 # Retrieve audit logs for review
-audit_logs = get_audit_logs(
+audit_logs = get_admin_audit_logs(
     start_time="2023-07-15T00:00:00Z",
     end_time="2023-07-15T23:59:59Z",
-    actions=["user.create", "user.modify"],
+    action_types=["user.create", "user.modify"],
     user_id=admin_user_id
+)
+
+# Detect anomalies in administrative actions
+anomalies = detect_admin_anomalies(
+    start_time=datetime(2023, 7, 1),
+    end_time=datetime(2023, 7, 31),
+    threshold="medium"
 )
 ```
 
@@ -295,6 +313,45 @@ token = generate_api_token(prefix="admin", length=32)
 password_hash, salt = compute_hash(data="sensitive_password")
 ```
 
+### File Integrity Monitoring
+
+```python
+from admin.utils import check_critical_file_integrity, create_file_hash_baseline, detect_file_changes
+
+# Create a baseline of file hashes for future integrity checking
+baseline = create_file_hash_baseline(
+    directory_path="/app/config",
+    include_patterns=["*.ini", "*.json", "*.yaml"],
+    exclude_patterns=["*.tmp", ".*"]
+)
+
+# Save the baseline to a secure location
+with open("/secure/location/baseline.json", "w") as f:
+    json.dump(baseline, f)
+
+# Detect changes from the baseline
+changes = detect_file_changes(
+    baseline_file="/secure/location/baseline.json",
+    current_directory="/app/config"
+)
+
+# Check integrity of critical files
+integrity_results = check_critical_file_integrity(
+    critical_files=[
+        "/app/config/security.ini",
+        "/app/config/authentication.yaml"
+    ]
+)
+
+for file_path, is_valid in integrity_results.items():
+    if not is_valid:
+        log_file_integrity_event(
+            file_path=file_path,
+            event_type="integrity_violation",
+            severity="critical"
+        )
+```
+
 ## Best Practices & Security
 
 - **Authentication**: Always verify user identity before granting access
@@ -309,6 +366,7 @@ password_hash, salt = compute_hash(data="sensitive_password")
 - **Session Management**: Implement proper session controls and timeouts
 - **MFA Enforcement**: Require MFA verification before allowing sensitive operations
 - **Operation Documentation**: Include descriptive operation names in MFA requirements
+- **File Integrity**: Regularly verify integrity of critical system files
 
 ## Common Features
 
@@ -326,6 +384,7 @@ All administrative utilities share these common features:
 - **Version Information**: Clear version tracking
 - **MFA Integration**: Support for multi-factor authentication
 - **Decorator Patterns**: Function decorators for common security controls
+- **File Integrity Monitoring**: Tools to detect unauthorized changes to critical files
 
 ## Related Documentation
 
@@ -338,3 +397,5 @@ All administrative utilities share these common features:
 - Configuration Management
 - Security Best Practices
 - Emergency Access Procedures
+- File Integrity Monitoring Guide
+- Security Baseline Management

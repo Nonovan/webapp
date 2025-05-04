@@ -1055,6 +1055,7 @@ def authenticate_user(username: str, password: str, ip_address: str = None, user
         dict: Authentication result with keys:
             - success: Boolean indicating if authentication succeeded
             - user_id: ID of the authenticated user if successful
+            - user: User object if authentication succeeded
             - token: JWT token if authentication succeeded
             - requires_mfa: Boolean indicating if MFA is required
             - error: Error message if authentication failed
@@ -1144,6 +1145,52 @@ def authenticate_user(username: str, password: str, ip_address: str = None, user
     return {
         "success": True,
         "user_id": user.id,
+        "user": user,
         "token": token,
         "requires_mfa": requires_mfa
     }
+
+def verify_totp_code(secret: str, code: str) -> bool:
+    """
+    Verify a TOTP (Time-Based One-Time Password) code.
+
+    This function validates a TOTP code against a secret key following RFC 6238.
+    It includes clock drift tolerance to accommodate slight time differences.
+
+    Args:
+        secret: The secret key used for TOTP generation
+        code: The TOTP code to verify
+
+    Returns:
+        bool: True if the code is valid, False otherwise
+    """
+    import pyotp
+    from flask import current_app
+    from extensions import metrics
+
+    try:
+        # Clean up code (remove spaces and other formatting characters)
+        code = ''.join(c for c in code if c.isdigit())
+
+        # Default tolerance (1 means accepting codes from t-30s and t+30s)
+        tolerance = current_app.config.get('MFA_VERIFY_TOLERANCE', 1)
+
+        # Create TOTP object
+        totp = pyotp.TOTP(secret)
+
+        # Verify code with tolerance for clock drift
+        result = totp.verify(code, valid_window=tolerance)
+
+        # Record metrics
+        if result:
+            metrics.increment('security.mfa_totp_verification_success')
+        else:
+            metrics.increment('security.mfa_totp_verification_failure')
+
+        return result
+
+    except Exception as e:
+        from .cs_audit import log_error
+        log_error(f"TOTP verification error: {e}")
+        metrics.increment('security.mfa_totp_verification_error')
+        return False

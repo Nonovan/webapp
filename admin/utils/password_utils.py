@@ -22,7 +22,7 @@ try:
     # Attempt to import core security components
     from core.security.cs_authentication import validate_password_strength as core_validate_password_strength
     from core.security.cs_constants import SECURITY_CONFIG
-    from core.loggings import get_logger
+    from core.utils.logging_utils import logger as get_logger
     logger = get_logger(__name__)
     CORE_SECURITY_AVAILABLE = True
 except ImportError:

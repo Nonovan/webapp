@@ -34,7 +34,7 @@ except ImportError:
 
 # Internal imports
 try:
-    from core.loggings import get_logger
+    from core.utils.logging_utils import logger as get_logger
     logger = get_logger(__name__)
 except ImportError:
     logging.basicConfig(level=logging.INFO)
