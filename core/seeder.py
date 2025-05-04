@@ -13,6 +13,11 @@ Database seeding is typically performed:
 
 The module implements idempotent seeding operations that can be safely run
 multiple times without creating duplicate data.
+
+Key functions:
+- seed_database: Core function to seed essential data for all environments
+- seed_development_data: Additional sample data for development environments
+- seed_test_data: Minimal data specifically for test environments
 """
 
 import os
@@ -839,6 +844,162 @@ def seed_development_data(force: bool = False, verbose: bool = False) -> bool:
         logging.error(error_msg)
         print(f"❌ {error_msg}")
         return False
+
+
+def seed_test_data(force: bool = False, verbose: bool = False) -> bool:
+    """
+    Seed minimal data suitable for testing environments.
+
+    Unlike development data, test data is more focused on providing
+    just enough data to enable test execution without extra samples.
+    This function creates smaller datasets optimized for testing speed.
+
+    Args:
+        force: If True, will recreate data even if it already exists
+        verbose: If True, will output detailed progress information
+
+    Returns:
+        bool: True if seeding was successful, False if an error occurred
+    """
+    try:
+        if verbose:
+            print("Starting test data seeding...")
+
+        # Add minimal test users (similar to test_users but more focused)
+        seed_test_users(force, verbose)
+
+        # Add a minimal set of audit logs for testing security features
+        seed_audit_logs(None, force, verbose)
+
+        # Create a simple security incident for testing
+        incident_data = {
+            'title': 'Test Security Incident',
+            'description': 'Security incident created for test environment',
+            'severity': 'medium',
+            'status': 'active',
+            'days_ago': 0
+        }
+
+        now = datetime.now(timezone.utc)
+        incident = SecurityIncident(
+            title=incident_data['title'],
+            description=incident_data['description'],
+            severity=incident_data['severity'],
+            status=incident_data['status'],
+            detected_at=now,
+            resolved_at=None
+        )
+
+        db.session.add(incident)
+        db.session.commit()
+
+        if verbose:
+            print("Created test security incident")
+
+        # Create basic file integrity data suitable for tests
+        test_data = seed_test_file_integrity_data(force, verbose)
+
+        if verbose:
+            print("✅ Test data seeding completed successfully")
+        return True
+
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        error_msg = f"Test data seeding error: {str(e)}"
+        logging.error(error_msg)
+        print(f"❌ {error_msg}")
+        return False
+    except Exception as e:
+        db.session.rollback()
+        error_msg = f"Unexpected error during test data seeding: {str(e)}"
+        logging.error(error_msg)
+        print(f"❌ {error_msg}")
+        return False
+
+
+def seed_test_file_integrity_data(force: bool = False, verbose: bool = False) -> Dict[str, Any]:
+    """
+    Create minimalist file integrity test data for testing environments.
+
+    This creates a very small subset of files specifically for unit and
+    integration testing of the file integrity monitoring system.
+
+    Args:
+        force: If True, will recreate data even if it already exists
+        verbose: If True, will output detailed progress information
+
+    Returns:
+        dict: Dictionary with created test data
+    """
+    if verbose:
+        print("Creating test file integrity data...")
+
+    # Check if app is available through Flask current_app
+    if not hasattr(current_app, '_get_current_object'):
+        if verbose:
+            print("Skipping test file integrity data seeding - no application context")
+        return {}
+
+    try:
+        # Define test files and directory to create - very minimal for tests
+        test_dir = os.path.join(current_app.instance_path, 'integrity_test')
+        os.makedirs(test_dir, exist_ok=True)
+
+        # Create test files - just enough for tests to pass
+        test_files = {
+            'test_config.ini': '[test]\nenabled = true\nmode = test\n',
+            'test_script.py': '#!/usr/bin/env python\n\nprint("Test file")\n',
+            'test_data.json': '{\n  "test": true,\n  "environment": "testing"\n}'
+        }
+
+        # Create the files and compute hashes
+        file_hashes = {}
+        for filename, content in test_files.items():
+            file_path = os.path.join(test_dir, filename)
+
+            # Create the file if it doesn't exist or force is True
+            if force or not os.path.exists(file_path):
+                with open(file_path, 'w') as f:
+                    f.write(content)
+
+                # Make Python files executable
+                if filename.endswith('.py'):
+                    os.chmod(file_path, 0o755)
+
+                if verbose:
+                    print(f"Created test file: {filename}")
+
+            # Compute hash for file integrity baseline
+            file_hash = calculate_file_hash(file_path)
+            rel_path = os.path.relpath(file_path, current_app.root_path)
+            file_hashes[rel_path] = file_hash
+
+        # Store baseline to app config - limited scope for tests
+        if 'CRITICAL_FILE_HASHES' not in current_app.config or force:
+            current_app.config['CRITICAL_FILE_HASHES'] = {}
+
+        # Add our test files to the monitored files
+        current_app.config['CRITICAL_FILE_HASHES'].update(file_hashes)
+
+        # Create a baseline file for tests
+        baseline_path = os.path.join(current_app.instance_path, 'test_baseline.json')
+        with open(baseline_path, 'w') as f:
+            json.dump(file_hashes, f, indent=2)
+
+        if verbose:
+            print(f"Created test file integrity baseline with {len(file_hashes)} files")
+
+        return {
+            'baseline_path': baseline_path,
+            'test_dir': test_dir,
+            'file_hashes': file_hashes
+        }
+
+    except Exception as e:
+        logging.error(f"Error creating test file integrity data: {str(e)}")
+        if verbose:
+            print(f"Error creating test file integrity data: {str(e)}")
+        return {}
 
 
 def seed_additional_users(force: bool = False, verbose: bool = False) -> List[User]:

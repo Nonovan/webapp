@@ -33,12 +33,20 @@ The CLI Application Core provides a unified command-line interface for the Cloud
   - Secure operation implementation
   - Comprehensive error handling
 
+- **`config.py`**: Configuration management
+  - Loading and validating configuration settings
+  - Environment-specific configuration handling
+  - Secure configuration file operations
+  - Sensitive data management
+  - Configuration validation and categorization
+
 ## Directory Structure
 
 ```plaintext
 cli/app/
 ├── README.md               # This documentation
 ├── __init__.py             # CLI initialization and registration
+├── config.py               # Configuration management
 └── commands/               # Command group implementations
     ├── README.md           # Command groups documentation
     ├── __init__.py         # Command group registration
@@ -164,6 +172,28 @@ flask user bulk-import --file new_users.csv --send-welcome
 flask user mfa --require-for admins,operators
 ```
 
+### Configuration Management
+
+```bash
+# Load and display configuration
+flask config show --environment production
+
+# Initialize configuration from template
+flask config init --environment development --template default
+
+# Validate configuration
+flask config validate --environment production
+
+# Export configuration
+flask config export --output config_export.json
+
+# Set configuration value
+flask config set key.path value --environment development
+
+# Get configuration value
+flask config get key.path --environment production
+```
+
 ## Security Features
 
 - **Authentication Validation**: Commands validate authentication requirements before execution
@@ -176,6 +206,7 @@ flask user mfa --require-for admins,operators
 - **Resource Protection**: Resource cleanup in case of operation failures
 - **Safe Defaults**: Conservative default settings for all operations
 - **Transaction Management**: Proper transaction handling for database operations
+- **Configuration Integrity**: File integrity validation for configuration files
 
 ## Common Patterns
 
@@ -264,3 +295,4 @@ except Exception as e:
 - Security Controls
 - System Administration
 - User Administration
+- Configuration Management Guide

@@ -150,6 +150,13 @@ from .security import (
     init_security
 )
 
+# Import seeder functions
+from .seeder import (
+    seed_database,
+    seed_development_data,
+    seed_test_data
+)
+
 # Initialize security components
 init_security()
 
@@ -250,5 +257,10 @@ __all__ = [
     'generate_csp_nonce',
     '_consider_baseline_update',
     'init_security',
-    'verify_baseline_update'
+    'verify_baseline_update',
+
+    # Database seeding functions
+    'seed_database',
+    'seed_development_data',
+    'seed_test_data'
 ]

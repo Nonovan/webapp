@@ -74,6 +74,9 @@ from core.security import (
     # Audit logging functions
     audit_log,
     get_security_events,
+    get_critical_security_events,
+    log_security_event,
+    log_file_integrity_event,
 
     # File integrity functions
     check_file_integrity,
@@ -81,11 +84,19 @@ from core.security import (
     create_file_hash_baseline,
     update_file_integrity_baseline,
     verify_baseline_update,
+    get_last_integrity_status,
+    detect_file_changes,
 
     # Security monitoring functions
     get_security_anomalies,
     get_threat_summary,
-    detect_suspicious_activity
+    detect_suspicious_activity,
+    get_security_status_summary,
+    get_security_event_counts,
+
+    # Security utility functions
+    validate_security_config,
+    get_security_config
 )
 
 # Export all command groups and required functions to make them available when importing this package
@@ -101,6 +112,9 @@ __all__ = [
     # Audit logging functions
     'audit_log',
     'get_security_events',
+    'get_critical_security_events',
+    'log_security_event',
+    'log_file_integrity_event',
 
     # File integrity functions
     'check_file_integrity',
@@ -108,11 +122,19 @@ __all__ = [
     'create_file_hash_baseline',
     'update_file_integrity_baseline',
     'verify_baseline_update',
+    'get_last_integrity_status',
+    'detect_file_changes',
 
     # Security monitoring functions
     'get_security_anomalies',
     'get_threat_summary',
-    'detect_suspicious_activity'
+    'detect_suspicious_activity',
+    'get_security_status_summary',
+    'get_security_event_counts',
+
+    # Security utility functions
+    'validate_security_config',
+    'get_security_config'
 ]
 
 # Version information

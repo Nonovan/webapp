@@ -25,7 +25,7 @@ import click
 from flask.cli import AppGroup
 from sqlalchemy.exc import SQLAlchemyError
 
-from core.loggings import get_logger
+from core.utils import get_logger
 from core.security import audit_log, check_critical_file_integrity
 from core.config import Config
 from core.seeder import seed_database, seed_development_data, seed_test_data
@@ -534,7 +534,7 @@ def initialize_project(env: str, with_db: bool, with_config: bool,
         if env == 'development':
             click.echo("\nNext steps:")
             click.echo("  1. Run 'flask run' to start the development server")
-            click.echo("  2. Run 'flask system status' to verify environment health")
+            click.echo("  2. Run 'flask system status' to verify system health")
             click.echo("  3. Access the application at http://localhost:5000")
 
         metrics.increment(f'project.init.{env}.success')
@@ -544,3 +544,22 @@ def initialize_project(env: str, with_db: bool, with_config: bool,
         metrics.increment(f'project.init.{env}.failure')
         handle_error(e, "Project initialization failed")
         return EXIT_ERROR
+
+
+# Version information
+__version__ = '0.1.1'
+
+# Export public interface
+__all__ = [
+    # CLI command group
+    'init_cli',
+
+    # Initialization commands
+    'initialize_database',
+    'initialize_config',
+    'initialize_security',
+    'initialize_project',
+
+    # Version information
+    '__version__'
+]

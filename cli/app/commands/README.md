@@ -65,11 +65,12 @@ The CLI commands package implements a comprehensive set of administrative and op
 - **`security.py`**: Security management commands
   - Security baseline verification
   - Baseline updates and management
-  - Security event monitoring
+  - Security event monitoring and retrieval
   - System security posture analysis
   - Security metrics reporting
   - Audit log integration
   - Security controls management
+  - Threat detection and analysis
 
 - **`maintenance.py`**: System maintenance commands
   - Cache management operations
@@ -207,6 +208,9 @@ flask security update-baseline --reason "System update" --auto
 # View security events
 flask security events --days 30 --severity critical --format json
 
+# Retrieve security events with filtering
+flask security events --days 7 --severity high --format csv
+
 # Analyze system security posture
 flask security analyze --thorough --report security_analysis.pdf
 
@@ -215,6 +219,12 @@ flask security file-integrity --verbose
 
 # Export security metrics
 flask security metrics --format csv --output security_metrics.csv
+
+# Check for security anomalies
+flask security anomalies --hours 48
+
+# Get threat summary
+flask security threat-summary --detailed
 ```
 
 ### System Maintenance
@@ -252,6 +262,7 @@ flask maintenance scheduled-tasks --run-now
 - **Output Sanitization**: Prevents leaking of sensitive information
 - **File Integrity**: Verification of critical file integrity
 - **Security Baseline**: Management of security configuration baselines
+- **Event Monitoring**: Comprehensive security event retrieval and analysis
 
 ## Common Patterns
 
@@ -398,6 +409,8 @@ def security_operation():
 - Logging Framework
 - Permission Model
 - Security Baseline Management
+- Security Event Monitoring Reference
 - System Administration
 - System Maintenance Procedures
+- Threat Detection and Response
 - User Administration
