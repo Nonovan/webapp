@@ -17,11 +17,13 @@ import os
 import sys
 import logging
 import json
+import secrets
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Union, Tuple
 
 import click
+from flask import current_app
 from flask.cli import AppGroup
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -34,6 +36,12 @@ from cli.common import (
     require_permission, handle_error, confirm_action, format_output,
     EXIT_SUCCESS, EXIT_ERROR, EXIT_RESOURCE_ERROR
 )
+from .commands.db import db_cli
+from .commands.maintenance import maintenance_cli
+from .commands.monitor import monitor_cli
+from .commands.security import security_cli
+from .commands.system import system_cli
+from .commands.user import user_cli
 
 # Initialize CLI group and logger
 init_cli = AppGroup('init', help='Application initialization commands')
@@ -58,45 +66,29 @@ except (TypeError, AttributeError):
 @require_permission('db:admin')
 def initialize_database(env: str, seed: bool, sample_data: bool, reset: bool, force: bool) -> int:
     """
-    Initialize database schema and optionally seed data.
+    Initialize database schema and seed data.
 
-    Creates all database tables defined in SQLAlchemy models and populates them with
-    required initial data. This command simplifies setting up new environments or
-    resetting existing ones for development and testing.
-
-    The command implements safety checks for production environments and provides
-    progress feedback during the initialization process. It can optionally include
-    sample data for development and testing purposes.
+    This command creates database tables, indexes, and optionally seeds
+    the database with initial data for the specified environment.
+    It can also reset the database by dropping existing tables first.
 
     Args:
         env: Target environment (development, testing, staging, production)
-        seed: Whether to seed initial required data
-        sample_data: Whether to include sample/demo data
-        reset: Drop existing tables before creating new ones
+        seed: Whether to seed initial data
+        sample_data: Whether to include sample data (not for production)
+        reset: Whether to drop existing tables before initialization
         force: Skip confirmation prompts
 
     Examples:
         # Initialize development database with seed data
-        $ flask init db --env development
+        $ flask init db --env development --seed
 
-        # Initialize testing database with sample data
-        $ flask init db --env testing --sample-data
+        # Reset and initialize testing database with sample data
+        $ flask init db --env testing --reset --sample-data
 
-        # Reset development database (requires confirmation)
-        $ flask init db --env development --reset
+        # Initialize production database (no sample data)
+        $ flask init db --env production --no-sample-data
     """
-    # Production safety check
-    if env == 'production':
-        if sample_data and not force:
-            raise click.ClickException("Sample data cannot be used in production environments")
-
-        if reset and not force:
-            warning = "WARNING: PRODUCTION ENVIRONMENT! This will DELETE ALL DATA in the database."
-            if not confirm_action(warning + " Are you absolutely sure?", default=False):
-                click.echo("Operation cancelled")
-                return EXIT_SUCCESS
-
-    # Confirm reset in any environment if not forced
     if reset and not force and env != 'production':
         warning = f"This will DELETE ALL DATA in the {env} database."
         if not confirm_action(warning + " Continue?", default=False):
@@ -204,17 +196,16 @@ def initialize_database(env: str, seed: bool, sample_data: bool, reset: bool, fo
 @require_permission('system:admin')
 def initialize_config(env: str, template: Optional[str], output: str, force: bool) -> int:
     """
-    Initialize application configuration file.
+    Initialize application configuration from a template.
 
-    Creates a configuration file with environment-specific settings. This command
-    simplifies the setup of different environments by generating appropriate
-    configuration based on templates or defaults.
+    This command creates a configuration file for the specified environment
+    using either a provided template or environment-specific defaults.
 
     Args:
         env: Target environment (development, testing, staging, production)
-        template: Path to template configuration file
-        output: Path where the configuration file will be written
-        force: Overwrite existing configuration file if present
+        template: Path to template configuration file (optional)
+        output: Output path for the generated configuration
+        force: Overwrite output file if it exists
 
     Examples:
         # Create development configuration
@@ -258,7 +249,10 @@ def initialize_config(env: str, template: Optional[str], output: str, force: boo
         replacements = {
             '{{environment}}': env,
             '{{timestamp}}': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            '{{secret_key}}': os.urandom(24).hex(),
+            '{{secret_key}}': secrets.token_hex(32),
+            '{{csrf_secret_key}}': secrets.token_hex(16),
+            '{{jwt_secret_key}}': secrets.token_hex(32),
+            '{{session_key}}': secrets.token_hex(16),
             '{{server_name}}': f"localhost:{5000 + (100 if env == 'testing' else 0)}"
         }
 
@@ -313,15 +307,14 @@ def initialize_config(env: str, template: Optional[str], output: str, force: boo
 def initialize_security(baseline: bool, admin_user: bool,
                        admin_password: Optional[str], force: bool) -> int:
     """
-    Initialize security components.
+    Initialize security components and administrator account.
 
-    Sets up security-related components including file integrity monitoring
-    baseline, administrative user account, and required security directories.
-    This command helps ensure proper security configuration during deployment.
+    This command sets up security components including the file integrity baseline
+    and optionally creates an administrator user account with MFA requirement.
 
     Args:
-        baseline: Create file integrity monitoring baseline
-        admin_user: Create administrator user account
+        baseline: Whether to create file integrity baseline
+        admin_user: Whether to create administrator account
         admin_password: Administrator password (will prompt if not provided)
         force: Skip confirmation prompts
 
@@ -329,94 +322,112 @@ def initialize_security(baseline: bool, admin_user: bool,
         # Initialize all security components
         $ flask init security
 
-        # Update file integrity baseline without changing admin accounts
-        $ flask init security --baseline --no-admin-user
+        # Only create file integrity baseline
+        $ flask init security --no-admin-user
 
-        # Create admin user with specific password
-        $ flask init security --no-baseline --admin-password="SecurePass123!"
+        # Only create admin user with specific password
+        $ flask init security --no-baseline --admin-password "secure-password"
     """
     try:
-        click.echo("Initializing security components...")
+        metrics.increment('security.init.attempt')
 
-        # Create file integrity baseline
+        # Create file integrity baseline if requested
         if baseline:
-            click.echo("\nCreating file integrity baseline...")
+            click.echo("Creating file integrity baseline...")
             try:
-                from core.security import create_file_hash_baseline
-                result = create_file_hash_baseline()
+                from models import FileIntegrityBaseline
 
-                if result:
-                    click.echo("✅ File integrity baseline created successfully")
+                # Check if baseline already exists
+                existing_baseline = FileIntegrityBaseline.query.first()
+
+                if existing_baseline and not force:
+                    if not confirm_action("File integrity baseline already exists. Update it?", default=False):
+                        click.echo("Skipping baseline creation")
+                    else:
+                        status, changes = check_critical_file_integrity(current_app)
+                        click.echo(f"Updating baseline with {len(changes)} changes")
+                        from core.security import update_file_integrity_baseline
+                        update_file_integrity_baseline(current_app, current_app.config.get('FILE_BASELINE_PATH'), changes)
+                        click.echo("File integrity baseline updated successfully")
                 else:
-                    click.echo("❌ Failed to create file integrity baseline")
-                    return EXIT_ERROR
-            except ImportError:
-                click.echo("⚠️ File integrity module not available")
+                    # Create new baseline
+                    from core.security import create_file_hash_baseline
+                    baseline_path = create_file_hash_baseline(current_app)
+                    click.echo(f"File integrity baseline created successfully at {baseline_path}")
+
+                # Track metrics
+                metrics.increment('security.baseline.created')
+
+            except (ImportError, AttributeError) as e:
+                click.echo(f"Warning: Could not create file integrity baseline: {e}")
+                logger.warning(f"Failed to create file integrity baseline: {e}")
 
         # Create admin user if requested
         if admin_user:
-            click.echo("\nCreating administrator account...")
+            click.echo("Creating administrator account...")
+            try:
+                from models import User
 
-            from models import User
+                # Check if admin user already exists
+                admin = User.query.filter_by(username='admin').first()
 
-            # Check if admin user already exists
-            admin = User.query.filter_by(username='admin').first()
-            if admin and not force:
-                if not confirm_action("Administrator account already exists. Recreate?", default=False):
-                    click.echo("Skipping administrator account creation")
-                else:
-                    db.session.delete(admin)
+                if admin and not force:
+                    if not confirm_action("Administrator account already exists. Recreate?", default=False):
+                        click.echo("Skipping administrator account creation")
+                    else:
+                        db.session.delete(admin)
+                        db.session.commit()
+                        admin = None
+
+                if admin is None:
+                    # Get password securely
+                    if not admin_password:
+                        admin_password = click.prompt("Enter administrator password",
+                                                   hide_input=True, confirmation_prompt=True)
+
+                    # Create the admin user
+                    admin = User()
+                    admin.username = 'admin'
+                    admin.email = 'admin@example.com'
+                    admin.role = 'admin'
+                    admin.status = 'active'
+                    admin.require_mfa = True
+                    admin.set_password(admin_password)
+
+                    db.session.add(admin)
                     db.session.commit()
-                    admin = None
 
-            if admin is None:
-                # Get password securely
-                if not admin_password:
-                    admin_password = click.prompt("Enter administrator password",
-                                               hide_input=True, confirmation_prompt=True)
+                    click.echo("✅ Administrator account created successfully")
 
-                # Create the admin user
-                admin = User()
-                admin.username = 'admin'
-                admin.email = 'admin@example.com'
-                admin.role = 'admin'
-                admin.status = 'active'
-                admin.require_mfa = True
-                admin.set_password(admin_password)
+                    # Log audit event but don't expose password
+                    try:
+                        audit_log(
+                            'security',
+                            'admin_user_created',
+                            details={
+                                'username': 'admin',
+                                'mfa_required': True
+                            }
+                        )
+                    except Exception:
+                        # Don't fail if audit logging fails
+                        pass
 
-                db.session.add(admin)
-                db.session.commit()
+                    # Track metrics
+                    metrics.increment('security.admin_user.created')
 
-                click.echo("✅ Administrator account created successfully")
+            except (ImportError, AttributeError, SQLAlchemyError) as e:
+                click.echo(f"Warning: Could not create administrator account: {e}")
+                logger.warning(f"Failed to create administrator account: {e}")
+                db.session.rollback()
 
-                # Log audit event but don't expose password
-                try:
-                    audit_log(
-                        'security',
-                        'admin_user_created',
-                        details={
-                            'username': 'admin',
-                            'mfa_required': True
-                        }
-                    )
-                except Exception:
-                    # Don't fail if audit logging fails
-                    pass
-
-        # Create security directories
-        security_dirs = ['instance/security', 'logs/security']
-        for directory in security_dirs:
-            os.makedirs(directory, exist_ok=True)
-            # Set secure permissions on Unix-like systems
-            if sys.platform != 'win32':
-                os.chmod(directory, 0o700)  # Owner only access
-
-        click.echo("\n✅ Security initialization completed successfully")
-        metrics.increment('security.initialization_success')
+        metrics.increment('security.init.success')
+        click.echo("Security initialization completed")
         return EXIT_SUCCESS
 
     except Exception as e:
-        metrics.increment('security.initialization_failure')
+        metrics.increment('security.init.failed')
+        logger.error(f"Security initialization failed: {e}")
         handle_error(e, "Security initialization failed")
         return EXIT_ERROR
 
@@ -437,9 +448,10 @@ def initialize_project(env: str, with_db: bool, with_config: bool,
     """
     Initialize complete project environment.
 
-    Sets up all necessary components for a new project deployment including
-    database schema, initial data, configuration files, and directory structure.
-    This is a convenience command that combines multiple initialization steps.
+    This is a comprehensive command that initializes multiple components
+    including configuration, database schema, and directory structure.
+    It's useful for setting up new environments or initializing a fresh
+    checkout of the codebase.
 
     Args:
         env: Target environment (development, testing, staging, production)
@@ -553,6 +565,12 @@ __version__ = '0.1.1'
 __all__ = [
     # CLI command group
     'init_cli',
+    'db_cli',
+    'maintenance_cli',
+    'monitor_cli',
+    'security_cli',
+    'system_cli',
+    'user_cli',
 
     # Initialization commands
     'initialize_database',

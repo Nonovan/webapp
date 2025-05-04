@@ -4,14 +4,14 @@ This package provides command-line interfaces for the Cloud Infrastructure Platf
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- Usage
-- Authentication
-- Security Features
-- Common Patterns
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Usage](#usage)
+- [Authentication](#authentication)
+- [Security Features](#security-features)
+- [Common Patterns](#common-patterns)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
@@ -32,6 +32,9 @@ The CLI package delivers a comprehensive set of command-line tools for managing 
   - Monitoring and metrics commands
   - System administration utilities
   - User management functionality
+  - Security baseline management
+  - Maintenance operations
+  - File integrity monitoring
 
 - **`common/`**: Shared CLI utilities and helpers
   - Authentication functionality
@@ -39,6 +42,11 @@ The CLI package delivers a comprehensive set of command-line tools for managing 
   - Error handling patterns
   - Input validation utilities
   - Progress reporting components
+  - Path safety validation
+  - File integrity verification
+  - Secure command execution
+  - Environment verification
+  - Resource cleanup utilities
 
 - **`deploy/`**: Infrastructure deployment commands
   - AWS deployment operations
@@ -57,16 +65,21 @@ cli/
 ├── app/                     # Application management commands
 │   ├── README.md            # Application CLI documentation
 │   ├── __init__.py          # Application CLI initialization
+│   ├── config.py            # Configuration utilities
+│   ├── utils.py             # App-specific utilities
 │   └── commands/            # Command group implementations
 │       ├── README.md        # Command documentation
 │       ├── __init__.py      # Command registration
 │       ├── db.py            # Database management commands
+│       ├── maintenance.py   # System maintenance commands
 │       ├── monitor.py       # Monitoring commands
+│       ├── security.py      # Security management commands
 │       ├── system.py        # System administration commands
 │       └── user.py          # User management commands
 ├── common/                  # Shared CLI functionality
 │   ├── README.md            # Common utilities documentation
 │   ├── __init__.py          # Common utilities initialization
+│   ├── security.py          # Security utility functions
 │   └── utils.py             # Core utility functions
 └── deploy/                  # Infrastructure deployment
     ├── README.md            # Deployment CLI documentation
@@ -91,6 +104,8 @@ flask --help
 flask deploy --help
 flask db --help
 flask user --help
+flask security --help
+flask maintenance --help
 
 # Execute commands with appropriate options
 flask <command-group> <command> [options]
@@ -113,6 +128,17 @@ flask user reset-password username
 flask system status
 flask system health --detailed
 flask system config --verify
+
+# Security operations
+flask security check-baseline --verbose
+flask security update-baseline --auto
+flask security events --days 7 --severity critical
+flask security list-monitored --format json
+
+# Maintenance operations
+flask maintenance cache-clear --type all
+flask maintenance logs-rotate --compress --max-age 90
+flask maintenance cleanup --older-than 30 --type logs
 ```
 
 ### Deployment Commands
@@ -133,6 +159,16 @@ flask deploy docker compose --env development --action up
 # Kubernetes deployments
 flask deploy k8s deploy --env production --namespace platform
 flask deploy k8s status --env production
+```
+
+### Initialization Commands
+
+```bash
+# Initialize project components
+flask init config --env development
+flask init db --env development --seed
+flask init security --baseline
+flask init project --env development --with-db --with-config
 ```
 
 ## Authentication
@@ -179,9 +215,13 @@ The CLI supports multiple authentication methods:
 - **Credential Handling**: Secure handling of authentication credentials
 - **Environment Awareness**: Different security controls per environment
 - **Error Handling**: Secure error messages that don't leak sensitive information
+- **File Integrity Monitoring**: Verification of critical file integrity against baselines
 - **Input Validation**: Thorough validation of all command inputs
+- **Path Safety**: Prevention of directory traversal vulnerabilities
 - **Resource Protection**: Proper cleanup of resources after errors
 - **Safe Defaults**: Conservative default settings for all operations
+- **Secure Command Execution**: Validation of commands to prevent injection attacks
+- **Secure Resource Cleanup**: Safe removal of temporary files and resources
 - **Transaction Management**: Proper transaction handling for database operations
 
 ## Common Patterns
@@ -191,6 +231,7 @@ The CLI supports multiple authentication methods:
 ```python
 @command_group.command('name')
 @click.option('--option', help='Description')
+@require_permission('required:permission')
 def command_name(option):
     """Command documentation string."""
     try:
@@ -202,6 +243,8 @@ def command_name(option):
         # Success message
         logger.info('Operation completed successfully: %s', details)
         click.echo('Success message')
+
+        return EXIT_SUCCESS
 
     except Exception as e:
         # Proper error handling
@@ -235,44 +278,59 @@ except Exception as e:
 ### Authentication Check
 
 ```python
-def require_auth(func):
-    """Decorator to require authentication for a command."""
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        # Check if user is authenticated
-        if not is_authenticated():
-            click.echo("Authentication required")
-            click.echo("Please login using: flask auth login")
-            return 1
-        return func(*args, **kwargs)
-    return wrapper
+@require_auth
+def command_requiring_auth():
+    """Command that requires authentication."""
+    # Implementation
+    return EXIT_SUCCESS
+
+# Or explicit check
+if not is_authenticated():
+    click.echo("Authentication required")
+    click.echo("Please login using: flask auth login")
+    return EXIT_AUTH_ERROR
 ```
 
-### Progress Reporting
+### Permission Verification
 
 ```python
-with click.progressbar(length=total_steps, label='Operation') as bar:
-    # Step 1
-    execute_step_one()
-    bar.update(1)
+@require_permission('resource:action')
+def command_requiring_permission():
+    """Command that requires specific permission."""
+    # Implementation protected by permission decorator
+    return EXIT_SUCCESS
+```
 
-    # Step 2
-    execute_step_two()
-    bar.update(1)
+### Confirmation Prompts
 
-    # Step 3
-    execute_step_three()
-    bar.update(1)
+```python
+if destructive_operation and not force:
+    if not confirm_action("This operation will delete data. Continue?", default=False):
+        click.echo("Operation cancelled")
+        return EXIT_SUCCESS
+```
+
+### Path Safety Validation
+
+```python
+# Validate path is safe before file operations
+if not is_safe_file_operation('write', user_specified_path):
+    logger.error("Unsafe file path specified: %s", user_specified_path)
+    return EXIT_PERMISSION_ERROR
 ```
 
 ## Related Documentation
 
 - Application CLI Documentation
+- CLI Architecture Guide
 - Cloud Provider Documentation
 - Command Development Guide
 - Deployment Architecture
 - Environment Configuration
+- File Integrity Monitoring Guide
 - Flask CLI Integration
+- Permission Model Reference
+- Security Baseline Management
 - Security Controls Documentation
 - System Administration Guide
 - User Authentication Guide
