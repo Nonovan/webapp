@@ -4,14 +4,14 @@ This directory contains tools for collecting, preserving, and analyzing digital 
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- Configuration
-- Security Features
-- Integration
-- Usage Examples
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Configuration](#configuration)
+- [Security Features](#security-features)
+- [Integration](#integration)
+- [Usage Examples](#usage-examples)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
@@ -49,11 +49,11 @@ The Forensic Analysis Toolkit provides comprehensive capabilities for digital ev
   - Hash comparison with known malware
   - Reporting of indicators of compromise
 
-- **`network_capture.py`**: Network traffic analysis tools
-  - Packet capture with filtering options
-  - Traffic pattern analysis
+- **`network_analysis.py`**: Network traffic analysis tools
+  - Packet capture analysis
+  - Traffic pattern identification
   - Protocol analysis and reconstruction
-  - Malicious traffic identification
+  - Connection extraction and DNS query analysis
 
 - **`timeline_builder.py`**: Investigation timeline creation
   - Aggregates events from multiple sources
@@ -66,6 +66,7 @@ The Forensic Analysis Toolkit provides comprehensive capabilities for digital ev
 ```plaintext
 admin/security/forensics/
 ├── README.md                     # This documentation
+├── __init__.py                   # Package initialization with exports
 ├── analyze_memory.py             # Memory forensics utility
 ├── chain_of_custody.py           # Evidence handling documentation
 ├── collect_evidence.py           # Evidence collection script
@@ -76,17 +77,21 @@ admin/security/forensics/
 ├── disk_forensics.py             # Disk analysis toolkit
 ├── live_response/                # Live system investigation tools
 │   ├── README.md                 # Live response documentation
+│   ├── __init__.py               # Live response package exports
 │   ├── memory_acquisition.sh     # Memory capture tools
 │   ├── network_state.sh          # Network connection capture
 │   └── volatile_data.sh          # Volatile data collection
 ├── malware_analysis.sh           # Isolated malware analysis environment
-├── network_capture.py            # Network traffic analysis tools
+├── network_analysis.py           # Network traffic analysis tools
 ├── static_analysis/              # Static analysis tools
 │   ├── README.md                 # Static analysis documentation
+│   ├── __init__.py               # Static analysis package exports
 │   ├── common/                   # Common components for static analysis
 │   │   ├── README.md             # Common components documentation
+│   │   ├── __init__.py           # Common components exports
 │   │   ├── file_utils.py         # File handling utilities
 │   │   ├── hash_utils.py         # Hashing functionality
+│   │   ├── output_constants.py   # Shared constants and regex patterns
 │   │   ├── signature_db/         # Signature databases
 │   │   │   ├── README.md         # Signature database documentation
 │   │   │   ├── code_signing/     # Trusted code signing certificates
@@ -128,6 +133,7 @@ admin/security/forensics/
 ├── timeline_builder.py           # Investigation timeline creation
 └── utils/                        # Shared utilities
     ├── README.md                 # Utilities documentation
+    ├── __init__.py               # Utilities package exports
     ├── crypto.py                 # Cryptographic verification tools
     ├── evidence_tracker.py       # Evidence management utilities
     ├── file_utils.py             # Forensic file operations
@@ -173,6 +179,8 @@ The forensic toolkit uses configuration files to ensure consistent operation:
 - **Memory Protection**: Safeguards against memory contamination during acquisition
 - **Read-Only Operations**: Default use of read-only tools to preserve evidence
 - **Secure Storage**: Encryption of sensitive artifacts and evidence
+- **Forensic Readiness**: Outputs designed for defensible findings in legal proceedings
+- **File Integrity Monitoring**: Continuous verification of evidence integrity
 
 ## Integration
 
@@ -184,6 +192,7 @@ These forensic analysis tools integrate with other components of the security fr
 - **Security Auditing**: Integration with security audit findings and reports
 - **Security Monitoring**: Correlation with security monitoring alerts and timeline
 - **Threat Intelligence**: IOC extraction for threat intelligence enrichment
+- **Core Security Integration**: Integration with the core security framework's integrity monitoring
 
 The toolkit also supports:
 
@@ -256,6 +265,27 @@ The toolkit also supports:
     --format json,csv
 ```
 
+### Network Analysis
+
+```bash
+# Analyze captured network traffic
+./network_analysis.py --pcap /secure/evidence/incident-42/capture.pcap \
+    --extract-connections \
+    --extract-dns-queries \
+    --extract-http-requests \
+    --output /secure/evidence/incident-42/network_analysis.json
+```
+
+### Live Response
+
+```bash
+# Collect volatile data from a live system
+python -c "from admin.security.forensics.live_response import get_collector, LiveResponseConfig; \
+    config = LiveResponseConfig(output_dir='/secure/evidence/incident-42/', case_id='CASE-2024-042'); \
+    collector = get_collector('volatile_data', config); \
+    collector.collect(categories=['processes', 'network', 'users'])"
+```
+
 ## Related Documentation
 
 - Chain of Custody Requirements
@@ -263,3 +293,4 @@ The toolkit also supports:
 - Evidence Handling Guidelines
 - Incident Response Plan
 - Legal and Compliance Considerations
+- File Integrity Monitoring Protocol

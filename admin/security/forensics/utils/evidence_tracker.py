@@ -473,6 +473,119 @@ def track_analysis(
         log_forensic_operation("track_evidence_analysis", False, {"evidence_id": evidence_id, "error": str(e)})
         return False
 
+
+def register_analysis_result(
+    case_id: str,
+    evidence_id: str,
+    analyst: str,
+    tool: str,
+    result_type: str,
+    findings: Dict[str, Any],
+    risk_level: str = "unknown"
+) -> bool:
+    """
+    Registers analysis results for an evidence item and updates its metadata.
+
+    Args:
+        case_id: The case identifier.
+        evidence_id: The evidence identifier.
+        analyst: The analyst who performed the analysis.
+        tool: The tool used for analysis.
+        result_type: The type of analysis performed.
+        findings: Dictionary containing analysis findings.
+        risk_level: Risk level determined from analysis (e.g., "low", "medium", "high", "critical").
+
+    Returns:
+        True if registration was successful, False otherwise.
+    """
+    if not case_id or not evidence_id or not analyst:
+        logger.error("Missing required fields for registering analysis results")
+        log_forensic_operation("register_analysis_result", False,
+                              {"error": "Missing required fields"})
+        return False
+
+    try:
+        # Get current evidence details
+        evidence = get_evidence_details(case_id, evidence_id)
+        if not evidence:
+            logger.error(f"Cannot register analysis results: evidence {evidence_id} not found")
+            log_forensic_operation("register_analysis_result", False,
+                                  {"evidence_id": evidence_id, "error": "Evidence not found"})
+            return False
+
+        # Prepare analysis entry
+        analysis_entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "analyst": analyst,
+            "tool": tool,
+            "result_type": result_type,
+            "risk_level": risk_level,
+            "findings": findings
+        }
+
+        # Update evidence metadata with analysis results
+        analysis_history = evidence.get("analysis_history", [])
+        analysis_history.append(analysis_entry)
+
+        updates = {
+            "analysis_history": analysis_history,
+            "last_analysis": {
+                "timestamp": analysis_entry["timestamp"],
+                "tool": tool,
+                "result_type": result_type,
+                "risk_level": risk_level,
+                "analyst": analyst
+            }
+        }
+
+        # If this is a high-risk finding, tag it
+        if risk_level in ["high", "critical"]:
+            tags = evidence.get("tags", [])
+            if f"risk:{risk_level}" not in tags:
+                tags.append(f"risk:{risk_level}")
+                updates["tags"] = tags
+
+        # Update the evidence record
+        success = update_evidence_details(
+            case_id=case_id,
+            evidence_id=evidence_id,
+            updates=updates,
+            analyst=analyst
+        )
+
+        if success:
+            # Also track this as an analysis activity
+            track_analysis(
+                case_id=case_id,
+                evidence_id=evidence_id,
+                analyst=analyst,
+                action=f"{tool}_analysis",
+                purpose=f"Performed {result_type} analysis",
+                details={
+                    "tool": tool,
+                    "result_type": result_type,
+                    "risk_level": risk_level,
+                    "findings_summary": {k: v for k, v in findings.items()
+                                         if k in ["risk_level", "risk_score", "suspicious_processes",
+                                                 "suspicious_commands", "risk_factors"]}
+                }
+            )
+
+        log_forensic_operation("register_analysis_result", success, {
+            "evidence_id": evidence_id,
+            "tool": tool,
+            "result_type": result_type,
+            "risk_level": risk_level
+        })
+        return success
+
+    except (OSError, ValueError, TypeError) as e:
+        logger.error(f"Failed to register analysis results for evidence {evidence_id}: {e}")
+        log_forensic_operation("register_analysis_result", False,
+                              {"evidence_id": evidence_id, "error": str(e)})
+        return False
+
+
 def get_evidence_details(case_id: str, evidence_id: str) -> Optional[Dict[str, Any]]:
     """
     Retrieves the metadata for a specific evidence item.

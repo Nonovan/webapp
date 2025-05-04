@@ -57,7 +57,8 @@ try:
         secure_delete,
         verify_evidence_integrity,
         get_forensic_logs,
-        export_forensic_logs
+        export_forensic_logs,
+        update_file_integrity_baseline
     )
     CRYPTO_AVAILABLE = True
 except ImportError as e:
@@ -89,11 +90,14 @@ try:
     from .utils.evidence_tracker import (
         register_evidence,
         track_access,
+        track_analysis,
         get_evidence_details,
         update_evidence_details,
         get_chain_of_custody,
         list_evidence_by_case,
-        export_chain_of_custody
+        create_evidence_container,
+        export_chain_of_custody,
+        register_analysis_result
     )
     EVIDENCE_TRACKING_AVAILABLE = True
 except ImportError as e:
@@ -107,7 +111,11 @@ try:
         scan_with_yara,
         verify_code_signature,
         calculate_multiple_file_hashes,
-        find_similar_files
+        find_similar_files,
+        save_analysis_report,
+        calculate_hash,
+        calculate_multiple_hashes,
+        calculate_fuzzy_hash
     )
     STATIC_ANALYSIS_AVAILABLE = True
 except ImportError as e:
@@ -118,7 +126,10 @@ try:
     from .live_response import (
         get_collector,
         LiveResponseConfig,
-        ARTIFACT_TYPES
+        ARTIFACT_TYPES,
+        update_evidence_integrity_baseline,
+        verify_evidence_integrity as verify_evidence_directory_integrity,
+        COLLECTION_TYPES
     )
     LIVE_RESPONSE_AVAILABLE = True
 except ImportError as e:
@@ -157,7 +168,16 @@ except ImportError as e:
 
 # Try to import report generation capabilities
 try:
-    from .utils.report_builder import generate_forensic_report
+    from .utils.report_builder import (
+        generate_forensic_report,
+        generate_html_report,
+        generate_pdf_report,
+        generate_json_report,
+        generate_text_report,
+        prepare_report_metadata,
+        create_timeline_chart,
+        create_evidence_summary
+    )
     REPORT_GENERATION_AVAILABLE = True
 except ImportError as e:
     logger.info(f"Report generation module not available: {e}")
@@ -169,14 +189,15 @@ def get_capabilities() -> Dict[str, Dict[str, Any]]:
     Returns:
         Dict containing available forensic capabilities and their functions
     """
-    return {
+    capabilities = {
         "crypto": {
             "available": CRYPTO_AVAILABLE,
             "functions": [
                 "calculate_file_hash",
                 "verify_file_hash",
                 "secure_delete",
-                "create_secure_temp_file"
+                "create_secure_temp_file",
+                "update_file_integrity_baseline"
             ] if CRYPTO_AVAILABLE else []
         },
         "evidence_tracking": {
@@ -184,11 +205,14 @@ def get_capabilities() -> Dict[str, Dict[str, Any]]:
             "functions": [
                 "register_evidence",
                 "track_access",
+                "track_analysis",
                 "get_evidence_details",
                 "update_evidence_details",
                 "get_chain_of_custody",
                 "list_evidence_by_case",
-                "export_chain_of_custody"
+                "create_evidence_container",
+                "export_chain_of_custody",
+                "register_analysis_result"
             ] if EVIDENCE_TRACKING_AVAILABLE else []
         },
         "static_analysis": {
@@ -199,14 +223,22 @@ def get_capabilities() -> Dict[str, Dict[str, Any]]:
                 "scan_with_yara",
                 "verify_code_signature",
                 "calculate_multiple_file_hashes",
-                "find_similar_files"
+                "find_similar_files",
+                "save_analysis_report",
+                "calculate_hash",
+                "calculate_multiple_hashes",
+                "calculate_fuzzy_hash"
             ] if STATIC_ANALYSIS_AVAILABLE else []
         },
         "live_response": {
             "available": LIVE_RESPONSE_AVAILABLE,
             "functions": [
                 "get_collector",
-                "LiveResponseConfig"
+                "LiveResponseConfig",
+                "update_evidence_integrity_baseline",
+                "verify_evidence_directory_integrity",
+                "COLLECTION_TYPES",
+                "ARTIFACT_TYPES"
             ] if LIVE_RESPONSE_AVAILABLE else []
         },
         "memory_analysis": {
@@ -236,10 +268,27 @@ def get_capabilities() -> Dict[str, Dict[str, Any]]:
         "reporting": {
             "available": REPORT_GENERATION_AVAILABLE,
             "functions": [
-                "generate_forensic_report"
+                "generate_forensic_report",
+                "generate_html_report",
+                "generate_pdf_report",
+                "generate_json_report",
+                "generate_text_report",
+                "prepare_report_metadata",
+                "create_timeline_chart",
+                "create_evidence_summary"
             ] if REPORT_GENERATION_AVAILABLE else []
         }
     }
+
+    # Add signature database management capability
+    capabilities["signature_database"] = {
+        "available": STATIC_ANALYSIS_AVAILABLE,
+        "functions": [
+            "update_signature_database"
+        ] if STATIC_ANALYSIS_AVAILABLE else []
+    }
+
+    return capabilities
 
 def analyze_evidence(
     evidence_path: str,
@@ -358,6 +407,113 @@ def analyze_evidence(
         })
         return results
 
+def update_signature_database(
+    db_type: str,
+    source_path: str,
+    analyst: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Update a forensic signature database with new signatures.
+
+    This function provides a central interface to update various signature databases
+    used in forensic analysis, such as malware signatures, code signing certificates,
+    or file type signatures.
+
+    Args:
+        db_type: Type of database to update ("malware", "code_signing", "file_types")
+        source_path: Path to the source signature file or directory
+        analyst: Name of analyst performing the update (for audit logs)
+
+    Returns:
+        Dictionary containing update results with status and details
+
+    Raises:
+        ValueError: If db_type is not supported or source_path is invalid
+        PermissionError: If the user lacks permission to update the database
+    """
+    result = {
+        "db_type": db_type,
+        "source": source_path,
+        "timestamp": None,  # Will be set during the update
+        "analyst": analyst,
+        "status": "initialized",
+        "details": {}
+    }
+
+    operation_details = {
+        "db_type": db_type,
+        "source_path": source_path,
+        "analyst": analyst or "system"
+    }
+
+    log_forensic_operation("update_signature_database_start", True, operation_details)
+
+    try:
+        # Validate database type
+        valid_db_types = ["malware", "code_signing", "file_types", "yara_rules"]
+        if db_type not in valid_db_types:
+            error_msg = f"Invalid database type: {db_type}. Valid types are: {', '.join(valid_db_types)}"
+            log_forensic_operation("update_signature_database_error", False,
+                                  {**operation_details, "error": error_msg})
+            result["status"] = "error"
+            result["details"]["error"] = error_msg
+            return result
+
+        # Check if static analysis is available
+        if not STATIC_ANALYSIS_AVAILABLE:
+            error_msg = "Static analysis module not available, cannot update signature database"
+            log_forensic_operation("update_signature_database_error", False,
+                                  {**operation_details, "error": error_msg})
+            result["status"] = "error"
+            result["details"]["error"] = error_msg
+            return result
+
+        # Process the update using the appropriate database manager
+        if db_type in ["malware", "code_signing", "file_types"]:
+            # Import the database manager at runtime to avoid circular imports
+            from .static_analysis.common.signature_db import SignatureDBManager
+            db_manager = SignatureDBManager()
+            update_success = db_manager.update_database(db_type, source_path)
+
+            if update_success:
+                result["status"] = "completed"
+                db_info = db_manager.get_database_info()
+                result["details"]["database_info"] = db_info.get(db_type, {})
+                log_forensic_operation("update_signature_database_complete", True,
+                                      {**operation_details, "status": "completed"})
+            else:
+                result["status"] = "error"
+                result["details"]["error"] = f"Failed to update {db_type} database"
+                log_forensic_operation("update_signature_database_error", False,
+                                      {**operation_details, "error": result["details"]["error"]})
+
+        # Special handling for YARA rules
+        elif db_type == "yara_rules":
+            from .static_analysis.common.yara_rules import YaraScanner
+            yara_scanner = YaraScanner()
+            update_success = yara_scanner.add_rules_from_path(source_path)
+
+            if update_success:
+                result["status"] = "completed"
+                result["details"]["rules_added"] = update_success
+                log_forensic_operation("update_signature_database_complete", True,
+                                     {**operation_details, "status": "completed", "rules_added": update_success})
+            else:
+                result["status"] = "error"
+                result["details"]["error"] = "Failed to update YARA rules"
+                log_forensic_operation("update_signature_database_error", False,
+                                      {**operation_details, "error": result["details"]["error"]})
+
+        return result
+
+    except Exception as e:
+        error_msg = str(e)
+        result["status"] = "error"
+        result["details"]["error"] = error_msg
+        log_forensic_operation("update_signature_database_error", False,
+                              {**operation_details, "error": error_msg})
+        return result
+
 # Export public API
 __all__ = [
     # Version information
@@ -368,28 +524,40 @@ __all__ = [
     # Core functionality
     'get_capabilities',
     'analyze_evidence',
+    'update_signature_database',
     'log_forensic_operation',
 
     # Conditionally available components
     *(['calculate_file_hash', 'verify_file_hash', 'create_secure_temp_file',
-       'secure_delete', 'verify_evidence_integrity'] if CRYPTO_AVAILABLE else []),
+       'secure_delete', 'verify_evidence_integrity', 'update_file_integrity_baseline',
+       'get_forensic_logs', 'export_forensic_logs'] if CRYPTO_AVAILABLE else []),
 
-    *(['register_evidence', 'track_access', 'get_evidence_details',
-       'get_chain_of_custody', 'list_evidence_by_case'] if EVIDENCE_TRACKING_AVAILABLE else []),
+    *(['register_evidence', 'track_access', 'track_analysis', 'get_evidence_details',
+       'update_evidence_details', 'get_chain_of_custody', 'list_evidence_by_case',
+       'create_evidence_container', 'export_chain_of_custody', 'register_analysis_result']
+       if EVIDENCE_TRACKING_AVAILABLE else []),
 
-    *(['analyze_file', 'check_malware_signatures', 'scan_with_yara']
+    *(['analyze_file', 'check_malware_signatures', 'scan_with_yara', 'verify_code_signature',
+       'calculate_multiple_file_hashes', 'find_similar_files', 'save_analysis_report',
+       'calculate_hash', 'calculate_multiple_hashes', 'calculate_fuzzy_hash']
       if STATIC_ANALYSIS_AVAILABLE else []),
 
-    *(['get_collector', 'LiveResponseConfig', 'ARTIFACT_TYPES']
+    *(['get_collector', 'LiveResponseConfig', 'ARTIFACT_TYPES', 'COLLECTION_TYPES',
+       'update_evidence_integrity_baseline', 'verify_evidence_directory_integrity']
       if LIVE_RESPONSE_AVAILABLE else []),
 
     *(['analyze_memory_dump'] if MEMORY_ANALYSIS_AVAILABLE else []),
 
-    *(['analyze_pcap', 'extract_connections'] if NETWORK_ANALYSIS_AVAILABLE else []),
+    *(['analyze_pcap', 'extract_connections', 'extract_dns_queries', 'extract_http_requests']
+      if NETWORK_ANALYSIS_AVAILABLE else []),
 
-    *(['create_timeline', 'add_event', 'merge_timelines'] if TIMELINE_AVAILABLE else []),
+    *(['create_timeline', 'add_event', 'merge_timelines', 'export_timeline']
+      if TIMELINE_AVAILABLE else []),
 
-    *(['generate_forensic_report'] if REPORT_GENERATION_AVAILABLE else [])
+    *(['generate_forensic_report', 'generate_html_report', 'generate_pdf_report',
+       'generate_json_report', 'generate_text_report', 'prepare_report_metadata',
+       'create_timeline_chart', 'create_evidence_summary']
+      if REPORT_GENERATION_AVAILABLE else [])
 ]
 
 # Log initialization status

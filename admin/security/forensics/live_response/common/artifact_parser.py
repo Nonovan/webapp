@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import sys
+import yaml
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1660,7 +1661,6 @@ def main() -> int:
             print(json.dumps(parsed_data, indent=2, default=str))
         elif args.format == 'yaml':
             if 'yaml' in sys.modules:
-                import yaml
                 print(yaml.safe_dump(parsed_data, default_flow_style=False))
             else:
                 logger.warning("PyYAML not available, falling back to JSON format")

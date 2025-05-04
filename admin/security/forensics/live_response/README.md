@@ -12,6 +12,7 @@ This directory contains specialized forensic tools for live system investigation
 - [Configuration](#configuration)
 - [Installation](#installation)
 - [Evidence Handling](#evidence-handling)
+- [Chain of Custody](#chain-of-custody)
 - [Compatibility](#compatibility)
 - [Troubleshooting](#troubleshooting)
 - [Related Documentation](#related-documentation)
@@ -56,11 +57,12 @@ The toolkit is built for incident responders, security analysts, and digital for
   - Identifies potentially suspicious network activity
 
 - **Common utilities**:
-  - Chain of custody documentation
-  - Evidence integrity verification
-  - Safe evidence handling procedures
+  - Chain of custody documentation and management
+  - Evidence integrity verification using multiple hash algorithms
+  - Safe evidence handling procedures with audit logging
   - System compatibility checks
   - Secure remote evidence collection
+  - Evidence metadata tracking
 
 ## Tool Usage
 
@@ -132,7 +134,7 @@ The toolkit is built for incident responders, security analysts, and digital for
   --verify --case-id CASE-2024-042 --examiner "Jane Smith"
 ```
 
-### Evidence Packaging
+### Evidence Packaging and Handling
 
 ```bash
 # Package collected evidence with automated chain of custody
@@ -140,6 +142,18 @@ The toolkit is built for incident responders, security analysts, and digital for
   --output /secure/packages/ --format tar.gz --encrypt \
   --case-id CASE-2024-042 --examiner "John Doe" \
   --description "Server memory and volatile data"
+
+# Register evidence in the chain of custody system
+./common/register_evidence.sh --case-id CASE-2024-042 \
+  --evidence-path /secure/evidence/incident-42/memory.dump \
+  --type memory_dump --examiner "John Doe" \
+  --description "Memory dump from affected server" \
+  --method live_acquisition --tool "memory_acquisition.sh v1.2"
+
+# Verify evidence integrity after transfer
+./common/verify_evidence.sh --case-id CASE-2024-042 \
+  --evidence-id EV-2024-042-001 \
+  --path /secure/evidence/incident-42/memory.dump
 ```
 
 ## Security Features
@@ -272,6 +286,17 @@ Live response tools are configured through the primary forensic toolkit configur
       "timestamp_format": "iso8601",
       "encrypt_evidence": true,
       "compression_algorithm": "zstd"
+    },
+    "evidence_tracking": {
+      "auto_register": true,
+      "metadata_dir": "/secure/forensics/evidence_metadata",
+      "default_retention": "1 year",
+      "classification": "Confidential",
+      "chain_of_custody": {
+        "enabled": true,
+        "format": "jsonl",
+        "audit_logging": true
+      }
     }
   }
 }
@@ -288,6 +313,25 @@ All tools in the live response kit follow the guidelines outlined in EVIDENCE_GU
 - Documentation requirements for legal proceedings
 
 For detailed usage instructions, refer to the USAGE.md document, which provides comprehensive guidance on tool operation, parameters, and workflows.
+
+## Chain of Custody
+
+The toolkit integrates with the evidence tracking system to maintain a comprehensive chain of custody for all collected evidence:
+
+- **Registration**: Automatically registers collected evidence with metadata
+- **Access Tracking**: Logs all access to evidence files
+- **Analysis Documentation**: Records all analysis performed on evidence
+- **Integrity Verification**: Validates evidence hasn't been altered
+- **Transfer Documentation**: Tracks evidence as it moves between systems
+- **Export Capabilities**: Generates standardized chain of custody reports
+
+Chain of custody is maintained through the evidence_tracker module with functions like:
+
+- `register_evidence()`: Adds evidence to the tracking system
+- `track_access()`: Records when evidence is accessed
+- `track_analysis()`: Documents analysis performed on evidence
+- `verify_evidence_integrity()`: Confirms evidence hasn't been altered
+- `export_chain_of_custody()`: Generates documentation for legal proceedings
 
 ## Compatibility
 
@@ -310,6 +354,8 @@ Common issues and their solutions:
 3. **Remote connection failures**: Verify SSH connectivity, credentials, and target system availability
 4. **Insufficient disk space**: Ensure adequate space for memory dumps and evidence collection
 5. **Timeouts during collection**: Check network stability and increase timeout thresholds
+6. **Evidence integrity errors**: Confirm no changes were made to evidence files after collection
+7. **Chain of custody issues**: Verify correct case and evidence IDs are being used
 
 For more detailed troubleshooting, refer to the USAGE.md document.
 
@@ -317,7 +363,7 @@ For more detailed troubleshooting, refer to the USAGE.md document.
 
 - USAGE.md - Detailed usage instructions for all tools
 - EVIDENCE_GUIDELINES.md - Evidence handling procedures
+- Chain of Custody Templates - Documentation templates
 - Forensic Analysis Toolkit - Complete forensics documentation
 - Incident Response Playbooks - Standard response procedures
-- Chain of Custody Templates - Documentation templates
 - [NIST SP 800-86: Guide to Integrating Forensic Techniques](https://csrc.nist.gov/publications/detail/sp/800-86/final)

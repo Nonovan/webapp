@@ -1000,6 +1000,309 @@ def get_collector(collector_type: str, config: LiveResponseConfig) -> BaseCollec
 
     return collector_class(config)
 
+def update_evidence_integrity_baseline(
+    evidence_dir: str,
+    output_path: Optional[str] = None,
+    hash_algorithm: str = "sha256",
+    case_id: Optional[str] = None,
+    examiner: Optional[str] = None
+) -> Tuple[bool, str]:
+    """
+    Create or update an integrity baseline for collected evidence.
+
+    This function generates cryptographic hashes for all files in the evidence
+    directory and creates a baseline file that can be used later to verify
+    the integrity of collected evidence. It follows forensic best practices
+    for evidence handling by maintaining file integrity information.
+
+    Args:
+        evidence_dir: Path to the directory containing evidence
+        output_path: Path to save the baseline file (defaults to evidence_dir/integrity_baseline.json)
+        hash_algorithm: Algorithm to use for hashing (sha256, sha1, md5)
+        case_id: Case identifier for documentation
+        examiner: Name of the analyst creating/updating the baseline
+
+    Returns:
+        Tuple of (success: bool, baseline_path: str)
+
+    Raises:
+        ValidationError: If the evidence directory is invalid
+        IOError: If the baseline file cannot be created
+    """
+    import hashlib
+    from datetime import datetime
+    import json
+    import os
+    import glob
+
+    evidence_path = Path(evidence_dir)
+    if not evidence_path.exists() or not evidence_path.is_dir():
+        raise ValidationError(f"Invalid evidence directory: {evidence_dir}")
+
+    # If output_path is not specified, default to evidence_dir/integrity_baseline.json
+    if output_path is None:
+        output_path = str(evidence_path / "integrity_baseline.json")
+
+    # Determine which hash function to use
+    if hash_algorithm.lower() == "sha256":
+        hash_func = hashlib.sha256
+    elif hash_algorithm.lower() == "sha1":
+        hash_func = hashlib.sha1
+    elif hash_algorithm.lower() == "md5":
+        hash_func = hashlib.md5
+    else:
+        logger.warning(f"Unsupported hash algorithm: {hash_algorithm}, defaulting to SHA-256")
+        hash_func = hashlib.sha256
+
+    # Create baseline data structure
+    baseline = {
+        "metadata": {
+            "case_id": case_id or "unknown",
+            "examiner": examiner or "unknown",
+            "created": datetime.now().isoformat(),
+            "hash_algorithm": hash_algorithm,
+            "evidence_dir": str(evidence_path)
+        },
+        "files": {}
+    }
+
+    # Calculate hashes for all files
+    file_count = 0
+    total_bytes = 0
+
+    logger.info(f"Creating integrity baseline for {evidence_dir} using {hash_algorithm}")
+
+    # Walk through evidence directory
+    for root, _, files in os.walk(evidence_path):
+        for file in files:
+            # Skip the baseline file itself if it exists
+            file_path = os.path.join(root, file)
+            rel_path = os.path.relpath(file_path, evidence_path)
+
+            # Skip hash files and other integrity files
+            if any(rel_path.endswith(ext) for ext in ['.sha256', '.md5', 'integrity_baseline.json']):
+                continue
+
+            try:
+                # Calculate hash
+                h = hash_func()
+                file_size = 0
+
+                with open(file_path, 'rb') as f:
+                    for chunk in iter(lambda: f.read(4096), b''):
+                        h.update(chunk)
+                        file_size += len(chunk)
+
+                hash_value = h.hexdigest()
+
+                # Store in baseline
+                baseline["files"][rel_path] = {
+                    "hash": hash_value,
+                    "size": file_size,
+                    "last_modified": datetime.fromtimestamp(os.path.getmtime(file_path)).isoformat()
+                }
+
+                file_count += 1
+                total_bytes += file_size
+
+                if file_count % 100 == 0:
+                    logger.debug(f"Processed {file_count} files ({total_bytes / 1024 / 1024:.2f} MB)")
+
+            except Exception as e:
+                logger.warning(f"Failed to hash file {rel_path}: {e}")
+
+    # Add summary information
+    baseline["metadata"]["file_count"] = file_count
+    baseline["metadata"]["total_size"] = total_bytes
+
+    # Write baseline to file
+    try:
+        with open(output_path, 'w') as f:
+            json.dump(baseline, f, indent=2)
+
+        # Set secure permissions on the baseline file
+        try:
+            import stat
+            os.chmod(output_path, stat.S_IRUSR | stat.S_IWUSR)  # Owner read/write only (0600)
+        except Exception as e:
+            logger.warning(f"Could not set secure permissions on baseline file: {e}")
+
+        logger.info(f"Integrity baseline created with {file_count} files ({total_bytes / 1024 / 1024:.2f} MB)")
+        return True, output_path
+
+    except Exception as e:
+        logger.error(f"Failed to write integrity baseline: {e}")
+        return False, ""
+
+def verify_evidence_integrity(
+    evidence_dir: str,
+    baseline_path: Optional[str] = None,
+    report_path: Optional[str] = None
+) -> Tuple[bool, Dict[str, Any]]:
+    """
+    Verify the integrity of collected evidence against a baseline.
+
+    This function compares the current state of evidence files against the
+    previously created integrity baseline to detect any modifications,
+    additions, or deletions.
+
+    Args:
+        evidence_dir: Directory containing evidence files to verify
+        baseline_path: Path to the baseline file (defaults to evidence_dir/integrity_baseline.json)
+        report_path: Path to save the verification report (optional)
+
+    Returns:
+        Tuple of (integrity_verified: bool, results: dict)
+
+    Raises:
+        ValidationError: If evidence directory or baseline is invalid
+    """
+    import hashlib
+    from datetime import datetime
+    import json
+    import os
+
+    evidence_path = Path(evidence_dir)
+    if not evidence_path.exists() or not evidence_path.is_dir():
+        raise ValidationError(f"Invalid evidence directory: {evidence_dir}")
+
+    # If baseline_path is not specified, default to evidence_dir/integrity_baseline.json
+    if baseline_path is None:
+        baseline_path = str(evidence_path / "integrity_baseline.json")
+
+    if not os.path.exists(baseline_path):
+        raise ValidationError(f"Baseline file not found: {baseline_path}")
+
+    # Load baseline
+    try:
+        with open(baseline_path, 'r') as f:
+            baseline = json.load(f)
+    except Exception as e:
+        raise ValidationError(f"Failed to load baseline file: {e}")
+
+    # Get hash algorithm from baseline
+    hash_algorithm = baseline.get("metadata", {}).get("hash_algorithm", "sha256").lower()
+
+    if hash_algorithm == "sha256":
+        hash_func = hashlib.sha256
+    elif hash_algorithm == "sha1":
+        hash_func = hashlib.sha1
+    elif hash_algorithm == "md5":
+        hash_func = hashlib.md5
+    else:
+        logger.warning(f"Unsupported hash algorithm in baseline: {hash_algorithm}, defaulting to SHA-256")
+        hash_func = hashlib.sha256
+
+    # Initialize results
+    results = {
+        "metadata": {
+            "verification_time": datetime.now().isoformat(),
+            "baseline_path": baseline_path,
+            "evidence_dir": str(evidence_path),
+            "baseline_metadata": baseline.get("metadata", {})
+        },
+        "verified": [],
+        "modified": [],
+        "missing": [],
+        "added": []
+    }
+
+    # Track existing files for added file detection
+    existing_files = set()
+
+    # Verify each file in the baseline
+    logger.info(f"Verifying evidence integrity against baseline {baseline_path}")
+
+    for rel_path, file_info in baseline.get("files", {}).items():
+        expected_hash = file_info.get("hash")
+        file_path = os.path.join(evidence_path, rel_path)
+        existing_files.add(rel_path)
+
+        if not os.path.exists(file_path):
+            results["missing"].append({
+                "path": rel_path,
+                "expected_hash": expected_hash
+            })
+            continue
+
+        # Calculate current hash
+        try:
+            h = hash_func()
+            with open(file_path, 'rb') as f:
+                for chunk in iter(lambda: f.read(4096), b''):
+                    h.update(chunk)
+            actual_hash = h.hexdigest()
+
+            if actual_hash == expected_hash:
+                results["verified"].append(rel_path)
+            else:
+                results["modified"].append({
+                    "path": rel_path,
+                    "expected_hash": expected_hash,
+                    "actual_hash": actual_hash
+                })
+        except Exception as e:
+            logger.warning(f"Failed to verify file {rel_path}: {e}")
+            results["modified"].append({
+                "path": rel_path,
+                "error": str(e)
+            })
+
+    # Find added files
+    for root, _, files in os.walk(evidence_path):
+        for file in files:
+            file_path = os.path.join(root, file)
+            rel_path = os.path.relpath(file_path, evidence_path)
+
+            if rel_path not in existing_files:
+                # Skip baseline and hash files
+                if any(rel_path.endswith(ext) for ext in ['.sha256', '.md5', 'integrity_baseline.json']):
+                    continue
+
+                try:
+                    # Calculate hash for added file
+                    h = hash_func()
+                    with open(file_path, 'rb') as f:
+                        for chunk in iter(lambda: f.read(4096), b''):
+                            h.update(chunk)
+
+                    results["added"].append({
+                        "path": rel_path,
+                        "hash": h.hexdigest(),
+                        "size": os.path.getsize(file_path)
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to process added file {rel_path}: {e}")
+
+    # Add summary counts
+    results["summary"] = {
+        "verified_count": len(results["verified"]),
+        "modified_count": len(results["modified"]),
+        "missing_count": len(results["missing"]),
+        "added_count": len(results["added"]),
+        "verified_percentage": (len(results["verified"]) / len(baseline.get("files", {})) * 100
+                              if baseline.get("files") else 0)
+    }
+
+    # Determine overall status
+    results["integrity_verified"] = len(results["modified"]) == 0 and len(results["missing"]) == 0
+
+    # Write report if requested
+    if report_path:
+        try:
+            with open(report_path, 'w') as f:
+                json.dump(results, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to write verification report: {e}")
+
+    logger.info(
+        f"Evidence verification complete: {results['summary']['verified_count']} verified, "
+        f"{results['summary']['modified_count']} modified, {results['summary']['missing_count']} missing, "
+        f"{results['summary']['added_count']} added"
+    )
+
+    return results["integrity_verified"], results
+
 # Export public API
 __all__ = [
     # Version information
@@ -1018,6 +1321,8 @@ __all__ = [
 
     # Functions
     'get_collector',
+    'update_evidence_integrity_baseline',
+    'verify_evidence_integrity',
 
     # Exceptions
     'LiveResponseError',

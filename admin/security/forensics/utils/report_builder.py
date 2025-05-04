@@ -1175,6 +1175,121 @@ def generate_text_report(
         return False
 
 
+def save_analysis_report(analysis_data: Dict[str, Any],
+                         output_path: str,
+                         format: str = "json") -> bool:
+    """
+    Saves analysis data to a file in the specified format.
+
+    This function serves as a general-purpose report saving utility for
+    forensic analysis tools. It supports multiple output formats and ensures
+    proper file handling with appropriate logging.
+
+    Args:
+        analysis_data: Dictionary containing analysis results to save
+        output_path: Path where the report should be saved
+        format: Output format (json, text, csv, yaml)
+
+    Returns:
+        True if successful, False otherwise.
+    """
+    operation_details = {
+        "output_path": output_path,
+        "format": format,
+        "report_size": len(str(analysis_data)) if analysis_data else 0
+    }
+
+    try:
+        # Create output directory if it doesn't exist
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
+        # Choose output format
+        format = format.lower()
+        if format == "json":
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(analysis_data, f, indent=2, default=str)
+        elif format == "text":
+            with open(output_path, 'w', encoding='utf-8') as f:
+                # Basic text export for dictionaries
+                for key, value in analysis_data.items():
+                    f.write(f"{key}:\n")
+                    if isinstance(value, (list, dict)):
+                        f.write(json.dumps(value, indent=2, default=str))
+                        f.write("\n\n")
+                    else:
+                        f.write(f"  {value}\n\n")
+        elif format == "csv":
+            # CSV export requires specific structure - handle basic case
+            try:
+                import csv
+                with open(output_path, 'w', encoding='utf-8', newline='') as f:
+                    # If it's a list of dictionaries, convert to CSV
+                    if isinstance(analysis_data, list) and all(isinstance(item, dict) for item in analysis_data):
+                        if analysis_data:
+                            fieldnames = analysis_data[0].keys()
+                            writer = csv.DictWriter(f, fieldnames=fieldnames)
+                            writer.writeheader()
+                            for item in analysis_data:
+                                writer.writerow({k: str(v) for k, v in item.items()})
+                    else:
+                        # For other structures, create a simple key-value CSV
+                        writer = csv.writer(f)
+                        writer.writerow(["Key", "Value"])
+                        for key, value in _flatten_dict(analysis_data).items():
+                            writer.writerow([key, str(value)])
+            except (ImportError, ValueError, AttributeError) as e:
+                logger.error(f"Error generating CSV format: {e}")
+                log_forensic_operation("save_analysis_report", False,
+                                     {**operation_details, "error": f"CSV generation error: {e}"},
+                                     level=logging.ERROR)
+                return False
+        elif format == "yaml":
+            try:
+                import yaml
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    yaml.safe_dump(analysis_data, f, default_flow_style=False)
+            except ImportError:
+                logger.error("YAML library not available. Install PyYAML.")
+                log_forensic_operation("save_analysis_report", False,
+                                     {**operation_details, "error": "YAML library not available"},
+                                     level=logging.ERROR)
+                return False
+        else:
+            logger.error(f"Unsupported format: {format}")
+            log_forensic_operation("save_analysis_report", False,
+                                 {**operation_details, "error": f"Unsupported format: {format}"},
+                                 level=logging.ERROR)
+            return False
+
+        logger.info(f"Analysis report saved to {output_path} in {format} format")
+        log_forensic_operation("save_analysis_report", True, operation_details)
+        return True
+
+    except Exception as e:
+        logger.error(f"Error saving analysis report to {output_path}: {str(e)}")
+        log_forensic_operation("save_analysis_report", False,
+                             {**operation_details, "error": str(e)},
+                             level=logging.ERROR)
+        return False
+
+
+def _flatten_dict(d: Dict[str, Any], parent_key: str = '', sep: str = '.') -> Dict[str, Any]:
+    """Helper function to flatten nested dictionaries for CSV export."""
+    items = []
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(_flatten_dict(v, new_key, sep=sep).items())
+        elif isinstance(v, list):
+            # Handle lists by converting to string representation
+            items.append((new_key, json.dumps(v, default=str)))
+        else:
+            items.append((new_key, v))
+    return dict(items)
+
+
 def generate_forensic_report(
     report_data: Dict[str, Any],
     output_path: str,

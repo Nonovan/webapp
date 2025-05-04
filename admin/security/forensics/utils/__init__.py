@@ -139,7 +139,8 @@ try:
         verify_evidence_integrity,
         list_evidence_by_case,
         create_evidence_container,
-        export_chain_of_custody
+        export_chain_of_custody,
+        register_analysis_result
     )
     EVIDENCE_TRACKING_AVAILABLE = True
 except ImportError as e:
@@ -663,7 +664,8 @@ if EVIDENCE_TRACKING_AVAILABLE:
         'verify_evidence_integrity',
         'list_evidence_by_case',
         'create_evidence_container',
-        'export_chain_of_custody'
+        'export_chain_of_custody',
+        'register_analysis_result'
     ])
 
 if ADVANCED_TIMESTAMP_AVAILABLE:
@@ -814,10 +816,11 @@ def get_capabilities() -> Dict[str, Dict[str, Any]]:
         "evidence_tracking": {
             "available": EVIDENCE_TRACKING_AVAILABLE,
             "functions": [
-                "register_evidence", "track_access", "get_evidence_details",
-                "update_evidence_details", "get_chain_of_custody",
-                "verify_evidence_integrity", "list_evidence_by_case",
-                "create_evidence_container", "export_chain_of_custody"
+                "register_evidence", "track_access", "track_analysis",
+                "get_evidence_details", "update_evidence_details",
+                "get_chain_of_custody", "verify_evidence_integrity",
+                "list_evidence_by_case", "create_evidence_container",
+                "export_chain_of_custody", "register_analysis_result"
             ] if EVIDENCE_TRACKING_AVAILABLE else []
         },
         "timestamp_utils": {
