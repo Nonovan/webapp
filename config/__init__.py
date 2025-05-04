@@ -154,7 +154,8 @@ def update_file_integrity_baseline(
         app=None,
         baseline_path=None,
         updates=None,
-        remove_missing=False) -> bool:
+        remove_missing=False,
+        auto_update_limit: int = 10) -> bool:
     """
     Update the file integrity baseline with new hash values.
 
@@ -167,18 +168,24 @@ def update_file_integrity_baseline(
         baseline_path: Path to the baseline file (uses app config if None)
         updates: List of change dictionaries to incorporate into baseline
         remove_missing: Whether to remove entries for files that no longer exist
+        auto_update_limit: Maximum number of files to auto-update (safety limit)
 
     Returns:
         bool: True if the baseline was successfully updated, False otherwise
     """
-    # Import the actual implementation from core security module
+    # First try the implementation from core security module
     try:
         from core.security.cs_file_integrity import update_file_integrity_baseline as core_update
         return core_update(app, baseline_path, updates, remove_missing)
     except ImportError:
-        import logging
-        logging.warning("Could not import update_file_integrity_baseline from core.security.cs_file_integrity")
-        return False
+        # Fall back to the Config class implementation
+        try:
+            from .base import Config
+            return Config.update_file_integrity_baseline(app, baseline_path, updates, remove_missing, auto_update_limit)
+        except (ImportError, AttributeError):
+            import logging
+            logging.warning("Could not import any file integrity baseline update implementation")
+            return False
 
 
 # Version information

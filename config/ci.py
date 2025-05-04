@@ -9,6 +9,7 @@ that facilitate comprehensive test coverage.
 
 import os
 from .base import Config
+from .config_constants import ENVIRONMENT_CI
 
 class CIConfig(Config):
     """Configuration for continuous integration environment.
@@ -20,7 +21,7 @@ class CIConfig(Config):
 
     DEBUG = False
     TESTING = True
-    ENV = 'ci'
+    ENV = ENVIRONMENT_CI
 
     # Database settings - use in-memory SQLite for speed and isolation
     SQLALCHEMY_DATABASE_URI = os.environ.get('CI_DATABASE_URL', 'sqlite:///:memory:')
@@ -66,3 +67,25 @@ class CIConfig(Config):
 
     # Smaller file size limits for test uploads
     MAX_CONTENT_LENGTH = 5 * 1024 * 1024  # 5 MB
+
+    # File integrity monitoring - disabled in CI to prevent test interference
+    ENABLE_FILE_INTEGRITY_MONITORING = False
+    AUTO_UPDATE_BASELINE = False
+
+    @classmethod
+    def init_app(cls, app):
+        """
+        Initialize application with CI configuration.
+
+        Args:
+            app: Flask application instance
+        """
+        # Initialize with parent configuration
+        super().init_app(app)
+
+        # CI-specific initialization
+        app.logger.info("Initializing application in CI environment")
+
+        # Disable certain security features that might interfere with testing
+        app.config['SECURITY_HEADERS_ENABLED'] = False
+        app.config['AUDIT_LOG_ENABLED'] = False

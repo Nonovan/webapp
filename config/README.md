@@ -10,7 +10,6 @@ This directory contains configuration files for the Cloud Infrastructure Platfor
 - [Configuration Files](#configuration-files)
 - [Usage](#usage)
 - [Best Practices & Security](#best-practices--security)
-- [Contributing](#contributing)
 - [Related Documentation](#related-documentation)
 
 ## Overview
@@ -22,6 +21,7 @@ The configuration system provides a unified approach to managing application set
 - **Component Organization**: Configuration is separated by functional component
 - **Schema Validation**: Configuration files are validated against schemas for consistency
 - **Security by Design**: Sensitive information is managed separately from code
+- **File Integrity Monitoring**: Automated detection of unauthorized file modifications
 
 ## Architecture
 
@@ -33,8 +33,11 @@ A hierarchy of Python classes that define environment-specific settings:
 
 - **`base.py`**: Base configuration class with default settings for all environments
 - **`development.py`, `staging.py`, `production.py`**: Environment-specific configurations
+- **`ci.py`**: Continuous Integration environment configuration
+- **`dr_recovery.py`**: Disaster recovery environment configuration
 - **`local.py`**: Local development overrides (not version controlled)
 - **`environments.py`**: Environment detection and handling logic
+- **`config_constants.py`**: Common constants used across configurations
 
 ### 2. Component-specific Configuration Files
 
@@ -50,7 +53,10 @@ Specialized configuration files for different system components:
 config/
 ├── __init__.py               # Package initialization
 ├── base.py                   # Base configuration class
+├── ci.py                     # Continuous Integration environment configuration
+├── config_constants.py       # Shared configuration constants
 ├── development.py            # Development environment configuration
+├── dr_recovery.py            # Disaster recovery environment configuration
 ├── environments.py           # Environment detection logic
 ├── local.py                  # Local development overrides
 ├── production.py             # Production environment configuration
@@ -94,7 +100,6 @@ config/
     ├── deployment.yaml.schema # Deployment configuration schema
     ├── email.ini.schema      # Email settings schema
     └── ...                   # Other schema files
-
 ```
 
 ## Configuration Files
@@ -106,6 +111,8 @@ config/
 - **`staging.py`**: Staging/pre-production settings, extends base configuration
 - **`production.py`**: Production environment settings, extends base configuration
 - **`testing.py`**: Testing environment settings, extends base configuration
+- **`ci.py`**: Continuous Integration settings, extends base configuration
+- **`dr_recovery.py`**: Disaster Recovery settings, extends base configuration
 
 ### Component Configuration (INI Files)
 
@@ -148,7 +155,6 @@ app.config.update(config.__dict__)
 
 # Method 3: Auto-detect environment
 config = get_config_instance()  # Detects from APP_ENV environment variable
-
 ```
 
 ### Component Configuration
@@ -167,7 +173,6 @@ mfa_enabled = security_config['authentication']['mfa_enabled']
 
 # Load API endpoints configuration (JSON)
 endpoints_config = load_component_config('api_endpoints', extension='json')
-
 ```
 
 ### Environment Variable Overrides
@@ -196,7 +201,24 @@ is_valid = validate_component_config('security', environment='production')
 
 # Validate a Python configuration class against its schema
 is_valid = validate_config(production_config)
+```
 
+### File Integrity Monitoring
+
+The configuration package supports file integrity monitoring to detect unauthorized changes:
+
+```python
+from config import update_file_integrity_baseline, detect_environment
+
+# Update the file integrity baseline for the current environment
+app_env = detect_environment()
+success = update_file_integrity_baseline(
+    app=app,
+    baseline_path=None,  # Uses default path based on environment
+    updates=changes,     # List of file changes to incorporate
+    remove_missing=True, # Remove entries for files that no longer exist
+    auto_update_limit=10 # Maximum number of files to auto-update (safety limit)
+)
 ```
 
 ## Best Practices & Security
@@ -207,6 +229,7 @@ is_valid = validate_config(production_config)
 - **Secure Storage**: Use environment variables or a secrets manager (Vault, AWS Secrets Manager)
 - **Principle of Least Privilege**: Configure minimum necessary permissions
 - **Environment Isolation**: Use the strictest security settings in production
+- **File Integrity**: Enable file integrity monitoring for critical configuration files
 
 ### Configuration Management
 
@@ -215,18 +238,7 @@ is_valid = validate_config(production_config)
 - **Documentation**: Document all configuration options with comments
 - **Validation Before Deployment**: Use validation tools before applying configurations
 - **Audit Trail**: Track configuration changes in version control
-
-## Contributing
-
-When adding or modifying configuration:
-
-1. Follow the established file organization and naming conventions
-2. Create or update schema files to validate new configuration options
-3. Document all options with clear descriptions
-4. Include default values that are secure by default
-5. Add appropriate environment-specific overrides
-6. Test configuration in all target environments
-7. Update related documentation
+- **Baseline Management**: Regularly update file integrity baselines after approved changes
 
 ## Related Documentation
 
@@ -235,9 +247,4 @@ When adding or modifying configuration:
 - Security Configuration Guide
 - Monitoring Configuration
 - Component Configuration Guide
-
-## Version Information
-
-- **Version**: 0.0.0
-- **Last Updated**: 2023-11-15
-- **Maintainers**: Platform Engineering Team
+- File Integrity Monitoring Guide
