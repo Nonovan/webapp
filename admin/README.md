@@ -16,6 +16,7 @@ This directory contains administrative tools, utilities, scripts, and templates 
   - [Emergency Access Management](#emergency-access-management)
   - [Multi-Factor Authentication](#multi-factor-authentication)
   - [System Security](#system-security)
+  - [File Integrity Monitoring](#file-integrity-monitoring)
 - [Best Practices & Security](#best-practices--security)
 - [Common Features](#common-features)
 - [Related Documentation](#related-documentation)
@@ -55,6 +56,7 @@ The `admin/` directory provides a comprehensive set of tools for platform admini
   - Authentication and authorization helpers
   - Audit logging
   - Configuration validation
+  - File integrity monitoring
   - Secure credential handling
   - Multi-factor authentication enforcement
   - Error handling and metrics collection
@@ -108,6 +110,7 @@ admin/
     ├── config_validation.py  # Configuration validation tools
     ├── encryption_utils.py   # Encryption and decryption utilities
     ├── error_handling.py     # Centralized error handling
+    ├── file_integrity.py     # File integrity monitoring utilities
     ├── metrics_utils.py      # Performance and usage metrics collection
     ├── password_utils.py     # Password generation and validation
     ├── secure_credentials.py # Secure credential management
@@ -227,6 +230,34 @@ system_lockdown.sh --environment production --security-level high
 
 # Apply targeted security controls
 system_lockdown.sh --component authentication --apply-policy strict-mfa
+
+# Verify security controls are properly implemented
+system_lockdown.sh --verify --policy-file security-baseline.json
+```
+
+### File Integrity Monitoring
+
+```bash
+# Create a baseline of file hashes
+python -c "from admin.utils import create_file_hash_baseline; create_file_hash_baseline('/path/to/monitor')"
+
+# Check integrity of critical files
+python -c "from admin.utils import check_critical_file_integrity; is_valid, changes = check_critical_file_integrity(); print(f'Integrity valid: {is_valid}')"
+
+# Detect changes from baseline
+python -c "from admin.utils import detect_file_changes; changes = detect_file_changes('/path/to/baseline.json', '/path/to/monitor')"
+
+# Update file integrity baseline after approved changes
+python -c "from admin.utils import update_file_integrity_baseline; update_file_integrity_baseline('/path/to/baseline.json')"
+
+# Verify file signature
+python -c "from admin.utils import verify_file_signature; is_valid = verify_file_signature('/path/to/file', 'expected_signature')"
+
+# Get last integrity check status
+python -c "from admin.utils import get_last_integrity_status; status = get_last_integrity_status()"
+
+# Log file integrity event
+python -c "from admin.utils import log_file_integrity_event; log_file_integrity_event('/path/to/file', 'integrity_violation', 'critical')"
 ```
 
 ## Best Practices & Security
@@ -245,6 +276,7 @@ system_lockdown.sh --component authentication --apply-policy strict-mfa
 - **Data Validation**: Always validate import data before bulk operations
 - **Dry Run Verification**: Use dry-run mode to verify changes before execution
 - **Reason Documentation**: Always provide meaningful reasons for operations
+- **File Integrity**: Regularly verify integrity of critical system files
 
 ## Common Features
 
@@ -263,6 +295,7 @@ All administrative tools share these common features:
 - **Version Information**: Clear version tracking for all components
 - **Bulk Operations**: Support for importing and exporting data in multiple formats
 - **Format Auto-detection**: Automatic detection of file formats based on extensions
+- **File Integrity Monitoring**: Tools to detect unauthorized changes to critical files
 
 ## Related Documentation
 
@@ -278,4 +311,6 @@ All administrative tools share these common features:
 - Security Controls Framework
 - System Administration Guide
 - User Management Guide
+- File Integrity Monitoring Guide
+- Security Baseline Management
 - Workflow Automation
