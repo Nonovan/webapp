@@ -48,6 +48,17 @@ Available command groups:
   - bulk-import: Import users in bulk from CSV or JSON
   - export: Export user data to a file
   - lock/unlock: Manage account locking
+
+- security_cli: Security management commands
+  - check-baseline: Verify the current security baseline status
+  - update-baseline: Update the security baseline
+  - events: View security events and alerts
+  - analyze: Analyze system security posture
+
+- maintenance_cli: System maintenance commands
+  - cache-clear: Clear application caches
+  - logs-rotate: Rotate application logs
+  - cleanup: Clean up old files
 """
 
 # Import CLI command groups
@@ -55,22 +66,54 @@ from .db import db_cli
 from .monitor import monitor_cli
 from .system import system_cli
 from .user import user_cli
+from .security import security_cli
+from .maintenance import maintenance_cli
 
-# Import audit logging functionality from core security
-from core.security import audit_log, log_security_event
+# Import necessary security functions from the core module
+from core.security import (
+    # Audit logging functions
+    audit_log,
+    get_security_events,
 
-# Export all command groups to make them available when importing this package
+    # File integrity functions
+    check_file_integrity,
+    check_critical_file_integrity,
+    create_file_hash_baseline,
+    update_file_integrity_baseline,
+    verify_baseline_update,
+
+    # Security monitoring functions
+    get_security_anomalies,
+    get_threat_summary,
+    detect_suspicious_activity
+)
+
+# Export all command groups and required functions to make them available when importing this package
 __all__ = [
     # Command groups
     'db_cli',
     'monitor_cli',
     'system_cli',
     'user_cli',
+    'security_cli',
+    'maintenance_cli',
 
-    # Security and audit logging
+    # Audit logging functions
     'audit_log',
-    'log_security_event'
+    'get_security_events',
+
+    # File integrity functions
+    'check_file_integrity',
+    'check_critical_file_integrity',
+    'create_file_hash_baseline',
+    'update_file_integrity_baseline',
+    'verify_baseline_update',
+
+    # Security monitoring functions
+    'get_security_anomalies',
+    'get_threat_summary',
+    'detect_suspicious_activity'
 ]
 
 # Version information
-__version__ = '0.1.1'  # Version updated to reflect additions
+__version__ = '0.1.1'

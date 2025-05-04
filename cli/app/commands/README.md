@@ -1,6 +1,6 @@
 # CLI Commands
 
-This directory contains command groups for the Cloud Infrastructure Platform CLI, providing interfaces for database management, monitoring, system administration, and user management operations.
+This directory contains command groups for the Cloud Infrastructure Platform CLI, providing interfaces for database management, monitoring, system administration, user management, security management, and system maintenance operations.
 
 ## Contents
 
@@ -14,7 +14,7 @@ This directory contains command groups for the Cloud Infrastructure Platform CLI
 
 ## Overview
 
-The CLI commands package implements a comprehensive set of administrative and operational interfaces for the Cloud Infrastructure Platform. These commands allow administrators to perform critical operations such as database management, user administration, and system monitoring through a consistent, secure command-line interface. All commands implement appropriate authentication, validation, error handling, and logging to ensure safe execution across development, staging, and production environments.
+The CLI commands package implements a comprehensive set of administrative and operational interfaces for the Cloud Infrastructure Platform. These commands allow administrators to perform critical operations such as database management, user administration, system monitoring, security baseline management, and system maintenance through a consistent, secure command-line interface. All commands implement appropriate authentication, validation, error handling, and logging to ensure safe execution across development, staging, and production environments.
 
 ## Key Components
 
@@ -23,6 +23,7 @@ The CLI commands package implements a comprehensive set of administrative and op
   - Module documentation
   - Namespace declarations
   - Package initialization
+  - Audit logging integration
 
 - **`db.py`**: Database management commands
   - Backup and restore operations
@@ -61,6 +62,23 @@ The CLI commands package implements a comprehensive set of administrative and op
   - Account deactivation and activation
   - Account locking and unlocking
 
+- **`security.py`**: Security management commands
+  - Security baseline verification
+  - Baseline updates and management
+  - Security event monitoring
+  - System security posture analysis
+  - Security metrics reporting
+  - Audit log integration
+  - Security controls management
+
+- **`maintenance.py`**: System maintenance commands
+  - Cache management operations
+  - Log rotation and archival
+  - System cleanup procedures
+  - Temporary file management
+  - Environment synchronization
+  - Resource optimization
+
 ## Directory Structure
 
 ```plaintext
@@ -68,7 +86,9 @@ cli/app/commands/
 ├── README.md      # This documentation
 ├── __init__.py    # Command group registration
 ├── db.py          # Database management commands
+├── maintenance.py # System maintenance commands
 ├── monitor.py     # Monitoring and metrics commands
+├── security.py    # Security management commands
 ├── system.py      # System administration commands
 └── user.py        # User administration commands
 ```
@@ -175,6 +195,47 @@ flask user lock username --reason "Security policy violation" --duration 24h
 flask user unlock username
 ```
 
+### Security Management
+
+```bash
+# Verify the security baseline
+flask security check-baseline --verbose
+
+# Update the security baseline
+flask security update-baseline --reason "System update" --auto
+
+# View security events
+flask security events --days 30 --severity critical --format json
+
+# Analyze system security posture
+flask security analyze --thorough --report security_analysis.pdf
+
+# View recent file integrity changes
+flask security file-integrity --verbose
+
+# Export security metrics
+flask security metrics --format csv --output security_metrics.csv
+```
+
+### System Maintenance
+
+```bash
+# Clear application cache
+flask maintenance cache-clear --type all
+
+# Rotate application logs
+flask maintenance logs-rotate --compress --max-age 90
+
+# Clean up old files
+flask maintenance cleanup --older-than 30 --type logs
+
+# Cleanup temporary files
+flask maintenance cleanup-temp --all
+
+# Run scheduled maintenance tasks
+flask maintenance scheduled-tasks --run-now
+```
+
 ## Security Features
 
 - **Authentication Checking**: Commands validate required credentials before operation
@@ -189,6 +250,8 @@ flask user unlock username
 - **Rollback Capability**: Failed operations are rolled back when possible
 - **Rate Limiting**: Protection against command abuse
 - **Output Sanitization**: Prevents leaking of sensitive information
+- **File Integrity**: Verification of critical file integrity
+- **Security Baseline**: Management of security configuration baselines
 
 ## Common Patterns
 
@@ -303,14 +366,38 @@ if destructive_operation and not force:
         return EXIT_SUCCESS
 ```
 
+### Audit Logging
+
+```python
+@command_group.command('security_operation')
+@require_permission('security:action')
+def security_operation():
+    """Perform an operation requiring audit logging."""
+    # Implementation of operation
+    result = perform_security_operation()
+
+    # Log the action for security audit
+    audit_log(
+        category='security',
+        event_type='security_operation_completed',
+        details={'result': result.status},
+        severity='info'
+    )
+
+    return EXIT_SUCCESS
+```
+
 ## Related Documentation
 
 - CLI Architecture Guide
 - Command Development Guide
 - Core Configuration
 - Database Management
+- File Integrity Monitoring Guide
 - Flask-Click Integration
 - Logging Framework
 - Permission Model
-- User Administration
+- Security Baseline Management
 - System Administration
+- System Maintenance Procedures
+- User Administration

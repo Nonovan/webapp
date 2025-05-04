@@ -20,6 +20,7 @@ __version__ = '0.1.1'
 # Standard imports
 import logging
 from typing import Dict, Any, List, Optional, Union, Tuple, Callable
+from datetime import datetime, timedelta, timezone
 
 # Initialize module logger
 logger = logging.getLogger(__name__)
@@ -39,12 +40,36 @@ from .cs_audit import (
     process_fallback_logs,
     get_critical_event_categories,
     initialize_audit_logging,
-
-    # Add the new function and its aliases
     log_security_event_as_audit_log,
     log_audit_event,
     audit_log
 )
+
+# Add this function for the CLI to use
+def get_security_events(days: int = 7, severity: str = None, limit: int = 100) -> List[Dict[str, Any]]:
+    """
+    Get security events for CLI display and analysis.
+
+    This is a convenience function that wraps get_recent_security_events
+    with parameters commonly used in the CLI context.
+
+    Args:
+        days: Number of days to look back for events
+        severity: Filter by severity level (info, warning, error, critical)
+        limit: Maximum number of events to return
+
+    Returns:
+        List[Dict[str, Any]]: List of security events with details
+    """
+    # Calculate the start time based on days
+    start_time = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # Use the existing function with appropriate parameters
+    return get_recent_security_events(
+        limit=limit,
+        severity=severity,
+        start_time=start_time
+    )
 
 from .cs_authentication import (
     is_valid_ip,
@@ -278,6 +303,7 @@ __all__ = [
     'log_security_event_as_audit_log',
     'log_audit_event',
     'audit_log',
+    'get_security_events',
 
     # Authentication functions
     'is_valid_ip',
