@@ -74,7 +74,7 @@ core/
 ├── factory.py            # Application factory
 ├── health.py             # Health check functionality
 ├── metrics.py            # Metrics collection
-├── middleware.py         # HTTP middleware (now includes request_id generation)
+├── middleware.py         # HTTP middleware with request ID generation
 ├── README.md             # This documentation
 ├── seeder.py             # Data seeding functionality
 ├── security/             # Security components
@@ -83,12 +83,12 @@ core/
 │   ├── cs_authentication.py # Authentication services
 │   ├── cs_authorization.py  # Authorization services
 │   ├── cs_constants.py      # Security constants with integrity settings
-│   ├── cs_crypto.py         # Cryptographic operations (includes merged hash functions)
-│   ├── cs_file_integrity.py # File integrity monitoring (moved from utils.py)
+│   ├── cs_crypto.py         # Cryptographic operations (includes hash functions)
+│   ├── cs_file_integrity.py # File integrity monitoring
 │   ├── cs_metrics.py        # Security metrics
 │   ├── cs_monitoring.py     # Security monitoring
 │   ├── cs_session.py        # Session management
-│   ├── cs_utils.py          # Security utilities (includes path safety functions)
+│   ├── cs_utils.py          # Security utilities (includes path safety)
 │   └── README.md            # Security module documentation
 ├── templates/            # Core templates
 │   ├── README.md         # Templates documentation
@@ -103,15 +103,15 @@ core/
 │       ├── base.html     # Core layout template
 │       ├── minimal.html  # Minimal layout without navigation
 │       └── secure.html   # Security-enhanced layout
-└── utils/                # Specialized utilities (reorganized from monolithic utils.py)
-    ├── __init__.py       # Utility package initialization
+└── utils/                # Specialized utilities (modular organization)
+    ├── __init__.py       # Utility package initialization and stubs
     ├── collection.py     # Collection data structure manipulation
     ├── date_time.py      # Date and time handling utilities
     ├── file.py           # File handling utilities
-    ├── logging_utils.py  # Logging configuration utilities (new)
+    ├── logging_utils.py  # Logging configuration utilities
     ├── README.md         # Utility modules documentation
     ├── string.py         # String manipulation utilities
-    ├── system.py         # System resource utilities (new)
+    ├── system.py         # System resource utilities
     └── validation.py     # Input validation utilities
 ```
 
@@ -149,6 +149,8 @@ The core package uses the following configuration settings:
 'FILE_HASH_ALGORITHM': 'sha256',
 'FILE_INTEGRITY_CHECK_FREQUENCY': 100,
 'SECURITY_CRITICAL_FILES': ['app.py', 'config.py', 'core/security/*.py', 'core/middleware.py'],
+'MAX_BASELINE_FILE_SIZE': 10 * 1024 * 1024,  # 10MB limit for monitored files
+'SAFE_BASELINE_UPDATE_PATH': 'instance/security/baseline',  # Default baseline storage location
 
 # Request tracking settings
 'REQUEST_ID_PREFIX': 'req',
@@ -177,6 +179,8 @@ The core package uses the following configuration settings:
 - **Thread Safety**: Utilities designed for concurrent environment safety
 - **Modular Organization**: Code organized by feature area with specialized modules
 - **Request Tracing**: Consistent request ID generation and propagation
+- **Atomic Operations**: File operations use atomic patterns to prevent partial writes
+- **Permission Verification**: File and directory permission checks for security
 
 ## Common Features
 
@@ -198,6 +202,7 @@ The core package uses the following configuration settings:
 - Secure file operations with atomic writing
 - Request ID generation for tracing requests through the system
 - System resource monitoring and tracking
+- Permission monitoring for critical files
 
 ## Usage Examples
 
@@ -237,7 +242,6 @@ from core.security.cs_file_integrity import update_file_integrity_baseline
 
 # Update the file integrity baseline with new or changed files
 update_file_integrity_baseline(
-    app,
     baseline_path="instance/file_baseline.json",
     updates=[
         {"path": "config.py", "current_hash": "5d41402abc4b2a76b9719d911017c592"},
@@ -245,6 +249,22 @@ update_file_integrity_baseline(
     ],
     remove_missing=True
 )
+```
+
+### Baseline Verification
+
+```python
+from core.security.cs_file_integrity import verify_baseline_update
+
+# Verify if a baseline update should be permitted
+is_safe = verify_baseline_update(
+    file_path="config.py",
+    current_hash="a1b2c3d4e5f6",
+    expected_hash="5d41402abc"
+)
+
+if not is_safe:
+    log_security_event("baseline_update_rejected", "Unsafe baseline update rejected")
 ```
 
 ### Checking for Modified Files
@@ -286,7 +306,12 @@ def health():
 from core.middleware import generate_request_id
 
 # Generate a unique request ID
-request_id = generate_request_id()
+request_id = generate_request_id(
+    prefix="req",
+    include_timestamp=True,
+    include_host=True,
+    include_pid=True
+)
 ```
 
 ### Logging
@@ -386,7 +411,7 @@ json_string = safe_json_serialize(complex_object_with_dates_and_custom_classes)
 ### Validation Utilities
 
 ```python
-from core.utils.validation import validate_with_schema, is_valid_email
+from core.utils.validation import validate_with_schema, is_valid_email, is_valid_choice
 
 # Validate data against a schema
 user_schema = {
@@ -394,7 +419,8 @@ user_schema = {
     "properties": {
         "name": {"type": "string", "minLength": 2},
         "email": {"type": "string", "format": "email"},
-        "age": {"type": "integer", "minimum": 18}
+        "age": {"type": "integer", "minimum": 18},
+        "role": {"type": "string"}
     },
     "required": ["name", "email"]
 }
@@ -403,10 +429,27 @@ is_valid, errors = validate_with_schema(user_data, user_schema)
 if not is_valid:
     raise ValidationError(f"Invalid user data: {errors}")
 
-# Check if email is valid
-if is_valid_email(user_input):
-    # Process email
-    send_welcome_email(user_input)
+# Check if value is within valid choices
+valid_roles = ["admin", "editor", "user", "guest"]
+if is_valid_choice(user_data.get("role"), valid_roles):
+    # Process role
+    assign_role(user_data["role"])
+```
+
+### Security Initialization
+
+```python
+from core.security import init_security, initialize_security_components
+
+# Initialize all security components at application startup
+init_security()
+
+# Set up specific security components with custom configuration
+initialize_security_components(
+    enable_audit_logging=True,
+    enable_file_integrity=True,
+    enable_metrics=True
+)
 ```
 
 ## Related Documentation
@@ -425,3 +468,5 @@ if is_valid_email(user_input):
 - Validation Framework Guide
 - Core Security Utility Migration Guide
 - System Resource Monitoring Guide
+- Permission Security Model
+- Baseline Management Guide

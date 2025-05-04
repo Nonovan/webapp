@@ -13,10 +13,24 @@ These utilities ensure consistent validation and error handling across
 the application's components.
 """
 
-from bs4 import BeautifulSoup
 import re
 import uuid
+import ipaddress
 from typing import Any, Dict, List, Optional, Tuple, Union, Pattern, Callable
+from bs4 import BeautifulSoup
+
+# Common regex patterns for validation
+EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+URL_REGEX = re.compile(
+    r'^https?://'  # http:// or https://
+    r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain
+    r'localhost|'  # localhost
+    r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # or ipv4
+    r'(?::\d+)?'  # optional port
+    r'(?:/?|[/?]\S+)$', re.IGNORECASE
+)
+SLUG_REGEX = re.compile(r'^[a-z0-9]+(?:-[a-z0-9]+)*$')
+UUID_REGEX = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
 
 
 def is_valid_dict_keys(obj: Dict, required_keys: List[str]) -> Tuple[bool, Optional[str]]:
@@ -122,6 +136,38 @@ def is_valid_choice(value: Any, choices: List[Any]) -> bool:
     return value in choices
 
 
+def is_valid_email(email: str) -> bool:
+    """
+    Check if string is a valid email address.
+
+    Args:
+        email: String to validate as email address
+
+    Returns:
+        True if valid email, False otherwise
+    """
+    if not email or not isinstance(email, str):
+        return False
+
+    return bool(EMAIL_REGEX.match(email))
+
+
+def is_valid_url(url: str) -> bool:
+    """
+    Check if string is a valid URL.
+
+    Args:
+        url: String to validate as URL
+
+    Returns:
+        True if valid URL, False otherwise
+    """
+    if not url or not isinstance(url, str):
+        return False
+
+    return bool(URL_REGEX.match(url))
+
+
 def is_valid_uuid(value: str, version: int = 4) -> bool:
     """
     Check if a string is a valid UUID.
@@ -133,7 +179,7 @@ def is_valid_uuid(value: str, version: int = 4) -> bool:
     Returns:
         True if valid UUID, False otherwise
     """
-    if not value:
+    if not value or not isinstance(value, str):
         return False
 
     try:
@@ -208,34 +254,38 @@ def validate_with_schema(
     allow_extra_fields: bool = False
 ) -> Tuple[bool, List[str]]:
     """
-    Validate a value against a schema definition.
+    Validate a value against a JSON schema-like structure.
+
+    This is a lightweight schema validator that supports basic types
+    and validations. For more complex schemas, consider using a full
+    JSON Schema validator.
 
     Args:
-        value: Value to validate
-        schema: Schema definition
-        allow_extra_fields: Whether to allow fields not in schema
+        value: The value to validate
+        schema: Schema definition dictionary
+        allow_extra_fields: Whether to allow fields not in schema (for objects)
 
     Returns:
-        Tuple of (is_valid, list_of_error_messages)
+        Tuple of (is_valid, list_of_errors)
     """
     errors = []
-
-    # Handle different schema types
     schema_type = schema.get('type')
+
+    if not schema_type:
+        return False, ["Schema missing 'type' definition"]
 
     if schema_type == 'object':
         if not isinstance(value, dict):
             return False, ["Value must be an object"]
 
+        # Check required fields
+        required_fields = schema.get('required', [])
+        for field_name in required_fields:
+            if field_name not in value:
+                errors.append(f"Missing required field: {field_name}")
+
+        # Validate fields against their schemas
         properties = schema.get('properties', {})
-        required = schema.get('required', [])
-
-        # Check required properties
-        for req_field in required:
-            if req_field not in value:
-                errors.append(f"Missing required field: {req_field}")
-
-        # Check property values
         for field_name, field_value in value.items():
             if field_name in properties:
                 field_schema = properties[field_name]
@@ -413,8 +463,6 @@ def is_valid_ip_address(ip: str, version: Optional[int] = None) -> bool:
         return False
 
     try:
-        import ipaddress
-
         # Try to create an IP address object
         if version == 4:
             ipaddress.IPv4Address(ip)
@@ -432,11 +480,11 @@ def is_valid_ip_address(ip: str, version: Optional[int] = None) -> bool:
 
 def is_valid_hostname(hostname: str, allow_ip: bool = False) -> bool:
     """
-    Validate if a string is a valid hostname according to RFC 1123.
+    Validate if a string is a valid hostname.
 
     Args:
-        hostname: Hostname to validate
-        allow_ip: Whether to allow IP addresses as valid hostnames
+        hostname: Hostname string to validate
+        allow_ip: Whether to also accept IP addresses as valid
 
     Returns:
         True if valid hostname, False otherwise
@@ -444,22 +492,14 @@ def is_valid_hostname(hostname: str, allow_ip: bool = False) -> bool:
     if not hostname or not isinstance(hostname, str):
         return False
 
-    # Check if it's an IP address and whether that's allowed
     if allow_ip and is_valid_ip_address(hostname):
         return True
 
-    # Trim trailing dot if present
-    if hostname.endswith('.'):
-        hostname = hostname[:-1]
-
     # Check length constraints
-    if len(hostname) > 253:
+    if len(hostname) > 255:
         return False
 
-    # Check pattern
-    # - Labels (between dots) can have alphanumeric, hyphens
-    # - Labels can't start or end with hyphens
-    # - Labels must be 1-63 characters
+    # Basic DNS naming rules
     hostname_pattern = r'^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$'
 
     return bool(re.match(hostname_pattern, hostname))
@@ -467,48 +507,34 @@ def is_valid_hostname(hostname: str, allow_ip: bool = False) -> bool:
 
 def is_valid_port(port: Union[str, int]) -> bool:
     """
-    Validate if a value is a valid network port number (1-65535).
+    Validate if a value is a valid port number.
 
     Args:
         port: Port number to validate (string or integer)
 
     Returns:
-        True if valid port, False otherwise
+        True if valid port number, False otherwise
     """
-    try:
-        # Convert to integer if it's a string
-        if isinstance(port, str):
-            port = int(port)
+    if isinstance(port, str):
+        if not port.isdigit():
+            return False
+        port = int(port)
 
-        # Check range
-        return 1 <= port <= 65535
-    except (ValueError, TypeError):
+    if not isinstance(port, int):
         return False
+
+    return 1 <= port <= 65535
 
 
 def is_iterable(obj: Any) -> bool:
     """
-    Check if an object is iterable (excluding strings).
-
-    This function determines if an object can be iterated over using a for loop,
-    but considers strings as non-iterables despite them technically being iterable.
-    This is common practice as strings are often treated separately from container types.
+    Check if an object is iterable (but not a string).
 
     Args:
         obj: Object to check
 
     Returns:
-        True if the object is iterable (and not a string), False otherwise
-
-    Example:
-        >>> is_iterable([1, 2, 3])
-        True
-        >>> is_iterable({"a": 1, "b": 2})
-        True
-        >>> is_iterable("string")
-        False
-        >>> is_iterable(5)
-        False
+        True if object is non-string iterable, False otherwise
     """
     if isinstance(obj, str):
         return False
@@ -522,110 +548,80 @@ def is_iterable(obj: Any) -> bool:
 
 def is_mapping(obj: Any) -> bool:
     """
-    Check if an object is a mapping type (dict-like).
-
-    This function determines if an object implements the mapping protocol,
-    which includes dictionaries and other dict-like objects.
+    Check if an object is a mapping (dict-like).
 
     Args:
         obj: Object to check
 
     Returns:
-        True if the object is a mapping, False otherwise
-
-    Example:
-        >>> is_mapping({"a": 1, "b": 2})
-        True
-        >>> is_mapping([1, 2, 3])
-        False
-        >>> from collections import OrderedDict
-        >>> is_mapping(OrderedDict([('a', 1), ('b', 2)]))
-        True
+        True if object is a mapping, False otherwise
     """
-    from collections.abc import Mapping
-    return isinstance(obj, Mapping)
+    try:
+        return isinstance(obj, dict) or hasattr(obj, 'items')
+    except Exception:
+        return False
 
 
 def is_sequence(obj: Any) -> bool:
     """
-    Check if an object is a sequence type (list-like, excluding strings).
-
-    This function determines if an object implements the sequence protocol,
-    which includes lists, tuples, and other list-like objects, but excludes strings
-    which are technically sequences but often treated separately.
+    Check if an object is a sequence (list/tuple).
 
     Args:
         obj: Object to check
 
     Returns:
-        True if the object is a sequence (and not a string), False otherwise
-
-    Example:
-        >>> is_sequence([1, 2, 3])
-        True
-        >>> is_sequence((1, 2, 3))
-        True
-        >>> is_sequence("string")
-        False
-        >>> is_sequence({"a": 1})
-        False
+        True if object is a sequence, False otherwise
     """
-    if isinstance(obj, str):
+    if isinstance(obj, (str, dict, bytes, bytearray)):
         return False
 
-    from collections.abc import Sequence
-    return isinstance(obj, Sequence)
+    try:
+        len(obj)  # Has length
+        iter(obj)  # Is iterable
+        return True
+    except (TypeError, AttributeError):
+        return False
 
 
 def is_numeric(obj: Any) -> bool:
     """
-    Check if an object is a numeric type.
-
-    This function determines if an object is a numeric type, including integers,
-    floats, decimal.Decimal, and other numeric types like numpy numeric types
-    if available.
+    Check if an object is numeric.
 
     Args:
         obj: Object to check
 
     Returns:
-        True if the object is numeric, False otherwise
-
-    Example:
-        >>> is_numeric(5)
-        True
-        >>> is_numeric(5.5)
-        True
-        >>> is_numeric("5")
-        False
-        >>> from decimal import Decimal
-        >>> is_numeric(Decimal("5.5"))
-        True
+        True if object is numeric, False otherwise
     """
-    # Basic numeric types
-    if isinstance(obj, (int, float, complex)):
-        return True
-
-    # Check for decimal.Decimal
     try:
-        from decimal import Decimal
-        if isinstance(obj, Decimal):
-            return True
-    except ImportError:
-        pass
-
-    # Check for numpy numeric types if available
-    try:
-        import numpy as np
-        return isinstance(obj, np.number)
-    except ImportError:
-        pass
-
-    # Some objects might implement numeric protocols but not inherit from numeric types
-    # Try numeric operations as a last resort
-    try:
-        # Check if it behaves like a number
-        obj + 0
+        float(obj)
         return True
     except (TypeError, ValueError):
         return False
+
+
+# Ensure all functions are included in __all__
+__all__ = [
+    # Regular expression constants
+    'EMAIL_REGEX',
+    'URL_REGEX',
+    'SLUG_REGEX',
+    'UUID_REGEX',
+
+    # Validation functions
+    'is_valid_email',
+    'is_valid_url',
+    'is_valid_ip_address',
+    'is_valid_uuid',
+    'is_valid_hostname',
+    'is_valid_port',
+
+    # Schema validation
+    'validate_with_schema',
+
+    # Type checking functions
+    'is_iterable',
+    'is_mapping',
+    'is_sequence',
+    'is_numeric'
+]

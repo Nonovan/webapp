@@ -28,10 +28,222 @@ from redis.exceptions import RedisError
 
 from extensions import db, cache
 from models import SystemConfig
-from core.utils import get_critical_file_hashes, format_timestamp
+from core.utils import format_timestamp
 
 # Initialize logger
 logger = logging.getLogger(__name__)
+
+# High-level health check function for non-endpoint usage
+def healthcheck() -> Dict[str, Any]:
+    """
+    Perform basic health check of system components.
+
+    This function provides a programmatic way to check system health
+    without requiring an HTTP context or Flask application.
+
+    Returns:
+        Dict[str, Any]: Health status information
+    """
+    health_info = {
+        "status": "healthy",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "components": {}
+    }
+
+    # Check database if available
+    try:
+        from extensions import db
+        if db:
+            # Simple database check
+            db.session.execute("SELECT 1").scalar()
+            health_info["components"]["database"] = "healthy"
+    except (ImportError, SQLAlchemyError, Exception) as e:
+        logger.error(f"Database health check failed: {str(e)}")
+        health_info["components"]["database"] = "unhealthy"
+        health_info["status"] = "degraded"
+
+    # Check cache if available
+    try:
+        from extensions import cache
+        if cache:
+            test_key = f"health_check_{time.time()}"
+            cache.set(test_key, "ok", timeout=10)
+            if cache.get(test_key) == "ok":
+                health_info["components"]["cache"] = "healthy"
+            else:
+                health_info["components"]["cache"] = "degraded"
+                if health_info["status"] == "healthy":
+                    health_info["status"] = "degraded"
+            cache.delete(test_key)
+    except (ImportError, Exception) as e:
+        logger.error(f"Cache health check failed: {str(e)}")
+        health_info["components"]["cache"] = "unknown"
+
+    # Add system resources
+    try:
+        health_info["resources"] = {
+            "memory": {
+                "percent": psutil.virtual_memory().percent,
+                "available_mb": round(psutil.virtual_memory().available / (1024 * 1024), 2)
+            },
+            "cpu": {
+                "percent": psutil.cpu_percent(interval=0.1)
+            }
+        }
+
+        # Check if resources are critical
+        if (health_info["resources"]["memory"]["percent"] > 95 or
+            health_info["resources"]["cpu"]["percent"] > 95):
+            health_info["status"] = "critical"
+        elif (health_info["resources"]["memory"]["percent"] > 85 or
+              health_info["resources"]["cpu"]["percent"] > 85):
+            health_info["status"] = "warning"
+    except Exception as e:
+        logger.error(f"Resource check failed: {e}")
+        health_info["resources"] = {"error": str(e)}
+
+    return health_info
+
+# Database-specific health check
+def check_database_health() -> Dict[str, Any]:
+    """
+    Check database connection health.
+
+    Returns:
+        Dict[str, Any]: Database health information
+    """
+    result = {
+        "status": "healthy",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+    try:
+        start_time = time.time()
+        db.session.execute("SELECT 1").fetchall()
+        query_time = time.time() - start_time
+
+        result.update({
+            "latency_ms": round(query_time * 1000, 2),
+            "message": "Database is accessible"
+        })
+    except SQLAlchemyError as e:
+        logger.error(f"Database health check failed: {str(e)}")
+        result.update({
+            "status": "critical",
+            "message": f"Database connection error: {str(e)}"
+        })
+
+    return result
+
+# Cache-specific health check
+def check_cache_health() -> Dict[str, Any]:
+    """
+    Check cache health.
+
+    Returns:
+        Dict[str, Any]: Cache health information
+    """
+    result = {
+        "status": "healthy",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+    try:
+        test_key = f"health_check_{time.time()}"
+        test_value = datetime.now(timezone.utc).isoformat()
+
+        start_time = time.time()
+        cache.set(test_key, test_value, timeout=10)
+        retrieved = cache.get(test_key)
+        operation_time = time.time() - start_time
+
+        if retrieved == test_value:
+            result.update({
+                "latency_ms": round(operation_time * 1000, 2),
+                "message": "Cache is operational"
+            })
+        else:
+            result.update({
+                "status": "degraded",
+                "message": "Cache retrieval mismatch"
+            })
+
+        # Clean up test key
+        cache.delete(test_key)
+    except Exception as e:
+        logger.error(f"Cache health check failed: {str(e)}")
+        result.update({
+            "status": "critical",
+            "message": f"Cache error: {str(e)}"
+        })
+
+    return result
+
+# Redis-specific health check
+def check_redis_health() -> Dict[str, Any]:
+    """
+    Check Redis health.
+
+    Returns:
+        Dict[str, Any]: Redis health information
+    """
+    result = {
+        "status": "healthy",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+    # Check if we're using Redis
+    redis_client = None
+    try:
+        redis_url = current_app.config.get('REDIS_URL')
+        if not redis_url:
+            return {
+                "status": "skipped",
+                "message": "Redis is not configured"
+            }
+
+        # Try to get Redis client from app.extensions
+        if hasattr(current_app, 'extensions') and 'redis' in current_app.extensions:
+            redis_client = current_app.extensions['redis']
+
+        # Try to get Redis client directly
+        if not redis_client and hasattr(current_app, 'redis'):
+            redis_client = current_app.redis
+
+        if not redis_client:
+            return {
+                "status": "unknown",
+                "message": "Redis client not available"
+            }
+
+        # Check Redis connectivity
+        start_time = time.time()
+        response = redis_client.ping()
+        operation_time = time.time() - start_time
+
+        if response:
+            result.update({
+                "latency_ms": round(operation_time * 1000, 2),
+                "message": "Redis is responding to ping"
+            })
+        else:
+            result.update({
+                "status": "critical",
+                "message": "Redis did not respond to ping"
+            })
+    except ImportError:
+        result.update({
+            "status": "skipped",
+            "message": "Redis package not installed"
+        })
+    except Exception as e:
+        logger.error(f"Redis health check failed: {str(e)}")
+        result.update({
+            "status": "critical",
+            "message": f"Redis error: {str(e)}"
+        })
+
+    return result
 
 def register_health_endpoints(app):
     """Register health check endpoints with the Flask application."""
@@ -320,7 +532,7 @@ def register_health_endpoints(app):
         }
 
         try:
-            # Try enhanced integrity check using security module
+            # Use the specialized security module for integrity checking
             try:
                 from core.security.cs_file_integrity import (
                     check_critical_file_integrity,
@@ -412,68 +624,70 @@ def register_health_endpoints(app):
                 # Fall back to legacy implementation
                 logger.info("Using legacy file integrity check")
 
-            # Legacy implementation using SystemConfig for baseline
-            critical_files = current_app.config.get('SECURITY_CRITICAL_FILES', [
-                'app.py', 'config.py', 'core/security_utils.py', 'core/middleware.py'
-            ])
+                # Legacy implementation - using hashes stored in SystemConfig
+                from core.utils import get_critical_file_hashes
 
-            # Get current hashes of critical files
-            current_hashes = get_critical_file_hashes(critical_files)
+                critical_files = current_app.config.get('SECURITY_CRITICAL_FILES', [
+                    'app.py', 'config.py', 'core/security_utils.py', 'core/middleware.py'
+                ])
 
-            # Check if we have stored hashes
-            stored_config = SystemConfig.query.filter_by(key="file_hashes").first()
+                # Get current hashes of critical files
+                current_hashes = get_critical_file_hashes(critical_files)
 
-            # If no stored hashes, store current ones and consider it healthy
-            if not stored_config:
-                new_config = SystemConfig(
-                    key="file_hashes",
-                    value=str(current_hashes),
-                    description="Security-critical file hashes"
-                )
-                db.session.add(new_config)
-                db.session.commit()
+                # Check if we have stored hashes
+                stored_config = SystemConfig.query.filter_by(key="file_hashes").first()
 
-                result["message"] = "File integrity baseline initialized"
-                result["baseline_info"]["monitored_files"] = len(current_hashes)
-                result["baseline_info"]["last_updated"] = datetime.now(timezone.utc).isoformat()
+                # If no stored hashes, store current ones and consider it healthy
+                if not stored_config:
+                    new_config = SystemConfig(
+                        key="file_hashes",
+                        value=str(current_hashes),
+                        description="Security-critical file hashes"
+                    )
+                    db.session.add(new_config)
+                    db.session.commit()
 
-                return result
+                    result["message"] = "File integrity baseline initialized"
+                    result["baseline_info"]["monitored_files"] = len(current_hashes)
+                    result["baseline_info"]["last_updated"] = datetime.now(timezone.utc).isoformat()
 
-            # Compare with stored hashes
-            import ast
-            stored_hashes = ast.literal_eval(stored_config.value)
-            modified_files = []
+                    return result
 
-            for file_path, hash_value in current_hashes.items():
-                if file_path in stored_hashes and stored_hashes[file_path] != hash_value:
-                    modified_files.append(file_path)
+                # Compare with stored hashes
+                import ast
+                stored_hashes = ast.literal_eval(stored_config.value)
+                modified_files = []
 
-            if modified_files:
-                result["status"] = "critical"
-                result["message"] = f"File integrity violations detected: {len(modified_files)} file(s)"
+                for file_path, hash_value in current_hashes.items():
+                    if file_path in stored_hashes and stored_hashes[file_path] != hash_value:
+                        modified_files.append(file_path)
 
-                result["violations"] = {
-                    "total": len(modified_files),
-                    "critical": len(modified_files),  # Legacy behavior treats all as critical
-                    "high": 0,
-                    "medium": 0
-                }
+                if modified_files:
+                    result["status"] = "critical"
+                    result["message"] = f"File integrity violations detected: {len(modified_files)} file(s)"
 
-                # Include modified file details if admin
-                if full_details:
-                    result["detected_changes"] = [
-                        {
-                            "path": file_path,
-                            "status": "modified",
-                            "severity": "critical",
-                            "timestamp": format_timestamp()
-                        }
-                        for file_path in modified_files
-                    ]
+                    result["violations"] = {
+                        "total": len(modified_files),
+                        "critical": len(modified_files),  # Legacy behavior treats all as critical
+                        "high": 0,
+                        "medium": 0
+                    }
+
+                    # Include modified file details if admin
+                    if full_details:
+                        result["detected_changes"] = [
+                            {
+                                "path": file_path,
+                                "status": "modified",
+                                "severity": "critical",
+                                "timestamp": format_timestamp()
+                            }
+                            for file_path in modified_files
+                        ]
 
                 # Log security event
                 try:
-                    from core.security_utils import log_security_event
+                    from core.security.cs_audit import log_security_event
                     log_security_event(
                         event_type="file_integrity_violation",
                         description=f"Modified security-critical files detected: {', '.join(modified_files)}",
@@ -773,3 +987,12 @@ def register_health_endpoints(app):
     # Additional logging for security-related health checks
     if current_app.config.get('ENABLE_FILE_INTEGRITY_MONITORING', True):
         logger.info("File integrity health checks enabled")
+
+# Make explicitly available what is public API
+__all__ = [
+    'healthcheck',
+    'register_health_endpoints',
+    'check_database_health',
+    'check_cache_health',
+    'check_redis_health'
+]

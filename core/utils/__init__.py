@@ -11,6 +11,8 @@ Key modules:
 - collection: Collection data structure operations
 - file: File handling and path management
 - validation: Input validation utilities
+- logging_utils: Logging configuration and utility functions
+- system: System resource and process information utilities
 
 The utilities are designed to be imported individually or accessed via their
 parent modules. Functions are organized by category for ease of discovery and use.
@@ -23,6 +25,7 @@ from .string import (
     truncate_text,
     strip_html_tags,
     sanitize_text,
+    sanitize_html,
     snake_to_camel,
     camel_to_snake,
     snake_to_pascal,
@@ -121,7 +124,8 @@ from .collection import (
     partition,
     index_by,
     find_first,
-    detect_cycles
+    detect_cycles,
+    safe_json_serialize
 )
 
 # Import file utilities
@@ -136,6 +140,7 @@ from .file import (
     get_critical_file_hashes,
     is_path_safe,
     sanitize_filename,
+    get_file_metadata,
 
     # File formats
     read_json_file,
@@ -160,6 +165,7 @@ from .validation import (
     is_in_range,
     is_valid_length,
     is_valid_pattern,
+    is_valid_choice,
 
     # Dictionary validation
     is_valid_dict_keys,
@@ -171,6 +177,141 @@ from .validation import (
     is_numeric
 )
 
+# Import system utilities
+from .system import (
+    # System resources
+    get_system_resources,
+    get_process_info,
+    get_request_context,
+    get_redis_client,
+
+    # Performance measurement
+    measure_execution_time
+)
+
+# Import logging utilities
+from .logging_utils import (
+    # Logger setup
+    setup_app_logging,
+    get_logger,
+    get_security_logger,
+    get_audit_logger,
+
+    # Logging actions
+    log_security_event,
+    log_error,
+    log_warning,
+    log_info,
+    log_debug,
+    log_file_integrity_event,
+
+    # Logging utilities
+    initialize_module_logging,
+    SecurityAwareJsonFormatter
+)
+
+# Import file integrity functions from security module
+# These were migrated from utils.py to core.security.cs_file_integrity
+try:
+    from core.security.cs_file_integrity import (
+        calculate_file_hash,
+        check_critical_file_integrity,
+        create_file_hash_baseline,
+        detect_file_changes,
+        update_file_integrity_baseline,
+        verify_file_signature,
+        get_last_integrity_status,
+        log_file_integrity_event,
+        _detect_file_changes,
+        _check_for_permission_changes,
+        _check_additional_critical_files,
+        _consider_baseline_update,
+        verify_baseline_update
+    )
+except ImportError:
+    # Provide stubs if security module is not available
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.warning("File integrity functions from core.security.cs_file_integrity not available")
+
+    def calculate_file_hash(*args, **kwargs):
+        """Stub for calculate_file_hash (requires core.security.cs_file_integrity)"""
+        raise NotImplementedError("File integrity functions require core.security module")
+
+    def check_critical_file_integrity(*args, **kwargs):
+        """Stub for check_critical_file_integrity (requires core.security.cs_file_integrity)"""
+        raise NotImplementedError("File integrity functions require core.security module")
+
+    def create_file_hash_baseline(*args, **kwargs):
+        """Stub for create_file_hash_baseline (requires core.security.cs_file_integrity)"""
+        raise NotImplementedError("File integrity functions require core.security module")
+
+    def detect_file_changes(*args, **kwargs):
+        """Stub for detect_file_changes (requires core.security.cs_file_integrity)"""
+        raise NotImplementedError("File integrity functions require core.security module")
+
+    def update_file_integrity_baseline(*args, **kwargs):
+        """Stub for update_file_integrity_baseline (requires core.security.cs_file_integrity)"""
+        raise NotImplementedError("File integrity functions require core.security module")
+
+    def verify_file_signature(*args, **kwargs):
+        """Stub for verify_file_signature (requires core.security.cs_file_integrity)"""
+        raise NotImplementedError("File integrity functions require core.security module")
+
+    def get_last_integrity_status(*args, **kwargs):
+        """Stub for get_last_integrity_status (requires core.security.cs_file_integrity)"""
+        raise NotImplementedError("File integrity functions require core.security module")
+
+    def log_file_integrity_event(*args, **kwargs):
+        """Stub for log_file_integrity_event (requires core.security.cs_file_integrity)"""
+        raise NotImplementedError("File integrity functions require core.security module")
+
+    def _detect_file_changes(*args, **kwargs):
+        """Stub for _detect_file_changes (requires core.security.cs_file_integrity)"""
+        raise NotImplementedError("File integrity functions require core.security module")
+
+    def _check_for_permission_changes(*args, **kwargs):
+        """Stub for _check_for_permission_changes (requires core.security.cs_file_integrity)"""
+        raise NotImplementedError("File integrity functions require core.security module")
+
+    def _check_additional_critical_files(*args, **kwargs):
+        """Stub for _check_additional_critical_files (requires core.security.cs_file_integrity)"""
+        raise NotImplementedError("File integrity functions require core.security module")
+
+    def _consider_baseline_update(*args, **kwargs):
+        """Stub for _consider_baseline_update (requires core.security.cs_file_integrity)"""
+        raise NotImplementedError("File integrity functions require core.security module")
+
+    def verify_baseline_update(*args, **kwargs):
+        """Stub for verify_baseline_update (requires core.security.cs_file_integrity)"""
+        raise NotImplementedError("File integrity functions require core.security module")
+
+# Import path safety utilities from security module
+try:
+    from core.security.cs_utils import (
+        sanitize_path,
+        is_within_directory,
+        is_safe_file_operation,
+        obfuscate_sensitive_data
+    )
+except ImportError:
+    # Provide stubs if security module is not available
+    def sanitize_path(*args, **kwargs):
+        """Stub for sanitize_path (requires core.security.cs_utils)"""
+        raise NotImplementedError("Path safety functions require core.security module")
+
+    def is_within_directory(*args, **kwargs):
+        """Stub for is_within_directory (requires core.security.cs_utils)"""
+        raise NotImplementedError("Path safety functions require core.security module")
+
+    def is_safe_file_operation(*args, **kwargs):
+        """Stub for is_safe_file_operation (requires core.security.cs_utils)"""
+        raise NotImplementedError("Path safety functions require core.security module")
+
+    def obfuscate_sensitive_data(*args, **kwargs):
+        """Stub for obfuscate_sensitive_data (requires core.security.cs_utils)"""
+        raise NotImplementedError("Security utilities require core.security module")
+
 # Define exports for direct import from core.utils
 __all__ = [
     # String utilities
@@ -178,6 +319,7 @@ __all__ = [
     'truncate_text',
     'strip_html_tags',
     'sanitize_text',
+    'sanitize_html',
     'snake_to_camel',
     'camel_to_snake',
     'snake_to_pascal',
@@ -232,6 +374,7 @@ __all__ = [
     'deep_filter',
     'deep_update',
     'dict_transform',
+    'safe_json_serialize',
 
     # Collection utilities - list operations
     'chunk_list',
@@ -258,6 +401,7 @@ __all__ = [
     'get_critical_file_hashes',
     'is_path_safe',
     'sanitize_filename',
+    'get_file_metadata',
 
     # File utilities - formats
     'read_json_file',
@@ -277,6 +421,7 @@ __all__ = [
     'is_in_range',
     'is_valid_length',
     'is_valid_pattern',
+    'is_valid_choice',
     'is_valid_dict_keys',
 
     # Validation utilities - type checking
@@ -284,4 +429,46 @@ __all__ = [
     'is_mapping',
     'is_sequence',
     'is_numeric',
+
+    # System utilities
+    'get_system_resources',
+    'get_process_info',
+    'get_request_context',
+    'get_redis_client',
+    'measure_execution_time',
+
+    # Logging utilities
+    'setup_app_logging',
+    'get_logger',
+    'get_security_logger',
+    'get_audit_logger',
+    'log_security_event',
+    'log_error',
+    'log_warning',
+    'log_info',
+    'log_debug',
+    'log_file_integrity_event',
+    'initialize_module_logging',
+    'SecurityAwareJsonFormatter',
+
+    # File integrity functions (from core.security.cs_file_integrity)
+    'calculate_file_hash',
+    'check_critical_file_integrity',
+    'create_file_hash_baseline',
+    'detect_file_changes',
+    'update_file_integrity_baseline',
+    'verify_file_signature',
+    'get_last_integrity_status',
+    'log_file_integrity_event',
+    '_detect_file_changes',
+    '_check_for_permission_changes',
+    '_check_additional_critical_files',
+    '_consider_baseline_update',
+    'verify_baseline_update',
+
+    # Path safety utilities (from core.security.cs_utils)
+    'sanitize_path',
+    'is_within_directory',
+    'is_safe_file_operation',
+    'obfuscate_sensitive_data',
 ]

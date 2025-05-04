@@ -21,9 +21,10 @@ from werkzeug.exceptions import HTTPException
 from blueprints import register_all_blueprints
 from extensions import jwt, init_extensions, metrics
 from core.config import Config
-from core.loggings import setup_app_logging, get_security_logger
+from core.utils.logging_utils import setup_app_logging, get_security_logger
 from core.middleware import init_middleware
-from core.utils import generate_sri_hash, format_timestamp
+from core.security.cs_crypto import generate_sri_hash
+from core.utils import format_timestamp
 from core.health import register_health_endpoints
 from api import register_api_routes
 from config import get_config

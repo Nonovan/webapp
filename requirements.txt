@@ -296,3 +296,5 @@ qrcode-terminal==0.8  # CLI QR code generation for terminal-based MFA setup
 backoff==2.2.1  # Exponential backoff for MFA rate limiting
 throttle==0.1.6  # Rate limiting for MFA verification attempts
 freezegun==1.2.2  # Time-freezing for testing time-based MFA tokens
+
+python-dateutil==2.8.2  # Date and time handling

@@ -13,6 +13,7 @@ These utilities are designed to be used across the application to ensure
 consistent string handling behavior.
 """
 
+import bleach
 import re
 import unicodedata
 import uuid
@@ -187,6 +188,167 @@ def sanitize_text(text: str, allowed_tags: Optional[List[str]] = None,
     sanitized = re.sub(r'</([a-zA-Z][a-zA-Z0-9]*)>', replace_tag, sanitized)
 
     return sanitized
+
+
+def sanitize_html(html_content: str,
+                  allowed_tags: Optional[List[str]] = None,
+                  allowed_attributes: Optional[Dict[str, List[str]]] = None,
+                  strip_comments: bool = True) -> str:
+    """
+    Sanitize HTML content to prevent XSS attacks and ensure safe rendering.
+
+    This is a specialized version of sanitize_text that focuses specifically on
+    sanitizing HTML content while maintaining the structure and formatting of the
+    allowed HTML elements. It removes potentially dangerous tags and attributes.
+
+    Args:
+        html_content: The HTML content to sanitize
+        allowed_tags: List of allowed HTML tags (defaults to safe subset)
+        allowed_attributes: Dictionary mapping tags to allowed attributes
+        strip_comments: Whether to remove HTML comments
+
+    Returns:
+        Sanitized HTML content safe for rendering
+    """
+    if not html_content:
+        return ""
+
+    # Default safe tags if none provided
+    if allowed_tags is None:
+        allowed_tags = [
+            'a', 'abbr', 'acronym', 'b', 'blockquote', 'br', 'code', 'div',
+            'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'i', 'img',
+            'li', 'ol', 'p', 'pre', 'span', 'strong', 'table', 'tbody',
+            'td', 'th', 'thead', 'tr', 'ul'
+        ]
+
+    # Default safe attributes if none provided
+    if allowed_attributes is None:
+        allowed_attributes = {
+            'a': ['href', 'title', 'target', 'rel'],
+            'abbr': ['title'],
+            'acronym': ['title'],
+            'img': ['src', 'alt', 'title', 'width', 'height'],
+            'div': ['class'],
+            'p': ['class'],
+            'span': ['class'],
+            'table': ['class', 'width'],
+            'td': ['class', 'colspan', 'rowspan'],
+            'th': ['class', 'colspan', 'rowspan', 'scope']
+        }
+
+    try:
+        # Try to use the html-sanitizer package if available (preferred)
+        from html_sanitizer import Sanitizer
+
+        sanitizer_config = {
+            'tags': allowed_tags,
+            'attributes': allowed_attributes,
+            'empty': ['br', 'hr', 'img'],
+            'separate': ['div', 'blockquote', 'p', 'table', 'tr', 'td', 'th'],
+        }
+
+        sanitizer = Sanitizer(sanitizer_config)
+        return sanitizer.sanitize(html_content)
+    except ImportError:
+        # Fallback to using bleach if available
+        try:
+            # Use the allowed attributes format required by bleach
+            bleach_attrs = {}
+            for tag, attrs in allowed_attributes.items():
+                for attr in attrs:
+                    if attr in bleach_attrs:
+                        bleach_attrs[attr].append(tag)
+                    else:
+                        bleach_attrs[attr] = [tag]
+
+            sanitized = bleach.clean(
+                html_content,
+                tags=allowed_tags,
+                attributes=bleach_attrs,
+                strip=True,
+                strip_comments=strip_comments
+            )
+            return sanitized
+        except ImportError:
+            # Last resort fallback using simple regex replacement
+            # This is not as secure as using dedicated libraries
+            import re
+
+            # First strip all comments if requested
+            if strip_comments:
+                html_content = re.sub(r'<!--.*?-->', '', html_content, flags=re.DOTALL)
+
+            # Simple tag stripping function
+            def replace_tags(content):
+                # Use regex to find all tags
+                all_tags = re.findall(r'<([^<>]*)>', content)
+
+                # Process content by replacing disallowed tags
+                for tag_content in all_tags:
+                    # Check if it's a closing tag
+                    if tag_content.startswith('/'):
+                        tag_name = tag_content[1:].split()[0].lower()
+                        if tag_name not in allowed_tags:
+                            # Remove disallowed closing tag
+                            content = content.replace(f'<{tag_content}>', '')
+                    else:
+                        # Opening tag or self-closing tag
+                        tag_parts = tag_content.split()
+                        if not tag_parts:
+                            continue
+
+                        tag_name = tag_parts[0].lower()
+
+                        # Handle self-closing tags
+                        is_self_closing = tag_content.endswith('/')
+                        if is_self_closing:
+                            tag_name = tag_name.rstrip('/')
+
+                        if tag_name not in allowed_tags:
+                            # Remove disallowed tag
+                            content = content.replace(f'<{tag_content}>', '')
+                        else:
+                            # For allowed tags, filter attributes
+                            if len(tag_parts) > 1 and tag_name in allowed_attributes:
+                                # Rebuild tag with only allowed attributes
+                                allowed_attrs_list = allowed_attributes.get(tag_name, [])
+                                filtered_parts = [tag_name]
+
+                                # Extract attributes
+                                attr_pattern = r'([a-zA-Z0-9_-]+)(?:=(?:"([^"]*)"|\\'([^\']*)\\'|([^ >]*)))?'
+                                attr_matches = re.findall(attr_pattern, ' '.join(tag_parts[1:]))
+
+                                for attr_name, dq_val, sq_val, nq_val in attr_matches:
+                                    if attr_name.lower() in allowed_attrs_list:
+                                        value = dq_val or sq_val or nq_val
+                                        if value:
+                                            filtered_parts.append(f'{attr_name}="{value}"')
+                                        else:
+                                            filtered_parts.append(attr_name)
+
+                                # Rebuild the tag with allowed attributes
+                                new_tag_content = ' '.join(filtered_parts)
+                                if is_self_closing:
+                                    new_tag_content += ' /'
+                                content = content.replace(f'<{tag_content}>', f'<{new_tag_content}>')
+
+                return content
+
+            # Apply tag stripping iteratively until no more changes
+            prev_content = ""
+            filtered_content = html_content
+
+            # Iterate until no more changes (avoid infinite loops)
+            max_iterations = 10
+            iteration = 0
+
+            while prev_content != filtered_content and iteration < max_iterations:
+                prev_content = filtered_content
+                filtered_content = replace_tags(filtered_content)
+                iteration += 1
+
+            return filtered_content
 
 
 def snake_to_camel(text: str) -> str:
@@ -744,3 +906,58 @@ def truncate_middle(text: str, max_length: int,
     end_len = available // 2
 
     return text[:start_len] + placeholder + text[-end_len:]
+
+
+# Define what's available for import from this module
+__all__ = [
+    # Formatting and conversion
+    'slugify',
+    'truncate_text',
+    'strip_html_tags',
+    'sanitize_text',
+    'sanitize_html',  # New function added
+    'snake_to_camel',
+    'camel_to_snake',
+    'snake_to_pascal',
+    'format_bytes',
+
+    # String generation and manipulation
+    'generate_random_string',
+    'generate_excerpt',
+    'generate_secure_filename',
+    'join_with_oxford_comma',
+    'joinlines',
+
+    # Validation and checking
+    'is_valid_email',
+    'is_valid_url',
+    'is_valid_slug',
+    'has_common_substring',
+    'contains_html',
+
+    # Security
+    'mask_sensitive_data',
+    'escape_html',
+    'escape_quotes',
+
+    # Text operations
+    'normalize_whitespace',
+    'pluralize',
+    'extract_domain',
+    'replace_urls_with_links',
+    'get_string_length_in_bytes',
+    'truncate_middle',
+
+    # Constants
+    'DEFAULT_TRUNCATE_LENGTH',
+    'DEFAULT_TRUNCATE_SUFFIX',
+    'DEFAULT_SLUG_SEPARATOR',
+    'DEFAULT_SLUG_LOWERCASE',
+    'DEFAULT_SLUG_STRIP_DIACRITICS',
+    'ASCII_LOWERCASE',
+    'ASCII_UPPERCASE',
+    'ASCII_LETTERS',
+    'DIGITS',
+    'HEXDIGITS',
+    'ALPHANUMERIC',
+]

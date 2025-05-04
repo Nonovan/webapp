@@ -19,19 +19,10 @@ from .date_time import format_timestamp
 from .logging_utils import log_error
 
 # Type definitions
-FileMetadata = Dict[str, Any]
 ResourceMetrics = Dict[str, Any]
-FileChangeInfo = Dict[str, Any]
 
 # Constants
-DEFAULT_HASH_ALGORITHM = 'sha256'
-SMALL_FILE_THRESHOLD = 10240  # 10KB
-EXECUTABLE_PATTERNS = ['*.so', '*.dll', '*.exe', '*.bin', '*.sh']
-CRITICAL_FILE_PATTERNS = ['*.py', 'config.*', '.env*', '*.ini', 'requirements.txt', '*.sh', '*.key', '*.pem']
-ALLOWED_HIDDEN_FILES = ['.env', '.gitignore', '.dockerignore']
 DEFAULT_READ_CHUNK_SIZE = 4096  # 4KB chunks for file reading
-SUSPICIOUS_PATTERNS = ['backdoor', 'hack', 'exploit', 'rootkit', 'trojan', 'payload', 'malware']
-SENSITIVE_EXTENSIONS = ['.key', '.pem', '.p12', '.pfx', '.keystore', '.jks', '.env', '.secret']
 
 # Setup module-level logger
 logger = logging.getLogger(__name__)
@@ -213,19 +204,25 @@ def measure_execution_time() -> Generator[None, None, float]:
     """
     Context manager to measure execution time of a code block.
 
+    Yields:
+        Nothing during execution
+
     Returns:
         float: Execution time in seconds
 
     Example:
-        with measure_execution_time() as elapsed:
+        with measure_execution_time() as timer:
             # Code to measure
             time.sleep(1)
-        print(f"Operation took {elapsed} seconds")
+        print(f"Operation took {timer.duration} seconds")
     """
+    class Timer:
+        def __init__(self):
+            self.duration = 0.0
+
+    timer = Timer()
     start_time = time.monotonic()  # Use monotonic for more accurate timing
     try:
-        yield
+        yield timer
     finally:
-        execution_time = time.monotonic() - start_time
-
-    return execution_time
+        timer.duration = time.monotonic() - start_time

@@ -50,55 +50,87 @@ KeyDerivationInfo = Dict[str, Any]
 
 def _get_encryption_key() -> bytes:
     """
-    Retrieve or generate the encryption key.
-
-    This function retrieves the encryption key from the environment variable
-    or raises an error if the key is not properly configured.
+    Get the encryption key for sensitive data.
 
     Returns:
-        bytes: The encryption key as bytes
+        bytes: The encryption key
 
     Raises:
-        RuntimeError: If the encryption key is not configured
+        ValueError: If encryption key cannot be retrieved
     """
-    encryption_key = SECURITY_CONFIG.get('ENCRYPTION_KEY')
-    if not encryption_key:
-        raise RuntimeError("Encryption key is not configured. Please set the ENCRYPTION_KEY environment variable.")
+    key = None
 
-    # Handle both string and bytes format
-    if isinstance(encryption_key, str):
-        return encryption_key.encode('utf-8')
-    return encryption_key
+    # First check environment variable
+    env_key = os.environ.get('ENCRYPTION_KEY')
+    if env_key:
+        try:
+            key = base64.urlsafe_b64decode(env_key)
+            return key
+        except Exception:
+            pass
+
+    # Next check app config
+    if has_app_context():
+        config_key = current_app.config.get('ENCRYPTION_KEY')
+        if config_key:
+            try:
+                key = base64.urlsafe_b64decode(config_key)
+                return key
+            except Exception:
+                pass
+
+    # Check security config
+    config_key = SECURITY_CONFIG.get('ENCRYPTION_KEY')
+    if config_key:
+        try:
+            key = base64.urlsafe_b64decode(config_key)
+            return key
+        except Exception:
+            pass
+
+    # Check instance folder if available
+    if has_app_context():
+        instance_path = getattr(current_app, 'instance_path', None)
+        if instance_path:
+            key_path = os.path.join(instance_path, 'keys', 'encryption.key')
+            if os.path.exists(key_path):
+                try:
+                    with open(key_path, 'rb') as f:
+                        key = base64.urlsafe_b64decode(f.read().strip())
+                        return key
+                except Exception:
+                    pass
+
+    # If no key is found, raise an exception
+    if key is None:
+        log_error("No encryption key available")
+        raise ValueError("No encryption key available")
+
+    return key
 
 
 def _derive_key(base_key: bytes, salt: Optional[bytes] = None,
                info: Optional[bytes] = None, length: int = 32) -> Tuple[bytes, bytes]:
     """
-    Derive a cryptographic key using PBKDF2.
-
-    This function derives a secure cryptographic key from a base key,
-    optionally using a salt and context-specific info.
+    Derive a key using PBKDF2.
 
     Args:
-        base_key: The base key to derive from
-        salt: Optional salt (will be generated if None)
-        info: Optional context info to include in derivation
-        length: Length of the derived key in bytes
+        base_key: Base key to derive from
+        salt: Optional salt, generated if None
+        info: Optional context information
+        length: Length of derived key in bytes
 
     Returns:
         Tuple of (derived_key, salt)
     """
     # Generate salt if not provided
     if salt is None:
-        salt = SECURITY_CONFIG.get('ENCRYPTION_SALT', None)
-        if salt is None:
-            salt = os.urandom(16)
-        elif isinstance(salt, str):
-            salt = salt.encode('utf-8')
+        salt = os.urandom(16)
 
-    # Create key derivation function
-    iterations = SECURITY_CONFIG.get('DEFAULT_KEY_ITERATIONS', 100000)
+    # Get iteration count from security config
+    iterations = SECURITY_CONFIG.get('KEY_DERIVATION_ITERATIONS', 100000)
 
+    # Create PBKDF2 instance
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=length,
@@ -122,96 +154,90 @@ def encrypt_sensitive_data(plaintext: str) -> str:
     """
     Encrypt sensitive data using Fernet symmetric encryption.
 
-    This function encrypts sensitive configuration values, API keys,
-    and other secret data that needs to be stored securely in the database.
-    It uses Fernet (AES-128 in CBC mode with PKCS7 padding and HMAC authentication)
-    which provides authenticated encryption.
+    This function uses the application's encryption key to securely
+    encrypt sensitive data. The encrypted data is base64-encoded
+    for easy storage in databases or config files.
 
     Args:
         plaintext: The plaintext string to encrypt
 
     Returns:
-        str: Base64-encoded encrypted string
+        Base64-encoded encrypted data
 
     Raises:
-        RuntimeError: If encryption fails due to missing key or other issues
+        RuntimeError: If encryption fails
     """
     if not plaintext:
-        return plaintext
+        return ""
 
     try:
-        # Get the encryption key
+        # Track start time for metrics
+        start_time = time.time()
+
+        # Get encryption key
         key = _get_encryption_key()
 
-        # Convert the key to a URL-safe base64-encoded string as required by Fernet
-        key_b64 = base64.urlsafe_b64encode(key)
+        # Create Fernet instance for encryption
+        fernet = Fernet(base64.urlsafe_b64encode(key))
 
-        # Initialize the Fernet cipher with the key
-        cipher = Fernet(key_b64)
+        # Convert plaintext to bytes and encrypt
+        ciphertext = fernet.encrypt(plaintext.encode('utf-8'))
 
-        # Encrypt the plaintext and encode as a string
-        encrypted_data = cipher.encrypt(plaintext.encode('utf-8'))
+        # Encode as base64 for storage
+        result = base64.urlsafe_b64encode(ciphertext).decode('ascii')
 
-        # Track successful encryption
-        metrics.increment('security.encryption_success')
+        # Track metrics
+        encryption_time = time.time() - start_time
+        metrics.timing('security.encryption_time', encryption_time * 1000)
+        metrics.increment('security.encryption_operations')
 
-        return encrypted_data.decode('utf-8')
+        return result
 
     except Exception as e:
-        log_error(f"Encryption failed: {e}")
-        metrics.increment('security.encryption_failure')
+        log_error(f"Failed to encrypt sensitive data: {e}")
+        metrics.increment('security.encryption_failures')
 
-        # Log security event for encryption failure
-        try:
-            log_security_event(
-                event_type="encryption_failure",
-                description="Failed to encrypt sensitive data",
-                severity="error"
-            )
-        except Exception:
-            # Don't let security logging failure impact main flow
-            pass
-
-        raise RuntimeError(f"Failed to encrypt sensitive data: {e}")
+        # Don't expose specific error details in production
+        raise RuntimeError("Failed to encrypt sensitive data")
 
 
 def decrypt_sensitive_data(encrypted_data: str) -> str:
     """
-    Decrypt sensitive data that was encrypted using encrypt_sensitive_data.
-
-    This function decrypts configuration values, API keys, and other secrets
-    that were previously encrypted with the encrypt_sensitive_data function.
+    Decrypt data encrypted with encrypt_sensitive_data.
 
     Args:
-        encrypted_data: Base64-encoded encrypted string
+        encrypted_data: Base64-encoded encrypted data
 
     Returns:
-        str: Decrypted plaintext string
+        Decrypted plaintext string
 
     Raises:
-        RuntimeError: If decryption fails due to invalid key, tampered data, etc.
+        RuntimeError: If decryption fails
     """
     if not encrypted_data:
-        return encrypted_data
+        return ""
 
     try:
-        # Get the encryption key
+        # Track start time for metrics
+        start_time = time.time()
+
+        # Get encryption key
         key = _get_encryption_key()
 
-        # Convert the key to a URL-safe base64-encoded string as required by Fernet
-        key_b64 = base64.urlsafe_b64encode(key)
+        # Create Fernet instance for decryption
+        fernet = Fernet(base64.urlsafe_b64encode(key))
 
-        # Initialize the Fernet cipher with the key
-        cipher = Fernet(key_b64)
-
-        # Decrypt the data
+        # Decode from base64 and decrypt
         try:
-            decrypted_data = cipher.decrypt(encrypted_data.encode('utf-8'))
+            ciphertext = base64.urlsafe_b64decode(encrypted_data)
+            plaintext = fernet.decrypt(ciphertext).decode('utf-8')
 
-            # Track successful decryption
-            metrics.increment('security.decryption_success')
+            # Track metrics
+            decryption_time = time.time() - start_time
+            metrics.timing('security.decryption_time', decryption_time * 1000)
+            metrics.increment('security.decryption_operations')
 
-            return decrypted_data.decode('utf-8')
+            return plaintext
 
         except InvalidToken:
             log_warning("Decryption failed: Invalid token or key")
@@ -245,138 +271,94 @@ def decrypt_sensitive_data(encrypted_data: str) -> str:
 
 def encrypt_aes_gcm(plaintext: str, key: Optional[bytes] = None) -> str:
     """
-    Encrypt data using AES-GCM for authenticated encryption.
+    Encrypt data using AES-GCM (Galois/Counter Mode).
 
-    This function provides state-of-the-art authenticated encryption using
-    AES-GCM mode, which ensures both confidentiality and integrity of the data.
+    This provides authenticated encryption with associated data (AEAD),
+    ensuring both confidentiality and integrity of the encrypted data.
 
     Args:
         plaintext: The plaintext string to encrypt
-        key: Optional encryption key (uses derived key if None)
+        key: Optional key, uses application key if None
 
     Returns:
-        str: Base64-encoded encrypted data with embedded nonce and tag
-
-    Raises:
-        RuntimeError: If encryption fails
+        Base64-encoded encrypted data (IV + ciphertext + tag)
     """
     if not plaintext:
-        return plaintext
+        return ""
 
-    try:
-        # Get or derive key
-        if key is None:
-            key = _get_encryption_key()
+    # Get key if not provided
+    if key is None:
+        key = _get_encryption_key()
 
-        # Generate a random 96-bit nonce (recommended size for GCM)
-        nonce = os.urandom(12)
+    # Generate random IV
+    iv = os.urandom(12)  # 96 bits as recommended for GCM
 
-        # Create the cipher
-        algorithm = algorithms.AES(key)
-        mode = modes.GCM(nonce)
-        cipher = Cipher(algorithm, mode)
+    # Create cipher
+    cipher = Cipher(
+        algorithms.AES(key),
+        modes.GCM(iv),
+        backend=default_backend()
+    )
+    encryptor = cipher.encryptor()
 
-        # Encrypt the plaintext
-        encryptor = cipher.encryptor()
-        ciphertext = encryptor.update(plaintext.encode('utf-8')) + encryptor.finalize()
+    # Encrypt data
+    ciphertext = encryptor.update(plaintext.encode('utf-8')) + encryptor.finalize()
 
-        # Get the authentication tag
-        tag = encryptor.tag
+    # Get authentication tag
+    tag = encryptor.tag
 
-        # Combine nonce, ciphertext and tag for storage
-        encrypted_data = nonce + ciphertext + tag
+    # Combine IV, ciphertext and tag for storage
+    encrypted_data = iv + ciphertext + tag
 
-        # Return base64 encoded data
-        metrics.increment('security.aes_encryption_success')
-        return base64.urlsafe_b64encode(encrypted_data).decode('utf-8')
-
-    except Exception as e:
-        log_error(f"AES-GCM encryption failed: {e}")
-        metrics.increment('security.aes_encryption_failure')
-
-        # Log security event
-        try:
-            log_security_event(
-                event_type="encryption_failure",
-                description="AES-GCM encryption failed",
-                severity="error"
-            )
-        except Exception:
-            # Don't let security logging failure impact main flow
-            pass
-
-        raise RuntimeError(f"Failed to encrypt with AES-GCM: {e}")
+    # Return base64-encoded result
+    return base64.b64encode(encrypted_data).decode('ascii')
 
 
 def decrypt_aes_gcm(encrypted_data: str, key: Optional[bytes] = None) -> str:
     """
-    Decrypt data that was encrypted using AES-GCM.
-
-    This function decrypts data that was encrypted with the encrypt_aes_gcm
-    function, verifying both the confidentiality and integrity of the data.
+    Decrypt data encrypted with AES-GCM.
 
     Args:
-        encrypted_data: Base64-encoded encrypted data with embedded nonce and tag
-        key: Optional encryption key (uses derived key if None)
+        encrypted_data: Base64-encoded encrypted data
+        key: Optional key, uses application key if None
 
     Returns:
-        str: Decrypted plaintext string
-
-    Raises:
-        RuntimeError: If decryption fails due to invalid key, tampered data, etc.
+        Decrypted plaintext string
     """
     if not encrypted_data:
-        return encrypted_data
+        return ""
 
+    # Get key if not provided
+    if key is None:
+        key = _get_encryption_key()
+
+    # Decode the encrypted data
     try:
-        # Get or derive key
-        if key is None:
-            key = _get_encryption_key()
+        data = base64.b64decode(encrypted_data)
+    except Exception:
+        log_error("Invalid base64 encoding in encrypted data")
+        raise ValueError("Invalid encryption format")
 
-        # Decode the base64 data
-        decoded_data = base64.urlsafe_b64decode(encrypted_data)
+    # Extract IV, ciphertext, and tag
+    iv = data[:12]
+    tag = data[-16:]
+    ciphertext = data[12:-16]
 
-        # Verify minimum length for nonce (12) + tag (16)
-        if len(decoded_data) < 28:
-            log_warning("AES-GCM decryption failed: Data too short")
-            metrics.increment('security.aes_decryption_failure.invalid_format')
-            raise RuntimeError("Invalid encrypted data format")
+    # Create cipher
+    cipher = Cipher(
+        algorithms.AES(key),
+        modes.GCM(iv, tag),
+        backend=default_backend()
+    )
+    decryptor = cipher.decryptor()
 
-        # Extract nonce, ciphertext and tag
-        nonce = decoded_data[:12]
-        tag = decoded_data[-16:]  # GCM tag is 16 bytes
-        ciphertext = decoded_data[12:-16]
-
-        # Create the cipher
-        algorithm = algorithms.AES(key)
-        mode = modes.GCM(nonce, tag)
-        cipher = Cipher(algorithm, mode)
-
-        # Decrypt the ciphertext
-        decryptor = cipher.decryptor()
+    # Decrypt data
+    try:
         plaintext = decryptor.update(ciphertext) + decryptor.finalize()
-
-        metrics.increment('security.aes_decryption_success')
         return plaintext.decode('utf-8')
-
     except Exception as e:
         log_error(f"AES-GCM decryption failed: {e}")
-        metrics.increment('security.aes_decryption_failure')
-
-        # Log security event only for suspected tampering
-        error_str = str(e).lower()
-        if "authentication" in error_str or "tag" in error_str:
-            try:
-                log_security_event(
-                    event_type="decryption_failure",
-                    description="AES-GCM authentication failure - possible data tampering",
-                    severity="warning"
-                )
-            except Exception:
-                # Don't let security logging failure impact main flow
-                pass
-
-        raise RuntimeError("Failed to decrypt with AES-GCM")
+        raise ValueError("Decryption failed: data may be corrupted or tampered with")
 
 
 def compute_hash(
@@ -456,29 +438,104 @@ def compute_hash(
 
 def generate_sri_hash(file_path: str) -> str:
     """
-    Generate a Subresource Integrity hash for a file.
+    Generate a Subresource Integrity (SRI) hash for a file.
 
-    Creates a base64-encoded SHA-384 hash suitable for use in SRI attributes
-    in HTML to verify resource integrity.
-
-    This function is maintained for backward compatibility and delegates to compute_hash.
+    This function creates a hash that can be used in HTML integrity attributes
+    to ensure resources haven't been tampered with.
 
     Args:
         file_path: Path to the file
 
     Returns:
-        SRI hash string in the format "sha384-{hash}"
-
-    Raises:
-        FileNotFoundError: If the specified file does not exist
-        IOError: If the file cannot be read
+        SRI hash in the format "sha384-base64hash"
     """
-    # Use sha384 as it's commonly used for SRI
     return compute_hash(file_path=file_path, algorithm='sha384', output_format='sri')
-
 
 # For backward compatibility
 generate_secure_hash = compute_hash
+
+
+def secure_compare(val1: Union[str, bytes], val2: Union[str, bytes]) -> bool:
+    """
+    Compare two values in constant time to prevent timing attacks.
+
+    This function should be used when comparing security-sensitive values
+    such as tokens, signatures, or hashes to prevent timing attacks.
+
+    Args:
+        val1: First value to compare
+        val2: Second value to compare
+
+    Returns:
+        True if the values are equal, False otherwise
+    """
+    # Convert strings to bytes if necessary
+    if isinstance(val1, str):
+        val1 = val1.encode('utf-8')
+    if isinstance(val2, str):
+        val2 = val2.encode('utf-8')
+
+    # Use hmac.compare_digest for constant-time comparison
+    return hmac.compare_digest(val1, val2)
+
+
+def initialize_crypto(app=None):
+    """
+    Initialize cryptographic components.
+
+    This function performs any necessary initialization for the cryptographic
+    components, such as validating key presence and configuration.
+
+    Args:
+        app: Optional Flask application
+    """
+    # Check if encryption key is available
+    try:
+        _get_encryption_key()
+        log_info("Cryptography module initialized successfully")
+    except Exception as e:
+        log_error(f"Cryptography initialization failed: {e}")
+        if app:
+            app.logger.critical(f"SECURITY RISK: Cryptography initialization failed: {e}")
+
+
+def generate_random_token(length: int = 32) -> str:
+    """
+    Generate a cryptographically secure random token.
+
+    Args:
+        length: Length of token to generate
+
+    Returns:
+        Secure random token string
+    """
+    return secrets.token_urlsafe(length)
+
+
+# Ensure all functions that should be exposed are included here
+__all__ = [
+    # Key management
+    '_get_encryption_key',
+    '_derive_key',
+
+    # Encryption and decryption
+    'encrypt_sensitive_data',
+    'decrypt_sensitive_data',
+    'encrypt_aes_gcm',
+    'decrypt_aes_gcm',
+
+    # Hashing functions
+    'compute_hash',
+    'generate_sri_hash',
+    'generate_secure_hash',
+    'secure_compare',
+
+    # Token generation
+    'generate_random_token',
+
+    # Initialization
+    'initialize_crypto'
+]
 
 
 def generate_hmac(data: Union[str, bytes], key: Optional[bytes] = None,

@@ -19,7 +19,7 @@ __version__ = '0.1.1'
 
 # Standard imports
 import logging
-from typing import Dict, Any, List, Optional, Union, Tuple
+from typing import Dict, Any, List, Optional, Union, Tuple, Callable
 
 # Initialize module logger
 logger = logging.getLogger(__name__)
@@ -35,8 +35,7 @@ from .cs_audit import (
     detect_security_anomalies,
     get_recent_security_events,
     get_security_event_counts,
-    get_critical_security_events,
-    _record_in_audit_log
+    get_critical_security_events
 )
 
 from .cs_authentication import (
@@ -47,16 +46,17 @@ from .cs_authentication import (
     regenerate_session,
     invalidate_user_sessions,
     validate_url,
-    is_safe_redirect_url
+    is_safe_redirect_url,
+    require_mfa
 )
 
 from .cs_authorization import (
     require_permission,
-    require_mfa,
     can_access_ui_element,
     role_required,
     api_key_required,
-    rate_limit
+    rate_limit,
+    verify_permission
 )
 
 from .cs_crypto import (
@@ -74,11 +74,9 @@ from .cs_crypto import (
     verify_password_hash,
     generate_secure_password,
     compute_hash,
-    generate_sri_hash,  # Moved from utils.py
-    calculate_file_hash  # Merged from utils.py (previously compute_file_hash)
+    generate_sri_hash
 )
 
-# File integrity functions - enhanced with new capabilities
 from .cs_file_integrity import (
     check_file_integrity,
     check_config_integrity,
@@ -90,58 +88,13 @@ from .cs_file_integrity import (
     update_file_integrity_baseline,
     verify_baseline_update,
     format_timestamp,
-    detect_file_changes,  # Moved from utils.py
-    _check_known_files,   # Moved from utils.py
-    _check_file_permissions,  # Moved from utils.py
-    _check_critical_files,  # Moved from utils.py
-    _check_critical_file,  # Moved from utils.py
-    _check_file_ownership,  # Moved from utils.py
-    _check_file_signatures,  # Moved from utils.py
-    log_file_integrity_event,  # Moved from utils.py
-    _detect_file_changes,  # Exposed for direct usage
-    _check_for_permission_changes,  # Exposed for direct usage
-    _check_additional_critical_files,  # Exposed for direct usage
-    _consider_baseline_update,  # Newly exposed function
-    get_critical_file_hashes  # Added to expose to other modules
-)
-
-# Import circuit breaker and rate limiting from models
-try:
-    from ...models.security.circuit_breaker import (
-        CircuitBreaker,
-        CircuitBreakerState,
-        CircuitOpenError,
-        RateLimiter,
-        RateLimitExceededError
-    )
-    CIRCUIT_BREAKER_AVAILABLE = True
-except (ImportError, AttributeError):
-    CIRCUIT_BREAKER_AVAILABLE = False
-    logger.warning("Circuit breaker functionality not available")
-    # Define placeholder classes to avoid import errors
-    class CircuitBreakerState:
-        OPEN = "open"
-        CLOSED = "closed"
-        HALF_OPEN = "half_open"
-
-    class CircuitOpenError(Exception):
-        """Raised when circuit is open"""
-        pass
-
-    class RateLimitExceededError(Exception):
-        """Raised when rate limit is exceeded"""
-        pass
-
-from .cs_metrics import (
-    get_security_metrics,
-    calculate_risk_score,
-    generate_security_recommendations,
-    get_risk_trend,
-    get_threat_intelligence_summary,
-    update_daily_risk_score,
-    get_ip_geolocation,
-    setup_security_metrics,
-    setup_auth_metrics
+    detect_file_changes,
+    _detect_file_changes,
+    _check_for_permission_changes,
+    _check_additional_critical_files,
+    _consider_baseline_update,
+    get_critical_file_hashes,
+    log_file_integrity_event
 )
 
 from .cs_monitoring import (
@@ -184,14 +137,13 @@ from .cs_utils import (
     get_security_status_summary,
     generate_csp_nonce,
     check_security_dependencies,
-    sanitize_filename,  # Also exposed in cs_crypto, maintained for backward compatibility
-    sanitize_path,      # Moved from utils.py
-    is_within_directory, # Moved from utils.py
-    is_safe_file_operation, # Moved from utils.py
+    sanitize_filename,
+    sanitize_path,
+    is_within_directory,
+    is_safe_file_operation,
     obfuscate_sensitive_data
 )
 
-# Constants available at package level
 from .cs_constants import (
     SECURITY_CONFIG,
     SENSITIVE_EXTENSIONS,
@@ -200,15 +152,26 @@ from .cs_constants import (
     FILE_INTEGRITY_SEVERITY,
     FILE_INTEGRITY_PRIORITIES,
     SECURITY_EVENT_SEVERITIES,
-    MONITORED_FILES_BY_PRIORITY,  # New export for file monitoring
-    INTEGRITY_MONITORED_SERVICES  # New export for file integrity
+    MONITORED_FILES_BY_PRIORITY,
+    INTEGRITY_MONITORED_SERVICES
 )
 
 # Track initialization status
 INITIALIZED = False
 
 def init_security():
-    """Initialize security components."""
+    """
+    Initialize security components.
+
+    This function initializes various security components including:
+    - Cryptographic components
+    - File integrity monitoring
+    - Session security
+    - Security metrics
+
+    It should be called during application startup to ensure all security
+    systems are properly initialized.
+    """
     global INITIALIZED
     if INITIALIZED:
         return
@@ -226,6 +189,45 @@ def init_security():
         INITIALIZED = True
     except Exception as e:
         logger.error(f"Failed to initialize security package: {e}")
+
+
+def validate_request_security(request=None):
+    """
+    Validate security aspects of the current request.
+
+    This function checks various security aspects of a request, including:
+    - CSRF protection
+    - Content security
+    - Input validation
+    - Rate limiting
+    - IP reputation
+
+    Args:
+        request: The Flask request object to validate. If None, uses current request.
+
+    Returns:
+        tuple: (is_valid, reason) where is_valid is a boolean indicating if the request
+               is secure, and reason is a string explanation if not valid
+    """
+    from flask import request as flask_request, has_request_context
+
+    if not has_request_context():
+        return False, "No request context"
+
+    req = request if request is not None else flask_request
+
+    # Check for suspicious activity
+    is_suspicious, activity_type, details = detect_suspicious_activity(req)
+    if is_suspicious:
+        return False, f"Suspicious activity detected: {activity_type}"
+
+    # Check for proper security headers
+    if req.method == "POST" and not req.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        # CSRF check for non-AJAX POST requests
+        if not req.headers.get('X-CSRF-Token'):
+            return False, "Missing CSRF token"
+
+    return True, "Request is valid"
 
 # Initialize automatically when imported
 init_security()
@@ -280,6 +282,7 @@ __all__ = [
     'role_required',
     'api_key_required',
     'rate_limit',
+    'verify_permission',
 
     # Crypto functions
     'encrypt_sensitive_data',
@@ -297,7 +300,6 @@ __all__ = [
     'verify_password_hash',
     'generate_secure_password',
     'compute_hash',
-    'calculate_file_hash',
     'generate_sri_hash',
 
     # File integrity functions
@@ -310,13 +312,13 @@ __all__ = [
     'get_last_integrity_status',
     'update_file_integrity_baseline',
     'verify_baseline_update',
-    'get_critical_file_hashes',  # Added to exports
+    'get_critical_file_hashes',
     'format_timestamp',
     'detect_file_changes',
-    '_detect_file_changes',  # Now exposed
-    '_check_for_permission_changes',  # Now exposed
-    '_check_additional_critical_files',  # Now exposed
-    '_consider_baseline_update',  # Now exposed
+    '_detect_file_changes',
+    '_check_for_permission_changes',
+    '_check_additional_critical_files',
+    '_consider_baseline_update',
 
     # Metrics functions
     'get_security_metrics',
@@ -371,5 +373,7 @@ __all__ = [
     'sanitize_path',
     'is_within_directory',
     'is_safe_file_operation',
-    'log_file_integrity_event'
+    'log_file_integrity_event',
+    'validate_request_security',
+    'init_security'
 ]

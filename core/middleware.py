@@ -46,16 +46,16 @@ try:
     USE_SECURITY_MODULE = True
 except ImportError:
     # Fall back to legacy import if security module isn't fully available
-    from core.security_utils import log_security_event
+    from core.security import log_security_event
     USE_SECURITY_MODULE = False
 
 # Import audit log model
 try:
-    from models.security.audit_log import AuditLog
+    from models.security import AuditLog
 except ImportError:
     # Fall back to older path structure
     try:
-        from models.audit_log import AuditLog
+        from models.security import AuditLog
     except ImportError:
         # Create stub class if unavailable
         class AuditLog:

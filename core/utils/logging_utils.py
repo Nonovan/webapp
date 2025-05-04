@@ -424,6 +424,51 @@ def log_debug(message: str) -> None:
         logger.debug(message)
 
 
+def get_logger(name: str) -> logging.Logger:
+    """
+    Get a configured logger for the specified name.
+
+    This function returns a logger that's properly configured with the application's
+    logging settings, including appropriate formatters and handlers. When called
+    within a Flask application context, it will use the application's logging
+    configuration. Otherwise, it will use a basic configuration that sends logs
+    to stdout.
+
+    Args:
+        name: The name for the logger, typically __name__ of the calling module
+
+    Returns:
+        logging.Logger: A configured logger instance
+
+    Example:
+        # At the top level of a module:
+        logger = get_logger(__name__)
+
+        # Later in the code:
+        logger.info("Operation completed successfully")
+        logger.error("An error occurred: %s", str(error))
+    """
+    logger = logging.getLogger(name)
+
+    # If we're in a Flask app context, we assume logging is already configured
+    # by setup_app_logging
+    if not has_app_context() and not logger.handlers:
+        # If we're not in a Flask app context, configure basic logging
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter(
+            '[%(asctime)s] %(levelname)s in %(name)s: %(message)s'
+        )
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+
+        # Get appropriate log level, defaulting to INFO
+        log_level = os.environ.get('LOG_LEVEL', 'INFO').upper()
+        numeric_level = getattr(logging, log_level, logging.INFO)
+        logger.setLevel(numeric_level)
+
+    return logger
+
+
 def get_security_logger() -> logging.Logger:
     """
     Get the security logger instance.
@@ -432,6 +477,58 @@ def get_security_logger() -> logging.Logger:
         logging.Logger: The security logger instance
     """
     return logging.getLogger('security')
+
+
+def get_audit_logger() -> logging.Logger:
+    """
+    Get a logger specifically for audit events.
+
+    This logger is configured to handle audit events with appropriate formatting
+    and routing. It ensures that all audit-related activities are properly tracked
+    and can be easily filtered from other log entries.
+
+    Returns:
+        logging.Logger: An instance of the audit logger
+    """
+    audit_logger = logging.getLogger('audit')
+
+    # If in Flask context, ensure proper configuration
+    if has_app_context():
+        # If the handler hasn't been set up yet, add one
+        if not audit_logger.handlers:
+            # Check if a specific audit log path is defined in config
+            log_dir = current_app.config.get('LOG_DIR', 'logs')
+            audit_log_path = os.path.join(log_dir, 'audit.log')
+
+            try:
+                # Ensure directory exists
+                if not os.path.exists(log_dir):
+                    os.makedirs(log_dir, exist_ok=True)
+                    try:
+                        os.chmod(log_dir, 0o750)
+                    except (OSError, PermissionError):
+                        pass
+
+                # Create rotating file handler for audit log
+                audit_handler = logging.handlers.RotatingFileHandler(
+                    audit_log_path, maxBytes=10*1024*1024, backupCount=20
+                )
+                audit_handler.setFormatter(SecurityAwareJsonFormatter())
+                audit_handler.setLevel(logging.INFO)
+                audit_logger.addHandler(audit_handler)
+
+                # Set secure permissions on the log file
+                try:
+                    os.chmod(audit_log_path, 0o640)
+                except (OSError, PermissionError):
+                    pass
+
+                # Make audit logger propagate to root
+                audit_logger.propagate = True
+            except (IOError, OSError) as e:
+                logger.error(f"Failed to set up audit logging: {e}")
+
+    return audit_logger
 
 
 def get_file_integrity_events(limit: int = 10) -> List[Dict[str, Any]]:

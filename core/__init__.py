@@ -63,8 +63,8 @@ from .utils.logging_utils import (
 # Import string manipulation utilities
 from .utils.string import (
     slugify,
-    truncate_text as truncate,  # Alias for backward compatibility
-    strip_html_tags as strip_tags,  # Alias for backward compatibility
+    truncate_text as truncate,
+    strip_html_tags as strip_tags,
     sanitize_html
 )
 
@@ -110,7 +110,7 @@ from .utils.validation import (
 
 # Import security utilities from their new specialized locations
 from .security.cs_crypto import (
-    compute_hash as compute_file_hash,  # Aliased for backward compatibility
+    compute_hash as compute_file_hash,
     generate_sri_hash,
     secure_compare,
     encrypt_sensitive_data,
@@ -139,7 +139,8 @@ from .security.cs_file_integrity import (
     create_file_hash_baseline,
     get_last_integrity_status,
     log_file_integrity_event,
-    _consider_baseline_update
+    _consider_baseline_update,
+    verify_baseline_update
 )
 
 from .security import (
@@ -248,5 +249,6 @@ __all__ = [
     'initialize_security_components',
     'generate_csp_nonce',
     '_consider_baseline_update',
-    'init_security'
+    'init_security',
+    'verify_baseline_update'
 ]
