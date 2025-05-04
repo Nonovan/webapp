@@ -20,6 +20,54 @@ from .environments import (
     get_environment_config
 )
 
+# Import key constants from config_constants module
+from .config_constants import (
+    # Environment constants
+    ENVIRONMENT_DEVELOPMENT,
+    ENVIRONMENT_TESTING,
+    ENVIRONMENT_STAGING,
+    ENVIRONMENT_PRODUCTION,
+    ENVIRONMENT_DR_RECOVERY,
+    ENVIRONMENT_CI,
+    ALLOWED_ENVIRONMENTS,
+    SECURE_ENVIRONMENTS,
+
+    # Required variables
+    REQUIRED_ENV_VARS,
+    REQUIRED_PROD_ENV_VARS,
+
+    # Default configurations
+    DEFAULT_ENV_VALUES,
+    DEFAULT_DB_CONFIG,
+    DEFAULT_SECURITY_CONFIG,
+    DEFAULT_SECURITY_HEADERS,
+    DEFAULT_CSRF_CONFIG,
+    DEFAULT_RATE_LIMIT_CONFIG,
+    DEFAULT_JWT_CONFIG,
+    DEFAULT_CACHE_CONFIG,
+    DEFAULT_ICS_CONFIG,
+    DEFAULT_CLOUD_CONFIG,
+    DEFAULT_MONITORING_CONFIG,
+    DEFAULT_FILE_SECURITY_CONFIG,
+    DEFAULT_FILE_INTEGRITY_CONFIG,
+    DEFAULT_CSP_CONFIG,
+    DEFAULT_AUDIT_CONFIG,
+    DEFAULT_FEATURE_FLAGS,
+
+    # Environment-specific overrides
+    DEV_OVERRIDES,
+    TEST_OVERRIDES,
+    PROD_SECURITY_REQUIREMENTS,
+
+    # File integrity monitoring
+    FILE_INTEGRITY_MONITORED_PATTERNS,
+    FILE_INTEGRITY_BASELINE_CONFIG,
+    FILE_INTEGRITY_SEVERITY_MAPPING,
+    SENSITIVE_FIELDS,
+    SMALL_FILE_THRESHOLD,
+    DEFAULT_HASH_ALGORITHM
+)
+
 # Configuration registry
 CONFIG_REGISTRY = {
     'development': DevelopmentConfig,
@@ -102,20 +150,103 @@ def load_component_config(component_name: str, environment: Optional[str] = None
     return _load_component(component_name, environment)
 
 
+def update_file_integrity_baseline(
+        app=None,
+        baseline_path=None,
+        updates=None,
+        remove_missing=False) -> bool:
+    """
+    Update the file integrity baseline with new hash values.
+
+    This function is a wrapper that forwards to the core implementation in
+    core.security.cs_file_integrity, providing a convenient access point
+    from the config package.
+
+    Args:
+        app: Flask application instance
+        baseline_path: Path to the baseline file (uses app config if None)
+        updates: List of change dictionaries to incorporate into baseline
+        remove_missing: Whether to remove entries for files that no longer exist
+
+    Returns:
+        bool: True if the baseline was successfully updated, False otherwise
+    """
+    # Import the actual implementation from core security module
+    try:
+        from core.security.cs_file_integrity import update_file_integrity_baseline as core_update
+        return core_update(app, baseline_path, updates, remove_missing)
+    except ImportError:
+        import logging
+        logging.warning("Could not import update_file_integrity_baseline from core.security.cs_file_integrity")
+        return False
+
+
 # Version information
-__version__ = '0.0.0'
+__version__ = '0.1.1'
 
 # Define public exports
 __all__ = [
+    # Core configuration classes
     'Config',
     'DevelopmentConfig',
     'ProductionConfig',
     'TestingConfig',
     'StagingConfig',
     'CIConfig',
+
+    # Configuration utility functions
     'get_config',
     'get_config_instance',
     'detect_environment',
     'load_component_config',
-    'CONFIG_REGISTRY'
+    'update_file_integrity_baseline',
+    'CONFIG_REGISTRY',
+
+    # Environment constants
+    'ENVIRONMENT_DEVELOPMENT',
+    'ENVIRONMENT_TESTING',
+    'ENVIRONMENT_STAGING',
+    'ENVIRONMENT_PRODUCTION',
+    'ENVIRONMENT_DR_RECOVERY',
+    'ENVIRONMENT_CI',
+    'ALLOWED_ENVIRONMENTS',
+    'SECURE_ENVIRONMENTS',
+
+    # Required variables
+    'REQUIRED_ENV_VARS',
+    'REQUIRED_PROD_ENV_VARS',
+
+    # Default configurations
+    'DEFAULT_ENV_VALUES',
+    'DEFAULT_DB_CONFIG',
+    'DEFAULT_SECURITY_CONFIG',
+    'DEFAULT_SECURITY_HEADERS',
+    'DEFAULT_CSRF_CONFIG',
+    'DEFAULT_RATE_LIMIT_CONFIG',
+    'DEFAULT_JWT_CONFIG',
+    'DEFAULT_CACHE_CONFIG',
+    'DEFAULT_ICS_CONFIG',
+    'DEFAULT_CLOUD_CONFIG',
+    'DEFAULT_MONITORING_CONFIG',
+    'DEFAULT_FILE_SECURITY_CONFIG',
+    'DEFAULT_FILE_INTEGRITY_CONFIG',
+    'DEFAULT_CSP_CONFIG',
+    'DEFAULT_AUDIT_CONFIG',
+    'DEFAULT_FEATURE_FLAGS',
+
+    # Environment-specific overrides
+    'DEV_OVERRIDES',
+    'TEST_OVERRIDES',
+    'PROD_SECURITY_REQUIREMENTS',
+
+    # File integrity monitoring
+    'FILE_INTEGRITY_MONITORED_PATTERNS',
+    'FILE_INTEGRITY_BASELINE_CONFIG',
+    'FILE_INTEGRITY_SEVERITY_MAPPING',
+    'SENSITIVE_FIELDS',
+    'SMALL_FILE_THRESHOLD',
+    'DEFAULT_HASH_ALGORITHM',
+
+    # Version
+    '__version__'
 ]

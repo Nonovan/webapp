@@ -2,142 +2,18 @@
 Base configuration class for Cloud Infrastructure Platform.
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 import ipaddress
+import json
 import logging
 import os
 import secrets
 import socket
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Tuple, Union
 import subprocess
 
-class Config:
-    """Base configuration class with common settings."""
-    
-    # Required environment variables
-    REQUIRED_VARS = [
-        'SECRET_KEY',
-        'DATABASE_URL',
-        'JWT_SECRET_KEY',
-        'CSRF_SECRET_KEY',
-        'SESSION_KEY'
-    ]
-    
-    # Default settings
-    ENV_DEFAULTS = {
-        'ENVIRONMENT': 'development',
-        'DEBUG': False,
-        'TESTING': False,
-        'SERVER_NAME': None,
-        # Add all your default settings here from both current config files
-    }
-    
-    # Security validation for production environments
-    PROD_REQUIREMENTS = [
-        'SESSION_COOKIE_SECURE',
-        'SESSION_COOKIE_HTTPONLY',
-        'REMEMBER_COOKIE_SECURE',
-        'REMEMBER_COOKIE_HTTPONLY',
-        'WTF_CSRF_ENABLED',
-        'SECURITY_HEADERS_ENABLED',
-    ]
-    
-    @classmethod
-    def init_app(cls, app):
-        """Initialize application with configuration."""
-        cls._load_from_environment(app)
-        cls._setup_derived_values(app)
-        cls._validate_security_settings(app)
-        cls._configure_extensions(app)
-        
-        # Only calculate file hashes if security check is enabled
-        if app.config.get('SECURITY_CHECK_FILE_INTEGRITY', False):
-            cls.initialize_file_hashes(app.config, app.root_path)
-        
-        # Make selected config values available in templates
-        @app.context_processor
-        def inject_config():
-            """Make selected config values available in templates."""
-            return {
-                'config': {
-                    'VERSION': app.config.get('VERSION', '1.0.0'),
-                    'ENVIRONMENT': app.config.get('ENVIRONMENT', 'development'),
-                    'FEATURE_DARK_MODE': app.config.get('FEATURE_DARK_MODE', True),
-                    'FEATURE_ICS_CONTROL': app.config.get('FEATURE_ICS_CONTROL', True),
-                    'FEATURE_CLOUD_MANAGEMENT': app.config.get('FEATURE_CLOUD_MANAGEMENT', True),
-                    'FEATURE_MFA': app.config.get('FEATURE_MFA', True),
-                }
-            }
-    
-    # Application settings
-    SECRET_KEY = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
-    JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY') or secrets.token_hex(32)
-    CSRF_SECRET_KEY = os.environ.get('CSRF_SECRET_KEY') or secrets.token_hex(32)
-    SESSION_KEY = os.environ.get('SESSION_KEY') or secrets.token_hex(32)
-    
-    # Database settings
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL', 'sqlite:///app.db')
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ENGINE_OPTIONS = {
-        'pool_recycle': 280,
-        'pool_pre_ping': True,
-        'pool_size': 10,
-        'max_overflow': 20
-    }
-    
-    # Security settings
-    SESSION_COOKIE_HTTPONLY = True
-    SESSION_COOKIE_SAMESITE = 'Lax'
-    PERMANENT_SESSION_LIFETIME = timedelta(days=1)
-    REMEMBER_COOKIE_DURATION = timedelta(days=14)
-    REMEMBER_COOKIE_HTTPONLY = True
-    REMEMBER_COOKIE_SAMESITE = 'Lax'
-    
-    # Security headers
-    SECURITY_HEADERS_ENABLED = True
-    SECURITY_CSP_REPORT_URI = None
-    SECURITY_HSTS_MAX_AGE = 31536000  # 1 year
-    SECURITY_INCLUDE_SUBDOMAINS = True
-    SECURITY_PRELOAD = True
-    
-    # CSRF protection
-    WTF_CSRF_ENABLED = True
-    WTF_CSRF_TIME_LIMIT = 3600  # 1 hour
-    
-    # Rate limiting
-    RATELIMIT_DEFAULT = '200 per day, 50 per hour'
-    RATELIMIT_HEADERS_ENABLED = True
-    RATELIMIT_STRATEGY = 'fixed-window'
-    
-    # Cache settings
-    CACHE_TYPE = 'SimpleCache'
-    CACHE_DEFAULT_TIMEOUT = 300
-    
-    # Logging settings
-    LOG_LEVEL = 'INFO'
-    SECURITY_LOG_LEVEL = 'WARNING'
-    
-    # File security settings
-    SECURITY_CHECK_FILE_INTEGRITY = True
-    ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg', 'csv', 'xlsx'}
-    MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16 MB
-    
-    # Feature flags
-    FEATURE_DARK_MODE = True
-    FEATURE_ICS_CONTROL = True
-    FEATURE_CLOUD_MANAGEMENT = True
-    FEATURE_MFA = True
-    
-    # Cloud settings
-    CLOUD_PROVIDERS = ['aws', 'azure', 'gcp']
-    CLOUD_METRICS_INTERVAL = 300  # 5 minutes
-    CLOUD_RESOURCES_CACHE_TTL = 600  # 10 minutes
-    
-    # ICS system settings
-    ICS_ENABLED = False
-    ICS_MONITOR_INTERVAL = 60  # seconds
-    ICS_ALERT_THRESHOLD = 0.8  # 80%
-
+# Set up module logger
+logger = logging.getLogger(__name__)
 
 class Config:
     """
@@ -236,10 +112,21 @@ class Config:
 
         # File security settings
         'SECURITY_CHECK_FILE_INTEGRITY': True,
+        'ENABLE_FILE_INTEGRITY_MONITORING': True,
+        'FILE_HASH_ALGORITHM': 'sha256',
+        'FILE_INTEGRITY_CHECK_INTERVAL': 3600,  # 1 hour
+        'AUTO_UPDATE_BASELINE': False,  # Don't auto-update baseline by default
+        'CRITICAL_FILES_PATTERN': [
+            "*.py",                 # Python source files
+            "config/*.ini",         # Configuration files
+            "config/*.json",        # JSON configuration
+            "config/*.yaml",        # YAML configuration
+            "config/*.yml",         # YAML configuration (alt)
+        ],
         'SECURITY_CRITICAL_FILES': [
             'app.py',
             'config.py',
-            'core/security_utils.py',
+            'core/security/*.py',
             'core/middleware.py'
         ],
         'ALLOWED_EXTENSIONS': {'pdf', 'png', 'jpg', 'jpeg', 'csv', 'xlsx'},
@@ -282,7 +169,17 @@ class Config:
         'REMEMBER_COOKIE_HTTPONLY',
         'WTF_CSRF_ENABLED',
         'SECURITY_HEADERS_ENABLED',
+        'API_REQUIRE_HTTPS',
     ]
+
+    # Application settings
+    SECRET_KEY = os.environ.get('SECRET_KEY') or secrets.token_hex(32)
+    JWT_SECRET_KEY = os.environ.get('JWT_SECRET_KEY') or secrets.token_hex(32)
+    CSRF_SECRET_KEY = os.environ.get('CSRF_SECRET_KEY') or secrets.token_hex(32)
+    SESSION_KEY = os.environ.get('SESSION_KEY') or secrets.token_hex(32)
+
+    # Database settings
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL', 'sqlite:///app.db')
 
     @classmethod
     def init_app(cls, app) -> None:
@@ -318,6 +215,33 @@ class Config:
 
         # Setup derived values and special cases
         cls._setup_derived_values(app)
+
+        # Configure extensions if method exists
+        if hasattr(cls, '_configure_extensions') and callable(cls._configure_extensions):
+            cls._configure_extensions(app)
+
+        # Validate security settings if method exists
+        if hasattr(cls, '_validate_security_settings') and callable(cls._validate_security_settings):
+            cls._validate_security_settings(app)
+
+        # Initialize file integrity monitoring if enabled
+        if app.config.get('ENABLE_FILE_INTEGRITY_MONITORING', True):
+            try:
+                # Try to use the improved cs_file_integrity module
+                from core.security.cs_file_integrity import initialize_file_monitoring
+
+                # Initialize file monitoring with appropriate patterns and interval
+                basedir = app.root_path
+                patterns = app.config.get('CRITICAL_FILES_PATTERN')
+                interval = app.config.get('FILE_INTEGRITY_CHECK_INTERVAL', 3600)
+
+                initialize_file_monitoring(app, basedir, patterns, interval)
+                logger.info("File integrity monitoring initialized")
+
+            except ImportError:
+                # Fall back to basic file integrity checks
+                app.config = cls.initialize_file_hashes(app.config, app.root_path)
+                logger.info("Basic file integrity monitoring initialized (cs_file_integrity not available)")
 
         # Register config values to be accessible in the app context
         @app.context_processor
@@ -387,11 +311,87 @@ class Config:
                             ipaddress.ip_network(ip_str, strict=False)
                             ip_list.append(ip_str)
                         except ValueError:
-                            logging.warning("Invalid IP address or CIDR in ICS_RESTRICTED_IPS: %s", ip_str)
+                            logger.warning(f"Invalid IP address or CIDR in ICS_RESTRICTED_IPS: {ip_str}")
 
                 app.config['ICS_RESTRICTED_IPS'] = ip_list
             except ValueError as e:
-                logging.error("Error parsing ICS_RESTRICTED_IPS: %s", str(e))
+                logger.error(f"Error parsing ICS_RESTRICTED_IPS: {str(e)}")
+
+        # Load file integrity monitoring configuration
+        cls._load_integrity_config_from_environment(app)
+
+    @classmethod
+    def _load_integrity_config_from_environment(cls, app) -> None:
+        """
+        Load file integrity monitoring configuration from environment variables.
+
+        Args:
+            app: Flask application instance
+        """
+        # File integrity monitoring enabled/disabled
+        if 'ENABLE_FILE_INTEGRITY_MONITORING' in os.environ:
+            app.config['ENABLE_FILE_INTEGRITY_MONITORING'] = cls._convert_env_value(
+                os.environ['ENABLE_FILE_INTEGRITY_MONITORING']
+            )
+
+        # File integrity check interval
+        if 'FILE_INTEGRITY_CHECK_INTERVAL' in os.environ:
+            try:
+                interval = int(os.environ['FILE_INTEGRITY_CHECK_INTERVAL'])
+                # Enforce minimum interval to prevent performance issues
+                if interval < 300:  # 5 minutes minimum
+                    interval = 300
+                    logger.warning("FILE_INTEGRITY_CHECK_INTERVAL too low, setting to 300 seconds minimum")
+                app.config['FILE_INTEGRITY_CHECK_INTERVAL'] = interval
+            except ValueError:
+                logger.warning("Invalid FILE_INTEGRITY_CHECK_INTERVAL value, using default")
+
+        # Auto-update baseline setting
+        if 'AUTO_UPDATE_BASELINE' in os.environ:
+            app.config['AUTO_UPDATE_BASELINE'] = cls._convert_env_value(
+                os.environ['AUTO_UPDATE_BASELINE']
+            )
+
+        # Check file signatures setting
+        if 'CHECK_FILE_SIGNATURES' in os.environ:
+            app.config['CHECK_FILE_SIGNATURES'] = cls._convert_env_value(
+                os.environ['CHECK_FILE_SIGNATURES']
+            )
+
+        # Critical file patterns
+        if 'CRITICAL_FILES_PATTERN' in os.environ:
+            try:
+                patterns = json.loads(os.environ['CRITICAL_FILES_PATTERN'])
+                if isinstance(patterns, list):
+                    app.config['CRITICAL_FILES_PATTERN'] = patterns
+                else:
+                    logger.warning("CRITICAL_FILES_PATTERN should be a JSON array, using default")
+            except json.JSONDecodeError:
+                # Try comma-separated list
+                patterns = [p.strip() for p in os.environ['CRITICAL_FILES_PATTERN'].split(',') if p.strip()]
+                if patterns:
+                    app.config['CRITICAL_FILES_PATTERN'] = patterns
+
+    @staticmethod
+    def _convert_env_value(value: str) -> Any:
+        """
+        Convert environment variable string to appropriate Python type.
+
+        Args:
+            value: String value from environment variable
+
+        Returns:
+            Value converted to appropriate type (bool, int, float, str)
+        """
+        if value.lower() in ('true', 'yes', '1'):
+            return True
+        elif value.lower() in ('false', 'no', '0'):
+            return False
+        elif value.isdigit():
+            return int(value)
+        elif value.replace('.', '', 1).isdigit() and value.count('.') == 1:
+            return float(value)
+        return value
 
     @classmethod
     def _validate_configuration(cls, app) -> None:
@@ -429,11 +429,25 @@ class Config:
                 insecure_settings.append(setting)
 
         if insecure_settings:
+            logger.error(f"Insecure settings in production: {', '.join(insecure_settings)}")
             raise ValueError(f"Insecure settings in production: {', '.join(insecure_settings)}")
 
         # Check for development SECRET_KEY in production
-        if app.config.get('SECRET_KEY') == 'dev':
+        if app.config.get('SECRET_KEY') in ('dev', 'development', 'secret', 'changeme'):
+            logger.error("Development SECRET_KEY used in production environment")
             raise ValueError("Development SECRET_KEY used in production environment")
+
+        # Check if file integrity monitoring is disabled in production
+        if not app.config.get('ENABLE_FILE_INTEGRITY_MONITORING', True):
+            logger.warning("File integrity monitoring disabled in production environment")
+
+        # Check auto-update baseline in production (should be false)
+        if app.config.get('AUTO_UPDATE_BASELINE', False):
+            logger.warning("AUTO_UPDATE_BASELINE should be disabled in production")
+
+        # Check if audit logging is properly configured
+        if app.config.get('AUDIT_LOG_ENABLED', True) and app.config.get('AUDIT_LOG_RETENTION_DAYS', 90) < 30:
+            logger.warning("AUDIT_LOG_RETENTION_DAYS should be at least 30 days in production")
 
     @classmethod
     def _setup_derived_values(cls, app) -> None:
@@ -445,7 +459,7 @@ class Config:
         - Redis URL for caching when available
         - Debug settings for development
         - File paths based on application root
-        
+
         Args:
             app: Flask application instance
         """
@@ -464,8 +478,17 @@ class Config:
             app.config['SESSION_TYPE'] = 'filesystem'
 
         # Set up upload folder
-        app.config['UPLOAD_FOLDER'] = os.path.join(app.root_path, 'uploads')
-        os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+        uploads_path = os.path.join(app.root_path, 'uploads')
+        app.config['UPLOAD_FOLDER'] = uploads_path
+
+        # Create upload directory with secure permissions if it doesn't exist
+        try:
+            if not os.path.exists(uploads_path):
+                # Create with restricted permissions (0o750 = rwxr-x---)
+                os.makedirs(uploads_path, mode=0o750, exist_ok=True)
+                logger.info(f"Created upload directory: {uploads_path}")
+        except (IOError, OSError) as e:
+            logger.error(f"Failed to create upload directory {uploads_path}: {str(e)}")
 
         # Generate a self-identification string for logs/metrics
         hostname = socket.gethostname()
@@ -475,14 +498,26 @@ class Config:
         if 'VERSION' not in app.config:
             try:
                 result = subprocess.run(
-                    ['git', 'describe', '--tags', '--always'], 
-                    stdout=subprocess.PIPE, 
-                    stderr=subprocess.PIPE, 
+                    ['git', 'describe', '--tags', '--always'],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                     check=True
                 )
                 app.config['VERSION'] = result.stdout.decode('utf-8').strip()
             except subprocess.CalledProcessError:
                 app.config['VERSION'] = '1.0.0'
+
+        # Set up file baseline path if file integrity monitoring is enabled
+        if app.config.get('ENABLE_FILE_INTEGRITY_MONITORING', True):
+            if 'FILE_BASELINE_PATH' not in app.config or not app.config['FILE_BASELINE_PATH']:
+                # Set baseline path in instance directory
+                app.config['FILE_BASELINE_PATH'] = os.path.join(app.instance_path, 'file_baseline.json')
+
+            # Ensure instance directory exists
+            try:
+                os.makedirs(os.path.dirname(app.config['FILE_BASELINE_PATH']), exist_ok=True)
+            except OSError as e:
+                logger.error(f"Failed to create baseline directory: {str(e)}")
 
     @staticmethod
     def load_from_name(name: str) -> Dict[str, Any]:
@@ -540,7 +575,7 @@ class Config:
     def generate_csp_nonce() -> str:
         """
         Generate a cryptographically secure nonce for CSP.
-        
+
         Returns:
             str: Generated nonce as a URL-safe base64 string
         """
@@ -550,23 +585,26 @@ class Config:
     def initialize_file_hashes(cls, config: Dict[str, Any], app_root: str) -> Dict[str, Any]:
         """
         Initialize file integrity hashes for critical files.
-        
+
         This method computes hash values for security-critical files to enable
-        integrity monitoring during application runtime. It uses the Argon2 
-        algorithm for advanced hashing security where appropriate, and falls
-        back to SHA-256 for larger files for performance reasons.
-        
+        integrity monitoring during application runtime. It uses the specified
+        hash algorithm for files, with SHA-256 as the default for performance reasons.
+
         Args:
             config: Current application configuration dictionary
             app_root: Application root directory path
-            
+
         Returns:
             Dict[str, Any]: Updated configuration with file hashes
-            
+
         Example:
             app.config = Config.initialize_file_hashes(app.config, app_root_path)
         """
-        from core.utils import calculate_file_hash
+        try:
+            from core.utils import calculate_file_hash
+        except ImportError:
+            logger.error("Could not import calculate_file_hash from core.utils")
+            return config
 
         # Only compute hashes if file integrity monitoring is enabled
         if not config.get('ENABLE_FILE_INTEGRITY_MONITORING', True):
@@ -587,7 +625,9 @@ class Config:
             os.path.join(app_root, 'app.py'),
             os.path.join(app_root, 'wsgi.py'),
             os.path.join(app_root, 'core', 'utils.py'),
-            os.path.join(app_root, 'core', 'security.py'),
+            os.path.join(app_root, 'core', 'security', '__init__.py'),
+            os.path.join(app_root, 'core', 'security', 'cs_audit.py'),
+            os.path.join(app_root, 'core', 'security', 'cs_file_integrity.py'),
             os.path.join(app_root, 'core', 'auth.py'),
             os.path.join(app_root, 'extensions.py'),
             os.path.join(app_root, 'blueprints', 'monitoring', 'routes.py'),
@@ -599,19 +639,20 @@ class Config:
         # Compute hashes for config files - use algorithm based on file size
         config_hashes = {}
         algorithm = config.get('FILE_HASH_ALGORITHM', 'sha256')
+        small_file_threshold = 10240  # 10KB
 
         for file_path in config_files:
             if os.path.exists(file_path):
                 try:
                     file_size = os.path.getsize(file_path)
                     # For security-critical but small config files, we can use a stronger hash
-                    if file_size < 1024 * 10:  # 10KB or smaller
+                    if file_size < small_file_threshold:
                         config_hashes[file_path] = calculate_file_hash(file_path, algorithm)
                     else:
                         # For larger files, use SHA-256 for better performance
                         config_hashes[file_path] = calculate_file_hash(file_path, 'sha256')
                 except (IOError, OSError) as e:
-                    logging.warning("Could not hash config file %s: %s", file_path, e)
+                    logger.warning(f"Could not hash config file {file_path}: {e}")
 
         # Compute hashes for critical files
         critical_hashes = {}
@@ -620,25 +661,65 @@ class Config:
                 try:
                     critical_hashes[file_path] = calculate_file_hash(file_path, algorithm)
                 except (IOError, OSError) as e:
-                    logging.warning("Could not hash critical file %s: %s", file_path, e)
+                    logger.warning(f"Could not hash critical file {file_path}: {e}")
 
         # Add monitored directories (these will be checked for unexpected files)
         monitored_directories = [
             os.path.join(app_root, 'core'),
+            os.path.join(app_root, 'core', 'security'),
             os.path.join(app_root, 'models'),
+            os.path.join(app_root, 'models', 'security'),
             os.path.join(app_root, 'blueprints', 'auth'),
             os.path.join(app_root, 'blueprints', 'monitoring')
         ]
         config['MONITORED_DIRECTORIES'] = monitored_directories
-        
+
         # Update configuration
         config['CONFIG_FILE_HASHES'] = config_hashes
         config['CRITICAL_FILE_HASHES'] = critical_hashes
         config['FILE_HASH_TIMESTAMP'] = cls.format_timestamp()
-        
+
         return config
 
     @staticmethod
     def format_timestamp() -> str:
         """Format current datetime as ISO 8601 string."""
         return datetime.utcnow().isoformat()
+
+    @classmethod
+    def update_file_integrity_baseline(
+            cls,
+            app=None,
+            baseline_path=None,
+            updates=None,
+            remove_missing=False,
+            auto_update_limit: int = 10) -> Tuple[bool, str]:
+        """
+        Update the file integrity baseline with new hash values.
+
+        This function imports the actual implementation from core.security.cs_file_integrity
+        if available, or falls back to a basic implementation.
+
+        Args:
+            app: Flask application instance
+            baseline_path: Path to baseline file
+            updates: List of updates to apply
+            remove_missing: Whether to remove missing files
+            auto_update_limit: Maximum number of files to auto-update
+
+        Returns:
+            tuple: (success_bool, message_string)
+        """
+        try:
+            from core.security.cs_file_integrity import update_file_integrity_baseline as core_update
+            return core_update(app, baseline_path, updates, remove_missing, auto_update_limit)
+        except ImportError:
+            logger.warning("Could not import update_file_integrity_baseline from core.security.cs_file_integrity")
+
+            # Try fallback implementation
+            try:
+                from core.utils import update_file_integrity_baseline as utils_update
+                return utils_update(app, baseline_path, updates, remove_missing)
+            except ImportError:
+                logger.error("No file integrity baseline update implementation available")
+                return False, "File integrity functions not available"
