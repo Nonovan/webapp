@@ -23,7 +23,7 @@ from flask.cli import AppGroup
 from flask import current_app
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
-from core.loggings import get_logger
+from core.utils.logging_utils import get_logger
 from core.seeder import seed_database, seed_development_data
 from extensions import db, metrics
 from cli.common import (

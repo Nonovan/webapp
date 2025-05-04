@@ -35,7 +35,15 @@ from .cs_audit import (
     detect_security_anomalies,
     get_recent_security_events,
     get_security_event_counts,
-    get_critical_security_events
+    get_critical_security_events,
+    process_fallback_logs,
+    get_critical_event_categories,
+    initialize_audit_logging,
+
+    # Add the new function and its aliases
+    log_security_event_as_audit_log,
+    log_audit_event,
+    audit_log
 )
 
 from .cs_authentication import (
@@ -264,6 +272,12 @@ __all__ = [
     'get_recent_security_events',
     'get_security_event_counts',
     'get_critical_security_events',
+    'process_fallback_logs',
+    'get_critical_event_categories',
+    'initialize_audit_logging',
+    'log_security_event_as_audit_log',
+    'log_audit_event',
+    'audit_log',
 
     # Authentication functions
     'is_valid_ip',

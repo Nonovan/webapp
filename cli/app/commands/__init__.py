@@ -50,13 +50,27 @@ Available command groups:
   - lock/unlock: Manage account locking
 """
 
+# Import CLI command groups
 from .db import db_cli
 from .monitor import monitor_cli
 from .system import system_cli
 from .user import user_cli
 
+# Import audit logging functionality from core security
+from core.security import audit_log, log_security_event
+
 # Export all command groups to make them available when importing this package
-__all__ = ['db_cli', 'monitor_cli', 'system_cli', 'user_cli']
+__all__ = [
+    # Command groups
+    'db_cli',
+    'monitor_cli',
+    'system_cli',
+    'user_cli',
+
+    # Security and audit logging
+    'audit_log',
+    'log_security_event'
+]
 
 # Version information
-__version__ = '0.0.1'
+__version__ = '0.1.1'  # Version updated to reflect additions

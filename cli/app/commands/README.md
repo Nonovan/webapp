@@ -58,6 +58,8 @@ The CLI commands package implements a comprehensive set of administrative and op
   - User listing and filtering
   - Batch import/export operations
   - Multi-factor authentication management
+  - Account deactivation and activation
+  - Account locking and unlocking
 
 ## Directory Structure
 
@@ -165,6 +167,12 @@ flask user bulk-import --file new_users.csv --send-welcome
 
 # Configure MFA requirements
 flask user mfa --require-for admins,operators
+
+# Lock a user account
+flask user lock username --reason "Security policy violation" --duration 24h
+
+# Unlock a user account
+flask user unlock username
 ```
 
 ## Security Features

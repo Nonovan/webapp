@@ -140,6 +140,61 @@ def log_security_event(
         return False
 
 
+def log_security_event_as_audit_log(
+    category: str,
+    event_type: str,
+    details: Optional[Dict[str, Any]] = None,
+    severity: str = 'info',
+    user_id: Optional[int] = None,
+    ip_address: Optional[str] = None,
+    object_type: Optional[str] = None,
+    object_id: Optional[Union[int, str]] = None
+) -> bool:
+    """
+    Log an audit event with standardized formatting.
+
+    This function provides a simplified interface to log_security_event that is
+    more suitable for CLI tools and other non-HTTP contexts. It constructs
+    a standardized event type from the category and event type.
+
+    Args:
+        category: Category of the audit event (e.g., 'user_management', 'configuration')
+        event_type: Specific event type (e.g., 'user_created', 'role_changed')
+        details: Additional details about the event
+        severity: Severity level ('info', 'warning', 'error', 'critical')
+        user_id: ID of the user who performed the action
+        ip_address: IP address where the action originated
+        object_type: Type of object being modified
+        object_id: ID of the object being modified
+
+    Returns:
+        bool: True if logging succeeded, False otherwise
+    """
+    # Format the event type in a standard way: category.event_type
+    formatted_event_type = f"{category}.{event_type}"
+
+    # Create a standard description
+    description = f"{category.replace('_', ' ').title()}: {event_type.replace('_', ' ').title()}"
+
+    # Call the core security event logging function
+    return log_security_event(
+        event_type=formatted_event_type,
+        description=description,
+        severity=severity,
+        user_id=user_id,
+        ip_address=ip_address,
+        details=details,
+        object_type=object_type,
+        object_id=object_id
+    )
+
+# Create an alias for backward compatibility and to match the import in user.py
+log_audit_event = log_security_event_as_audit_log
+
+# Create the desired function name that's being imported
+audit_log = log_security_event_as_audit_log
+
+
 def log_model_event(
     model_name: str,
     event_type: str,

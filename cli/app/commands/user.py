@@ -18,8 +18,8 @@ from datetime import datetime
 from flask import current_app
 from flask.cli import AppGroup
 from sqlalchemy.exc import SQLAlchemyError
-from core.loggings import get_logger
-from core.security import audit_log
+from core.utils.logging_utils import get_logger
+from core.security.cs_audit import log_security_event as audit_log
 from extensions import db, metrics
 from models import User
 from cli.common import (

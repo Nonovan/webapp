@@ -18,6 +18,7 @@ import platform
 import psutil
 import click
 import sys
+import yaml
 from datetime import datetime, timedelta
 from flask.cli import AppGroup
 from flask import current_app
@@ -512,7 +513,6 @@ def check_config(verify: bool, env: Optional[str], output_format: str, mask_secr
             click.echo(json.dumps(display_config, indent=2, sort_keys=True))
         elif output_format == 'yaml':
             try:
-                import yaml
                 click.echo(yaml.dump(display_config, default_flow_style=False))
             except ImportError:
                 click.echo("PyYAML is not installed. Falling back to JSON format.")

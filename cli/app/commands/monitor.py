@@ -25,7 +25,7 @@ import requests
 from flask.cli import AppGroup
 from flask import current_app
 from sqlalchemy.exc import SQLAlchemyError
-from core.loggings import get_logger
+from core.utils.logging_utils import get_logger
 from extensions import db, metrics, cache
 from cli.common import (
     format_output, handle_error, confirm_action, require_permission,
