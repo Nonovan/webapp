@@ -251,6 +251,129 @@ def log_model_event(
     )
 
 
+def get_security_events(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    severity: Optional[str] = None,
+    event_type: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 50
+) -> Tuple[List[Dict[str, Any]], int, int]:
+    """
+    Get security events from the audit log with filtering capabilities.
+
+    This function retrieves security-related events from the audit log with
+    various filtering options and pagination support, intended for administrative
+    interfaces and reporting tools.
+
+    Args:
+        start_date: ISO format date string for filtering events after this date
+        end_date: ISO format date string for filtering events before this date
+        severity: Filter by severity level (info, warning, error, critical)
+        event_type: Filter by specific event type
+        page: Page number for pagination (starting at 1)
+        per_page: Number of results per page
+
+    Returns:
+        Tuple containing:
+            - List of security events as dictionaries
+            - Total count of matching records
+            - Total number of pages
+    """
+    try:
+        query = AuditLog.query
+
+        # Convert ISO date strings to datetime if provided
+        start_dt = None
+        end_dt = None
+
+        if start_date:
+            try:
+                start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            except ValueError:
+                logger.warning(f"Invalid start_date format: {start_date}")
+
+        if end_date:
+            try:
+                end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            except ValueError:
+                logger.warning(f"Invalid end_date format: {end_date}")
+
+        # Apply date filters
+        if start_dt:
+            query = query.filter(AuditLog.created_at >= start_dt)
+
+        if end_dt:
+            query = query.filter(AuditLog.created_at <= end_dt)
+
+        # Apply severity filter if specified
+        if severity:
+            # Map the severity string to the constant
+            severity_map = {
+                'info': AuditLog.SEVERITY_INFO,
+                'warning': AuditLog.SEVERITY_WARNING,
+                'error': AuditLog.SEVERITY_ERROR,
+                'critical': AuditLog.SEVERITY_CRITICAL
+            }
+            db_severity = severity_map.get(severity.lower(), severity)
+            query = query.filter(AuditLog.severity == db_severity)
+
+        # Apply event type filter if specified
+        if event_type:
+            query = query.filter(AuditLog.event_type == event_type)
+
+        # Get total count before pagination
+        total_count = query.count()
+
+        # Calculate total pages
+        total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
+
+        # Apply pagination and ordering
+        query = query.order_by(AuditLog.severity.desc(), AuditLog.created_at.desc())
+        query = query.offset((page - 1) * per_page).limit(per_page)
+
+        # Execute query
+        events = query.all()
+
+        # Format logs for response
+        result = []
+        for event in events:
+            event_entry = {
+                'id': event.id,
+                'event_type': event.event_type,
+                'description': event.description,
+                'user_id': event.user_id,
+                'ip_address': event.ip_address,
+                'severity': event.severity,
+                'timestamp': event.created_at.isoformat() if event.created_at else None,
+                'details': event.details,
+                'object_type': event.object_type,
+                'object_id': event.object_id
+            }
+
+            # Fetch username for display if available
+            if event.user_id:
+                try:
+                    from models.auth.user import User
+                    user = User.query.get(event.user_id)
+                    if user:
+                        event_entry['username'] = user.username
+                except (ImportError, Exception):
+                    # Silently handle if User model is not available
+                    pass
+
+            result.append(event_entry)
+
+        return result, total_count, total_pages
+
+    except SQLAlchemyError as e:
+        logger.error(f"Database error in get_security_events: {str(e)}")
+        raise ValueError("A database error occurred while retrieving security events")
+    except Exception as e:
+        logger.error(f"Unexpected error in get_security_events: {str(e)}")
+        raise ValueError(f"Failed to retrieve security events: {str(e)}")
+
+
 def log_error(message: str) -> None:
     """
     Log an error message to security logger.
