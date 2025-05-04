@@ -12,7 +12,6 @@ import json
 import logging
 import os
 import sys
-from tabulate import tabulate
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union, cast
