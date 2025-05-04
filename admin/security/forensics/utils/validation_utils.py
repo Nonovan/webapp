@@ -48,10 +48,10 @@ try:
 except ImportError:
     CONSTANTS_AVAILABLE = False
     # Default fallbacks for critical constants
-    SAFE_FILE_EXTENSIONS = {".txt", ".log", ".csv", ".json", ".xml", ".pdf"}
-    ALLOWED_MIME_TYPES = {"text/plain", "application/pdf", "application/json", "text/csv"}
-    MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024  # 100MB
-    MAX_FILENAME_LENGTH = 255
+    SAFE_FILE_EXTENSIONS.update({".txt", ".log", ".csv", ".json", ".xml", ".pdf"})
+    ALLOWED_MIME_TYPES.update({"text/plain", "application/pdf", "application/json", "text/csv"})
+    DEFAULT_MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024  # 100MB
+    DEFAULT_MAX_FILENAME_LENGTH = 255
 
 logger = logging.getLogger(__name__)
 
@@ -90,80 +90,210 @@ def validate_path(
     allowed_chars_pattern: Pattern[str] = SAFE_PATH_CHARS_PATTERN
 ) -> Tuple[bool, str]:
     """
-    Validates a file path for safety and format constraints.
-
-    Checks for:
-    - Empty path.
-    - Disallowed characters.
-    - Directory traversal attempts (.., ~).
-    - Absolute paths (if not allowed).
-    - Path confinement within a base directory (if specified).
-    - Existence (if requested).
+    Validates a file path for security issues.
 
     Args:
-        path_str: The file path string to validate.
-        allow_absolute: If True, allows absolute paths (e.g., starting with '/').
-        base_dir: If set, ensures the resolved path is within this directory.
-        check_exists: If True, checks if the path exists on the filesystem.
-        allowed_chars_pattern: Regex pattern for allowed characters in the path.
+        path_str: The path string to validate
+        allow_absolute: If True, absolute paths are allowed
+        base_dir: If provided, path must be within this directory
+        check_exists: If True, path must exist
+        allowed_chars_pattern: Regex pattern for allowed characters
 
     Returns:
         Tuple (is_valid: bool, message: str).
     """
     operation = "validate_path"
-    details = {"path": path_str, "allow_absolute": allow_absolute, "base_dir": base_dir, "check_exists": check_exists}
+    details = {
+        "path": path_str,
+        "allow_absolute": allow_absolute,
+        "base_dir": base_dir,
+        "check_exists": check_exists
+    }
 
     if not path_str:
-        msg = "Path cannot be empty."
+        msg = "Empty path"
         log_forensic_operation(operation, False, {**details, "error": msg})
         return False, msg
 
-    # Check for disallowed characters
-    if not allowed_chars_pattern.match(path_str):
+    # Check for directory traversal attempts
+    if '..' in path_str:
+        msg = f"Path contains directory traversal sequences: {path_str}"
+        log_forensic_operation(operation, False, {**details, "error": msg})
+        return False, msg
+
+    # Check for absolute paths if not allowed
+    if not allow_absolute and os.path.isabs(path_str):
+        msg = f"Absolute path not allowed: {path_str}"
+        log_forensic_operation(operation, False, {**details, "error": msg})
+        return False, msg
+
+    # Check for character validity
+    if not allowed_chars_pattern.fullmatch(path_str):
         msg = f"Path contains invalid characters: {path_str}"
         log_forensic_operation(operation, False, {**details, "error": msg})
         return False, msg
 
-    # Check for directory traversal
-    if ".." in path_str.split(os.path.sep) or "~" in path_str:
-        msg = f"Potential directory traversal detected in path: {path_str}"
-        log_forensic_operation(operation, False, {**details, "error": msg})
-        return False, msg
-
-    # Check for absolute paths
-    if not allow_absolute and os.path.isabs(path_str):
-        msg = f"Absolute paths are not allowed: {path_str}"
-        log_forensic_operation(operation, False, {**details, "error": msg})
-        return False, msg
-
-    # Check base directory confinement
-    resolved_path = None
+    # Check if the path is within the base directory
     if base_dir:
         try:
-            resolved_base = os.path.realpath(os.path.abspath(base_dir))
-            resolved_path = os.path.realpath(os.path.abspath(os.path.join(base_dir if not os.path.isabs(path_str) else '', path_str)))
+            # Resolve both paths to compare them
+            base_path = os.path.abspath(base_dir)
+            full_path = os.path.abspath(os.path.join(base_dir, path_str))
 
-            if not resolved_path.startswith(resolved_base):
+            # Check if the path is contained within the base directory
+            if not full_path.startswith(base_path):
                 msg = f"Path escapes the allowed base directory '{base_dir}': {path_str}"
                 log_forensic_operation(operation, False, {**details, "error": msg})
                 return False, msg
         except OSError as e:
             msg = f"Error resolving path for base directory check: {e}"
             log_forensic_operation(operation, False, {**details, "error": msg}, level=logging.WARNING)
-            # Decide if this is a hard fail or just a warning based on policy
-            return False, msg # Fail validation if resolution fails
+            return False, msg
 
     # Check existence if requested
     if check_exists:
-        # Use the potentially resolved path if base_dir was used
-        path_to_check = resolved_path if resolved_path else path_str
+        path_to_check = full_path if 'full_path' in locals() else path_str
         if not os.path.exists(path_to_check):
-            msg = f"Path does not exist: {path_to_check}"
+            msg = f"Path does not exist: {path_str}"
             log_forensic_operation(operation, False, {**details, "error": msg})
             return False, msg
 
     log_forensic_operation(operation, True, details)
-    return True, "Path is valid."
+    return True, "Path validation successful"
+
+
+def validate_file_permissions(
+    file_path: str,
+    expected_perms: Optional[int] = None,
+    check_ownership: bool = False,
+    allow_fix: bool = False
+) -> Tuple[bool, str]:
+    """
+    Validates if a file has appropriate permissions for forensic analysis.
+
+    This function checks if the specified file has secure permissions that
+    prevent unauthorized modifications. For forensic evidence files,
+    read-only permissions are generally preferred.
+
+    Args:
+        file_path: Path to the file to validate
+        expected_perms: Expected permissions as an octal integer (e.g., 0o600)
+                        If None, uses DEFAULT_SECURE_FILE_PERMS from constants
+        check_ownership: If True, also validates file ownership
+        allow_fix: If True and permissions are incorrect, attempts to fix them
+
+    Returns:
+        Tuple (is_valid: bool, message: str).
+    """
+    operation = "validate_file_permissions"
+    details = {
+        "file_path": file_path,
+        "expected_perms": expected_perms,
+        "check_ownership": check_ownership,
+        "allow_fix": allow_fix
+    }
+
+    # Import constants conditionally since they might not be available
+    if expected_perms is None:
+        try:
+            from admin.security.forensics.utils.forensic_constants import DEFAULT_SECURE_FILE_PERMS
+            expected_perms = DEFAULT_SECURE_FILE_PERMS
+        except ImportError:
+            # Fallback to a reasonable default
+            expected_perms = 0o600  # Owner read/write only
+
+    details["expected_perms"] = expected_perms
+
+    # Validate file exists
+    if not os.path.isfile(file_path):
+        msg = f"File does not exist or is not a regular file: {file_path}"
+        log_forensic_operation(operation, False, {**details, "error": msg})
+        return False, msg
+
+    try:
+        # Get current permissions
+        file_stat = os.stat(file_path)
+        current_perms = file_stat.st_mode & 0o777  # Extract permission bits
+        details["current_perms"] = current_perms
+
+        # Check permissions
+        if current_perms != expected_perms:
+            # Check if permissions are more permissive than expected
+            if current_perms & ~expected_perms:  # Bitwise operation to check if any extra bits are set
+                msg = f"File has overly permissive permissions: current={oct(current_perms)}, expected={oct(expected_perms)}"
+
+                # If fixing is allowed, attempt to correct permissions
+                if allow_fix:
+                    try:
+                        os.chmod(file_path, expected_perms)
+                        details["fixed"] = True
+                        msg = f"Fixed file permissions: changed from {oct(current_perms)} to {oct(expected_perms)}"
+                        log_forensic_operation(operation, True, {**details, "fixed": True})
+                        return True, msg
+                    except (OSError, PermissionError) as e:
+                        err_msg = f"Failed to fix file permissions: {e}"
+                        log_forensic_operation(operation, False, {**details, "error": err_msg})
+                        return False, f"{msg} (Fix attempted but failed: {e})"
+
+                log_forensic_operation(operation, False, {**details, "error": msg})
+                return False, msg
+
+        # Check ownership if requested
+        if check_ownership:
+            # Get current user/group IDs
+            import os
+            current_uid = os.getuid()
+            current_gid = os.getgid()
+
+            if file_stat.st_uid != current_uid or file_stat.st_gid != current_gid:
+                msg = f"File has incorrect ownership: uid={file_stat.st_uid}, gid={file_stat.st_gid}, expected uid={current_uid}, gid={current_gid}"
+                log_forensic_operation(operation, False, {**details, "error": msg})
+                return False, msg
+
+        # All checks passed
+        log_forensic_operation(operation, True, details)
+        return True, f"File has correct permissions: {oct(current_perms)}"
+
+    except Exception as e:
+        msg = f"Error checking file permissions: {e}"
+        log_forensic_operation(operation, False, {**details, "error": msg})
+        return False, msg
+
+
+def validate_file_format(filename: str, allowed_extensions: Optional[Set[str]] = None) -> Tuple[bool, str]:
+    """
+    Validates if a file has an allowed extension.
+
+    Args:
+        filename: The filename to validate
+        allowed_extensions: Set of allowed extensions including dots (e.g., {".txt", ".pdf"}).
+                            If None, uses default SAFE_FILE_EXTENSIONS.
+
+    Returns:
+        Tuple (is_valid: bool, message: str).
+    """
+    operation = "validate_file_extension"
+
+    if allowed_extensions is None:
+        allowed_extensions = SAFE_FILE_EXTENSIONS
+
+    details = {"filename": filename, "allowed_extensions": list(allowed_extensions)}
+
+    # Get file extension (lowercase for case-insensitive comparison)
+    _, ext = os.path.splitext(filename.lower())
+
+    if not ext:
+        msg = f"File has no extension: {filename}"
+        log_forensic_operation(operation, False, {**details, "error": msg})
+        return False, msg
+
+    if ext not in allowed_extensions:
+        msg = f"File extension '{ext}' is not allowed. Permitted extensions: {', '.join(allowed_extensions)}"
+        log_forensic_operation(operation, False, {**details, "error": msg})
+        return False, msg
+
+    log_forensic_operation(operation, True, details)
+    return True, f"File has valid extension: {ext}"
 
 
 def validate_file_extension(filename: str, allowed_extensions: Optional[Set[str]] = None) -> Tuple[bool, str]:

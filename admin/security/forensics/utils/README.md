@@ -8,6 +8,13 @@ This directory contains shared utility functions and helper modules that support
 - [Key Components](#key-components)
 - [Directory Structure](#directory-structure)
 - [Usage](#usage)
+  - [Evidence Tracking](#evidence-tracking)
+  - [Timestamp Handling](#timestamp-handling)
+  - [Format Conversion](#format-conversion)
+  - [Sanitization](#sanitization)
+  - [Report Generation](#report-generation)
+  - [HTML Report Generation](#html-report-generation)
+  - [File Operations](#file-operations)
 - [Security Features](#security-features)
 - [Best Practices](#best-practices)
 - [Related Documentation](#related-documentation)
@@ -295,6 +302,60 @@ report_builder.generate_forensic_report(
     case_id="incident-42",
     analyst_name="Jane Smith",
     report_title="Forensic Analysis of Server Compromise"
+)
+```
+
+### HTML Report Generation
+
+```python
+from admin.security.forensics.utils import generate_html_report_basic
+
+# Generate a basic HTML report when advanced templating is unavailable
+report_data = {
+    "incident_summary": "Unauthorized access detected on production server",
+    "technical_findings": [
+        {"finding": "SSH login from unusual IP address", "severity": "High", "time": "2023-11-12T15:45:30Z"},
+        {"finding": "Privilege escalation attempt", "severity": "Critical", "time": "2023-11-12T15:52:10Z"},
+        {"finding": "Firewall rule modification", "severity": "High", "time": "2023-11-12T15:58:22Z"}
+    ],
+    "compromised_systems": ["web-server-01", "proxy-server-02"],
+    "timeline": {
+        "detection": "2023-11-12T15:45:30Z",
+        "containment": "2023-11-12T16:30:00Z",
+        "remediation": "2023-11-12T19:15:45Z"
+    },
+    "remediation_steps": [
+        "Reset affected user accounts",
+        "Block malicious IPs at the firewall",
+        "Update SSH configuration to enforce key-based authentication",
+        "Deploy additional monitoring for privileged commands"
+    ]
+}
+
+# Generate an HTML report with basic styling
+generate_html_report_basic(
+    report_data=report_data,
+    output_path="/secure/evidence/incident-42/reports/incident_report.html",
+    title="Security Incident Analysis",
+    case_id="incident-42",
+    analyst_name="John Smith"
+)
+
+# For more advanced HTML reports with custom templates
+from admin.security.forensics.utils import report_builder
+
+# Generate an HTML report with custom template
+report_builder.generate_html_report(
+    report_data=report_data,
+    output_path="/secure/evidence/incident-42/reports/detailed_report.html",
+    template_name="forensic_detailed_template.html",
+    template_dirs=["/templates/forensic_reports"],
+    metadata={
+        "case_id": "incident-42",
+        "analyst_name": "John Smith",
+        "classification": "Confidential",
+        "report_version": "1.0"
+    }
 )
 ```
 

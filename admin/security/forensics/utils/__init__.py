@@ -15,6 +15,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Set, Tuple, Union, Callable
+from datetime import datetime
 
 # Set up package-level logger
 logger = logging.getLogger(__name__)
@@ -131,6 +132,7 @@ try:
     from .evidence_tracker import (
         register_evidence,
         track_access,
+        track_analysis,
         get_evidence_details,
         update_evidence_details,
         get_chain_of_custody,
@@ -267,6 +269,145 @@ try:
     REPORTING_AVAILABLE = True
 except ImportError as e:
     logger.warning(f"Could not import report builder utilities: {e}")
+
+# Add a basic HTML report generation function that works without external dependencies
+def generate_html_report_basic(
+    report_data: Dict[str, Any],
+    output_path: str,
+    title: str = "Forensic Analysis Report",
+    case_id: Optional[str] = None,
+    analyst_name: Optional[str] = None
+) -> bool:
+    """
+    Generate a simple HTML report from forensic data.
+
+    This is a basic implementation that works without requiring external dependencies.
+    For more advanced report generation with templates, use the functions from report_builder.
+
+    Args:
+        report_data: Dictionary containing the report content
+        output_path: Path where to save the generated HTML report
+        title: Title for the report
+        case_id: Optional case identifier to include in the report
+        analyst_name: Optional analyst name to include in the report
+
+    Returns:
+        True if the report was successfully generated, False otherwise
+    """
+    try:
+        generation_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Start with basic HTML structure
+        html_lines = [
+            "<!DOCTYPE html>",
+            "<html>",
+            "<head>",
+            f"<title>{title}</title>",
+            "<style>",
+            "body { font-family: Arial, sans-serif; margin: 20px; }",
+            "h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }",
+            "h2 { color: #2c3e50; border-bottom: 1px solid #bdc3c7; padding-bottom: 5px; }",
+            ".metadata { margin-bottom: 20px; padding: 10px; background-color: #f5f5f5; border-radius: 4px; }",
+            ".section { margin-bottom: 20px; }",
+            "table { width: 100%; border-collapse: collapse; margin: 15px 0; }",
+            "th, td { text-align: left; padding: 8px; border-bottom: 1px solid #ddd; }",
+            "th { background-color: #f2f2f2; }",
+            "tr:hover { background-color: #f5f5f5; }",
+            ".footer { margin-top: 30px; text-align: center; font-size: 0.8em; color: #7f8c8d; }",
+            "</style>",
+            "</head>",
+            "<body>",
+            f"<h1>{title}</h1>",
+            "<div class='metadata'>",
+            f"<p><strong>Case ID:</strong> {case_id or 'N/A'}</p>",
+            f"<p><strong>Analyst:</strong> {analyst_name or 'N/A'}</p>",
+            f"<p><strong>Generated:</strong> {generation_time}</p>",
+            "</div>"
+        ]
+
+        # Add sections from report data
+        for section_title, section_content in report_data.items():
+            html_lines.append(f"<div class='section'>")
+            html_lines.append(f"<h2>{section_title.replace('_', ' ').title()}</h2>")
+
+            # Handle different content types appropriately
+            if isinstance(section_content, list):
+                if section_content and isinstance(section_content[0], dict):
+                    # Create a table for list of dictionaries
+                    if section_content:
+                        keys = section_content[0].keys()
+                        html_lines.append("<table>")
+                        html_lines.append("<tr>")
+                        for key in keys:
+                            html_lines.append(f"<th>{key.replace('_', ' ').title()}</th>")
+                        html_lines.append("</tr>")
+
+                        for item in section_content:
+                            html_lines.append("<tr>")
+                            for key in keys:
+                                value = item.get(key, "")
+                                html_lines.append(f"<td>{value}</td>")
+                            html_lines.append("</tr>")
+                        html_lines.append("</table>")
+                else:
+                    # Create a simple list
+                    html_lines.append("<ul>")
+                    for item in section_content:
+                        html_lines.append(f"<li>{item}</li>")
+                    html_lines.append("</ul>")
+            elif isinstance(section_content, dict):
+                # Create definition list for dictionary
+                html_lines.append("<dl>")
+                for key, value in section_content.items():
+                    html_lines.append(f"<dt><strong>{key.replace('_', ' ').title()}</strong></dt>")
+                    if isinstance(value, dict):
+                        html_lines.append("<dd>")
+                        html_lines.append("<ul>")
+                        for k, v in value.items():
+                            html_lines.append(f"<li><strong>{k}:</strong> {v}</li>")
+                        html_lines.append("</ul>")
+                        html_lines.append("</dd>")
+                    else:
+                        html_lines.append(f"<dd>{value}</dd>")
+                html_lines.append("</dl>")
+            else:
+                # Simple paragraph for string or other types
+                html_lines.append(f"<p>{section_content}</p>")
+
+            html_lines.append("</div>")
+
+        # Add footer
+        html_lines.append("<div class='footer'>")
+        html_lines.append(f"<p>Generated by Forensic Analysis Utilities v{__version__}</p>")
+        html_lines.append("</div>")
+        html_lines.append("</body>")
+        html_lines.append("</html>")
+
+        # Write to file
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(html_lines))
+
+        # Log the operation
+        log_forensic_operation(
+            "generate_html_report_basic",
+            True,
+            {"title": title, "output_path": output_path, "case_id": case_id}
+        )
+        return True
+
+    except Exception as e:
+        # Log the error
+        log_forensic_operation(
+            "generate_html_report_basic",
+            False,
+            {"error": str(e), "output_path": output_path},
+            level=logging.ERROR
+        )
+        return False
 
 # Ensure the forensic temporary directory exists
 try:
@@ -515,6 +656,7 @@ if EVIDENCE_TRACKING_AVAILABLE:
     __all__.extend([
         'register_evidence',
         'track_access',
+        'track_analysis',
         'get_evidence_details',
         'update_evidence_details',
         'get_chain_of_custody',

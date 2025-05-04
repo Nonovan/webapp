@@ -281,6 +281,900 @@ def _generate_pdf_report(
 
 # --- Main Function ---
 
+def prepare_report_metadata(
+    case_id: Optional[str] = None,
+    report_title: str = "Forensic Analysis Report",
+    analyst_name: Optional[str] = None,
+    report_format: str = "pdf"
+) -> Dict[str, Any]:
+    """
+    Creates standardized metadata for a forensic report.
+
+    Args:
+        case_id: Optional case identifier
+        report_title: Title of the report
+        analyst_name: Name of the forensic analyst
+        report_format: Format of the report (pdf, html, text, json)
+
+    Returns:
+        Dictionary containing structured metadata for the report
+    """
+    timestamp = _get_current_timestamp()
+
+    metadata = {
+        "report_title": report_title,
+        "case_id": case_id or "N/A",
+        "analyst_name": analyst_name or "Unknown",
+        "generation_timestamp": timestamp,
+        "report_format": report_format,
+        "timezone": DEFAULT_TIMEZONE if CONSTANTS_AVAILABLE else FALLBACK_TIMEZONE,
+        "report_id": f"FR-{datetime.now().strftime('%Y%m%d')}-{os.urandom(3).hex().upper()}",
+        "report_version": "1.0",
+        "confidentiality": "Confidential - Investigation Material"
+    }
+
+    log_forensic_operation(
+        "prepare_report_metadata",
+        True,
+        {"case_id": case_id, "report_title": report_title, "format": report_format}
+    )
+
+    return metadata
+
+def create_timeline_chart(
+    events: List[Dict[str, Any]],
+    output_path: Optional[str] = None,
+    chart_type: str = "html",
+    title: str = "Event Timeline",
+    include_details: bool = True,
+    highlight_events: Optional[List[str]] = None
+) -> Union[str, bool]:
+    """
+    Creates a visual timeline chart from event data.
+
+    This function generates a timeline visualization from a list of events.
+    It can output HTML interactive charts, static image files, or JSON
+    data for integration with other visualization tools.
+
+    Args:
+        events: List of event dictionaries with at minimum 'timestamp' and 'description' keys.
+              Each event should contain at least:
+                - timestamp: ISO format timestamp or datetime object
+                - description: Text description of the event
+              Optional fields that will be used if present:
+                - category: Event category for grouping/coloring
+                - severity: For visual indication of importance
+                - source: Source of the event data
+                - confidence: Confidence level in event data
+        output_path: Optional path to save the generated timeline chart
+        chart_type: Type of chart to generate: 'html', 'image', 'json'
+        title: Title for the timeline
+        include_details: Whether to include full event details or simplified view
+        highlight_events: List of event IDs or descriptions to highlight
+
+    Returns:
+        If output_path is provided, returns True on success and False on failure.
+        If output_path is None, returns the generated chart content as a string.
+    """
+    if not events or not isinstance(events, list):
+        logger.error("No events provided or invalid format")
+        return False if output_path else ""
+
+    # Normalize timestamps and sort events chronologically
+    normalized_events = []
+    for event in events:
+        if not isinstance(event, dict) or 'timestamp' not in event or 'description' not in event:
+            logger.warning(f"Skipping invalid event: {event}")
+            continue
+
+        event_copy = event.copy()
+
+        # Convert timestamp to datetime if it's a string
+        if isinstance(event_copy['timestamp'], str):
+            try:
+                if ADVANCED_TIMESTAMP_AVAILABLE:
+                    event_copy['timestamp'] = parse_timestamp(event_copy['timestamp'])
+                else:
+                    # Simple fallback parsing
+                    event_copy['timestamp'] = datetime.fromisoformat(
+                        event_copy['timestamp'].replace('Z', '+00:00')
+                    )
+            except (ValueError, AttributeError):
+                logger.warning(f"Invalid timestamp format in event: {event}")
+                continue
+
+        normalized_events.append(event_copy)
+
+    # Sort events by timestamp
+    normalized_events.sort(key=lambda e: e['timestamp'])
+
+    operation_details = {
+        "event_count": len(normalized_events),
+        "chart_type": chart_type,
+        "output_path": output_path,
+        "title": title
+    }
+
+    try:
+        if chart_type.lower() == 'html':
+            # Generate an HTML timeline using a template
+            if not JINJA_AVAILABLE:
+                logger.warning("Jinja2 not available, falling back to basic HTML timeline")
+                # Generate basic HTML timeline
+                html_content = _generate_basic_html_timeline(normalized_events, title, include_details, highlight_events)
+            else:
+                # Use Jinja2 template for more sophisticated visualization
+                html_content = _generate_jinja_html_timeline(normalized_events, title, include_details, highlight_events)
+
+            if output_path:
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write(html_content)
+                log_forensic_operation("create_timeline_chart", True, operation_details)
+                return True
+            else:
+                return html_content
+
+        elif chart_type.lower() == 'image':
+            # This would require additional libraries like matplotlib or plotly
+            # Simplified implementation creates a text-based timeline
+            logger.warning("Image-based timeline requires additional dependencies, falling back to text")
+            text_timeline = _generate_text_timeline(normalized_events, title)
+
+            if output_path:
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write(text_timeline)
+                log_forensic_operation("create_timeline_chart", True,
+                                      {**operation_details, "note": "Fallback to text timeline"})
+                return True
+            else:
+                return text_timeline
+
+        elif chart_type.lower() == 'json':
+            # Prepare events for JSON serialization
+            serializable_events = []
+            for event in normalized_events:
+                event_copy = event.copy()
+                # Convert datetime objects to ISO format strings
+                if isinstance(event_copy.get('timestamp'), datetime):
+                    event_copy['timestamp'] = event_copy['timestamp'].isoformat()
+                serializable_events.append(event_copy)
+
+            json_data = json.dumps({
+                'title': title,
+                'events': serializable_events,
+                'generated_at': datetime.now(timezone.utc).isoformat()
+            }, indent=2)
+
+            if output_path:
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write(json_data)
+                log_forensic_operation("create_timeline_chart", True, operation_details)
+                return True
+            else:
+                return json_data
+
+        else:
+            logger.error(f"Unsupported chart type: {chart_type}")
+            log_forensic_operation("create_timeline_chart", False,
+                                 {**operation_details, "error": f"Unsupported chart type: {chart_type}"})
+            return False if output_path else ""
+
+    except Exception as e:
+        logger.error(f"Failed to create timeline chart: {e}", exc_info=True)
+        log_forensic_operation("create_timeline_chart", False,
+                             {**operation_details, "error": str(e)})
+        return False if output_path else ""
+
+def create_evidence_summary(
+    evidence_items: List[Dict[str, Any]],
+    case_id: Optional[str] = None,
+    include_chain_of_custody: bool = True,
+    format_type: str = "html"
+) -> Dict[str, Any]:
+    """
+    Creates a structured summary of evidence collected in an investigation.
+
+    This function compiles evidence details into a standardized format suitable
+    for inclusion in forensic reports. It can optionally include chain of custody
+    information and sort/categorize evidence by type.
+
+    Args:
+        evidence_items: List of evidence item dictionaries
+        case_id: Optional case identifier to pull additional evidence if available
+        include_chain_of_custody: Whether to include chain of custody information
+        format_type: Output format type (html, text, json)
+
+    Returns:
+        Dictionary containing structured evidence summary information
+    """
+    if not evidence_items and not case_id:
+        logger.warning("No evidence items provided and no case ID specified")
+        return {"evidence_count": 0, "evidence_items": [], "summary": "No evidence provided"}
+
+    # If case_id is provided and evidence tracking is available, get evidence from the system
+    if case_id and EVIDENCE_TRACKING_AVAILABLE:
+        try:
+            case_evidence = list_evidence_by_case(case_id)
+            if case_evidence:
+                # Merge provided items with those from the evidence system
+                evidence_items = evidence_items or []
+
+                # Create a set of existing evidence IDs to avoid duplicates
+                existing_ids = {item.get('evidence_id') for item in evidence_items if 'evidence_id' in item}
+
+                # Add case evidence items that aren't already included
+                for item in case_evidence:
+                    if item.get('evidence_id') not in existing_ids:
+                        evidence_items.append(item)
+
+        except Exception as e:
+            logger.warning(f"Failed to retrieve case evidence: {e}")
+
+    # Process evidence items
+    processed_items = []
+    evidence_by_type = {}
+    total_size = 0
+    acquisition_dates = []
+
+    for item in evidence_items:
+        if not isinstance(item, dict):
+            continue
+
+        # Create a clean copy with standardized fields
+        processed_item = {
+            "evidence_id": item.get("evidence_id", "Unknown"),
+            "description": item.get("description", "No description provided"),
+            "type": item.get("type", item.get("evidence_type", "Unspecified")),
+            "acquisition_date": item.get("acquisition_date", item.get("collected_at", "Unknown")),
+            "collected_by": item.get("collected_by", item.get("analyst", "Unknown")),
+            "hash": item.get("hash", item.get("sha256", item.get("md5", "Not hashed"))),
+            "location": item.get("location", item.get("path", item.get("storage_location", "Unknown"))),
+        }
+
+        # Add optional fields if present
+        if "size" in item:
+            processed_item["size"] = item["size"]
+            try:
+                size_val = int(item["size"])
+                total_size += size_val
+            except (ValueError, TypeError):
+                pass
+
+        # Track acquisition date if available
+        if isinstance(processed_item["acquisition_date"], datetime):
+            acquisition_dates.append(processed_item["acquisition_date"])
+        elif isinstance(processed_item["acquisition_date"], str):
+            try:
+                date_obj = datetime.fromisoformat(processed_item["acquisition_date"].replace('Z', '+00:00'))
+                acquisition_dates.append(date_obj)
+            except (ValueError, AttributeError):
+                pass
+
+        # Group by evidence type
+        ev_type = processed_item["type"]
+        if ev_type not in evidence_by_type:
+            evidence_by_type[ev_type] = []
+        evidence_by_type[ev_type].append(processed_item)
+
+        processed_items.append(processed_item)
+
+    # Get chain of custody if requested and available
+    chain_of_custody = {}
+    if include_chain_of_custody and EVIDENCE_TRACKING_AVAILABLE and case_id:
+        for item in processed_items:
+            ev_id = item.get("evidence_id")
+            if ev_id and ev_id != "Unknown":
+                try:
+                    custody_chain = get_chain_of_custody(case_id, ev_id)
+                    if custody_chain:
+                        chain_of_custody[ev_id] = custody_chain
+                except Exception as e:
+                    logger.warning(f"Failed to get chain of custody for {ev_id}: {e}")
+
+    # Create the summary
+    summary = {
+        "evidence_count": len(processed_items),
+        "evidence_types": list(evidence_by_type.keys()),
+        "evidence_by_type": evidence_by_type,
+        "evidence_items": processed_items,
+        "total_size_bytes": total_size,
+        "formatted_total_size": _format_file_size(total_size),
+        "earliest_acquisition": min(acquisition_dates).isoformat() if acquisition_dates else "Unknown",
+        "latest_acquisition": max(acquisition_dates).isoformat() if acquisition_dates else "Unknown"
+    }
+
+    if include_chain_of_custody:
+        summary["chain_of_custody"] = chain_of_custody
+
+    # Format the summary based on the requested output type
+    if format_type.lower() == "html":
+        summary["formatted_html"] = _format_evidence_summary_html(summary)
+    elif format_type.lower() == "text":
+        summary["formatted_text"] = _format_evidence_summary_text(summary)
+
+    log_forensic_operation(
+        "create_evidence_summary",
+        True,
+        {
+            "case_id": case_id,
+            "evidence_count": len(processed_items),
+            "include_chain_of_custody": include_chain_of_custody,
+            "format_type": format_type
+        }
+    )
+
+    return summary
+
+# Helper functions for the main functions above
+
+def _generate_basic_html_timeline(
+    events: List[Dict[str, Any]],
+    title: str,
+    include_details: bool,
+    highlight_events: Optional[List[str]]
+) -> str:
+    """Generates a basic HTML timeline without requiring Jinja2."""
+    html = [
+        "<!DOCTYPE html>",
+        "<html>",
+        "<head>",
+        f"<title>{title}</title>",
+        "<style>",
+        "body { font-family: Arial, sans-serif; margin: 20px; }",
+        ".timeline { position: relative; max-width: 1200px; margin: 0 auto; }",
+        ".timeline::after { content: ''; position: absolute; width: 6px; background-color: #999; top: 0; bottom: 0; left: 50%; margin-left: -3px; }",
+        ".event { padding: 10px 40px; position: relative; background-color: inherit; width: 45%; }",
+        ".event::after { content: ''; position: absolute; width: 20px; height: 20px; right: -10px; top: 15px; border-radius: 50%; z-index: 1; background: #fff; border: 4px solid #888; }",
+        ".event-left { left: 0; }",
+        ".event-right { left: 55%; }",
+        ".event-left::after { right: -12px; }",
+        ".event-right::after { left: -12px; }",
+        ".event-content { padding: 20px; background-color: white; border-radius: 6px; box-shadow: 0 0 5px rgba(0,0,0,0.3); }",
+        ".highlight { border-left: 5px solid red; }",
+        ".category-security { border-left: 5px solid #ff9800; }",
+        ".category-user { border-left: 5px solid #2196F3; }",
+        ".category-system { border-left: 5px solid #4CAF50; }",
+        ".category-network { border-left: 5px solid #9C27B0; }",
+        ".severity-high { background-color: #ffebee; }",
+        ".severity-medium { background-color: #fff8e1; }",
+        ".severity-low { background-color: #f1f8e9; }",
+        "</style>",
+        "</head>",
+        "<body>",
+        f"<h1>{title}</h1>",
+        "<div class='timeline'>"
+    ]
+
+    # Add events to the timeline
+    for i, event in enumerate(events):
+        timestamp = event["timestamp"]
+        description = event["description"]
+        timestamp_str = timestamp if isinstance(timestamp, str) else timestamp.strftime("%Y-%m-%d %H:%M:%S")
+
+        # Determine event position (alternating)
+        position = "event-left" if i % 2 == 0 else "event-right"
+
+        # Determine if this event should be highlighted
+        is_highlighted = False
+        if highlight_events:
+            if any(highlight in description for highlight in highlight_events):
+                is_highlighted = True
+
+        # Determine category class
+        category_class = ""
+        if "category" in event:
+            category_class = f"category-{event['category'].lower()}"
+
+        # Determine severity class
+        severity_class = ""
+        if "severity" in event:
+            severity = event["severity"].lower()
+            if severity in ["high", "critical"]:
+                severity_class = "severity-high"
+            elif severity in ["medium"]:
+                severity_class = "severity-medium"
+            elif severity in ["low"]:
+                severity_class = "severity-low"
+
+        # Create class attribute
+        classes = ["event", position]
+        if is_highlighted:
+            classes.append("highlight")
+        if category_class:
+            classes.append(category_class)
+        if severity_class:
+            classes.append(severity_class)
+        class_attr = ' '.join(classes)
+
+        # Start event div
+        html.append(f'<div class="{class_attr}">')
+        html.append('<div class="event-content">')
+
+        # Add event content
+        html.append(f'<h3>{timestamp_str}</h3>')
+        html.append(f'<p>{description}</p>')
+
+        # Add details if requested
+        if include_details:
+            for key, value in event.items():
+                if key not in ["timestamp", "description"]:
+                    # Format the value
+                    if isinstance(value, datetime):
+                        value_str = value.strftime("%Y-%m-%d %H:%M:%S")
+                    else:
+                        value_str = str(value)
+                    html.append(f'<p><strong>{key}:</strong> {value_str}</p>')
+
+        # Close divs
+        html.append('</div>')  # event-content
+        html.append('</div>')  # event
+
+    # Close HTML
+    html.append("</div>")  # timeline
+    html.append("</body>")
+    html.append("</html>")
+
+    return '\n'.join(html)
+
+def _generate_jinja_html_timeline(
+    events: List[Dict[str, Any]],
+    title: str,
+    include_details: bool,
+    highlight_events: Optional[List[str]]
+) -> str:
+    """Generates a more sophisticated HTML timeline using Jinja2."""
+    # Create Environment and load template
+    # Since we don't have the actual template, we'll create a basic one
+    template_str = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>{{ title }}</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            .timeline { position: relative; max-width: 1200px; margin: 0 auto; }
+            .timeline::after { content: ''; position: absolute; width: 6px; background-color: #999; top: 0; bottom: 0; left: 50%; margin-left: -3px; }
+            .event { padding: 10px 40px; position: relative; background-color: inherit; width: 45%; }
+            .event::after { content: ''; position: absolute; width: 20px; height: 20px; right: -10px; top: 15px; border-radius: 50%; z-index: 1; background: #fff; border: 4px solid #888; }
+            .event-left { left: 0; }
+            .event-right { left: 55%; }
+            .event-left::after { right: -12px; }
+            .event-right::after { left: -12px; }
+            .event-content { padding: 20px; background-color: white; border-radius: 6px; box-shadow: 0 0 5px rgba(0,0,0,0.3); }
+            .highlight { border-left: 5px solid red; }
+            .category-security { border-left: 5px solid #ff9800; }
+            .category-user { border-left: 5px solid #2196F3; }
+            .category-system { border-left: 5px solid #4CAF50; }
+            .category-network { border-left: 5px solid #9C27B0; }
+            .severity-high { background-color: #ffebee; }
+            .severity-medium { background-color: #fff8e1; }
+            .severity-low { background-color: #f1f8e9; }
+            .metadata { margin-bottom: 20px; padding: 10px; background-color: #f5f5f5; border-radius: 4px; }
+        </style>
+    </head>
+    <body>
+        <h1>{{ title }}</h1>
+
+        <div class="metadata">
+            <p><strong>Total Events:</strong> {{ events|length }}</p>
+            <p><strong>Time Range:</strong> {{ time_range }}</p>
+            <p><strong>Generated:</strong> {{ generation_time }}</p>
+        </div>
+
+        <div class="timeline">
+            {% for event in events %}
+                <div class="event {% if loop.index0 % 2 == 0 %}event-left{% else %}event-right{% endif %}
+                            {% if event.category %}category-{{ event.category|lower }}{% endif %}
+                            {% if event.severity %}severity-{{ event.severity|lower }}{% endif %}
+                            {% if event.description in highlight_events %}highlight{% endif %}">
+                    <div class="event-content">
+                        <h3>{{ event.timestamp_str }}</h3>
+                        <p>{{ event.description }}</p>
+
+                        {% if include_details %}
+                            {% for key, value in event.items() %}
+                                {% if key not in ['timestamp', 'description', 'timestamp_str'] %}
+                                    <p><strong>{{ key }}:</strong> {{ value }}</p>
+                                {% endif %}
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    </body>
+    </html>
+    """
+
+    env = Environment(autoescape=select_autoescape(['html', 'xml']))
+    template = env.from_string(template_str)
+
+    # Process events to include formatted timestamps
+    for event in events:
+        if isinstance(event["timestamp"], datetime):
+            event["timestamp_str"] = event["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            event["timestamp_str"] = str(event["timestamp"])
+
+    # Determine time range
+    if events:
+        start_time = events[0]["timestamp_str"]
+        end_time = events[-1]["timestamp_str"]
+        time_range = f"{start_time} to {end_time}"
+    else:
+        time_range = "No events"
+
+    # Prepare highlight list
+    highlight_list = highlight_events or []
+
+    # Render the template
+    return template.render(
+        title=title,
+        events=events,
+        include_details=include_details,
+        highlight_events=highlight_list,
+        time_range=time_range,
+        generation_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    )
+
+def _generate_text_timeline(events: List[Dict[str, Any]], title: str) -> str:
+    """Generates a simple text-based timeline."""
+    text_lines = [
+        title,
+        "=" * len(title),
+        ""
+    ]
+
+    for event in events:
+        timestamp = event["timestamp"]
+        timestamp_str = timestamp if isinstance(timestamp, str) else timestamp.strftime("%Y-%m-%d %H:%M:%S")
+        text_lines.append(f"{timestamp_str} - {event['description']}")
+
+    return "\n".join(text_lines)
+
+def _format_file_size(size_bytes: int) -> str:
+    """Converts bytes to a human-readable size format."""
+    if size_bytes == 0:
+        return "0 B"
+
+    size_names = ("B", "KB", "MB", "GB", "TB", "PB")
+    i = 0
+    while size_bytes >= 1024 and i < len(size_names) - 1:
+        size_bytes /= 1024
+        i += 1
+    return f"{size_bytes:.2f} {size_names[i]}"
+
+def _format_evidence_summary_html(summary: Dict[str, Any]) -> str:
+    """Creates an HTML representation of the evidence summary."""
+    html = [
+        "<div class='evidence-summary'>",
+        f"<h2>Evidence Summary ({summary['evidence_count']} items)</h2>",
+        f"<p>Total Size: {summary['formatted_total_size']}</p>",
+        f"<p>Evidence Types: {', '.join(summary['evidence_types'])}</p>",
+        "<h3>Evidence by Type</h3>"
+    ]
+
+    for ev_type, items in summary['evidence_by_type'].items():
+        html.append(f"<h4>{ev_type} ({len(items)} items)</h4>")
+        html.append("<table class='evidence-table'>")
+        html.append("<tr><th>ID</th><th>Description</th><th>Acquisition Date</th><th>Collected By</th><th>Hash</th></tr>")
+
+        for item in items:
+            html.append("<tr>")
+            html.append(f"<td>{item['evidence_id']}</td>")
+            html.append(f"<td>{item['description']}</td>")
+            html.append(f"<td>{item['acquisition_date']}</td>")
+            html.append(f"<td>{item['collected_by']}</td>")
+            html.append(f"<td>{item['hash']}</td>")
+            html.append("</tr>")
+
+        html.append("</table>")
+
+    # Add chain of custody if available
+    if 'chain_of_custody' in summary and summary['chain_of_custody']:
+        html.append("<h3>Chain of Custody</h3>")
+        for ev_id, custody_chain in summary['chain_of_custody'].items():
+            html.append(f"<h4>Evidence ID: {ev_id}</h4>")
+            html.append("<table class='custody-table'>")
+            html.append("<tr><th>Date/Time</th><th>Action</th><th>Person</th><th>Details</th></tr>")
+
+            for entry in custody_chain:
+                html.append("<tr>")
+                html.append(f"<td>{entry.get('timestamp', 'Unknown')}</td>")
+                html.append(f"<td>{entry.get('action', 'Unknown')}</td>")
+                html.append(f"<td>{entry.get('person', entry.get('analyst', 'Unknown'))}</td>")
+                html.append(f"<td>{entry.get('details', '')}</td>")
+                html.append("</tr>")
+
+            html.append("</table>")
+
+    html.append("</div>")
+    return "\n".join(html)
+
+def _format_evidence_summary_text(summary: Dict[str, Any]) -> str:
+    """Creates a text representation of the evidence summary."""
+    text_lines = [
+        f"EVIDENCE SUMMARY ({summary['evidence_count']} items)",
+        "=" * 50,
+        f"Total Size: {summary['formatted_total_size']}",
+        f"Evidence Types: {', '.join(summary['evidence_types'])}",
+        "",
+        "EVIDENCE BY TYPE:",
+        "=" * 50
+    ]
+
+    for ev_type, items in summary['evidence_by_type'].items():
+        text_lines.append(f"\n{ev_type.upper()} ({len(items)} items):")
+        text_lines.append("-" * 50)
+
+        for item in items:
+            text_lines.append(f"ID: {item['evidence_id']}")
+            text_lines.append(f"Description: {item['description']}")
+            text_lines.append(f"Acquisition Date: {item['acquisition_date']}")
+            text_lines.append(f"Collected By: {item['collected_by']}")
+            text_lines.append(f"Hash: {item['hash']}")
+            text_lines.append(f"Location: {item['location']}")
+            text_lines.append("")
+
+    # Add chain of custody if available
+    if 'chain_of_custody' in summary and summary['chain_of_custody']:
+        text_lines.append("\nCHAIN OF CUSTODY:")
+        text_lines.append("=" * 50)
+
+        for ev_id, custody_chain in summary['chain_of_custody'].items():
+            text_lines.append(f"\nEvidence ID: {ev_id}")
+            text_lines.append("-" * 50)
+
+            for entry in custody_chain:
+                text_lines.append(f"Date/Time: {entry.get('timestamp', 'Unknown')}")
+                text_lines.append(f"Action: {entry.get('action', 'Unknown')}")
+                text_lines.append(f"Person: {entry.get('person', entry.get('analyst', 'Unknown'))}")
+                text_lines.append(f"Details: {entry.get('details', '')}")
+                text_lines.append("")
+
+    return "\n".join(text_lines)
+
+
+def generate_html_report(
+    report_data: Dict[str, Any],
+    output_path: str,
+    template_name: str = "forensic_report_template.html",
+    template_dirs: Optional[List[str]] = None,
+    metadata: Optional[Dict[str, Any]] = None
+) -> bool:
+    """
+    Generate an HTML report and save it to the specified path.
+
+    Args:
+        report_data: Dictionary containing the report content
+        output_path: Path where to save the generated HTML report
+        template_name: Name of the HTML template file to use
+        template_dirs: List of directories to search for the template
+        metadata: Optional metadata to include in the report
+
+    Returns:
+        True if the report was successfully generated, False otherwise
+    """
+    operation_details = {
+        "format": "html",
+        "output_path": output_path,
+        "template": template_name
+    }
+
+    try:
+        if metadata is None:
+            metadata = _prepare_report_metadata(
+                case_id=report_data.get("case_id"),
+                report_title=report_data.get("report_title", "Forensic Analysis Report"),
+                analyst_name=report_data.get("analyst_name"),
+                report_format="html"
+            )
+
+        html_content = _generate_html_report(report_data, metadata, template_name, template_dirs)
+
+        # Ensure output directory exists
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(html_content)
+
+        logger.info(f"Successfully generated HTML report: {output_path}")
+        log_forensic_operation("generate_html_report", True, operation_details)
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to generate HTML report: {e}", exc_info=True)
+        log_forensic_operation(
+            "generate_html_report", False,
+            {**operation_details, "error": str(e)},
+            level=logging.ERROR
+        )
+        return False
+
+
+def generate_pdf_report(
+    report_data: Dict[str, Any],
+    output_path: str,
+    template_name: str = "forensic_report_template.html",
+    template_dirs: Optional[List[str]] = None,
+    metadata: Optional[Dict[str, Any]] = None
+) -> bool:
+    """
+    Generate a PDF report and save it to the specified path.
+
+    This function converts HTML to PDF using WeasyPrint if available.
+
+    Args:
+        report_data: Dictionary containing the report content
+        output_path: Path where to save the generated PDF report
+        template_name: Name of the HTML template file to use (for PDF conversion)
+        template_dirs: List of directories to search for the template
+        metadata: Optional metadata to include in the report
+
+    Returns:
+        True if the report was successfully generated, False otherwise
+    """
+    operation_details = {
+        "format": "pdf",
+        "output_path": output_path,
+        "template": template_name
+    }
+
+    if not PDF_AVAILABLE:
+        logger.error("Cannot generate PDF report: WeasyPrint library not found.")
+        log_forensic_operation(
+            "generate_pdf_report", False,
+            {**operation_details, "error": "PDF library missing"},
+            level=logging.ERROR
+        )
+        return False
+
+    try:
+        if metadata is None:
+            metadata = _prepare_report_metadata(
+                case_id=report_data.get("case_id"),
+                report_title=report_data.get("report_title", "Forensic Analysis Report"),
+                analyst_name=report_data.get("analyst_name"),
+                report_format="pdf"
+            )
+
+        # Ensure output directory exists
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
+        # Generate HTML first
+        html_content = _generate_html_report(report_data, metadata, template_name, template_dirs)
+
+        # Convert HTML to PDF
+        _generate_pdf_report(report_data, metadata, output_path, template_name, template_dirs)
+
+        logger.info(f"Successfully generated PDF report: {output_path}")
+        log_forensic_operation("generate_pdf_report", True, operation_details)
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to generate PDF report: {e}", exc_info=True)
+        log_forensic_operation(
+            "generate_pdf_report", False,
+            {**operation_details, "error": str(e)},
+            level=logging.ERROR
+        )
+        return False
+
+
+def generate_json_report(
+    report_data: Dict[str, Any],
+    output_path: str,
+    metadata: Optional[Dict[str, Any]] = None
+) -> bool:
+    """
+    Generate a JSON report and save it to the specified path.
+
+    Args:
+        report_data: Dictionary containing the report content
+        output_path: Path where to save the generated JSON report
+        metadata: Optional metadata to include in the report
+
+    Returns:
+        True if the report was successfully generated, False otherwise
+    """
+    operation_details = {
+        "format": "json",
+        "output_path": output_path
+    }
+
+    try:
+        if metadata is None:
+            metadata = _prepare_report_metadata(
+                case_id=report_data.get("case_id"),
+                report_title=report_data.get("report_title", "Forensic Analysis Report"),
+                analyst_name=report_data.get("analyst_name"),
+                report_format="json"
+            )
+
+        # Get JSON content
+        json_content = _generate_json_report(report_data, metadata)
+
+        # Ensure output directory exists
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(json_content)
+
+        logger.info(f"Successfully generated JSON report: {output_path}")
+        log_forensic_operation("generate_json_report", True, operation_details)
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to generate JSON report: {e}", exc_info=True)
+        log_forensic_operation(
+            "generate_json_report", False,
+            {**operation_details, "error": str(e)},
+            level=logging.ERROR
+        )
+        return False
+
+
+def generate_text_report(
+    report_data: Dict[str, Any],
+    output_path: str,
+    metadata: Optional[Dict[str, Any]] = None
+) -> bool:
+    """
+    Generate a plain text report and save it to the specified path.
+
+    Args:
+        report_data: Dictionary containing the report content
+        output_path: Path where to save the generated text report
+        metadata: Optional metadata to include in the report
+
+    Returns:
+        True if the report was successfully generated, False otherwise
+    """
+    operation_details = {
+        "format": "text",
+        "output_path": output_path
+    }
+
+    try:
+        if metadata is None:
+            metadata = _prepare_report_metadata(
+                case_id=report_data.get("case_id"),
+                report_title=report_data.get("report_title", "Forensic Analysis Report"),
+                analyst_name=report_data.get("analyst_name"),
+                report_format="text"
+            )
+
+        # Get text content
+        text_content = _generate_text_report(report_data, metadata)
+
+        # Ensure output directory exists
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(text_content)
+
+        logger.info(f"Successfully generated text report: {output_path}")
+        log_forensic_operation("generate_text_report", True, operation_details)
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to generate text report: {e}", exc_info=True)
+        log_forensic_operation(
+            "generate_text_report", False,
+            {**operation_details, "error": str(e)},
+            level=logging.ERROR
+        )
+        return False
+
+
 def generate_forensic_report(
     report_data: Dict[str, Any],
     output_path: str,

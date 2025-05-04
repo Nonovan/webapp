@@ -31,14 +31,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 # Attempt to import common forensic and static analysis utilities
 try:
     # Common file operations and analysis
+    from admin.security.forensics.utils.forensic_constants import SAFE_FILE_EXTENSIONS
     from admin.security.forensics.static_analysis.common.file_utils import (
         safe_analyze_file,
         calculate_hash,
         calculate_multiple_hashes,
         save_analysis_report,
         identify_file_type,
-        validate_file_integrity,
-        SAFE_FILE_EXTENSIONS
+        validate_file_integrity
     )
     # Signature database management
     from admin.security.forensics.static_analysis.common.signature_db import SignatureDBManager, SignatureVerificationStatus
@@ -176,11 +176,11 @@ except ImportError as e:
             return False
 
     # Define constants to match the expected imports
-    SAFE_FILE_EXTENSIONS = {'.txt', '.log', '.csv', '.json', '.xml', '.html', '.htm', '.pdf'}
-    ALLOWED_MIME_TYPES = {
+    SAFE_FILE_EXTENSIONS.update({'.txt', '.log', '.csv', '.json', '.xml', '.html', '.htm', '.pdf'})
+    ALLOWED_MIME_TYPES.update({
         'text/plain', 'text/html', 'text/csv', 'text/xml',
         'application/json', 'application/xml', 'application/pdf'
-    }
+    })
 
     # Define a simple SignatureVerificationStatus class for fallback
     class SignatureVerificationStatus:

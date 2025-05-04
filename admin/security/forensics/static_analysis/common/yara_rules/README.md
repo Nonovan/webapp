@@ -4,19 +4,20 @@ This directory contains YARA rule definitions used by the static analysis tools 
 
 ## Contents
 
-- Overview
-- Directory Structure
-- Rule Categories
-- Usage
-- Development Guidelines
-- Rule Format
-- Testing Process
-- Contributing
-- Related Documentation
+- [Overview](#overview)
+- [Directory Structure](#directory-structure)
+- [Rule Categories](#rule-categories)
+- [Usage](#usage)
+- [Development Guidelines](#development-guidelines)
+- [Testing Process](#testing-process)
+- [Contributing](#contributing)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
 YARA rules provide powerful pattern matching capabilities that enable the static analysis tools to identify malicious code, suspicious patterns, and indicators of compromise without executing potentially harmful files. This collection contains carefully crafted rules designed to detect various types of threats that might be encountered during security incident investigations.
+
+The rules are organized by threat category for easy management and selective application, allowing for targeted scanning of suspected malicious files with minimal performance overhead.
 
 ## Directory Structure
 
@@ -92,7 +93,7 @@ Rules for detecting suspicious coding patterns:
 These YARA rules are used by the static analysis tools as follows:
 
 ```python
-from static_analysis.common.yara_utils import YaraScanner
+from admin.security.forensics.static_analysis.common import YaraScanner
 
 # Initialize scanner with specific rule sets
 scanner = YaraScanner(
@@ -109,10 +110,41 @@ results = scanner.scan_file("/path/to/suspicious_file")
 if results:
     print(f"Found {len(results)} suspicious patterns:")
     for match in results:
-        print(f" - Rule: {match.rule}")
-        print(f"   Description: {match.meta.get('description', 'N/A')}")
-        print(f"   Severity: {match.meta.get('severity', 'Unknown')}")
-        print(f"   Matched at offset(s): {match.strings}")
+        print(f" - Rule: {match['rule']}")
+        print(f"   Description: {match['meta'].get('description', 'N/A')}")
+        print(f"   Severity: {match['meta'].get('severity', 'Unknown')}")
+
+        # Process matched strings
+        if match['strings']:
+            print(f"   Matched {len(match['strings'])} patterns:")
+            for string_match in match['strings'][:3]:  # Show first 3
+                print(f"     - {string_match['identifier']} at offset {string_match['offset']}")
+
+            if len(match['strings']) > 3:
+                print(f"     - ... and {len(match['strings']) - 3} more matches")
+```
+
+### Advanced Usage
+
+For more complex scanning requirements:
+
+```python
+# Scan with multiple rule sets, focusing on specific threat types
+scanner = YaraScanner()
+
+# Add ransomware-specific rules
+scanner.add_rules([
+    "admin/security/forensics/static_analysis/common/yara_rules/ransomware/specific_families/wannacry.yar",
+    "admin/security/forensics/static_analysis/common/yara_rules/ransomware/specific_families/ryuk.yar"
+])
+
+# Scan binary data directly (e.g., from memory)
+with open("/path/to/suspicious_file", "rb") as f:
+    binary_data = f.read()
+    matches = scanner.scan_data(binary_data)
+
+# Set timeout for scanning large files or complex rules
+matches = scanner.scan_file("/path/to/large_file", timeout=120)
 ```
 
 ## Development Guidelines
@@ -139,6 +171,8 @@ rule Ransomware_CryptoRoutine_AES {
         reference = "Internal analysis of ransomware samples"
         sample_hash = "sha256:abcdef123456789..."
         mitre_att = "T1486" // Data Encrypted for Impact
+        false_positive_rate = "low"
+        confidence = "high"
 
     strings:
         $aes_sbox = { 63 7c 77 7b f2 6b 6f c5 30 01 67 2b fe d7 ab 76 }
@@ -185,24 +219,35 @@ Optional fields:
    - Add context indicators to improve accuracy
    - Consider legitimate uses of similar code patterns
    - Set appropriate confidence levels based on specificity
+   - Combine specific string matches with broader behavioral indicators
 
 2. **Document Thoroughly**
    - Include clear descriptions of the detected behavior
    - Reference relevant technical documentation
    - Document potential false positives
    - Explain why the pattern is suspicious
+   - Include MITRE ATT&CK mappings when applicable
 
 3. **Optimize Performance**
    - Start conditions with fast filters (file type, size)
    - Use anchored patterns when possible
    - Limit use of expensive regex operations
    - Consider file section restrictions for executables
+   - Avoid overly complex conditions that may time out
 
 4. **Follow Security Standards**
    - Implement proper input validation in rule testing tools
    - Protect test samples using appropriate controls
    - Avoid including sensitive data in rule comments
    - Document any security implications
+   - Ensure rule organization aligns with threat intelligence
+
+5. **String Pattern Selection**
+   - Prefer unique byte sequences over common strings
+   - Use `wide` and `ascii` modifiers for cross-encoding detection
+   - Consider case-insensitivity with `nocase` for text patterns
+   - Include hex patterns for binary data
+   - Use regex patterns sparingly and optimize when used
 
 ## Testing Process
 
@@ -212,16 +257,37 @@ Before committing new rules, follow this testing process:
    - Test against known malicious samples
    - Test against a collection of benign files
    - Document any false positives
+   - Verify detection against variants of the same threat
+   - Test with obfuscated versions of known samples
 
 2. **Performance Testing**:
    - Measure scan time impact
    - Optimize regex patterns for efficiency
    - Consider memory usage for large file scanning
+   - Test with timeout constraints
+   - Verify behavior with large file samples
 
 3. **Integration Testing**:
    - Verify compatibility with the static analysis pipeline
    - Check reporting format compatibility
-   - Test with `signature_checker.py`
+   - Test with signature_checker.py
+   - Ensure consistent behavior across different platforms
+   - Verify logging and reporting works correctly
+
+### Automated Testing
+
+The toolkit provides automated testing capabilities for YARA rules:
+
+```bash
+# Test rules against known samples
+./test_yara_rules.py --ruleset admin/security/forensics/static_analysis/common/yara_rules/malware --samples /path/to/samples
+
+# Test for false positives
+./test_yara_rules.py --ruleset admin/security/forensics/static_analysis/common/yara_rules/suspicious --benign /path/to/benign_files --report false_positives.json
+
+# Performance testing
+./test_yara_rules.py --ruleset admin/security/forensics/static_analysis/common/yara_rules --performance-test
+```
 
 ## Contributing
 
@@ -235,6 +301,18 @@ To contribute new YARA rules:
    - Test results showing effectiveness
    - Sample hashes that trigger the rule (if available)
    - Brief explanation of detection methodology
+   - Consider providing benign files that might trigger false positives
+
+### Rule Review Checklist
+
+- [ ] Rule follows naming convention
+- [ ] Required metadata is complete
+- [ ] Conditions are optimized for performance
+- [ ] False positives are documented
+- [ ] Tests have been performed and documented
+- [ ] Rule complements existing rules without duplication
+- [ ] Security implications have been considered
+- [ ] Rule has been tested with signature_checker.py
 
 ## Related Documentation
 
@@ -245,3 +323,4 @@ To contribute new YARA rules:
 - Signature Development Process
 - Incident Response Procedures
 - [MITRE ATT&CK Framework](https://attack.mitre.org/)
+- YARA Performance Optimization Guide

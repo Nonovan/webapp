@@ -30,10 +30,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
 
 try:
     # Import shared utilities from static_analysis/common
+    from admin.security.forensics.static_analysis.common.yara_rules import YaraScanner
     from admin.security.forensics.static_analysis.common import (
         extract_file_strings,
         save_analysis_report,
-        YaraScanner,
         YARA_SCANNER_AVAILABLE
     )
     # Import core forensic utilities if available

@@ -406,6 +406,73 @@ def track_access(
         log_forensic_operation("track_evidence_access", False, {"evidence_id": evidence_id, "error": str(e)})
         return False
 
+def track_analysis(
+    case_id: str,
+    evidence_id: str,
+    analyst: str,
+    action: str,
+    purpose: str,
+    details: Optional[Dict[str, Any]] = None,
+    timestamp: Optional[datetime] = None
+) -> bool:
+    """
+    Tracks an analysis operation performed on evidence in the chain of custody log.
+
+    This function is similar to track_access but specifically designed for
+    recording analysis activities and findings for forensic evidence.
+
+    Args:
+        case_id: The case identifier.
+        evidence_id: The unique identifier of the evidence item.
+        analyst: The analyst performing the analysis.
+        action: The type of analysis performed (e.g., 'static_analysis', 'memory_analysis').
+        purpose: The reason for the analysis or investigation objective.
+        details: Optional dictionary with additional details about the analysis findings.
+        timestamp: Optional timestamp of when the analysis was performed (defaults to now).
+
+    Returns:
+        True if the tracking entry was successfully logged, False otherwise.
+    """
+    if not case_id or not evidence_id or not analyst or not action:
+        logger.error("Missing required fields for tracking evidence analysis")
+        return False
+
+    log_entry = {
+        "timestamp": (timestamp or datetime.now(timezone.utc)).isoformat(),
+        "evidence_id": evidence_id,
+        "case_id": case_id,
+        "analyst": analyst,
+        "action": action,
+        "purpose": purpose,
+        "analysis_type": "forensic_analysis",
+        "details": details or {}
+    }
+
+    try:
+        if not _ensure_case_directory(case_id):
+            raise OSError(f"Failed to ensure case directory for {case_id}")
+
+        coc_path = _get_chain_of_custody_path(case_id)
+
+        # Append to JSON Lines file with secure permissions
+        with open(coc_path, 'a', encoding='utf-8') as f:
+            json.dump(log_entry, f)
+            f.write('\n')
+
+        # Ensure file has correct permissions
+        os.chmod(coc_path, DEFAULT_SECURE_FILE_PERMS)
+
+        log_forensic_operation("track_evidence_analysis", True, {
+            "evidence_id": evidence_id,
+            "action": action,
+            "analyst": analyst
+        })
+        return True
+    except (OSError, ValueError, TypeError) as e:
+        logger.error(f"Failed to track analysis for evidence {evidence_id}: {e}")
+        log_forensic_operation("track_evidence_analysis", False, {"evidence_id": evidence_id, "error": str(e)})
+        return False
+
 def get_evidence_details(case_id: str, evidence_id: str) -> Optional[Dict[str, Any]]:
     """
     Retrieves the metadata for a specific evidence item.

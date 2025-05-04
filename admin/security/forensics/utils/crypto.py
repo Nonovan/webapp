@@ -432,6 +432,79 @@ def generate_secure_id(prefix: str = "ev", length: int = 16) -> str:
     return secure_id
 
 
+def generate_hmac(data: Union[str, bytes], key: Optional[bytes] = None,
+                 algorithm: str = DEFAULT_HASH_ALGORITHM) -> str:
+    """
+    Generate an HMAC (Hash-based Message Authentication Code) for data verification.
+
+    Creates a cryptographic hash that requires a secret key, providing both data
+    integrity and authenticity verification for forensic evidence and data.
+
+    Args:
+        data: Input data to generate HMAC for (string or bytes)
+        key: Secret key to use for HMAC generation (bytes)
+             If None, attempts to use forensic HMAC key from secure storage
+        algorithm: Hash algorithm to use (default: from forensic constants)
+
+    Returns:
+        Hexadecimal string representation of the HMAC
+
+    Raises:
+        ValueError: If algorithm is not supported or key cannot be obtained
+    """
+    operation = "generate_hmac"
+    operation_details = {"algorithm": algorithm}
+
+    if not data:
+        logger.warning("Empty data provided for HMAC generation")
+        log_forensic_operation(operation, False,
+                              {**operation_details, "error": "Empty data provided"})
+        return ""
+
+    # Get key if not provided
+    if key is None:
+        key = _get_forensic_key(purpose="hmac")
+        if not key:
+            error = "No HMAC key available"
+            logger.error(error)
+            log_forensic_operation(operation, False,
+                                 {**operation_details, "error": error})
+            raise ValueError(error)
+
+    # Convert data to bytes if it's a string
+    if isinstance(data, str):
+        data = data.encode('utf-8')
+
+    try:
+        # Select and validate hash algorithm
+        if algorithm.lower() in SUPPORTED_HASH_ALGORITHMS:
+            hash_obj = getattr(hashlib, algorithm.lower())
+        else:
+            error = f"Unsupported hash algorithm: {algorithm}"
+            logger.error(error)
+            log_forensic_operation(operation, False,
+                                 {**operation_details, "error": error})
+            raise ValueError(error)
+
+        # Generate HMAC
+        hmac_value = hmac.new(key, data, hash_obj).hexdigest()
+
+        # Log the operation (without exposing the key)
+        log_forensic_operation(operation, True, {
+            **operation_details,
+            "data_size": len(data),
+        })
+
+        return hmac_value
+
+    except Exception as e:
+        error = f"Failed to generate HMAC: {str(e)}"
+        logger.error(error)
+        log_forensic_operation(operation, False,
+                             {**operation_details, "error": error})
+        raise
+
+
 def sign_evidence_data(data: Union[str, bytes], include_timestamp: bool = True) -> Optional[Dict[str, str]]:
     """
     Creates a digital signature for evidence data.

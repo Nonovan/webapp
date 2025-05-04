@@ -39,7 +39,7 @@ except ImportError:
 
 # Attempt to import static analysis constants
 try:
-    from admin.security.forensics.static_analysis.common.constants import (
+    from admin.security.forensics.static_analysis.common.output_constants import (
         STATIC_ANALYSIS_TEMP_DIR,
         DEFAULT_READ_CHUNK_SIZE,
         SAFE_FILE_EXTENSIONS,

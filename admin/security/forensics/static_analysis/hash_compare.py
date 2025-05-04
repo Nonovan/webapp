@@ -508,6 +508,129 @@ def calculate_file_hashes(file_path: str, algorithms: List[str]) -> Dict[str, st
         return {alg: None for alg in algorithms}
 
 
+def calculate_multiple_file_hashes(file_path: str, algorithms: List[str] = None) -> Dict[str, str]:
+    """
+    Calculate multiple hash values for a single file.
+
+    This is the public API function exported by the hash_compare module
+    that calculates multiple hash values for forensic analysis.
+
+    Args:
+        file_path: Path to the file to hash
+        algorithms: List of hash algorithms to use (default: sha256)
+                   Supported algorithms: md5, sha1, sha256, sha384, sha512,
+                   blake2b, blake2s, ssdeep, tlsh
+
+    Returns:
+        Dictionary mapping algorithm names to their hash values
+    """
+    # Input validation
+    if not os.path.isfile(file_path):
+        logger.error(f"File not found: {file_path}")
+        return {}
+
+    # Use default algorithm if none specified
+    if not algorithms:
+        algorithms = [DEFAULT_ALGORITHMS]
+    elif isinstance(algorithms, str):
+        algorithms = [alg.strip().lower() for alg in algorithms.split(',')]
+
+    # Check for weak hash algorithms and warn user
+    weak_algs = [alg for alg in algorithms if alg in WEAK_HASH_ALGORITHMS]
+    if weak_algs:
+        logger.warning(f"Using weak hash algorithm(s): {', '.join(weak_algs)}")
+
+    # Calculate hashes using our core function
+    return calculate_file_hashes(file_path, algorithms)
+
+
+def compare_files(file1_path: str, file2_path: str, algorithms: List[str] = None) -> Dict[str, Any]:
+    """
+    Compare two files using both cryptographic and fuzzy hashing.
+
+    This is the public API function exported by the hash_compare module
+    that compares files for forensic analysis.
+
+    Args:
+        file1_path: Path to first file
+        file2_path: Path to second file
+        algorithms: List of hash algorithms to use (default: sha256,ssdeep)
+
+    Returns:
+        Dictionary with comparison results including:
+        - file sizes
+        - hash values
+        - match results for each algorithm
+        - fuzzy similarity percentage if applicable
+    """
+    # Input validation
+    for path in [file1_path, file2_path]:
+        if not os.path.isfile(path):
+            logger.error(f"File not found: {path}")
+            return {"error": f"File not found: {path}"}
+
+    # Use default algorithms if none specified
+    if not algorithms:
+        algorithms = ["sha256", "ssdeep"] if SSDEEP_AVAILABLE else ["sha256"]
+    elif isinstance(algorithms, str):
+        algorithms = [alg.strip().lower() for alg in algorithms.split(',')]
+
+    # Run the comparison using our core function
+    result = compare_two_files(file1_path, file2_path, algorithms)
+
+    # Add a user-friendly summary
+    if "fuzzy_similarity" in result and result["fuzzy_similarity"] is not None:
+        if result["fuzzy_similarity"] > 95:
+            result["summary"] = "Files are highly similar but not identical"
+        elif result["fuzzy_similarity"] > 80:
+            result["summary"] = "Files have significant similarities"
+        elif result["fuzzy_similarity"] > 50:
+            result["summary"] = "Files have moderate similarities"
+        else:
+            result["summary"] = "Files appear to be substantially different"
+    elif all(match for alg, match in result["match_results"].items()
+             if alg not in ["ssdeep", "tlsh"] and match is not None):
+        result["summary"] = "Files have identical cryptographic hashes"
+    else:
+        result["summary"] = "Files are different"
+
+    return result
+
+
+def verify_file_hash(file_path: str, expected_hash: str, algorithm: str = "sha256") -> bool:
+    """
+    Verify if a file matches an expected hash value.
+
+    This is the public API function exported by the hash_compare module
+    that verifies file integrity for forensic analysis.
+
+    Args:
+        file_path: Path to the file to verify
+        expected_hash: Expected hash value to check against
+        algorithm: Hash algorithm to use (default: sha256)
+
+    Returns:
+        True if the file hash matches the expected hash, False otherwise
+    """
+    # Input validation
+    if not os.path.isfile(file_path):
+        logger.error(f"File not found: {file_path}")
+        return False
+
+    # Validate hash format
+    hash_is_valid, validation_msg = validate_input_hash(expected_hash, algorithm)
+    if not hash_is_valid:
+        logger.error(f"Invalid hash format: {validation_msg}")
+        return False
+
+    # Warn about weak hash algorithms
+    if algorithm.lower() in WEAK_HASH_ALGORITHMS:
+        logger.warning(f"Using weak hash algorithm: {algorithm}")
+
+    # Use the core function to verify the hash
+    return verify_hash(file_path, expected_hash, algorithm=algorithm)
+
+
 def compare_two_files(file1: str, file2: str, algorithms: List[str]) -> Dict[str, Any]:
     """
     Compare two files using both cryptographic and fuzzy hashes.

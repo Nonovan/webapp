@@ -8,6 +8,11 @@ This directory contains shared utilities and common components used by the stati
 - [Key Components](#key-components)
 - [Directory Structure](#directory-structure)
 - [Usage](#usage)
+  - [Basic File Analysis](#basic-file-analysis)
+  - [Hash Calculation and Verification](#hash-calculation-and-verification)
+  - [Signature and YARA Analysis](#signature-and-yara-analysis)
+  - [String Analysis with Standard Patterns](#string-analysis-with-standard-patterns)
+  - [Working with Embedded Files](#working-with-embedded-files)
 - [Security Features](#security-features)
 - [Best Practices](#best-practices)
 - [Related Documentation](#related-documentation)
@@ -20,48 +25,54 @@ The common components provide foundational functionality required across all sta
 
 - **`file_utils.py`**: File handling utilities
   - Secure file opening with integrity validation
-  - File type identification
-  - Metadata extraction
+  - File type identification through magic bytes and headers
+  - Metadata extraction for various file formats (PE, Office, PDF, etc.)
   - Structure parsing for common file formats
-  - Safe temporary file handling
+  - Safe temporary file handling with proper cleanup
   - Permission-safe file operations
   - Non-destructive evidence analysis
+  - Embedded file extraction and analysis
 
 - **`hash_utils.py`**: Hash calculation and comparison
-  - Multi-algorithm hash generation (MD5, SHA-1, SHA-256, etc.)
-  - Fuzzy hash implementation (SSDEEP, TLSH)
+  - Multi-algorithm hash generation (MD5, SHA-1, SHA-256, SHA-512)
+  - Fuzzy hash implementation (SSDEEP, TLSH) for similarity analysis
   - Hash comparison with configurable thresholds
-  - Hash database integration
-  - Optimized hash calculation for large files
+  - Hash database integration for bulk comparisons
+  - Optimized hash calculation for large files with streaming
   - Integrity verification functions
-  - Hash-based similarity analysis
+  - Hash-based similarity analysis for malware variant detection
+  - Hash database creation and management
 
 - **`output_constants.py`**: Shared constants for static analysis tools
-  - Output format definitions
-  - String analysis regex patterns
-  - File analysis constants
-  - Entropy analysis thresholds
-  - Standardized IOC patterns
-  - YARA scanning parameters
-  - String extraction parameters
+  - Output format definitions (JSON, CSV, YAML)
+  - String analysis regex patterns for IOC identification
+  - File analysis constants and thresholds
+  - Entropy analysis thresholds for encryption detection
+  - Standardized IOC patterns (URLs, IPs, emails, etc.)
+  - YARA scanning parameters and timeouts
+  - String extraction parameters and filters
+  - Common file extension mappings
 
 - **`signature_db/`**: Signature database system
-  - File signature identification
-  - Known malware signature detection
-  - Code signing certificate verification
-  - Signature database management
-  - Threat intelligence integration
-  - Regular database updates
-  - Historical signature matching
+  - File signature identification and validation
+  - Known malware signature detection and matching
+  - Code signing certificate verification and trust chains
+  - Signature database management and updates
+  - Threat intelligence integration from multiple sources
+  - Regular database updates with timestamp tracking
+  - Historical signature matching and version comparison
+  - Confidence scoring for matched signatures
+  - Cross-referencing capabilities with threat intelligence
 
 - **`yara_rules/`**: YARA rule collection
-  - Malware family detection rules
-  - Ransomware-specific detection patterns
-  - Suspicious code pattern identification
-  - Rule management and organization
-  - Optimized scanning capabilities
-  - Regular rule updates
-  - Custom rule development framework
+  - Malware family detection rules with high specificity
+  - Ransomware-specific detection patterns for early intervention
+  - Suspicious code pattern identification for zero-day detection
+  - Rule management and organization by threat category
+  - Optimized scanning capabilities with performance tuning
+  - Regular rule updates with security fixes
+  - Custom rule development framework and testing utilities
+  - Modular rule structure for targeted scanning
 
 ## Directory Structure
 
@@ -102,7 +113,11 @@ admin/security/forensics/static_analysis/common/
     │   ├── crypto_functions.yar  # Encryption routine detection
     │   ├── file_markers.yar      # File extension and marker detection
     │   ├── ransom_notes.yar      # Ransom note templates
-    │   └── specific_families/ # Family-specific rules
+    │   └── specific_families/    # Family-specific rules
+    │       ├── blackmatter.yar   # BlackMatter ransomware
+    │       ├── lockbit.yar       # LockBit ransomware
+    │       ├── ryuk.yar          # Ryuk ransomware
+    │       └── wannacry.yar      # WannaCry ransomware
     └── suspicious/           # Suspicious code pattern rules
         ├── README.md         # Suspicious pattern documentation
         ├── credentials.yar   # Credential theft detection
@@ -376,6 +391,10 @@ for embedded_file in embedded_files:
 - **Security Classification**: Support for marking outputs with appropriate security classifications
 - **Secure Temporary Files**: Temporary files are handled securely with proper permissions and cleanup
 - **Buffer Overflow Prevention**: All operations implement measures to prevent buffer overflow attacks
+- **DLL Load Protection**: Controls which libraries can be loaded during analysis
+- **Memory Sanitization**: Clears sensitive data from memory after use
+- **Fileless Analysis**: Support for analyzing data in memory without disk writes
+- **Reproducible Results**: Ensures consistent analysis results across multiple runs
 
 ## Best Practices
 
@@ -388,6 +407,7 @@ When using these common components:
    - Implement proper error handling for all file operations
    - Hash evidence files before and after analysis to verify integrity
    - Limit file sizes with configurable thresholds to prevent resource exhaustion
+   - Use appropriate file context managers to ensure proper cleanup
 
 2. **Hash Verification**
    - Generate hashes before and after operations to verify integrity
@@ -396,6 +416,7 @@ When using these common components:
    - Compare hashes against known malware databases
    - Document all hash values in analysis reports
    - Use appropriate algorithms based on requirements (cryptographic vs. fuzzy)
+   - Maintain appropriate hash databases for different threat categories
 
 3. **Signature Analysis**
    - Regularly update signature databases to detect latest threats
@@ -404,6 +425,7 @@ When using these common components:
    - Understand signature confidence levels for proper analysis
    - Implement proper error handling for signature database failures
    - Consider false positive rates when interpreting results
+   - Use incremental updates for large signature databases
 
 4. **YARA Rules**
    - Combine multiple YARA rules for more accurate detection
@@ -412,6 +434,7 @@ When using these common components:
    - Regularly update rules with emerging threat patterns
    - Test rule performance on representative sample sets
    - Implement timeouts to prevent hanging on complex rules
+   - Use conditional rule compilation for targeted scanning
 
 5. **Performance Considerations**
    - Use appropriate rule subsets for specific analysis types
@@ -420,6 +443,7 @@ When using these common components:
    - Use appropriate parallelization for performance optimization
    - Monitor memory usage during complex analyses
    - Implement resource limits for automated batch processing
+   - Consider CPU and I/O impact during large-scale analysis
 
 6. **Pattern Matching**
    - Use standardized regex patterns from `output_constants.py` for consistency
@@ -428,6 +452,7 @@ When using these common components:
    - Group related patterns for more efficient analysis
    - Implement timeouts for complex pattern matching operations
    - Cache results for frequent pattern searches
+   - Prioritize high-value patterns for efficiency
 
 7. **Evidence Handling**
    - Maintain proper chain of custody with logging of all operations
@@ -436,6 +461,7 @@ When using these common components:
    - Follow standard evidence handling procedures
    - Never modify original evidence files
    - Track all generated artifacts for case completeness
+   - Properly document analysis limitations and caveats
 
 8. **Reporting and Documentation**
    - Use standardized report formats for consistency
@@ -444,6 +470,7 @@ When using these common components:
    - Clearly separate facts from interpretation in reports
    - Include limitations and caveats in analysis results
    - Follow proper evidence handling guidelines for report distribution
+   - Ensure reports meet legal and compliance requirements
 
 ## Related Documentation
 
@@ -457,3 +484,5 @@ When using these common components:
 - Signature Development Process
 - Forensic Report Generation
 - YARA Rule Development Guide
+- Fuzzy Hashing Techniques
+- Incident Response Integration

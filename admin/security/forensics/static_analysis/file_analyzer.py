@@ -41,6 +41,7 @@ try:
         extract_embedded_files,
         extract_file_strings,
         calculate_file_entropy,
+
         # Analysis functions
         extract_metadata_by_format,
         analyze_script_file,
@@ -48,7 +49,7 @@ try:
         save_analysis_report
     )
     # Import shared constants
-    from admin.security.forensics.static_analysis.common.constants import (
+    from admin.security.forensics.static_analysis.common.output_constants import (
         DEFAULT_OUTPUT_FORMAT, SUPPORTED_OUTPUT_FORMATS, DEFAULT_OUTPUT_DIR,
         DEFAULT_MIN_STRING_LENGTH, DEFAULT_ENTROPY_BLOCK_SIZE, SCRIPT_FILE_EXTENSIONS,
         REGEX_IPV4, REGEX_DOMAIN, REGEX_URL, REGEX_EMAIL,

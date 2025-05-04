@@ -47,8 +47,10 @@ except ImportError:
 
 # Attempt to import static analysis constants
 try:
-    from admin.security.forensics.static_analysis.common.constants import (
+    from admin.security.forensics.static_analysis.common.output_constants import (
         DEFAULT_READ_CHUNK_SIZE,
+    )
+    from admin.security.forensics.utils.forensic_constants import (
         HASH_COMPARISON_THRESHOLD,
         FUZZY_HASH_THRESHOLD
     )
@@ -56,8 +58,8 @@ try:
 except ImportError:
     CONSTANTS_AVAILABLE = False
     DEFAULT_READ_CHUNK_SIZE = 65536  # 64KB
-    HASH_COMPARISON_THRESHOLD = 1.0  # Exact match for cryptographic hashes
-    FUZZY_HASH_THRESHOLD = 70       # Default threshold for fuzzy hash similarity (%)
+    LOCAL_HASH_COMPARISON_THRESHOLD = 1.0  # Exact match for cryptographic hashes
+    LOCAL_FUZZY_HASH_THRESHOLD = 70  # Default threshold for fuzzy hash similarity (%)
 
 logger = logging.getLogger(__name__)
 
