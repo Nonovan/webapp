@@ -38,6 +38,7 @@ PLAYBOOKS_AVAILABLE = os.path.exists(MODULE_PATH / "playbooks")
 RECOVERY_AVAILABLE = os.path.exists(MODULE_PATH / "recovery")
 REFERENCES_AVAILABLE = os.path.exists(MODULE_PATH / "references")
 CONFIG_AVAILABLE = os.path.exists(MODULE_PATH / "config")
+VOLATILE_DATA_CAPTURE_AVAILABLE = os.path.exists(MODULE_PATH / "volatile_data_capture.py")
 
 # Import constants from dedicated constants file
 try:
@@ -84,6 +85,18 @@ except ImportError as e:
             self.id = incident_id
             for key, value in kwargs.items():
                 setattr(self, key, value)
+
+# Import the VolatileDataCapture class
+try:
+    from .volatile_data_capture import VolatileDataCapture
+    logger.debug("Loaded VolatileDataCapture class")
+    VOLATILE_DATA_CAPTURE_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Failed to import volatile_data_capture module: {e}")
+    VOLATILE_DATA_CAPTURE_AVAILABLE = False
+    class VolatileDataCapture:
+        def __init__(self, *args, **kwargs):
+            raise NotImplementedError("VolatileDataCapture module not available")
 
 # Load configurations
 try:
@@ -183,6 +196,7 @@ def import_core_functions():
     global update_status, run_playbook, restore_service, harden_system
     global track_incident_status, verify_file_integrity, build_timeline
     global get_incident_status, list_incidents, generate_report
+    global capture_volatile_data
 
     try:
         # Import primary functions from module scripts
@@ -208,6 +222,45 @@ def import_core_functions():
         logger.warning(f"Failed to import network_isolation module: {e}")
         def isolate_system(*args, **kwargs):
             raise NotImplementedError("Network isolation module not available")
+
+    # Import volatile data capture function if available
+    try:
+        from .volatile_data_capture import VolatileDataCapture
+
+        def capture_volatile_data(incident_id=None, output_dir=None, analyst=None,
+                                target=None, categories=None, minimal=False, **kwargs):
+            """
+            Capture volatile system data for incident response.
+
+            Args:
+                incident_id: Optional incident identifier
+                output_dir: Directory to store collected evidence
+                analyst: Name of the analyst performing the collection
+                target: Target hostname or IP address (default: local system)
+                categories: List of data categories to collect
+                minimal: Perform minimal collection (faster but less comprehensive)
+                **kwargs: Additional options to pass to VolatileDataCapture.capture()
+
+            Returns:
+                Tuple of (success, output_path)
+            """
+            capturer = VolatileDataCapture(
+                incident_id=incident_id,
+                output_dir=output_dir,
+                analyst=analyst
+            )
+            return capturer.capture(
+                target=target,
+                categories=categories,
+                minimal=minimal,
+                **kwargs
+            )
+
+        logger.debug("Loaded capture_volatile_data function")
+    except ImportError as e:
+        logger.warning(f"Failed to import volatile_data_capture module: {e}")
+        def capture_volatile_data(*args, **kwargs):
+            raise NotImplementedError("Volatile data capture module not available")
 
     # Conditionally import coordination functions if available
     if COORDINATION_AVAILABLE:
@@ -337,11 +390,12 @@ def get_available_components() -> Dict[str, bool]:
         "playbooks": PLAYBOOKS_AVAILABLE,
         "recovery": RECOVERY_AVAILABLE,
         "references": REFERENCES_AVAILABLE,
-        "configuration": CONFIG_LOADED
+        "configuration": CONFIG_LOADED,
+        "volatile_data_capture": VOLATILE_DATA_CAPTURE_AVAILABLE
     }
 
 # Create evidence directory safely if it doesn't exist
-def create_evidence_directory(incident_id: str) -> str:
+def create_evidence_directory(incident_id: str) -> Path:
     """
     Creates an evidence directory for the specified incident ID.
 
@@ -354,9 +408,9 @@ def create_evidence_directory(incident_id: str) -> str:
     Raises:
         OSError: If directory creation fails
     """
-    evidence_dir = os.path.join(DEFAULT_EVIDENCE_DIR, incident_id)
+    evidence_dir = Path(DEFAULT_EVIDENCE_DIR) / incident_id
     try:
-        os.makedirs(evidence_dir, exist_ok=True)
+        evidence_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Created evidence directory: {evidence_dir}")
 
         # Set secure permissions on Unix-like systems
@@ -405,6 +459,7 @@ __all__ = [
 
     # Classes
     'Incident',
+    'VolatileDataCapture',
     'IncidentResponseError',
     'ConfigurationError',
     'InitializationError',
@@ -433,4 +488,5 @@ __all__ = [
     'get_available_components',
     'create_evidence_directory',
     'sanitize_incident_id',
+    'capture_volatile_data',
 ]
