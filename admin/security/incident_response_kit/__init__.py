@@ -17,7 +17,7 @@ import logging
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Union, Any, Tuple, Set
+from typing import Dict, List, Optional, Union, Any, Tuple, Set, Callable
 
 # Package versioning
 __version__ = '0.1.1'
@@ -437,6 +437,106 @@ def sanitize_incident_id(incident_id: str) -> str:
     safe_id = ''.join(c if c.isalnum() or c in '-_' else '_' for c in incident_id)
     return safe_id
 
+# Check file integrity
+def check_file_integrity(
+    file_path: Union[str, Path],
+    expected_hash: Optional[str] = None,
+    hash_algorithm: str = 'sha256',
+    verify_permissions: bool = True
+) -> Dict[str, Any]:
+    """
+    Verifies the integrity of a file by checking its hash and optionally its permissions.
+
+    This is a critical function during incident response to verify that evidence files
+    haven't been tampered with and that secure permissions are properly set.
+
+    Args:
+        file_path: Path to the file to check
+        expected_hash: If provided, the file's hash will be compared to this value
+        hash_algorithm: Hash algorithm to use (sha256, sha512, etc.)
+        verify_permissions: Whether to verify file permissions (Unix only)
+
+    Returns:
+        Dictionary with integrity check results including:
+            - file_exists: Whether the file exists
+            - file_hash: Computed hash of the file
+            - hash_matches: Whether the hash matches the expected value
+            - permissions_secure: Whether permissions are secure (Unix only)
+            - is_valid: Overall validation result
+
+    Raises:
+        FileNotFoundError: If the file does not exist
+        PermissionError: If the file cannot be read due to permissions
+    """
+    result = {
+        "file_exists": False,
+        "file_hash": None,
+        "hash_matches": None,
+        "permissions_secure": None,
+        "is_valid": False
+    }
+
+    file_path = Path(file_path)
+
+    # Check if the file exists
+    if not file_path.exists():
+        logger.error(f"File not found: {file_path}")
+        return result
+
+    result["file_exists"] = True
+
+    try:
+        # Calculate file hash
+        if FORENSIC_TOOLS_AVAILABLE and 'verify_file_integrity' in globals():
+            # Use the forensic toolkit's function if available
+            integrity_result = verify_file_integrity(str(file_path), expected_hash, hash_algorithm)
+            result["file_hash"] = integrity_result.get("hash")
+            result["hash_matches"] = integrity_result.get("hash_matches")
+        else:
+            # Basic implementation if forensic tools aren't available
+            import hashlib
+
+            hash_obj = hashlib.new(hash_algorithm)
+            with open(file_path, 'rb') as f:
+                # Read in chunks to handle large files
+                for chunk in iter(lambda: f.read(4096), b''):
+                    hash_obj.update(chunk)
+
+            file_hash = hash_obj.hexdigest()
+            result["file_hash"] = file_hash
+
+            if expected_hash:
+                result["hash_matches"] = file_hash.lower() == expected_hash.lower()
+
+        # Check file permissions on Unix-like systems
+        if verify_permissions and os.name != 'nt':
+            import stat
+            file_stat = os.stat(file_path)
+            file_mode = file_stat.st_mode
+
+            # Check if file is only readable/writable by owner
+            is_secure = not (file_mode & (stat.S_IRWXG | stat.S_IRWXO))
+            result["permissions_secure"] = is_secure
+
+            if not is_secure:
+                logger.warning(f"File has insecure permissions: {file_path}, mode: {oct(file_mode)}")
+
+        # Overall validity check
+        if expected_hash:
+            result["is_valid"] = result["hash_matches"] and (not verify_permissions or result["permissions_secure"] is True)
+        else:
+            result["is_valid"] = True if not verify_permissions else result["permissions_secure"] is True
+
+        return result
+
+    except PermissionError as e:
+        logger.error(f"Permission error checking file integrity: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Error checking file integrity: {e}")
+        result["error"] = str(e)
+        return result
+
 # Log initialization status
 logger.info(f"Incident Response Toolkit initialized, version {__version__}")
 available = get_available_components()
@@ -489,4 +589,5 @@ __all__ = [
     'create_evidence_directory',
     'sanitize_incident_id',
     'capture_volatile_data',
+    'check_file_integrity',
 ]
