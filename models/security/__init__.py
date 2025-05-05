@@ -54,7 +54,7 @@ SECURITY_INCIDENT_SEVERITIES = {
 
 # Import incident response models
 try:
-    from .incident_response import (
+    from ...admin.security.incident_response_kit.incident_status import (
         Incident, IncidentStatus, IncidentPhase,
         IncidentSeverity, IncidentType,
         PHASE_STATUS_MAPPING, STATUS_TRANSITIONS

@@ -9,39 +9,6 @@ eradication, recovery, and post-incident activities.
 The toolkit integrates multiple components including coordination tools, documentation templates,
 forensic tools, recovery tools, and reference materials to provide a comprehensive platform for
 security incident response.
-
-Key capabilities include:
-- Incident workflow management and coordination
-- Evidence collection and preservation with chain of custody
-- System isolation and containment
-- Documentation and reporting
-- Recovery and remediation guidance
-- Secure communication channels
-- Playbook-based response for different incident types
-
-Usage:
-    The toolkit can be used both through command-line scripts and programmatically
-    through the provided Python modules.
-
-Example:
-    # Setup a new incident response environment
-    from admin.security.incident_response_kit import initialize_incident, collect_evidence
-
-    # Initialize a new incident
-    incident = initialize_incident(
-        incident_id="IR-2024-042",
-        incident_type="malware",
-        severity="high",
-        lead_responder="security-analyst@example.com"
-    )
-
-    # Collect evidence
-    collection_result = collect_evidence(
-        incident_id=incident.id,
-        target="compromised-host-01",
-        evidence_types=["memory", "logs", "network"],
-        output_dir="/secure/evidence/IR-2024-042/"
-    )
 """
 
 import os
@@ -72,41 +39,51 @@ RECOVERY_AVAILABLE = os.path.exists(MODULE_PATH / "recovery")
 REFERENCES_AVAILABLE = os.path.exists(MODULE_PATH / "references")
 CONFIG_AVAILABLE = os.path.exists(MODULE_PATH / "config")
 
-# Define constants for incident status and phases
-class IncidentStatus:
-    OPEN = "open"
-    INVESTIGATING = "investigating"
-    CONTAINED = "contained"
-    ERADICATED = "eradicated"
-    RECOVERING = "recovering"
-    RESOLVED = "resolved"
-    CLOSED = "closed"
-    MERGED = "merged"
+# Import constants from dedicated constants file
+try:
+    from .irk_constants import (
+        IncidentStatus, IncidentPhase, IncidentSeverity, IncidentType,
+        PHASE_STATUS_MAPPING, STATUS_TRANSITIONS
+    )
+except ImportError as e:
+    logger.error(f"Error importing incident constants: {e}")
+    # Define basic fallback constants
+    class IncidentStatus:
+        OPEN = "open"
+        INVESTIGATING = "investigating"
+        RESOLVED = "resolved"
+        CLOSED = "closed"
 
-class IncidentPhase:
-    IDENTIFICATION = "identification"
-    CONTAINMENT = "containment"
-    ERADICATION = "eradication"
-    RECOVERY = "recovery"
-    LESSONS_LEARNED = "lessons_learned"
+    class IncidentPhase:
+        IDENTIFICATION = "identification"
+        CONTAINMENT = "containment"
+        ERADICATION = "eradication"
+        RECOVERY = "recovery"
 
-class IncidentSeverity:
-    CRITICAL = "critical"
-    HIGH = "high"
-    MEDIUM = "medium"
-    LOW = "low"
+    class IncidentSeverity:
+        CRITICAL = "critical"
+        HIGH = "high"
+        MEDIUM = "medium"
+        LOW = "low"
 
-class IncidentType:
-    MALWARE = "malware"
-    DATA_BREACH = "data_breach"
-    UNAUTHORIZED_ACCESS = "unauthorized_access"
-    DENIAL_OF_SERVICE = "denial_of_service"
-    WEB_APPLICATION_ATTACK = "web_application_attack"
-    ACCOUNT_COMPROMISE = "account_compromise"
-    PRIVILEGE_ESCALATION = "privilege_escalation"
-    INSIDER_THREAT = "insider_threat"
-    RANSOMWARE = "ransomware"
-    PHISHING = "phishing"
+    class IncidentType:
+        MALWARE = "malware"
+        DATA_BREACH = "data_breach"
+
+    PHASE_STATUS_MAPPING = {}
+    STATUS_TRANSITIONS = {}
+
+# Import the Incident class
+try:
+    from .incident import Incident
+except ImportError as e:
+    logger.error(f"Error importing Incident class: {e}")
+    # Define basic fallback class
+    class Incident:
+        def __init__(self, incident_id, **kwargs):
+            self.id = incident_id
+            for key, value in kwargs.items():
+                setattr(self, key, value)
 
 # Load configurations
 try:
@@ -196,128 +173,16 @@ class RecoveryError(IncidentResponseError):
     """Error during recovery operations"""
     pass
 
-# Basic incident class
-class Incident:
-    """
-    Represents a security incident for tracking purposes within the toolkit.
-    """
-
-    def __init__(
-        self,
-        incident_id: str,
-        incident_type: str,
-        severity: str = IncidentSeverity.MEDIUM,
-        status: str = IncidentStatus.OPEN,
-        lead_responder: Optional[str] = None,
-        description: Optional[str] = None,
-        **kwargs
-    ):
-        """
-        Initialize a new incident.
-
-        Args:
-            incident_id: Unique identifier for the incident
-            incident_type: Type of incident (see IncidentType constants)
-            severity: Severity level (critical, high, medium, low)
-            status: Current status (open, investigating, etc.)
-            lead_responder: Email or identifier for the lead responder
-            description: Brief description of the incident
-            **kwargs: Additional metadata for the incident
-        """
-        self.id = incident_id
-        self.incident_type = incident_type
-        self.severity = severity
-        self.status = status
-        self.lead_responder = lead_responder
-        self.description = description
-        self.created_at = datetime.now(timezone.utc)
-        self.updated_at = self.created_at
-        self.current_phase = IncidentPhase.IDENTIFICATION
-
-        # Additional metadata
-        self.metadata = kwargs
-
-        # Action tracking
-        self.actions = []
-
-    def add_action(self, action: str, user: str, details: Optional[Dict[str, Any]] = None):
-        """
-        Record an action taken during the incident response.
-
-        Args:
-            action: Description of the action taken
-            user: User who performed the action
-            details: Additional details about the action
-        """
-        self.actions.append({
-            'timestamp': datetime.now(timezone.utc),
-            'action': action,
-            'user': user,
-            'details': details or {}
-        })
-        self.updated_at = datetime.now(timezone.utc)
-
-    def update_status(self, status: str, user: str, notes: Optional[str] = None):
-        """
-        Update the incident status.
-
-        Args:
-            status: New status for the incident
-            user: User making the status change
-            notes: Optional notes about the status change
-        """
-        # Validate status
-        if status not in vars(IncidentStatus).values():
-            raise ValueError(f"Invalid status: {status}")
-
-        old_status = self.status
-        self.status = status
-        self.updated_at = datetime.now(timezone.utc)
-
-        # Record the action
-        self.add_action(
-            action="status_change",
-            user=user,
-            details={
-                'old_status': old_status,
-                'new_status': status,
-                'notes': notes
-            }
-        )
-
-    def update_phase(self, phase: str, user: str, notes: Optional[str] = None):
-        """
-        Update the incident phase.
-
-        Args:
-            phase: New phase for the incident
-            user: User making the phase change
-            notes: Optional notes about the phase change
-        """
-        # Validate phase
-        if phase not in vars(IncidentPhase).values():
-            raise ValueError(f"Invalid phase: {phase}")
-
-        old_phase = self.current_phase
-        self.current_phase = phase
-        self.updated_at = datetime.now(timezone.utc)
-
-        # Record the action
-        self.add_action(
-            action="phase_change",
-            user=user,
-            details={
-                'old_phase': old_phase,
-                'new_phase': phase,
-                'notes': notes
-            }
-        )
+class ValidationError(IncidentResponseError):
+    """Error validating incident data"""
+    pass
 
 # Core functional imports - lazy loading with proper exception handling
 def import_core_functions():
     global initialize_incident, collect_evidence, isolate_system, notify_stakeholders
     global update_status, run_playbook, restore_service, harden_system
     global track_incident_status, verify_file_integrity, build_timeline
+    global get_incident_status, list_incidents, generate_report
 
     try:
         # Import primary functions from module scripts
@@ -373,6 +238,14 @@ def import_core_functions():
             logger.warning(f"Failed to import track_incident_status function: {e}")
             def track_incident_status(*args, **kwargs):
                 raise NotImplementedError("Status tracking not available")
+
+        try:
+            from .coordination.report_generator import generate_report
+            logger.debug("Loaded generate_report function")
+        except ImportError as e:
+            logger.warning(f"Failed to import report_generator module: {e}")
+            def generate_report(*args, **kwargs):
+                raise NotImplementedError("Report generation not available")
     else:
         def notify_stakeholders(*args, **kwargs):
             raise NotImplementedError("Coordination modules not available")
@@ -380,6 +253,12 @@ def import_core_functions():
             raise NotImplementedError("Coordination modules not available")
         def track_incident_status(*args, **kwargs):
             raise NotImplementedError("Status tracking not available")
+        def get_incident_status(*args, **kwargs):
+            raise NotImplementedError("Status tracking not available")
+        def list_incidents(*args, **kwargs):
+            raise NotImplementedError("Status tracking not available")
+        def generate_report(*args, **kwargs):
+            raise NotImplementedError("Report generation not available")
 
     # Import playbook functions if available
     if PLAYBOOKS_AVAILABLE:
@@ -489,6 +368,21 @@ def create_evidence_directory(incident_id: str) -> str:
         logger.error(f"Failed to create evidence directory: {e}")
         raise
 
+# Sanitize incident ID to ensure it's safe for file operations
+def sanitize_incident_id(incident_id: str) -> str:
+    """
+    Sanitizes incident ID to ensure it's safe for file operations.
+
+    Args:
+        incident_id: Raw incident identifier
+
+    Returns:
+        Sanitized incident ID safe for file operations
+    """
+    # Remove or replace potentially dangerous characters
+    safe_id = ''.join(c if c.isalnum() or c in '-_' else '_' for c in incident_id)
+    return safe_id
+
 # Log initialization status
 logger.info(f"Incident Response Toolkit initialized, version {__version__}")
 available = get_available_components()
@@ -506,6 +400,8 @@ __all__ = [
     'IncidentPhase',
     'IncidentSeverity',
     'IncidentType',
+    'PHASE_STATUS_MAPPING',
+    'STATUS_TRANSITIONS',
 
     # Classes
     'Incident',
@@ -518,6 +414,7 @@ __all__ = [
     'IncidentStatusError',
     'PlaybookExecutionError',
     'RecoveryError',
+    'ValidationError',
 
     # Functions
     'initialize_incident',
@@ -525,9 +422,15 @@ __all__ = [
     'isolate_system',
     'notify_stakeholders',
     'update_status',
+    'get_incident_status',
+    'list_incidents',
     'run_playbook',
     'restore_service',
     'harden_system',
+    'verify_file_integrity',
+    'build_timeline',
+    'generate_report',
     'get_available_components',
     'create_evidence_directory',
+    'sanitize_incident_id',
 ]
