@@ -9,12 +9,10 @@ from typing import Dict, Any, List, Tuple
 import shutil
 
 # Add project root to sys.path to allow imports from other directories
-# Adjust the number of .parents based on the actual location relative to project root
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 # --- Import modules to be tested ---
-# Attempt to import modules, handle potential ImportErrors if structure changes
 try:
     from admin.security.forensics.live_response.common import artifact_parser
     ARTIFACT_PARSER_AVAILABLE = True
@@ -23,28 +21,35 @@ except ImportError as e:
     ARTIFACT_PARSER_AVAILABLE = False
 
 try:
-    # Assuming core forensic utils are needed for context/setup
+    # Import core forensic utils for setup/validation
     from admin.security.forensics.utils.logging_utils import setup_forensic_logger, log_forensic_operation
     from admin.security.forensics.utils.validation_utils import validate_path
     from admin.security.forensics.utils.forensic_constants import (
         TEMP_DIR_FORENSICS, DEFAULT_SECURE_DIR_PERMS, DEFAULT_SECURE_FILE_PERMS,
         DEFAULT_READ_ONLY_FILE_PERMS, DEFAULT_TIMESTAMP_FORMAT
     )
+    from admin.security.forensics.live_response import (
+        update_evidence_integrity_baseline,
+        verify_evidence_integrity,
+        COLLECTION_TYPES,
+        ARTIFACT_TYPES
+    )
     FORENSIC_UTILS_AVAILABLE = True
-    # Setup logger for tests - disable console output to avoid clutter
     setup_forensic_logger(log_to_console=False, log_level=logging.WARNING)
     logger = logging.getLogger('forensic_validation_suite')
 except ImportError as e:
     print(f"Warning: Could not import core forensic utils: {e}", file=sys.stderr)
     FORENSIC_UTILS_AVAILABLE = False
-    # Define dummy functions and constants if utils are missing
+    # Define fallbacks for essential functions and constants
     def log_forensic_operation(*args, **kwargs): pass
     def validate_path(*args, **kwargs) -> Tuple[bool, str]: return True, "Validation skipped"
-    TEMP_DIR_FORENSICS = "/tmp/forensic_tests" # Fallback temp dir
+    TEMP_DIR_FORENSICS = "/tmp/forensic_tests"
     FALLBACK_SECURE_DIR_PERMS = 0o700
-    FALLBACK_SECURE_FILE_PERMS = 0o600  # Fixed variable name
-    FALLBACK_READ_ONLY_FILE_PERMS = 0o400  # Added for read-only files
-    FALLBACK_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"  # Added fallback timestamp format
+    FALLBACK_SECURE_FILE_PERMS = 0o600
+    FALLBACK_READ_ONLY_FILE_PERMS = 0o400
+    FALLBACK_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+    COLLECTION_TYPES = ["memory", "volatile", "network"]
+    ARTIFACT_TYPES = ["process", "network", "system", "user"]
     logging.basicConfig(level=logging.WARNING)
     logger = logging.getLogger('forensic_validation_suite_fallback')
 
@@ -57,7 +62,6 @@ EVIDENCE_PACKAGING_SCRIPT = PROJECT_ROOT / "admin/security/forensics/live_respon
 MEMORY_ACQUISITION_SCRIPT = PROJECT_ROOT / "admin/security/forensics/live_response/memory_acquisition.sh"
 NETWORK_STATE_SCRIPT = PROJECT_ROOT / "admin/security/forensics/live_response/network_state.sh"
 VOLATILE_DATA_SCRIPT = PROJECT_ROOT / "admin/security/forensics/live_response/volatile_data.sh"
-# Add path to common functions if needed for sourcing in shell tests
 COMMON_FUNCTIONS_SCRIPT = PROJECT_ROOT / "admin/security/forensics/live_response/common_functions.sh"
 
 
@@ -132,6 +136,12 @@ def setup_test_environment():
     volatile_dir = TEST_DATA_DIR / "volatile_data"
     os.makedirs(volatile_dir, exist_ok=True)
     (volatile_dir / "system_info.txt").write_text("Hostname: test-system\nKernel: 5.4.0-42-generic\nCPU: Intel(R) Core(TM) i7-9750H", encoding='utf-8')
+
+    # Create evidence integrity files
+    integrity_dir = TEST_DATA_DIR / "integrity"
+    os.makedirs(integrity_dir, exist_ok=True)
+    (integrity_dir / "file1.txt").write_text("Test file for integrity checking", encoding='utf-8')
+    (integrity_dir / "file2.txt").write_text("Another test file with different content", encoding='utf-8')
 
 def cleanup_test_environment():
     """Remove temporary files and directories created during tests."""
@@ -516,6 +526,60 @@ class TestVolatileDataScript(unittest.TestCase):
         self.assertRegex(stdout, r"Volatile Data Collection v\d+\.\d+\.\d+")
 
 
+@unittest.skipIf(not FORENSIC_UTILS_AVAILABLE, "Core forensic utilities not available")
+class TestEvidenceIntegrityFunctions(unittest.TestCase):
+    """Tests for the evidence integrity baseline and verification functions."""
+
+    def setUp(self):
+        self.evidence_dir = TEST_DATA_DIR / "integrity"
+        self.baseline_path = TEST_OUTPUT_DIR / "integrity_baseline.json"
+
+    def test_update_evidence_integrity_baseline(self):
+        """Test creating an integrity baseline for evidence files."""
+        success, output_path = update_evidence_integrity_baseline(
+            evidence_dir=str(self.evidence_dir),
+            output_path=str(self.baseline_path),
+            case_id="TEST-INTEGRITY-001",
+            examiner="integrity-tester"
+        )
+
+        self.assertTrue(success, "Creating integrity baseline failed")
+        self.assertTrue(Path(output_path).exists(), "Baseline file not created")
+
+        # Check that the baseline file is valid JSON and contains expected data
+        with open(output_path, 'r') as f:
+            baseline = json.load(f)
+
+        self.assertIn("metadata", baseline, "Baseline missing metadata section")
+        self.assertIn("files", baseline, "Baseline missing files section")
+        self.assertEqual(baseline["metadata"]["case_id"], "TEST-INTEGRITY-001", "Case ID not stored in baseline")
+
+        # We should have entries for our test files
+        self.assertGreaterEqual(len(baseline["files"]), 2, "Missing file entries in baseline")
+
+    def test_verify_evidence_integrity(self):
+        """Test verifying evidence integrity against a baseline."""
+        # First create a baseline
+        success, baseline_path = update_evidence_integrity_baseline(
+            evidence_dir=str(self.evidence_dir),
+            output_path=str(self.baseline_path),
+            case_id="TEST-INTEGRITY-002",
+            examiner="integrity-tester"
+        )
+
+        self.assertTrue(success, "Failed to create integrity baseline")
+
+        # Now verify against the baseline
+        verified, results = verify_evidence_integrity(
+            evidence_dir=str(self.evidence_dir),
+            baseline_path=baseline_path
+        )
+
+        self.assertTrue(verified, "Integrity verification failed")
+        self.assertGreaterEqual(results["summary"]["verified_count"], 2, "Not all files were verified")
+        self.assertEqual(results["summary"]["modified_count"], 0, "Found modified files when none should exist")
+
+
 # --- Main Execution ---
 if __name__ == "__main__":
     # Ensure the test environment is clean before starting
@@ -537,6 +601,8 @@ if __name__ == "__main__":
         suite.addTest(loader.loadTestsFromTestCase(TestNetworkStateScript))
     if VOLATILE_DATA_SCRIPT.exists():
         suite.addTest(loader.loadTestsFromTestCase(TestVolatileDataScript))
+    if FORENSIC_UTILS_AVAILABLE:
+        suite.addTest(loader.loadTestsFromTestCase(TestEvidenceIntegrityFunctions))
 
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)

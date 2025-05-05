@@ -228,6 +228,2295 @@ Examples:
 
 # --- Parsing Functions ---
 
+def parse_artifacts(evidence_dir: str, artifact_types: Optional[List[str]] = None) -> Dict[str, Any]:
+    """
+    Parse forensic artifacts from an evidence directory.
+
+    This is a high-level function that orchestrates the parsing of various
+    artifact types collected during live response.
+
+    Args:
+        evidence_dir: Directory containing collected evidence
+        artifact_types: Optional list of specific artifact types to parse
+                       (defaults to all available types)
+
+    Returns:
+        Dictionary containing parsed artifacts organized by type
+    """
+    from pathlib import Path
+
+    # Initialize parser with evidence directory
+    try:
+        # Use ArtifactParser class if available in the current context
+        from admin.security.forensics.live_response import ArtifactParser
+        parser = ArtifactParser(evidence_dir)
+
+        # Find all artifacts or filter by specified types
+        if artifact_types:
+            artifacts = {k: v for k, v in parser.find_artifacts().items() if k in artifact_types}
+        else:
+            artifacts = parser.find_artifacts()
+
+        # Parse each artifact type
+        results = {
+            "metadata": parser.metadata,
+            "summary": parser.get_artifact_summary()
+        }
+
+        # Extract artifacts by type
+        if "process" in artifacts and artifacts["process"]:
+            results["processes"] = parser.extract_processes()
+
+        if "network" in artifacts and artifacts["network"]:
+            results["network_connections"] = parser.extract_network_connections()
+
+        if "user" in artifacts and artifacts["user"]:
+            results["users"] = parser.extract_users()
+
+        # Return all parsed artifacts
+        return results
+
+    except ImportError:
+        # Fallback implementation if ArtifactParser isn't available
+        logger.warning("ArtifactParser class not available, using direct file parsing")
+
+        evidence_path = Path(evidence_dir)
+        if not evidence_path.exists() or not evidence_path.is_dir():
+            raise ValueError(f"Invalid evidence directory: {evidence_dir}")
+
+        results = {
+            "metadata": _extract_metadata(evidence_path),
+            "processes": [],
+            "network_connections": [],
+            "users": []
+        }
+
+        # Find process files
+        process_files = list(evidence_path.glob("**/processes/*.txt")) + list(evidence_path.glob("**/ps_*.txt"))
+        if process_files:
+            results["processes"] = parse_process_list(str(process_files[0]))
+
+        # Find network files
+        network_files = list(evidence_path.glob("**/network/*.txt")) + list(evidence_path.glob("**/connections*.txt"))
+        if network_files:
+            results["network_connections"] = parse_network_connections(str(network_files[0]))
+
+        # Find user files
+        user_files = list(evidence_path.glob("**/users/*.txt")) + list(evidence_path.glob("**/passwd*.txt"))
+        if user_files:
+            results["users"] = parse_user_sessions(str(user_files[0]))
+
+        return results
+
+
+def detect_suspicious_processes(processes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Detect potentially suspicious processes from collected process listings.
+
+    This function analyzes process information to identify processes that match
+    known suspicious patterns including:
+    - Hidden processes or those with obfuscated names
+    - Processes running from unusual locations
+    - Processes with suspicious command line arguments
+    - Known malicious process signatures
+
+    Args:
+        processes: List of dictionaries containing process information
+
+    Returns:
+        List of dictionaries describing suspicious processes with explanation
+    """
+    suspicious = []
+
+    # Regular expressions for suspicious process characteristics
+    hidden_proc_pattern = re.compile(r'^\s|\[\s|\s\]|\.\s|\s\.|\s\s+|[^a-zA-Z0-9_\-\./]')
+    unusual_path_pattern = re.compile(r'/tmp/|/dev/shm/|/var/tmp/|/private/tmp/|/mnt/')
+    crypto_mining_pattern = re.compile(r'xmr|monero|miner|stratum|\bcoin|nanopool|minergate|\bcpu\s+usage')
+    reverse_shell_pattern = re.compile(r'nc\s+-[el]|bash\s+-i|python\s+-c.*socket|perl\s+-e.*fork')
+
+    # Check each process
+    for proc in processes:
+        reasons = []
+        command = proc.get("command", "")
+        cmd_lower = command.lower()
+        proc_name = command.split()[0] if command else ""
+        user = proc.get("user", "")
+        pid = proc.get("pid", "")
+
+        # Check for hidden/obfuscated process names
+        if hidden_proc_pattern.search(proc_name):
+            reasons.append({
+                "type": "hidden_process",
+                "detail": "Possible obfuscated or hidden process name",
+                "pattern": hidden_proc_pattern.pattern
+            })
+
+        # Check for unusual execution paths
+        if unusual_path_pattern.search(command):
+            reasons.append({
+                "type": "unusual_path",
+                "detail": "Process running from suspicious location",
+                "pattern": unusual_path_pattern.pattern
+            })
+
+        # Check for crypto mining indicators
+        if crypto_mining_pattern.search(cmd_lower):
+            reasons.append({
+                "type": "crypto_mining",
+                "detail": "Possible cryptocurrency mining activity",
+                "pattern": crypto_mining_pattern.pattern
+            })
+
+        # Check for reverse shells
+        if reverse_shell_pattern.search(cmd_lower):
+            reasons.append({
+                "type": "reverse_shell",
+                "detail": "Potential reverse shell or command execution",
+                "pattern": reverse_shell_pattern.pattern
+            })
+
+        # Check for unusual shells or interpreters
+        if REGEX_UNUSUAL_SHELL.search(command):
+            reasons.append({
+                "type": "unusual_shell",
+                "detail": "Unusual shell or interpreter usage",
+                "pattern": REGEX_UNUSUAL_SHELL.pattern
+            })
+
+        # Check for encoded commands
+        if re.search(r'base64\s+-\w*d', command) or re.search(r'echo\s+[\'"]*[A-Za-z0-9+/=]{20,}[\'"]*\s*\|\s*base64\s+-\w*d', command):
+            reasons.append({
+                "type": "encoded_command",
+                "detail": "Possible base64-encoded command execution"
+            })
+
+        # Check if running as root but not a system process
+        if user == "root" and not proc_name.startswith(("/usr/bin/", "/bin/", "/sbin/")) and not command.startswith(("systemd", "kthreadd", "[", "/")):
+            reasons.append({
+                "type": "unexpected_root",
+                "detail": "Process running as root from non-standard location"
+            })
+
+        # If we found any suspicious characteristics, add to results
+        if reasons:
+            suspicious.append({
+                "pid": pid,
+                "user": user,
+                "command": command,
+                "reasons": reasons,
+                "risk_level": "high" if len(reasons) > 1 else "medium"
+            })
+
+    # Sort by risk level (high first)
+    suspicious.sort(key=lambda x: 0 if x.get("risk_level") == "high" else 1)
+
+    logger.info(f"Found {len(suspicious)} suspicious processes out of {len(processes)} total processes")
+    return suspicious
+
+
+def detect_suspicious_connections(connections: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Detect potentially suspicious network connections.
+
+    This function analyzes network connection information to identify connections
+    that match known suspicious patterns including:
+    - Connections to unusual ports
+    - Connections to known malicious IP ranges
+    - Data exfiltration patterns
+    - Command and control (C2) communication patterns
+
+    Args:
+        connections: List of dictionaries containing network connection information
+
+    Returns:
+        List of dictionaries describing suspicious connections with explanation
+    """
+    suspicious = []
+
+    # Known suspicious ports (excluding common services)
+    suspicious_ports = {
+        4444: "Metasploit default",
+        5555: "Common backdoor port",
+        6666: "Common IRC bot port",
+        8080: "Web proxy (can be benign)",
+        9001: "Tor ORPort default",
+        9030: "Tor DirPort default"
+    }
+
+    # Known malicious IP patterns (simplified)
+    malicious_ip_pattern = re.compile(r'^(?:127\.(?!0\.0\.1)|10\.0\.0\.|192\.168\.0\.).*[^0-9]')
+
+    # Check each connection
+    for conn in connections:
+        reasons = []
+        local_addr = conn.get("local_addr", "")
+        remote_addr = conn.get("remote_addr", "")
+        state = conn.get("state", "")
+        proto = conn.get("proto", "")
+        pid = conn.get("pid", "")
+        program = conn.get("program", "")
+
+        # Extract IP and port
+        try:
+            if ":" in remote_addr:
+                remote_ip, remote_port_str = remote_addr.rsplit(":", 1)
+                remote_port = int(remote_port_str) if remote_port_str.isdigit() else None
+            else:
+                remote_ip = remote_addr
+                remote_port = None
+        except (ValueError, IndexError):
+            remote_ip = remote_addr
+            remote_port = None
+
+        # Check for connections to suspicious ports
+        if remote_port in suspicious_ports:
+            reasons.append({
+                "type": "suspicious_port",
+                "detail": f"Connection to known suspicious port: {remote_port} ({suspicious_ports[remote_port]})"
+            })
+
+        # Check for high non-standard ports (except common ones)
+        if remote_port and remote_port > 1024 and remote_port not in REGEX_COMMON_PORTS:
+            if state == "ESTABLISHED":
+                reasons.append({
+                    "type": "high_port",
+                    "detail": f"Established connection on unusual high port {remote_port}"
+                })
+
+        # Check for malicious IP patterns
+        if remote_ip and malicious_ip_pattern.match(remote_ip):
+            reasons.append({
+                "type": "suspicious_ip",
+                "detail": f"Connection to potentially suspicious IP: {remote_ip}"
+            })
+
+        # Check for connections with suspicious binaries
+        if program and re.search(r'nc|netcat|ncat|socat|cryptcat|telnet', program, re.IGNORECASE):
+            reasons.append({
+                "type": "suspicious_program",
+                "detail": f"Connection using potentially suspicious tool: {program}"
+            })
+
+        # Check for unusual listening ports (except common services)
+        if state == "LISTEN" and proto == "tcp":
+            try:
+                if ":" in local_addr:
+                    _, local_port_str = local_addr.rsplit(":", 1)
+                    local_port = int(local_port_str) if local_port_str.isdigit() else None
+                else:
+                    local_port = None
+
+                if local_port and local_port > 1024 and local_port not in REGEX_COMMON_PORTS:
+                    reasons.append({
+                        "type": "unusual_listening",
+                        "detail": f"Listening on unusual port {local_port}"
+                    })
+            except (ValueError, IndexError):
+                pass
+
+        # Check for connections on unusual protocols
+        if proto not in ["tcp", "udp", "icmp"]:
+            reasons.append({
+                "type": "unusual_protocol",
+                "detail": f"Connection using unusual protocol: {proto}"
+            })
+
+        # If we found any suspicious characteristics, add to results
+        if reasons:
+            suspicious.append({
+                "local_addr": local_addr,
+                "remote_addr": remote_addr,
+                "proto": proto,
+                "state": state,
+                "pid": pid,
+                "program": program,
+                "reasons": reasons,
+                "risk_level": "high" if len(reasons) > 1 else "medium"
+            })
+
+    # Sort by risk level (high first)
+    suspicious.sort(key=lambda x: 0 if x.get("risk_level") == "high" else 1)
+
+    logger.info(f"Found {len(suspicious)} suspicious connections out of {len(connections)} total connections")
+    return suspicious
+
+
+def detect_suspicious_commands(history: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Detect potentially suspicious commands in shell history.
+
+    This function analyzes command history to identify commands that match
+    known suspicious patterns including:
+    - Privilege escalation attempts
+    - Data exfiltration commands
+    - Persistence mechanisms
+    - Encoded/obfuscated commands
+    - Network scanning/reconnaissance
+
+    Args:
+        history: List of dictionaries containing command history entries
+
+    Returns:
+        Dictionary with categorized suspicious commands and summary statistics
+    """
+    # Initialize result structure
+    analysis = {
+        "general_suspicious": [],
+        "privilege_escalation": [],
+        "data_exfil": [],
+        "persistence": [],
+        "encoded_commands": [],
+        "reconnaissance": [],
+        "summary": {
+            "total_commands": len(history),
+            "total_suspicious": 0,
+            "categories": {}
+        }
+    }
+
+    # Process each history entry
+    for entry in history:
+        command = entry.get("command", "")
+        if not command:
+            continue
+
+        # Check for generally suspicious commands
+        if REGEX_SUSPICIOUS_CMD.search(command):
+            finding = {
+                "line_number": entry.get("line_number"),
+                "command": command,
+                "reason": "Potentially suspicious command pattern",
+                "category": "general_suspicious"
+            }
+            if "timestamp_iso" in entry:
+                finding["timestamp"] = entry["timestamp_iso"]
+            analysis["general_suspicious"].append(finding)
+            analysis["summary"]["categories"]["general_suspicious"] = analysis["summary"]["categories"].get("general_suspicious", 0) + 1
+
+        # Check for privilege escalation attempts
+        if REGEX_PRIVILEGE_ESCALATION.search(command):
+            finding = {
+                "line_number": entry.get("line_number"),
+                "command": command,
+                "reason": "Potential privilege escalation attempt",
+                "category": "privilege_escalation"
+            }
+            if "timestamp_iso" in entry:
+                finding["timestamp"] = entry["timestamp_iso"]
+            analysis["privilege_escalation"].append(finding)
+            analysis["summary"]["categories"]["privilege_escalation"] = analysis["summary"]["categories"].get("privilege_escalation", 0) + 1
+
+        # Check for data exfiltration attempts
+        if REGEX_DATA_EXFIL.search(command):
+            finding = {
+                "line_number": entry.get("line_number"),
+                "command": command,
+                "reason": "Potential data exfiltration activity",
+                "category": "data_exfil"
+            }
+            if "timestamp_iso" in entry:
+                finding["timestamp"] = entry["timestamp_iso"]
+            analysis["data_exfil"].append(finding)
+            analysis["summary"]["categories"]["data_exfil"] = analysis["summary"]["categories"].get("data_exfil", 0) + 1
+
+        # Check for persistence mechanisms
+        if re.search(r'crontab|\*/etc/cron|\@reboot|systemctl\s+enable|chkconfig\s+on|update-rc\.d|\.bashrc|\.profile|\.bash_profile|\.zshrc|/etc/init\.d|/etc/systemd/system', command):
+            finding = {
+                "line_number": entry.get("line_number"),
+                "command": command,
+                "reason": "Potential persistence mechanism",
+                "category": "persistence"
+            }
+            if "timestamp_iso" in entry:
+                finding["timestamp"] = entry["timestamp_iso"]
+            analysis["persistence"].append(finding)
+            analysis["summary"]["categories"]["persistence"] = analysis["summary"]["categories"].get("persistence", 0) + 1
+
+        # Check for encoded commands
+        encoded_pattern = re.compile(r'base64\s+-\w*d|eval.*base64|echo\s+[\'"]*[A-Za-z0-9+/=]{20,}[\'"]*\s*\|\s*bash')
+        if encoded_pattern.search(command):
+            finding = {
+                "line_number": entry.get("line_number"),
+                "command": command,
+                "reason": "Encoded or obfuscated command execution",
+                "category": "encoded_command"
+            }
+            if "timestamp_iso" in entry:
+                finding["timestamp"] = entry["timestamp_iso"]
+            analysis["encoded_commands"].append(finding)
+            analysis["summary"]["categories"]["encoded_command"] = analysis["summary"]["categories"].get("encoded_command", 0) + 1
+
+        # Check for reconnaissance commands
+        reconnaissance_pattern = re.compile(r'nmap|masscan|ping\s+-c|traceroute|dig\s+any|whois|netstat|lsof\s+-i|ss\s+-[alnt]|wget.*-O-|curl.*-s')
+        if reconnaissance_pattern.search(command):
+            finding = {
+                "line_number": entry.get("line_number"),
+                "command": command,
+                "reason": "System reconnaissance activity",
+                "category": "reconnaissance"
+            }
+            if "timestamp_iso" in entry:
+                finding["timestamp"] = entry["timestamp_iso"]
+            analysis["reconnaissance"].append(finding)
+            analysis["summary"]["categories"]["reconnaissance"] = analysis["summary"]["categories"].get("reconnaissance", 0) + 1
+
+    # Update summary statistics
+    all_suspicious = (
+        len(analysis["general_suspicious"]) +
+        len(analysis["privilege_escalation"]) +
+        len(analysis["data_exfil"]) +
+        len(analysis["persistence"]) +
+        len(analysis["encoded_commands"]) +
+        len(analysis["reconnaissance"])
+    )
+
+    analysis["summary"]["total_suspicious"] = all_suspicious
+    analysis["summary"]["percentage_suspicious"] = round((all_suspicious / len(history)) * 100, 2) if history else 0
+
+    logger.info(f"Analyzed {len(history)} command history entries. Found {all_suspicious} suspicious commands.")
+    return analysis
+
+
+def detect_data_exfil(artifacts: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Detect potential data exfiltration activities from collected artifacts.
+
+    This function analyzes various artifacts to identify patterns indicative
+    of data exfiltration:
+    - Network connections to unusual destinations
+    - File transfer commands in history
+    - Use of compression/encryption tools on sensitive data
+    - Unusual outbound traffic patterns
+
+    Args:
+        artifacts: Dictionary containing parsed artifacts (processes, network, commands, etc.)
+
+    Returns:
+        List of dictionaries describing potential data exfiltration activities
+    """
+    exfil_indicators = []
+
+    # Check command history for exfiltration patterns
+    if "command_history" in artifacts and artifacts["command_history"]:
+        for entry in artifacts["command_history"]:
+            command = entry.get("command", "")
+            if not command:
+                continue
+
+            # Check for data packaging commands
+            if re.search(r'tar\s+cz|7z\s+a|zip\s+-|gzip|xz|bzip2', command) and re.search(r'/etc|/var/log|/home|/root|\.ssh|database|backup', command):
+                exfil_indicators.append({
+                    "type": "data_packaging",
+                    "command": command,
+                    "timestamp": entry.get("timestamp_iso", "Unknown"),
+                    "details": "Command for packaging potentially sensitive data",
+                    "source": "command_history",
+                    "risk_level": "medium"
+                })
+
+            # Check for direct file transfer commands
+            if REGEX_DATA_EXFIL.search(command):
+                exfil_indicators.append({
+                    "type": "file_transfer",
+                    "command": command,
+                    "timestamp": entry.get("timestamp_iso", "Unknown"),
+                    "details": "Command for transferring data to external system",
+                    "source": "command_history",
+                    "risk_level": "high"
+                })
+
+    # Check network connections for exfiltration patterns
+    if "network_connections" in artifacts and artifacts["network_connections"]:
+        for conn in artifacts["network_connections"]:
+            remote_addr = conn.get("remote_addr", "")
+            proto = conn.get("proto", "")
+            state = conn.get("state", "")
+            program = conn.get("program", "")
+
+            # Extract IP and port
+            try:
+                if ":" in remote_addr:
+                    remote_ip, remote_port_str = remote_addr.rsplit(":", 1)
+                    remote_port = int(remote_port_str) if remote_port_str.isdigit() else None
+                else:
+                    remote_ip = remote_addr
+                    remote_port = None
+            except (ValueError, IndexError):
+                remote_ip = remote_addr
+                remote_port = None
+
+            # Check for connections to file sharing/transfer ports
+            if remote_port in [21, 22, 69, 2049, 445, 139]:
+                service_name = {
+                    21: "FTP",
+                    22: "SSH/SCP",
+                    69: "TFTP",
+                    2049: "NFS",
+                    445: "SMB",
+                    139: "NetBIOS"
+                }.get(remote_port, str(remote_port))
+
+                if state == "ESTABLISHED":
+                    exfil_indicators.append({
+                        "type": "file_transfer_connection",
+                        "local_addr": conn.get("local_addr", "Unknown"),
+                        "remote_addr": remote_addr,
+                        "protocol": f"{proto}/{service_name}",
+                        "program": program,
+                        "details": f"Established connection to {service_name} service",
+                        "source": "network_connections",
+                        "risk_level": "medium"
+                    })
+
+            # Check for outbound connections with data transfer tools
+            if program and re.search(r'scp|sftp|ftp|nc|rsync|curl|wget', program, re.IGNORECASE):
+                exfil_indicators.append({
+                    "type": "data_transfer_tool",
+                    "local_addr": conn.get("local_addr", "Unknown"),
+                    "remote_addr": remote_addr,
+                    "protocol": proto,
+                    "program": program,
+                    "details": f"Connection using common data transfer tool ({program})",
+                    "source": "network_connections",
+                    "risk_level": "medium"
+                })
+
+    # Check processes for exfiltration indicators
+    if "processes" in artifacts and artifacts["processes"]:
+        for proc in artifacts["processes"]:
+            command = proc.get("command", "")
+            if not command:
+                continue
+
+            # Check for data transfer tools
+            if re.search(r'\b(scp|sftp|ftp|rsync)\b', command) and re.search(r'/etc|/var/log|/home|/root|\.ssh|database|backup', command):
+                exfil_indicators.append({
+                    "type": "data_transfer_process",
+                    "pid": proc.get("pid", "Unknown"),
+                    "user": proc.get("user", "Unknown"),
+                    "command": command,
+                    "details": "Process transferring potentially sensitive data",
+                    "source": "processes",
+                    "risk_level": "high"
+                })
+
+    # Sort by risk level
+    exfil_indicators.sort(key=lambda x: 0 if x.get("risk_level") == "high" else 1)
+
+    logger.info(f"Found {len(exfil_indicators)} potential data exfiltration indicators")
+    return exfil_indicators
+
+
+def detect_privilege_escalation(artifacts: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Detect potential privilege escalation activities from collected artifacts.
+
+    This function analyzes various artifacts to identify patterns indicative
+    of privilege escalation attempts:
+    - Use of sudo, su, or similar commands
+    - Exploits for known privilege escalation vulnerabilities
+    - Suspicious SUID/SGID binaries
+    - Modifications to system security settings
+
+    Args:
+        artifacts: Dictionary containing parsed artifacts (processes, network, commands, etc.)
+
+    Returns:
+        List of dictionaries describing potential privilege escalation activities
+    """
+    escalation_indicators = []
+
+    # Check command history for privilege escalation patterns
+    if "command_history" in artifacts and artifacts["command_history"]:
+        for entry in artifacts["command_history"]:
+            command = entry.get("command", "")
+            if not command:
+                continue
+
+            # Check for privilege escalation commands
+            if REGEX_PRIVILEGE_ESCALATION.search(command):
+                escalation_indicators.append({
+                    "type": "privilege_command",
+                    "command": command,
+                    "timestamp": entry.get("timestamp_iso", "Unknown"),
+                    "details": "Command attempting to escalate privileges",
+                    "source": "command_history",
+                    "risk_level": "high"
+                })
+
+            # Check for specific CVE exploits
+            cve_pattern = re.compile(r'CVE-\d{4}-\d+|exploit|pwnkit|linpeas|dirtycow|dirty_cow|dirtypipe|ptrace|pkexec')
+            if cve_pattern.search(command.lower()):
+                escalation_indicators.append({
+                    "type": "exploit_attempt",
+                    "command": command,
+                    "timestamp": entry.get("timestamp_iso", "Unknown"),
+                    "details": "Command referencing known privilege escalation exploit",
+                    "source": "command_history",
+                    "risk_level": "high"
+                })
+
+            # Check for modifications to sudoers
+            if re.search(r'visudo|/etc/sudoers|sudoers\.d|NOPASSWD|chmod\s+\+w\s+/etc/sudoers', command):
+                escalation_indicators.append({
+                    "type": "sudoers_modification",
+                    "command": command,
+                    "timestamp": entry.get("timestamp_iso", "Unknown"),
+                    "details": "Command modifying sudo configuration",
+                    "source": "command_history",
+                    "risk_level": "high"
+                })
+
+            # Check for SUID/SGID modifications
+            if re.search(r'chmod\s+[u+]s|chmod\s+[g+]s|chmod\s+[0-9]+s', command):
+                escalation_indicators.append({
+                    "type": "suid_modification",
+                    "command": command,
+                    "timestamp": entry.get("timestamp_iso", "Unknown"),
+                    "details": "Command setting SUID/SGID permission bit",
+                    "source": "command_history",
+                    "risk_level": "high"
+                })
+
+    # Check processes for privilege escalation indicators
+    if "processes" in artifacts and artifacts["processes"]:
+        for proc in artifacts["processes"]:
+            command = proc.get("command", "")
+            user = proc.get("user", "")
+            if not command:
+                continue
+
+            # Check for exploit tools
+            if re.search(r'exploit|linpeas|pspy|pwnkit|dirtycow|pkexec.*0x|gcc\s+-o\s+pwn', command.lower()):
+                escalation_indicators.append({
+                    "type": "exploit_process",
+                    "pid": proc.get("pid", "Unknown"),
+                    "user": user,
+                    "command": command,
+                    "details": "Process running potential privilege escalation exploit",
+                    "source": "processes",
+                    "risk_level": "high"
+                })
+
+            # Check for unexpected binaries running as root
+            if user == "root" and re.search(r'^(bash|sh|dash|python|perl|php|ruby|nc|netcat|ncat)\b', command.split('/')[-1]):
+                if not re.search(r'^/(usr/)?(s)?bin/', command.split()[0]):
+                    escalation_indicators.append({
+                        "type": "unexpected_root_process",
+                        "pid": proc.get("pid", "Unknown"),
+                        "user": user,
+                        "command": command,
+                        "details": "Interpreter running as root from non-standard location",
+                        "source": "processes",
+                        "risk_level": "high"
+                    })
+
+    # Sort by risk level
+    escalation_indicators.sort(key=lambda x: 0 if x.get("risk_level") == "high" else 1)
+
+    logger.info(f"Found {len(escalation_indicators)} potential privilege escalation indicators")
+    return escalation_indicators
+
+
+def extract_network_indicators(artifacts: Dict[str, Any]) -> Dict[str, List[str]]:
+    """
+    Extract network indicators of compromise from collected artifacts.
+
+    This function identifies potential malicious network indicators:
+    - IP addresses
+    - Domain names
+    - URLs
+    - Network ports and protocols
+
+    Args:
+        artifacts: Dictionary containing parsed artifacts (processes, network, commands, etc.)
+
+    Returns:
+        Dictionary containing categorized network indicators
+    """
+    indicators = {
+        "ip_addresses": [],
+        "domains": [],
+        "urls": [],
+        "ports": []
+    }
+
+    # Helper function to add unique indicators
+    def add_unique(category, value):
+        if value and value not in indicators[category]:
+            indicators[category].append(value)
+
+    # Check processes for network indicators
+    if "processes" in artifacts and artifacts["processes"]:
+        for proc in artifacts["processes"]:
+            command = proc.get("command", "")
+
+            # Extract IPs
+            for ip in REGEX_IP_ADDR.findall(command):
+                if not ip.startswith("127.") and not ip.startswith("0."):
+                    add_unique("ip_addresses", ip)
+
+            # Extract domains
+            for domain in REGEX_DOMAIN.findall(command):
+                add_unique("domains", domain)
+
+            # Extract URLs
+            for url in re.findall(r'https?://[^\s"\']+', command):
+                add_unique("urls", url)
+
+    # Check network connections
+    if "network_connections" in artifacts and artifacts["network_connections"]:
+        for conn in artifacts["network_connections"]:
+            remote_addr = conn.get("remote_addr", "")
+
+            # Extract IP and port
+            try:
+                if ":" in remote_addr:
+                    remote_ip, remote_port_str = remote_addr.rsplit(":", 1)
+                    if remote_port_str.isdigit():
+                        remote_port = int(remote_port_str)
+                        if remote_port not in [80, 443, 22, 53] and remote_port != 0:
+                            add_unique("ports", remote_port)
+                else:
+                    remote_ip = remote_addr
+
+                # Add IP if it's not a local/private address
+                if remote_ip and not remote_ip.startswith("127.") and not remote_ip.startswith("0.") and not remote_ip.startswith("192.168.") and not remote_ip.startswith("10.") and not remote_ip.startswith("172."):
+                    add_unique("ip_addresses", remote_ip)
+            except (ValueError, IndexError):
+                pass
+
+    # Check command history
+    if "command_history" in artifacts and artifacts["command_history"]:
+        for entry in artifacts["command_history"]:
+            command = entry.get("command", "")
+
+            # Extract IPs
+            for ip in REGEX_IP_ADDR.findall(command):
+                if not ip.startswith("127.") and not ip.startswith("0."):
+                    add_unique("ip_addresses", ip)
+
+            # Extract domains
+            for domain in REGEX_DOMAIN.findall(command):
+                add_unique("domains", domain)
+
+            # Extract URLs
+            for url in re.findall(r'https?://[^\s"\']+', command):
+                add_unique("urls", url)
+
+    logger.info(f"Extracted network indicators: {sum(len(v) for v in indicators.values())} total")
+    return indicators
+
+
+def extract_file_indicators(artifacts: Dict[str, Any]) -> Dict[str, List[str]]:
+    """
+    Extract file-based indicators of compromise from collected artifacts.
+
+    This function identifies potential malicious file indicators:
+    - Suspicious file paths
+    - File names matching malware patterns
+    - Temporary files
+    - Hidden files
+
+    Args:
+        artifacts: Dictionary containing parsed artifacts (processes, network, commands, etc.)
+
+    Returns:
+        Dictionary containing categorized file indicators
+    """
+    indicators = {
+        "suspicious_paths": [],
+        "temp_files": [],
+        "hidden_files": [],
+        "web_shells": []
+    }
+
+    # Helper function to add unique indicators
+    def add_unique(category, value):
+        if value and value not in indicators[category]:
+            indicators[category].append(value)
+
+    # Check processes for file indicators
+    if "processes" in artifacts and artifacts["processes"]:
+        for proc in artifacts["processes"]:
+            command = proc.get("command", "")
+
+            # Extract suspicious paths
+            suspicious_path_pattern = re.compile(r'(/tmp/|/var/tmp/|/dev/shm/)[^\s>|]+\.([a-z0-9]{5,}|py|sh|pl|php|rb)')
+            for match in suspicious_path_pattern.finditer(command):
+                add_unique("suspicious_paths", match.group(0))
+
+            # Extract temp files
+            temp_file_pattern = re.compile(r'(/tmp/|/var/tmp/)[^\s>|]+')
+            for match in temp_file_pattern.finditer(command):
+                add_unique("temp_files", match.group(0))
+
+            # Extract hidden files
+            hidden_file_pattern = re.compile(r'/\.(?!\.)[^\s/]+')
+            for match in hidden_file_pattern.finditer(command):
+                path = match.group(0)
+                if not any(common in path for common in ['.ssh', '.config', '.cache', '.local']):
+                    add_unique("hidden_files", path)
+
+    # Check command history
+    if "command_history" in artifacts and artifacts["command_history"]:
+        for entry in artifacts["command_history"]:
+            command = entry.get("command", "")
+
+            # Check for web shell patterns
+            webshell_pattern = re.compile(r'(?:\.php|\.jsp|\.asp|\.aspx).*(?:passthru|shell_exec|system|phpinfo|base64_decode|edoced_46esab|eval|assert)')
+            if webshell_pattern.search(command.lower()):
+                if re.search(r'/var/www/|/srv/www/|/html/|/htdocs/', command):
+                    # Extract the path
+                    for path in re.findall(r'(?:/var/www/|/srv/www/|/html/|/htdocs/)[^\s>|]+(?:\.php|\.jsp|\.asp|\.aspx)', command):
+                        add_unique("web_shells", path)
+
+            # Extract suspicious paths created or modified
+            file_operation_pattern = re.compile(r'(?:touch|echo|printf|cat|tee|vim|nano|vi|rm|cp|mv)\s+([^\s>|]+)')
+            for match in file_operation_pattern.finditer(command):
+                path = match.group(1)
+
+                # Check for suspicious locations
+                if re.match(r'(/tmp/|/var/tmp/|/dev/shm/)', path):
+                    add_unique("temp_files", path)
+
+                # Check for hidden files created in non-standard locations
+                if '/' in path and path.split('/')[-1].startswith('.') and not any(common in path for common in ['.ssh', '.config', '.cache', '.local']):
+                    add_unique("hidden_files", path)
+
+    # Check for file paths in open files
+    if "open_files" in artifacts and artifacts["open_files"]:
+        for file_entry in artifacts["open_files"]:
+            path = file_entry.get("path", "")
+            if not path:
+                continue
+
+            # Check suspicious temporary locations
+            if re.match(r'(/tmp/|/var/tmp/|/dev/shm/)', path) and re.search(r'\.(sh|py|pl|rb|php|jsp|asp|aspx|cgi)$', path.lower()):
+                add_unique("suspicious_paths", path)
+                add_unique("temp_files", path)
+
+            # Check web directories for potential web shells
+            if re.search(r'/var/www/|/srv/www/|/html/|/htdocs/', path) and re.search(r'\.(php|jsp|asp|aspx)$', path.lower()):
+                if 'r' in file_entry.get("mode", "") and 'w' in file_entry.get("mode", ""):  # Read-write access
+                    add_unique("web_shells", path)
+
+    logger.info(f"Extracted file indicators: {sum(len(v) for v in indicators.values())} total")
+    return indicators
+
+# Helper function for extracting metadata from evidence directory (used in fallback)
+def _extract_metadata(evidence_path: Path) -> Dict[str, Any]:
+    metadata = {
+        "collection_date": datetime.now().isoformat(),
+        "processed_by": "artifact_parser.py"
+    }
+
+    # Look for metadata files
+    metadata_files = ["collection_metadata.json", "collection_summary.txt", "metadata.json", "summary.txt"]
+
+    for filename in metadata_files:
+        file_path = evidence_path / filename
+        if file_path.exists():
+            try:
+                if file_path.suffix == ".json":
+                    with open(file_path, 'r') as f:
+                        return json.load(f)
+                else:
+                    # Basic extraction from text summary
+                    with open(file_path, 'r') as f:
+                        content = f.read()
+                        if "Case ID:" in content:
+                            metadata["case_id"] = content.split("Case ID:")[1].split("\n")[0].strip()
+                        if "Collection Date:" in content:
+                            metadata["collection_date"] = content.split("Collection Date:")[1].split("\n")[0].strip()
+                        if "Host:" in content:
+                            metadata["host"] = content.split("Host:")[1].split("\n")[0].strip()
+                        if "Examiner:" in content:
+                            metadata["examiner"] = content.split("Examiner:")[1].split("\n")[0].strip()
+                    break
+            except Exception as e:
+                logger.warning(f"Failed to parse metadata file {file_path}: {e}")
+
+    return metadata
+
+
+def analyze_artifact_timeline(artifacts: Dict[str, Any], options: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """
+    Create and analyze a timeline of events from collected artifacts.
+
+    This function extracts timestamp information from various artifact types
+    and builds a consolidated timeline to help analyze the sequence of events
+    during a security incident. It identifies patterns, suspicious time gaps,
+    and potential correlations between different activities.
+
+    Args:
+        artifacts: Dictionary containing parsed artifacts (processes, network, command history, etc.)
+        options: Optional configuration parameters for timeline analysis
+            - max_events: Maximum number of events to include
+            - filter_types: List of event types to include (e.g., ["process", "network", "command"])
+            - start_time: Filter events after this ISO timestamp
+            - end_time: Filter events before this ISO timestamp
+            - include_system_events: Whether to include routine system events (default: False)
+            - correlation_window_seconds: Time window for correlating related events (default: 60)
+
+    Returns:
+        List of dictionaries representing timeline events in chronological order
+    """
+    if options is None:
+        options = {}
+
+    # Default configuration
+    max_events = options.get("max_events", 1000)
+    filter_types = options.get("filter_types", [])  # Empty means include all
+    start_time = options.get("start_time")
+    end_time = options.get("end_time")
+    include_system_events = options.get("include_system_events", False)
+    correlation_window = options.get("correlation_window_seconds", 60)
+
+    # Initialize timeline
+    timeline = []
+
+    # Extract timestamp information from command history
+    if "command_history" in artifacts and artifacts["command_history"]:
+        for entry in artifacts["command_history"]:
+            # Skip if no timestamp available
+            if "timestamp_iso" not in entry:
+                continue
+
+            command = entry.get("command", "")
+            # Skip common system commands if not including system events
+            if not include_system_events and _is_routine_command(command):
+                continue
+
+            timeline.append({
+                "timestamp": entry["timestamp_iso"],
+                "event_type": "command",
+                "description": f"Command executed: {command}",
+                "user": entry.get("user", "unknown"),
+                "details": {
+                    "command": command,
+                    "line_number": entry.get("line_number"),
+                    "suspicious": _is_suspicious_command(command)
+                },
+                "source": "command_history"
+            })
+
+    # Extract timestamp information from process data if available
+    if "processes" in artifacts and artifacts["processes"]:
+        for proc in artifacts["processes"]:
+            # Skip if no timestamp information
+            if "start" not in proc:
+                continue
+
+            # Convert process start time to ISO format if possible
+            try:
+                # This will need enhancement based on the actual timestamp format in process data
+                timestamp = _normalize_process_timestamp(proc.get("start", ""))
+                if not timestamp:
+                    continue
+
+                timeline.append({
+                    "timestamp": timestamp,
+                    "event_type": "process",
+                    "description": f"Process started: {proc.get('command', 'unknown')}",
+                    "user": proc.get("user", "unknown"),
+                    "details": {
+                        "pid": proc.get("pid", "unknown"),
+                        "command": proc.get("command", ""),
+                        "suspicious": _is_suspicious_process(proc)
+                    },
+                    "source": "processes"
+                })
+            except Exception as e:
+                logger.debug(f"Error parsing process timestamp: {e}")
+                continue
+
+    # Extract timestamp information from network connections if available
+    # This is more complex as most network data doesn't include timestamps
+    # We could potentially correlate with firewall logs or other sources here
+
+    # Extract timestamps from log files if available
+    if "logs" in artifacts and artifacts["logs"]:
+        for log_entry in artifacts.get("logs", []):
+            if "timestamp" in log_entry and "message" in log_entry:
+                # Skip routine log entries if not including system events
+                if not include_system_events and _is_routine_log_entry(log_entry.get("message", "")):
+                    continue
+
+                timeline.append({
+                    "timestamp": log_entry["timestamp"],
+                    "event_type": "log",
+                    "description": f"Log entry: {log_entry.get('message', '')}",
+                    "details": {
+                        "level": log_entry.get("level", "info"),
+                        "source": log_entry.get("source", "unknown"),
+                        "message": log_entry.get("message", ""),
+                        "suspicious": _is_suspicious_log_entry(log_entry.get("message", ""))
+                    },
+                    "source": "logs"
+                })
+
+    # Apply filters
+    filtered_timeline = timeline
+
+    # Filter by event types if specified
+    if filter_types:
+        filtered_timeline = [event for event in filtered_timeline if event["event_type"] in filter_types]
+
+    # Filter by time range if specified
+    if start_time:
+        filtered_timeline = [event for event in filtered_timeline if event["timestamp"] >= start_time]
+    if end_time:
+        filtered_timeline = [event for event in filtered_timeline if event["timestamp"] <= end_time]
+
+    # Sort timeline chronologically
+    filtered_timeline.sort(key=lambda x: x["timestamp"])
+
+    # Limit number of events if specified
+    if len(filtered_timeline) > max_events:
+        filtered_timeline = filtered_timeline[-max_events:]
+
+    # Identify and group correlated events within the specified time window
+    correlated_events = _correlate_timeline_events(filtered_timeline, correlation_window)
+
+    # Add correlation information to timeline events
+    for event in filtered_timeline:
+        if event.get("id") in correlated_events:
+            event["correlated_events"] = correlated_events[event.get("id")]
+
+    # Add anomalies and insights to the timeline
+    filtered_timeline = _identify_timeline_anomalies(filtered_timeline)
+
+    logger.info(f"Generated timeline with {len(filtered_timeline)} events from {len(timeline)} total events")
+    return filtered_timeline
+
+
+def generate_artifact_report(artifacts: Dict[str, Any], report_type: str = "full",
+                           output_format: str = "json",
+                           output_file: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Generate a comprehensive forensic report from collected artifacts.
+
+    This function creates a structured forensic report that summarizes findings,
+    identifies suspicious activities, and presents the evidence in a format
+    suitable for incident response teams and stakeholders. The report can be
+    generated in different formats and detail levels to meet various needs.
+
+    Args:
+        artifacts: Dictionary containing parsed artifacts and analysis results
+        report_type: Type of report to generate
+            - "full": Complete detailed report with all findings
+            - "summary": Executive summary with key findings
+            - "technical": Technical details for forensic analysts
+            - "ioc": Only indicators of compromise
+        output_format: Output format of the report
+            - "json": JSON structured data
+            - "text": Plain text report
+            - "html": HTML formatted report
+            - "csv": CSV format for IOCs and key findings
+            - "markdown": Markdown formatted report
+        output_file: Optional path to save the report (if None, return as dict/string)
+
+    Returns:
+        Dictionary containing the report data or success status if output_file provided
+    """
+    report_date = datetime.now(timezone.utc).isoformat()
+
+    # Get metadata if available
+    metadata = artifacts.get("metadata", {})
+
+    # Basic report structure
+    report = {
+        "report_type": report_type,
+        "generated_at": report_date,
+        "case_info": {
+            "case_id": metadata.get("case_id", "Unknown"),
+            "examiner": metadata.get("examiner", "Unknown"),
+            "collection_date": metadata.get("collection_date", "Unknown"),
+            "host": metadata.get("host", "Unknown"),
+            "collection_method": metadata.get("collection_method", "Live Response Toolkit")
+        },
+        "summary": _generate_report_summary(artifacts, report_type),
+        "findings": _generate_report_findings(artifacts, report_type),
+        "recommendations": _generate_report_recommendations(artifacts)
+    }
+
+    # Add detailed analysis based on report type
+    if report_type in ["full", "technical"]:
+        report["detailed_analysis"] = _generate_detailed_analysis(artifacts)
+
+    # Add IOCs for relevant report types
+    if report_type in ["full", "technical", "ioc"]:
+        report["indicators_of_compromise"] = _generate_ioc_section(artifacts)
+
+    # Add timeline for full and technical reports
+    if report_type in ["full", "technical"]:
+        timeline_options = {
+            "max_events": 1000 if report_type == "full" else 500,
+            "include_system_events": report_type == "technical",
+            "correlation_window_seconds": 60
+        }
+        report["timeline"] = analyze_artifact_timeline(artifacts, timeline_options)
+
+    # Output formats
+    if output_file:
+        if output_format == "json":
+            return _save_json_report(report, output_file)
+        elif output_format == "text":
+            return _save_text_report(report, output_file)
+        elif output_format == "html":
+            return _save_html_report(report, output_file)
+        elif output_format == "csv":
+            return _save_csv_report(report, output_file)
+        elif output_format == "markdown":
+            return _save_markdown_report(report, output_file)
+        else:
+            logger.warning(f"Unsupported output format: {output_format}. Defaulting to JSON.")
+            return _save_json_report(report, output_file)
+
+    # If no output file, return the report data
+    return report
+
+
+# --- Helper Functions for Timeline Analysis ---
+
+def _is_routine_command(command: str) -> bool:
+    """Check if a command is routine system activity."""
+    routine_patterns = [
+        r'^ls\s+', r'^cd\s+', r'^echo\s+', r'^cat\s+',
+        r'^grep\s+', r'^find\s+', r'^pwd$', r'^umask$', r'^locale$',
+        r'^which\s+', r'^type\s+', r'^clear$', r'^history$',
+        r'^w$', r'^who$', r'^whoami$', r'^uptime$', r'^df\s+',
+        r'^top\s+', r'^ps\s+', r'^env$'
+    ]
+    return any(re.match(pattern, command) for pattern in routine_patterns)
+
+
+def _is_suspicious_command(command: str) -> bool:
+    """Check if a command is suspicious using established patterns."""
+    return (REGEX_SUSPICIOUS_CMD.search(command) is not None or
+            REGEX_PRIVILEGE_ESCALATION.search(command) is not None or
+            REGEX_DATA_EXFIL.search(command) is not None)
+
+
+def _is_suspicious_process(process: Dict[str, Any]) -> bool:
+    """Check if a process is suspicious based on command and user."""
+    command = process.get("command", "")
+    user = process.get("user", "")
+
+    # Check if root is running non-system processes
+    if user == "root" and not _is_system_process(command):
+        return True
+
+    # Check for suspicious command patterns
+    return _is_suspicious_command(command)
+
+
+def _is_system_process(command: str) -> bool:
+    """Check if this is a known system process that should run as root."""
+    system_patterns = [
+        r'^(\/usr\/|\/bin\/|\/sbin\/)(system|init|network|cron|ssh|kernel)',
+        r'\[.*\]$',  # Kernel threads appear in brackets
+        r'^systemd(\s|$)',
+        r'^\/lib\/systemd\/',
+        r'^(\/usr)?\/lib\/',
+        r'^dbus-daemon',
+        r'^(\/usr\/)?sbin\/'
+    ]
+    return any(re.search(pattern, command) for pattern in system_patterns)
+
+
+def _is_routine_log_entry(message: str) -> bool:
+    """Check if a log entry is routine system activity."""
+    routine_patterns = [
+        r'CRON\[\d+\]',
+        r'(opened|closed) session',
+        r'systemd\[\d+\]: Started',
+        r'DHCP (REQUEST|RENEW|ACK)',
+        r'pam_unix\(sshd:session\): session (opened|closed)',
+        r'(Received|Sent) disconnect'
+    ]
+    return any(re.search(pattern, message) for pattern in routine_patterns)
+
+
+def _is_suspicious_log_entry(message: str) -> bool:
+    """Check if a log message contains suspicious indicators."""
+    suspicious_patterns = [
+        r'(authentication|login) failure',
+        r'failed password',
+        r'invalid user',
+        r'user not in sudoers',
+        r'permission denied',
+        r'segfault at',
+        r'(error|failed) loading',
+        r'executable stack',
+        r'audited system call',
+        r'rejected by tcpwrapper',
+        r'signature not trusted',
+        r'unauthorized access',
+        r'user unknown'
+    ]
+    return any(re.search(pattern, message, re.IGNORECASE) for pattern in suspicious_patterns)
+
+
+def _normalize_process_timestamp(timestamp: str) -> Optional[str]:
+    """
+    Normalize process timestamp to ISO format.
+
+    This handles various timestamp formats found in process listings.
+    Returns None if timestamp cannot be parsed.
+    """
+    # This implementation would need to be expanded based on the actual timestamp format
+    # Here's a placeholder that handles common formats:
+    try:
+        # For simple time format (no date) like "10:30:45"
+        if re.match(r'\d{2}:\d{2}(:\d{2})?$', timestamp):
+            # Use current date with the given time
+            today = datetime.now().strftime("%Y-%m-%d")
+            full_timestamp = f"{today} {timestamp}"
+            dt = datetime.strptime(full_timestamp, "%Y-%m-%d %H:%M:%S")
+            return dt.isoformat()
+
+        # For Unix timestamp
+        if timestamp.isdigit():
+            dt = datetime.fromtimestamp(int(timestamp))
+            return dt.isoformat()
+
+        # For ISO-like format "YYYY-MM-DD HH:MM:SS"
+        if re.match(r'\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}', timestamp):
+            dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
+            return dt.isoformat()
+
+        # For standard formats like "Jun 15 10:30:45"
+        dt = datetime.strptime(timestamp, "%b %d %H:%M:%S")
+        # Add current year
+        current_year = datetime.now().year
+        dt = dt.replace(year=current_year)
+        return dt.isoformat()
+    except Exception:
+        return None
+
+
+def _correlate_timeline_events(timeline: List[Dict[str, Any]], window_seconds: int = 60) -> Dict[str, List[str]]:
+    """
+    Identify correlated events based on time proximity and content similarity.
+
+    Args:
+        timeline: Sorted list of timeline events
+        window_seconds: Time window to consider for correlation
+
+    Returns:
+        Dictionary mapping event IDs to lists of correlated event IDs
+    """
+    # Add unique IDs to events if they don't have them
+    for i, event in enumerate(timeline):
+        if "id" not in event:
+            event["id"] = f"event_{i}"
+
+    correlated = {}
+
+    # For each event, find other events within the time window
+    for i, event in enumerate(timeline):
+        event_time = event.get("timestamp", "")
+        event_id = event.get("id", f"event_{i}")
+        correlated[event_id] = []
+
+        if not event_time:
+            continue
+
+        # Try to parse the timestamp
+        try:
+            event_dt = datetime.fromisoformat(event_time.replace("Z", "+00:00"))
+
+            # Check other events within the window
+            for j, other in enumerate(timeline):
+                if i == j:
+                    continue
+
+                other_time = other.get("timestamp", "")
+                other_id = other.get("id", f"event_{j}")
+
+                if not other_time:
+                    continue
+
+                try:
+                    other_dt = datetime.fromisoformat(other_time.replace("Z", "+00:00"))
+                    time_diff = abs((event_dt - other_dt).total_seconds())
+
+                    # If within time window, check content similarity
+                    if time_diff <= window_seconds:
+                        # Check if the events are related based on content
+                        if _are_events_related(event, other):
+                            correlated[event_id].append(other_id)
+                except Exception:
+                    continue
+        except Exception:
+            continue
+
+    return correlated
+
+
+def _are_events_related(event1: Dict[str, Any], event2: Dict[str, Any]) -> bool:
+    """Determine if two events are related based on their content."""
+    # Same user
+    if (event1.get("user") and event2.get("user") and
+        event1.get("user") == event2.get("user")):
+        return True
+
+    # Related process and command
+    if (event1.get("event_type") == "process" and
+        event2.get("event_type") == "command"):
+        # Check if command contains the process name or vice versa
+        proc_cmd = event1.get("details", {}).get("command", "")
+        cmd = event2.get("details", {}).get("command", "")
+
+        if proc_cmd and cmd:
+            # Extract the base command name
+            proc_base = proc_cmd.split()[0].split("/")[-1]
+            cmd_base = cmd.split()[0]
+            if proc_base and cmd_base and (proc_base in cmd or cmd_base in proc_cmd):
+                return True
+
+    # Same process ID
+    if (event1.get("details", {}).get("pid") and
+        event2.get("details", {}).get("pid") and
+        event1["details"]["pid"] == event2["details"]["pid"]):
+        return True
+
+    return False
+
+
+def _identify_timeline_anomalies(timeline: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Identify anomalies in the timeline such as unusual gaps or bursts of activity.
+
+    Args:
+        timeline: List of timeline events in chronological order
+
+    Returns:
+        Timeline with added anomaly indicators
+    """
+    # Need at least 2 events to detect anomalies
+    if len(timeline) < 2:
+        return timeline
+
+    # Calculate time differences between consecutive events
+    time_diffs = []
+    for i in range(1, len(timeline)):
+        try:
+            curr_time = datetime.fromisoformat(timeline[i]["timestamp"].replace("Z", "+00:00"))
+            prev_time = datetime.fromisoformat(timeline[i-1]["timestamp"].replace("Z", "+00:00"))
+            diff_seconds = (curr_time - prev_time).total_seconds()
+            time_diffs.append(diff_seconds)
+        except (ValueError, KeyError):
+            time_diffs.append(None)
+
+    # Calculate statistics
+    valid_diffs = [d for d in time_diffs if d is not None]
+    if not valid_diffs:
+        return timeline
+
+    mean_diff = sum(valid_diffs) / len(valid_diffs)
+    std_dev = (sum((x - mean_diff) ** 2 for x in valid_diffs) / len(valid_diffs)) ** 0.5
+
+    # Identify anomalies (gaps or bursts)
+    anomaly_threshold = 3.0  # Standard deviations from the mean
+
+    for i in range(len(time_diffs)):
+        diff = time_diffs[i]
+        if diff is None:
+            continue
+
+        if diff > mean_diff + (anomaly_threshold * std_dev):
+            # Large gap before this event
+            timeline[i+1]["anomaly"] = {
+                "type": "time_gap",
+                "description": f"Unusual gap of {int(diff)} seconds before this event",
+                "severity": "medium" if diff > (2 * mean_diff) else "low"
+            }
+        elif diff < mean_diff - (anomaly_threshold * std_dev) and diff < 1.0:
+            # Burst of activity (events very close together)
+            timeline[i+1]["anomaly"] = {
+                "type": "activity_burst",
+                "description": "Unusually rapid sequence of events",
+                "severity": "medium"
+            }
+
+    # Look for suspicious sequences of events
+    for i in range(1, len(timeline) - 1):
+        # Example: privilege escalation followed by suspicious command
+        if (_is_privilege_escalation_event(timeline[i]) and
+            i+1 < len(timeline) and
+            _is_suspicious_command_event(timeline[i+1])):
+
+            timeline[i+1]["anomaly"] = {
+                "type": "suspicious_sequence",
+                "description": "Suspicious command after privilege escalation",
+                "severity": "high",
+                "related_event_id": timeline[i].get("id")
+            }
+
+    return timeline
+
+
+def _is_privilege_escalation_event(event: Dict[str, Any]) -> bool:
+    """Check if an event represents privilege escalation."""
+    if event.get("event_type") == "command":
+        command = event.get("details", {}).get("command", "")
+        return bool(REGEX_PRIVILEGE_ESCALATION.search(command))
+    return False
+
+
+def _is_suspicious_command_event(event: Dict[str, Any]) -> bool:
+    """Check if an event represents a suspicious command."""
+    if event.get("event_type") == "command":
+        command = event.get("details", {}).get("command", "")
+        return bool(REGEX_SUSPICIOUS_CMD.search(command))
+    return False
+
+
+# --- Helper Functions for Report Generation ---
+
+def _generate_report_summary(artifacts: Dict[str, Any], report_type: str) -> Dict[str, Any]:
+    """Generate the summary section of the report."""
+    summary = {
+        "status": "Complete",
+        "collection_metadata": artifacts.get("metadata", {})
+    }
+
+    # Add artifact counts
+    artifact_counts = {
+        "processes": len(artifacts.get("processes", [])),
+        "network_connections": len(artifacts.get("network_connections", [])),
+        "command_history": len(artifacts.get("command_history", [])),
+        "open_files": len(artifacts.get("open_files", [])),
+        "user_sessions": len(artifacts.get("user_sessions", [])),
+        "kernel_modules": len(artifacts.get("kernel_modules", []))
+    }
+    summary["artifact_counts"] = artifact_counts
+
+    # Add analysis results summary
+    analysis_results = artifacts.get("analysis_results", {})
+    suspicious_findings = {
+        "processes": len(analysis_results.get("suspicious_processes", [])),
+        "network_connections": len(analysis_results.get("network_analysis", {}).get("suspicious_ports", [])),
+        "commands": (analysis_results.get("suspicious_commands", {}).get("summary", {})
+                     .get("total_suspicious", 0)),
+        "data_exfiltration": len(analysis_results.get("data_exfiltration_indicators", [])),
+        "privilege_escalation": len(analysis_results.get("privilege_escalation_indicators", []))
+    }
+    summary["suspicious_findings"] = suspicious_findings
+
+    # Calculate overall risk level
+    if "risk_assessment" in analysis_results:
+        summary["risk_assessment"] = {
+            "risk_level": analysis_results["risk_assessment"].get("risk_level", "unknown"),
+            "risk_score": analysis_results["risk_assessment"].get("overall_score", 0)
+        }
+    else:
+        # Calculate basic risk level based on findings
+        total_suspicious = sum(suspicious_findings.values())
+        if total_suspicious > 10:
+            risk_level = "high"
+        elif total_suspicious > 3:
+            risk_level = "medium"
+        elif total_suspicious > 0:
+            risk_level = "low"
+        else:
+            risk_level = "info"
+
+        summary["risk_assessment"] = {
+            "risk_level": risk_level,
+            "risk_score": total_suspicious * 10
+        }
+
+    return summary
+
+
+def _generate_report_findings(artifacts: Dict[str, Any], report_type: str) -> List[Dict[str, Any]]:
+    """Generate the findings section of the report."""
+    findings = []
+    analysis_results = artifacts.get("analysis_results", {})
+
+    # Add process findings
+    for proc in analysis_results.get("suspicious_processes", []):
+        findings.append({
+            "type": "suspicious_process",
+            "severity": proc.get("risk_level", "medium"),
+            "description": f"Suspicious process: {proc.get('command', 'Unknown')}",
+            "user": proc.get("user", "Unknown"),
+            "pid": proc.get("pid", "Unknown"),
+            "reasons": [reason.get("detail", "Unknown") for reason in proc.get("reasons", [])]
+        })
+
+    # Add network findings
+    for conn in analysis_results.get("network_analysis", {}).get("suspicious_ports", []):
+        findings.append({
+            "type": "suspicious_network",
+            "severity": "medium",
+            "description": f"Suspicious network connection: {conn.get('reason', 'Unknown')}",
+            "details": {
+                "local_port": conn.get("local_port", "Unknown"),
+                "remote_ip": conn.get("remote_ip", "Unknown"),
+                "remote_port": conn.get("remote_port", "Unknown"),
+                "process_pid": conn.get("process_pid", "Unknown")
+            }
+        })
+
+    # Add command findings
+    for category in ["privilege_escalation", "data_exfil", "encoded_commands"]:
+        for cmd in analysis_results.get("suspicious_commands", {}).get(category, []):
+            findings.append({
+                "type": f"suspicious_command_{category}",
+                "severity": "high" if category in ["privilege_escalation", "encoded_commands"] else "medium",
+                "description": cmd.get("reason", f"Suspicious {category.replace('_', ' ')} command"),
+                "command": cmd.get("command", "Unknown"),
+                "timestamp": cmd.get("timestamp", "Unknown")
+            })
+
+    # Add data exfiltration findings
+    for indicator in analysis_results.get("data_exfiltration_indicators", []):
+        findings.append({
+            "type": "data_exfiltration",
+            "severity": indicator.get("risk_level", "medium"),
+            "description": indicator.get("details", "Potential data exfiltration activity"),
+            "details": {
+                "type": indicator.get("type", "Unknown"),
+                "source": indicator.get("source", "Unknown"),
+                "command": indicator.get("command", "N/A") if "command" in indicator else "N/A"
+            }
+        })
+
+    # Add privilege escalation findings
+    for indicator in analysis_results.get("privilege_escalation_indicators", []):
+        findings.append({
+            "type": "privilege_escalation",
+            "severity": indicator.get("risk_level", "high"),
+            "description": indicator.get("details", "Potential privilege escalation attempt"),
+            "details": {
+                "type": indicator.get("type", "Unknown"),
+                "source": indicator.get("source", "Unknown"),
+                "command": indicator.get("command", "N/A") if "command" in indicator else "N/A"
+            }
+        })
+
+    # For summary reports, limit to high severity findings
+    if report_type == "summary":
+        findings = [f for f in findings if f.get("severity") == "high"]
+
+    # Sort findings by severity
+    severity_order = {"high": 0, "medium": 1, "low": 2, "info": 3}
+    findings.sort(key=lambda x: severity_order.get(x.get("severity", "info"), 4))
+
+    return findings
+
+
+def _generate_report_recommendations(artifacts: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Generate recommendations based on findings."""
+    recommendations = []
+    analysis_results = artifacts.get("analysis_results", {})
+
+    # Add standard recommendations
+    recommendations.append({
+        "priority": "standard",
+        "description": "Implement comprehensive logging and monitoring",
+        "details": "Ensure all system and security logs are being collected and monitored for suspicious activity."
+    })
+
+    # Add recommendations based on findings
+    if analysis_results.get("suspicious_processes", []):
+        recommendations.append({
+            "priority": "high",
+            "description": "Investigate suspicious processes",
+            "details": "Review and investigate the identified suspicious processes, especially those running with elevated privileges."
+        })
+
+    if analysis_results.get("network_analysis", {}).get("suspicious_ports", []):
+        recommendations.append({
+            "priority": "high",
+            "description": "Review network connections",
+            "details": "Investigate unusual network connections, particularly those to non-standard ports or external IP addresses."
+        })
+
+    if analysis_results.get("suspicious_commands", {}).get("privilege_escalation", []):
+        recommendations.append({
+            "priority": "critical",
+            "description": "Investigate privilege escalation attempts",
+            "details": "Review and investigate potential privilege escalation attempts. Consider isolating affected systems."
+        })
+
+    if analysis_results.get("data_exfiltration_indicators", []):
+        recommendations.append({
+            "priority": "critical",
+            "description": "Investigate potential data exfiltration",
+            "details": "Analyze potential data exfiltration activities and assess what data may have been compromised."
+        })
+
+    # Sort recommendations by priority
+    priority_order = {"critical": 0, "high": 1, "medium": 2, "standard": 3, "low": 4}
+    recommendations.sort(key=lambda x: priority_order.get(x.get("priority"), 5))
+
+    return recommendations
+
+
+def _generate_detailed_analysis(artifacts: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate detailed analysis section for technical reports."""
+    detailed = {}
+    analysis_results = artifacts.get("analysis_results", {})
+
+    # Process analysis
+    if "suspicious_processes" in analysis_results:
+        detailed["process_analysis"] = {
+            "suspicious_processes": analysis_results["suspicious_processes"],
+            "process_tree": analysis_results.get("process_tree", {})
+        }
+
+    # Network analysis
+    if "network_analysis" in analysis_results:
+        detailed["network_analysis"] = analysis_results["network_analysis"]
+
+    # Command analysis
+    if "suspicious_commands" in analysis_results:
+        detailed["command_analysis"] = analysis_results["suspicious_commands"]
+
+    # Add file system analysis if available
+    if "open_files" in artifacts:
+        suspicious_files = []
+        for file_entry in artifacts["open_files"]:
+            path = file_entry.get("path", "")
+            if path and _is_suspicious_file_path(path):
+                suspicious_files.append(file_entry)
+
+        detailed["file_system_analysis"] = {
+            "suspicious_files": suspicious_files,
+            "file_count": len(artifacts["open_files"]),
+            "suspicious_file_count": len(suspicious_files)
+        }
+
+    return detailed
+
+
+def _is_suspicious_file_path(path: str) -> bool:
+    """Check if a file path is suspicious."""
+    suspicious_patterns = [
+        r'/tmp/.*\.(sh|py|pl|rb|php)',
+        r'/dev/shm/.*',
+        r'/var/tmp/.*\.(sh|py|pl|rb|php)',
+        r'/home/[^/]+/\.[^/]+/[^/]+\.sh',
+        r'\.\./'  # Path traversal
+    ]
+    return any(re.search(pattern, path) for pattern in suspicious_patterns)
+
+
+def _generate_ioc_section(artifacts: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate the indicators of compromise section."""
+    iocs = {}
+
+    # Extract network indicators
+    network_indicators = artifacts.get("analysis_results", {}).get("network_indicators", {})
+    if network_indicators:
+        iocs["network"] = network_indicators
+    else:
+        # Extract manually from artifacts
+        iocs["network"] = extract_network_indicators(artifacts)
+
+    # Extract file indicators
+    file_indicators = artifacts.get("analysis_results", {}).get("file_indicators", {})
+    if file_indicators:
+        iocs["files"] = file_indicators
+    else:
+        # Extract manually from artifacts
+        iocs["files"] = extract_file_indicators(artifacts)
+
+    # Extract additional IOCs from suspicious processes
+    suspicious_processes = artifacts.get("analysis_results", {}).get("suspicious_processes", [])
+    suspicious_commands = []
+    for proc in suspicious_processes:
+        cmd = proc.get("command", "")
+        if cmd:
+            suspicious_commands.append(cmd)
+
+    if suspicious_commands:
+        iocs["commands"] = suspicious_commands
+
+    return iocs
+
+
+# --- Output Format Helpers ---
+
+def _save_json_report(report: Dict[str, Any], output_file: str) -> Dict[str, Any]:
+    """Save the report as a JSON file."""
+    try:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(report, f, indent=2, default=str)
+
+        # Set secure permissions
+        try:
+            os.chmod(output_file, DEFAULT_SECURE_FILE_PERMS)
+        except Exception as e:
+            logger.warning(f"Could not set permissions on output file: {e}")
+
+        return {
+            "success": True,
+            "format": "json",
+            "file_path": output_file,
+            "message": f"Report saved to {output_file}"
+        }
+    except Exception as e:
+        logger.error(f"Error saving JSON report: {e}")
+        return {
+            "success": False,
+            "format": "json",
+            "error": str(e)
+        }
+
+
+def _save_text_report(report: Dict[str, Any], output_file: str) -> Dict[str, Any]:
+    """Save the report as a plain text file."""
+    try:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            # Write header
+            f.write(f"FORENSIC ANALYSIS REPORT\n")
+            f.write(f"======================\n\n")
+            f.write(f"Report Type: {report.get('report_type', 'Unknown')}\n")
+            f.write(f"Generated: {report.get('generated_at', 'Unknown')}\n\n")
+
+            # Case info
+            case_info = report.get("case_info", {})
+            f.write(f"CASE INFORMATION\n")
+            f.write(f"-----------------\n")
+            f.write(f"Case ID: {case_info.get('case_id', 'Unknown')}\n")
+            f.write(f"Examiner: {case_info.get('examiner', 'Unknown')}\n")
+            f.write(f"Collection Date: {case_info.get('collection_date', 'Unknown')}\n")
+            f.write(f"Host: {case_info.get('host', 'Unknown')}\n\n")
+
+            # Summary
+            summary = report.get("summary", {})
+            f.write(f"SUMMARY\n")
+            f.write(f"-------\n")
+
+            # Artifact counts
+            artifact_counts = summary.get("artifact_counts", {})
+            f.write(f"Artifacts Collected:\n")
+            for artifact_type, count in artifact_counts.items():
+                f.write(f"  - {artifact_type.replace('_', ' ').title()}: {count}\n")
+            f.write("\n")
+
+            # Risk assessment
+            risk = summary.get("risk_assessment", {})
+            f.write(f"Risk Assessment:\n")
+            f.write(f"  - Risk Level: {risk.get('risk_level', 'Unknown').upper()}\n")
+            f.write(f"  - Risk Score: {risk.get('risk_score', 'N/A')}\n\n")
+
+            # Findings
+            findings = report.get("findings", [])
+            f.write(f"KEY FINDINGS\n")
+            f.write(f"-----------\n")
+            if findings:
+                for i, finding in enumerate(findings, 1):
+                    severity = finding.get("severity", "unknown").upper()
+                    f.write(f"{i}. [{severity}] {finding.get('description', 'Unknown finding')}\n")
+
+                    # Additional details
+                    if "details" in finding and isinstance(finding["details"], dict):
+                        for key, value in finding["details"].items():
+                            f.write(f"   - {key}: {value}\n")
+
+                    # Reasons if available
+                    if "reasons" in finding and isinstance(finding["reasons"], list):
+                        f.write(f"   Reasons:\n")
+                        for reason in finding["reasons"]:
+                            f.write(f"   - {reason}\n")
+                    f.write("\n")
+            else:
+                f.write("No significant findings.\n\n")
+
+            # Recommendations
+            recommendations = report.get("recommendations", [])
+            f.write(f"RECOMMENDATIONS\n")
+            f.write(f"--------------\n")
+            if recommendations:
+                for i, rec in enumerate(recommendations, 1):
+                    priority = rec.get("priority", "standard").upper()
+                    f.write(f"{i}. [{priority}] {rec.get('description', 'Unknown recommendation')}\n")
+                    if "details" in rec:
+                        f.write(f"   {rec['details']}\n")
+                    f.write("\n")
+            else:
+                f.write("No specific recommendations.\n\n")
+
+            # IOCs if available
+            if "indicators_of_compromise" in report:
+                iocs = report["indicators_of_compromise"]
+                f.write(f"INDICATORS OF COMPROMISE\n")
+                f.write(f"------------------------\n")
+
+                # Network IOCs
+                if "network" in iocs:
+                    f.write("Network Indicators:\n")
+                    if "ip_addresses" in iocs["network"]:
+                        f.write("  IP Addresses:\n")
+                        for ip in iocs["network"]["ip_addresses"]:
+                            f.write(f"   - {ip}\n")
+                    if "domains" in iocs["network"]:
+                        f.write("  Domains:\n")
+                        for domain in iocs["network"]["domains"]:
+                            f.write(f"   - {domain}\n")
+                    if "urls" in iocs["network"]:
+                        f.write("  URLs:\n")
+                        for url in iocs["network"]["urls"]:
+                            f.write(f"   - {url}\n")
+                    f.write("\n")
+
+                # File IOCs
+                if "files" in iocs:
+                    f.write("File Indicators:\n")
+                    for category, paths in iocs["files"].items():
+                        f.write(f"  {category.replace('_', ' ').title()}:\n")
+                        for path in paths:
+                            f.write(f"   - {path}\n")
+                    f.write("\n")
+
+        # Set secure permissions
+        try:
+            os.chmod(output_file, DEFAULT_SECURE_FILE_PERMS)
+        except Exception as e:
+            logger.warning(f"Could not set permissions on output file: {e}")
+
+        return {
+            "success": True,
+            "format": "text",
+            "file_path": output_file,
+            "message": f"Report saved to {output_file}"
+        }
+    except Exception as e:
+        logger.error(f"Error saving text report: {e}")
+        return {
+            "success": False,
+            "format": "text",
+            "error": str(e)
+        }
+
+
+def _save_html_report(report: Dict[str, Any], output_file: str) -> Dict[str, Any]:
+    """Save the report as an HTML file."""
+    try:
+        # Check if the HTML template exists
+        template_dir = Path(__file__).parent.parent.parent / "templates" / "reports"
+        html_template = template_dir / "forensic_report.html"
+
+        if not html_template.exists():
+            # Use basic HTML generation without template
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write("<!DOCTYPE html>\n")
+                f.write("<html lang='en'>\n")
+                f.write("<head>\n")
+                f.write("  <meta charset='UTF-8'>\n")
+                f.write("  <meta name='viewport' content='width=device-width, initial-scale=1.0'>\n")
+                f.write(f"  <title>Forensic Analysis Report - {report.get('case_info', {}).get('case_id', 'Unknown')}</title>\n")
+                f.write("  <style>\n")
+                f.write("    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; color: #333; }\n")
+                f.write("    h1, h2, h3 { color: #2c3e50; }\n")
+                f.write("    .container { max-width: 1200px; margin: 0 auto; }\n")
+                f.write("    .header { background-color: #34495e; color: white; padding: 20px; margin-bottom: 20px; }\n")
+                f.write("    .section { margin-bottom: 30px; border: 1px solid #ddd; padding: 15px; border-radius: 5px; }\n")
+                f.write("    .finding { margin-bottom: 15px; padding: 10px; border-left: 4px solid #3498db; background-color: #f9f9f9; }\n")
+                f.write("    .finding.high { border-left-color: #e74c3c; }\n")
+                f.write("    .finding.medium { border-left-color: #f39c12; }\n")
+                f.write("    .finding.low { border-left-color: #3498db; }\n")
+                f.write("    .recommendation { margin-bottom: 15px; padding: 10px; border-left: 4px solid #2ecc71; background-color: #f9f9f9; }\n")
+                f.write("    .recommendation.critical { border-left-color: #e74c3c; }\n")
+                f.write("    .recommendation.high { border-left-color: #f39c12; }\n")
+                f.write("    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }\n")
+                f.write("    th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }\n")
+                f.write("    th { background-color: #f2f2f2; }\n")
+                f.write("  </style>\n")
+                f.write("</head>\n")
+                f.write("<body>\n")
+                f.write("  <div class='container'>\n")
+
+                # Header
+                f.write("    <div class='header'>\n")
+                f.write(f"      <h1>Forensic Analysis Report</h1>\n")
+                f.write(f"      <p>Generated: {report.get('generated_at', 'Unknown')}</p>\n")
+                f.write("    </div>\n")
+
+                # Case Information
+                case_info = report.get("case_info", {})
+                f.write("    <div class='section'>\n")
+                f.write("      <h2>Case Information</h2>\n")
+                f.write("      <table>\n")
+                f.write("        <tr><th>Case ID</th><td>" + case_info.get('case_id', 'Unknown') + "</td></tr>\n")
+                f.write("        <tr><th>Examiner</th><td>" + case_info.get('examiner', 'Unknown') + "</td></tr>\n")
+                f.write("        <tr><th>Collection Date</th><td>" + case_info.get('collection_date', 'Unknown') + "</td></tr>\n")
+                f.write("        <tr><th>Host</th><td>" + case_info.get('host', 'Unknown') + "</td></tr>\n")
+                f.write("      </table>\n")
+                f.write("    </div>\n")
+
+                # Summary
+                summary = report.get("summary", {})
+                f.write("    <div class='section'>\n")
+                f.write("      <h2>Summary</h2>\n")
+
+                # Risk Assessment
+                risk = summary.get("risk_assessment", {})
+                f.write("      <h3>Risk Assessment</h3>\n")
+                f.write("      <p><strong>Risk Level:</strong> " + risk.get('risk_level', 'Unknown').upper() + "</p>\n")
+                f.write("      <p><strong>Risk Score:</strong> " + str(risk.get('risk_score', 'N/A')) + "</p>\n")
+
+                # Artifact Counts
+                artifact_counts = summary.get("artifact_counts", {})
+                f.write("      <h3>Artifacts Collected</h3>\n")
+                f.write("      <table>\n")
+                f.write("        <tr><th>Artifact Type</th><th>Count</th></tr>\n")
+                for artifact_type, count in artifact_counts.items():
+                    f.write("        <tr><td>" + artifact_type.replace('_', ' ').title() + "</td><td>" + str(count) + "</td></tr>\n")
+                f.write("      </table>\n")
+                f.write("    </div>\n")
+
+                # Findings
+                findings = report.get("findings", [])
+                f.write("    <div class='section'>\n")
+                f.write("      <h2>Key Findings</h2>\n")
+                if findings:
+                    for finding in findings:
+                        severity = finding.get("severity", "low")
+                        f.write(f"      <div class='finding {severity}'>\n")
+                        f.write(f"        <h3>[{severity.upper()}] {finding.get('description', 'Unknown finding')}</h3>\n")
+
+                        # Additional details
+                        if "details" in finding and isinstance(finding["details"], dict):
+                            f.write("        <ul>\n")
+                            for key, value in finding["details"].items():
+                                f.write(f"          <li><strong>{key}:</strong> {value}</li>\n")
+                            f.write("        </ul>\n")
+
+                        # Reasons if available
+                        if "reasons" in finding and isinstance(finding["reasons"], list):
+                            f.write("        <div><strong>Reasons:</strong></div>\n")
+                            f.write("        <ul>\n")
+                            for reason in finding["reasons"]:
+                                f.write(f"          <li>{reason}</li>\n")
+                            f.write("        </ul>\n")
+                        f.write("      </div>\n")
+                else:
+                    f.write("      <p>No significant findings.</p>\n")
+                f.write("    </div>\n")
+
+                # Recommendations
+                recommendations = report.get("recommendations", [])
+                f.write("    <div class='section'>\n")
+                f.write("      <h2>Recommendations</h2>\n")
+                if recommendations:
+                    for rec in recommendations:
+                        priority = rec.get("priority", "standard")
+                        f.write(f"      <div class='recommendation {priority}'>\n")
+                        f.write(f"        <h3>[{priority.upper()}] {rec.get('description', 'Unknown recommendation')}</h3>\n")
+                        if "details" in rec:
+                            f.write(f"        <p>{rec['details']}</p>\n")
+                        f.write("      </div>\n")
+                else:
+                    f.write("      <p>No specific recommendations.</p>\n")
+                f.write("    </div>\n")
+
+                # IOCs if available
+                if "indicators_of_compromise" in report:
+                    iocs = report["indicators_of_compromise"]
+                    f.write("    <div class='section'>\n")
+                    f.write("      <h2>Indicators of Compromise</h2>\n")
+
+                    # Network IOCs
+                    if "network" in iocs:
+                        f.write("      <h3>Network Indicators</h3>\n")
+
+                        if "ip_addresses" in iocs["network"] and iocs["network"]["ip_addresses"]:
+                            f.write("      <h4>IP Addresses</h4>\n")
+                            f.write("      <ul>\n")
+                            for ip in iocs["network"]["ip_addresses"]:
+                                f.write(f"        <li>{ip}</li>\n")
+                            f.write("      </ul>\n")
+
+                        if "domains" in iocs["network"] and iocs["network"]["domains"]:
+                            f.write("      <h4>Domains</h4>\n")
+                            f.write("      <ul>\n")
+                            for domain in iocs["network"]["domains"]:
+                                f.write(f"        <li>{domain}</li>\n")
+                            f.write("      </ul>\n")
+
+                        if "urls" in iocs["network"] and iocs["network"]["urls"]:
+                            f.write("      <h4>URLs</h4>\n")
+                            f.write("      <ul>\n")
+                            for url in iocs["network"]["urls"]:
+                                f.write(f"        <li>{url}</li>\n")
+                            f.write("      </ul>\n")
+
+                    # File IOCs
+                    if "files" in iocs:
+                        f.write("      <h3>File Indicators</h3>\n")
+                        for category, paths in iocs["files"].items():
+                            if paths:
+                                f.write(f"      <h4>{category.replace('_', ' ').title()}</h4>\n")
+                                f.write("      <ul>\n")
+                                for path in paths:
+                                    f.write(f"        <li>{path}</li>\n")
+                                f.write("      </ul>\n")
+                    f.write("    </div>\n")
+
+                f.write("  </div>\n")
+                f.write("</body>\n")
+                f.write("</html>\n")
+        else:
+            # Use the template file (template implementation would go here)
+            # This would require a template engine or a more complex implementation
+            logger.warning("HTML template found but template rendering not implemented. Using basic HTML generation.")
+            # Re-run the basic HTML generation
+            return _save_html_report(report, output_file)
+
+        # Set secure permissions
+        try:
+            os.chmod(output_file, DEFAULT_SECURE_FILE_PERMS)
+        except Exception as e:
+            logger.warning(f"Could not set permissions on output file: {e}")
+
+        return {
+            "success": True,
+            "format": "html",
+            "file_path": output_file,
+            "message": f"Report saved to {output_file}"
+        }
+    except Exception as e:
+        logger.error(f"Error saving HTML report: {e}")
+        return {
+            "success": False,
+            "format": "html",
+            "error": str(e)
+        }
+
+
+def _save_csv_report(report: Dict[str, Any], output_file: str) -> Dict[str, Any]:
+    """Save the report as CSV files (creates multiple files)."""
+    try:
+        # Create base filename without extension
+        base_path = output_file.rsplit('.', 1)[0]
+
+        # Create findings CSV
+        findings_path = f"{base_path}_findings.csv"
+        with open(findings_path, 'w', encoding='utf-8', newline='') as f:
+            import csv
+            writer = csv.writer(f)
+            writer.writerow(["Severity", "Type", "Description", "Details"])
+
+            for finding in report.get("findings", []):
+                # Format details as a string
+                details = ""
+                if "details" in finding and isinstance(finding["details"], dict):
+                    details = "; ".join(f"{k}={v}" for k, v in finding["details"].items())
+                elif "reasons" in finding and isinstance(finding["reasons"], list):
+                    details = "; ".join(finding["reasons"])
+
+                writer.writerow([
+                    finding.get("severity", "unknown"),
+                    finding.get("type", "unknown"),
+                    finding.get("description", "Unknown finding"),
+                    details
+                ])
+
+        # Create IOCs CSV if available
+        iocs = report.get("indicators_of_compromise", {})
+
+        if iocs:
+            iocs_path = f"{base_path}_iocs.csv"
+            with open(iocs_path, 'w', encoding='utf-8', newline='') as f:
+                import csv
+                writer = csv.writer(f)
+                writer.writerow(["Type", "Indicator", "Category"])
+
+                # Write network indicators
+                if "network" in iocs:
+                    for ip in iocs.get("network", {}).get("ip_addresses", []):
+                        writer.writerow(["ip_address", ip, "network"])
+
+                    for domain in iocs.get("network", {}).get("domains", []):
+                        writer.writerow(["domain", domain, "network"])
+
+                    for url in iocs.get("network", {}).get("urls", []):
+                        writer.writerow(["url", url, "network"])
+
+                # Write file indicators
+                if "files" in iocs:
+                    for category, paths in iocs["files"].items():
+                        for path in paths:
+                            writer.writerow(["file_path", path, category])
+
+        # Set secure permissions
+        try:
+            os.chmod(findings_path, DEFAULT_SECURE_FILE_PERMS)
+            if iocs:
+                os.chmod(iocs_path, DEFAULT_SECURE_FILE_PERMS)
+        except Exception as e:
+            logger.warning(f"Could not set permissions on output file(s): {e}")
+
+        return {
+            "success": True,
+            "format": "csv",
+            "file_paths": [findings_path] + ([iocs_path] if iocs else []),
+            "message": f"Report saved to {findings_path}" + (f" and {iocs_path}" if iocs else "")
+        }
+    except Exception as e:
+        logger.error(f"Error saving CSV report: {e}")
+        return {
+            "success": False,
+            "format": "csv",
+            "error": str(e)
+        }
+
+
+def _save_markdown_report(report: Dict[str, Any], output_file: str) -> Dict[str, Any]:
+    """Save the report as a Markdown file."""
+    try:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            # Title and metadata
+            f.write(f"# Forensic Analysis Report\n\n")
+            f.write(f"**Report Type:** {report.get('report_type', 'Unknown')}\n")
+            f.write(f"**Generated:** {report.get('generated_at', 'Unknown')}\n\n")
+
+            # Case information
+            case_info = report.get("case_info", {})
+            f.write(f"## Case Information\n\n")
+            f.write(f"- **Case ID:** {case_info.get('case_id', 'Unknown')}\n")
+            f.write(f"- **Examiner:** {case_info.get('examiner', 'Unknown')}\n")
+            f.write(f"- **Collection Date:** {case_info.get('collection_date', 'Unknown')}\n")
+            f.write(f"- **Host:** {case_info.get('host', 'Unknown')}\n\n")
+
+            # Summary
+            summary = report.get("summary", {})
+            f.write(f"## Summary\n\n")
+
+            # Risk assessment
+            risk = summary.get("risk_assessment", {})
+            f.write(f"### Risk Assessment\n\n")
+            f.write(f"- **Risk Level:** {risk.get('risk_level', 'Unknown').upper()}\n")
+            f.write(f"- **Risk Score:** {risk.get('risk_score', 'N/A')}\n\n")
+
+            # Artifact counts
+            artifact_counts = summary.get("artifact_counts", {})
+            f.write(f"### Artifacts Collected\n\n")
+            f.write("| Artifact Type | Count |\n")
+            f.write("| -------------- | ----- |\n")
+            for artifact_type, count in artifact_counts.items():
+                f.write(f"| {artifact_type.replace('_', ' ').title()} | {count} |\n")
+            f.write("\n")
+
+            # Findings
+            findings = report.get("findings", [])
+            f.write(f"## Key Findings\n\n")
+            if findings:
+                for i, finding in enumerate(findings, 1):
+                    severity = finding.get("severity", "unknown").upper()
+                    f.write(f"### {i}. [{severity}] {finding.get('description', 'Unknown finding')}\n\n")
+
+                    # Additional details
+                    if "details" in finding and isinstance(finding["details"], dict):
+                        for key, value in finding["details"].items():
+                            f.write(f"- **{key}:** {value}\n")
+                        f.write("\n")
+
+                    # Reasons if available
+                    if "reasons" in finding and isinstance(finding["reasons"], list):
+                        f.write(f"**Reasons:**\n\n")
+                        for reason in finding["reasons"]:
+                            f.write(f"- {reason}\n")
+                        f.write("\n")
+            else:
+                f.write("No significant findings.\n\n")
+
+            # Recommendations
+            recommendations = report.get("recommendations", [])
+            f.write(f"## Recommendations\n\n")
+            if recommendations:
+                for i, rec in enumerate(recommendations, 1):
+                    priority = rec.get("priority", "standard").upper()
+                    f.write(f"### {i}. [{priority}] {rec.get('description', 'Unknown recommendation')}\n\n")
+                    if "details" in rec:
+                        f.write(f"{rec['details']}\n\n")
+            else:
+                f.write("No specific recommendations.\n\n")
+
+            # IOCs if available
+            if "indicators_of_compromise" in report:
+                iocs = report["indicators_of_compromise"]
+                f.write(f"## Indicators of Compromise\n\n")
+
+                # Network IOCs
+                if "network" in iocs:
+                    f.write("### Network Indicators\n\n")
+
+                    if "ip_addresses" in iocs["network"] and iocs["network"]["ip_addresses"]:
+                        f.write("#### IP Addresses\n\n")
+                        for ip in iocs["network"]["ip_addresses"]:
+                            f.write(f"- `{ip}`\n")
+                        f.write("\n")
+
+                    if "domains" in iocs["network"] and iocs["network"]["domains"]:
+                        f.write("#### Domains\n\n")
+                        for domain in iocs["network"]["domains"]:
+                            f.write(f"- `{domain}`\n")
+                        f.write("\n")
+
+                    if "urls" in iocs["network"] and iocs["network"]["urls"]:
+                        f.write("#### URLs\n\n")
+                        for url in iocs["network"]["urls"]:
+                            f.write(f"- `{url}`\n")
+                        f.write("\n")
+
+                # File IOCs
+                if "files" in iocs:
+                    f.write("### File Indicators\n\n")
+                    for category, paths in iocs["files"].items():
+                        if paths:
+                            f.write(f"#### {category.replace('_', ' ').title()}\n\n")
+                            for path in paths:
+                                f.write(f"- `{path}`\n")
+                            f.write("\n")
+
+        # Set secure permissions
+        try:
+            os.chmod(output_file, DEFAULT_SECURE_FILE_PERMS)
+        except Exception as e:
+            logger.warning(f"Could not set permissions on output file: {e}")
+
+        return {
+            "success": True,
+            "format": "markdown",
+            "file_path": output_file,
+            "message": f"Report saved to {output_file}"
+        }
+    except Exception as e:
+        logger.error(f"Error saving Markdown report: {e}")
+        return {
+            "success": False,
+            "format": "markdown",
+            "error": str(e)
+        }
+
+
+# Define the artifact types for module-level export
+ARTIFACT_TYPES = {
+    "process": ["processes/ps_*.txt", "processes/pstree.txt"],
+    "network": ["network/ss_*.txt", "network/*_connections.txt"],
+    "memory": ["*.raw", "*.lime", "*.dump", "*.mem"],
+    "user": ["users/w.txt", "users/who.txt", "users/passwd.txt"],
+    "service": ["services/systemctl_*.txt", "services/*_services.txt"],
+    "module": ["modules/lsmod.txt", "modules/module_*.txt"],
+    "startup": ["startup/enabled_units.txt", "startup/*cron*.txt"],
+    "command_history": ["history/*_history.txt"],
+    "open_files": ["open_files/lsof_*.txt"],
+    "mounted_devices": ["mounted_devices/mount.txt", "mounted_devices/df_*.txt"],
+    "firewall": ["firewall/iptables_*.txt", "firewall/firewalld_*.txt"],
+    "logs": ["*_log.txt", "*_logs.txt", "*.log"]
+}
+
+
 def parse_process_list(file_path: str) -> List[Dict[str, Any]]:
     """
     Parses a process list artifact file.
