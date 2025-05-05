@@ -1,0 +1,294 @@
+{
+  "version": "1.1.0",
+  "last_updated": "2024-07-25",
+  "description": "Example configuration for live response evidence collection operations",
+
+  "evidence_collection": {
+    "base_dir": "${EVIDENCE_DIR:/secure/evidence}",
+    "auto_generate_id": true,
+    "id_format": "LR-{case_id}-{timestamp:%Y%m%d%H%M%S}",
+    "required_metadata": [
+      "case_id",
+      "examiner_id",
+      "acquisition_date",
+      "host_identifier",
+      "collection_method",
+      "hash_value"
+    ],
+    "compression": {
+      "enabled": true,
+      "algorithm": "zstd",  // Alternatives: zlib, lz4, none
+      "level": 3            // 1=fastest, 9=best compression
+    },
+    "encryption": {
+      "enabled": true,
+      "algorithm": "AES-256-GCM",  // Only change if required by security policy
+      "key_management": "file",    // Options: file, kms, vault
+      "key_path": "${KEY_PATH:/secure/keys/forensic.key}"
+    },
+    "permissions": {
+      "evidence_dir": "0700",      // Restrictive directory permissions
+      "evidence_files": "0400",    // Read-only file permissions
+      "metadata_files": "0600"     // Metadata files - read/write for owner only
+    }
+  },
+
+  "chain_of_custody": {
+    "enabled": true,
+    "format": "jsonl",
+    "file_name": "chain_of_custody.jsonl",
+    "required_fields": [
+      "timestamp",
+      "action",
+      "performer",
+      "evidence_id",
+      "hash_value"
+    ],
+    "record_access": true,         // Records all evidence access
+    "record_operations": true,     // Records operations performed on evidence
+    "tamper_protection": {
+      "enabled": true,
+      "method": "hmac-sha256"      // Protects CoC from tampering
+    }
+  },
+
+  "hash_algorithms": {
+    "primary": "sha256",           // Primary hash for verification
+    "additional": ["sha1"],        // Secondary hashes (for compatibility)
+    "verify_after_collection": true
+  },
+
+  "memory_acquisition": {
+    "preferred_method": "lime",    // Primary memory acquisition method
+    "fallback_methods": [          // Backup methods if preferred fails
+      "winpmem",
+      "dumpit",
+      "avml"
+    ],
+    "compression": true,
+    "verify_acquisition": true,    // Validates memory acquisition success
+    "chunk_size_mb": 512,          // Size of memory chunks during acquisition
+    "timeout_seconds": 1800,       // Timeout for memory acquisition (30 min)
+    "max_retry_count": 2,          // Number of retries on failure
+    "analysis": {
+      "auto_analyze": false,       // Set to true for automatic analysis
+      "base_volatility_plugins": [
+        "pslist",
+        "psscan",
+        "netscan",
+        "malfind"
+      ],
+      "ioc_check_enabled": true
+    }
+  },
+
+  "volatile_data": {
+    "default_categories": [        // Standard collection categories
+      "processes",
+      "network",
+      "users",
+      "services",
+      "modules",
+      "startup_items",
+      "scheduled_tasks"
+    ],
+    "minimal_categories": [        // Quick triage categories
+      "processes",
+      "network",
+      "users"
+    ],
+    "process_options": {
+      "include_arguments": true,   // Collect command line arguments
+      "include_environment": false, // Collect process environment variables
+      "include_memory_maps": false, // Collect process memory maps
+      "include_open_files": true,  // Collect open file handles
+      "max_processes": 5000        // Limit for large systems
+    },
+    "command_history": {
+      "enabled": true,
+      "max_lines": 1000,
+      "include_timestamps": true
+    },
+    "system_info_collection": {
+      "hardware_info": true,
+      "os_info": true,
+      "kernel_info": true,
+      "installed_software": true,
+      "local_users": true,
+      "mounted_filesystems": true,
+      "environment_variables": true
+    },
+    "artifact_collection": {
+      "prefetch": true,            // Windows prefetch files
+      "registry_hives": false,     // Windows registry hives
+      "event_logs": false,         // System event logs
+      "browser_history": false,    // Web browser history
+      "recent_documents": true     // Recently accessed documents
+    }
+  },
+
+  "network_state": {
+    "connections": {
+      "include_tcp": true,
+      "include_udp": true,
+      "include_unix": true,        // Unix domain sockets
+      "include_raw": false,        // Raw sockets
+      "resolve_hostnames": true,   // Resolve IPs to hostnames
+      "resolve_ports": true,       // Resolve port numbers to service names
+      "include_routing": true,     // Collect routing tables
+      "include_arp": true,         // Collect ARP tables
+      "include_dns_cache": true    // Collect DNS resolver cache
+    },
+    "interfaces": {
+      "collect_stats": true,       // Collect interface statistics
+      "include_promiscuous": true  // Check for promiscuous interfaces
+    },
+    "firewall": {
+      "collect_rules": true,       // Collect firewall rules
+      "collect_logs": false        // Collect firewall logs
+    },
+    "packet_capture": {
+      "enabled": true,
+      "max_packets": 10000,        // Maximum packets to capture
+      "max_size_mb": 100,          // Maximum capture file size
+      "capture_filter": "not port 22", // BPF filter syntax
+      "timeout_seconds": 300,      // Capture duration
+      "protocols": ["tcp", "udp", "icmp"],
+      "save_to_pcap": true         // Save capture to PCAP file
+    }
+  },
+
+  "artifact_analysis": {
+    "suspicious_patterns": {
+      "check_processes": true,     // Analyze processes for IOCs
+      "check_connections": true,   // Analyze network connections
+      "check_services": true,      // Analyze services
+      "check_modules": true        // Analyze loaded modules/drivers
+    },
+    "ioc_matching": {
+      "enabled": true,
+      "extract_network_indicators": true,
+      "extract_file_indicators": true,
+      "detect_suspicious_commands": true,
+      "detect_privilege_escalation": true,
+      "detect_persistence": true,
+      "detect_data_exfil": true
+    },
+    "timeline": {
+      "enabled": true,
+      "correlation_window": 300    // Seconds to correlate related events
+    }
+  },
+
+  "execution": {
+    "max_concurrent_tasks": 2,     // Parallel task execution limit
+    "max_runtime_minutes": 120,    // Maximum runtime for collection
+    "retry_count": 3,              // Number of retry attempts
+    "retry_delay_seconds": 5,      // Delay between retries
+    "verification_enabled": true,  // Verify collected artifacts
+    "cleanup_temp_files": true     // Remove temporary files after collection
+  },
+
+  "output_options": {
+    "format": "structured",        // structured or legacy
+    "timestamp_format": "iso8601", // ISO 8601 timestamp format
+    "timezone": "UTC",             // Timezone for timestamps
+    "include_system_info": true,   // Include system information in output
+    "include_collection_info": true, // Include collection metadata
+    "include_command_outputs": true, // Include raw command outputs
+    "compress_outputs": true       // Compress output files
+  },
+
+  "remote_collection": {
+    "ssh": {
+      "timeout_seconds": 30,       // SSH connection timeout
+      "key_auth_preferred": true,  // Use key authentication when available
+      "keep_connection": true,     // Maintain persistent SSH connection
+      "verify_host": true          // Verify host key
+    },
+    "winrm": {
+      "timeout_seconds": 60,       // WinRM connection timeout
+      "use_ssl": true,             // Use SSL for WinRM
+      "verify_ssl": false          // Verify SSL certificate
+    },
+    "agent": {
+      "port": 8443,                // Agent communication port
+      "use_tls": true,             // Use TLS for agent communication
+      "verify_certificate": true   // Verify agent certificate
+    },
+    "default_credentials_path": "${CREDENTIALS_PATH:~/.ssh/ir_key}"
+  },
+
+  "logging": {
+    "level": "INFO",               // Logging level (DEBUG, INFO, WARNING, ERROR)
+    "file_enabled": true,          // Enable file logging
+    "file_path": "${LOG_DIR:/var/log/forensics}/live_response.log",
+    "console_enabled": true,       // Enable console logging
+    "include_timestamp": true,     // Include timestamps in log entries
+    "include_hostname": true,      // Include hostname in log entries
+    "format": "text",              // text or json
+    "max_size_mb": 10,             // Maximum log file size
+    "backup_count": 5              // Number of log file backups
+  },
+
+  "validation_suite": {
+    "run_on_completion": true,     // Run validation after collection
+    "validation_types": [
+      "collection_completeness",   // Check if all required artifacts collected
+      "metadata_consistency",      // Check metadata consistency
+      "file_integrity"             // Verify file hashes
+    ],
+    "report_format": "json",       // Format for validation reports
+    "fail_on_error": false         // Continue on validation error
+  },
+
+  "environments": {
+    "production": {
+      "evidence_base_dir": "/secure/evidence",
+      "log_dir": "/var/log/forensics",
+      "require_encryption": true,
+      "verification_required": true,
+      "remote_collection": {
+        "verify_host": true,
+        "verify_certificate": true
+      }
+    },
+    "staging": {
+      "evidence_base_dir": "/secure/staging/evidence",
+      "log_dir": "/var/log/forensics-staging",
+      "require_encryption": true,
+      "verification_required": true,
+      "remote_collection": {
+        "verify_host": true,
+        "verify_certificate": true
+      }
+    },
+    "development": {
+      "evidence_base_dir": "/tmp/forensic_dev/evidence",
+      "log_dir": "/tmp/forensic_dev/logs",
+      "require_encryption": false,
+      "verification_required": false,
+      "remote_collection": {
+        "verify_host": false,
+        "verify_certificate": false
+      }
+    },
+    "testing": {
+      "evidence_base_dir": "/tmp/forensic_test/evidence",
+      "log_dir": "/tmp/forensic_test/logs",
+      "require_encryption": false,
+      "verification_required": true,
+      "remote_collection": {
+        "verify_host": false,
+        "verify_certificate": false
+      }
+    }
+  },
+
+  "profiles": {
+    // Reference to the default_profiles.json file which contains
+    // pre-configured collection profiles for specific scenarios
+    "file_path": "default_profiles.json",
+    "default_profile": "quick_triage"
+  }
+}

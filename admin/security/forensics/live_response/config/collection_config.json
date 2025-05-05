@@ -1,0 +1,280 @@
+{
+    "version": "1.1.0",
+    "last_updated": "2024-07-25",
+    "description": "Configuration for live response evidence collection operations",
+    "evidence_collection": {
+        "base_dir": "${EVIDENCE_DIR:/secure/evidence}",
+        "auto_generate_id": true,
+        "id_format": "LR-{case_id}-{timestamp:%Y%m%d%H%M%S}",
+        "required_metadata": [
+            "case_id",
+            "examiner_id",
+            "acquisition_date",
+            "host_identifier",
+            "collection_method",
+            "hash_value"
+        ],
+        "compression": {
+            "enabled": true,
+            "algorithm": "zstd",
+            "level": 3
+        },
+        "encryption": {
+            "enabled": true,
+            "algorithm": "AES-256-GCM",
+            "key_management": "file",
+            "key_path": "${KEY_PATH:/secure/keys/forensic.key}"
+        },
+        "permissions": {
+            "evidence_dir": "0700",
+            "evidence_files": "0400",
+            "metadata_files": "0600"
+        }
+    },
+    "chain_of_custody": {
+        "enabled": true,
+        "format": "jsonl",
+        "file_name": "chain_of_custody.jsonl",
+        "required_fields": [
+            "timestamp",
+            "action",
+            "performer",
+            "evidence_id",
+            "hash_value"
+        ],
+        "record_access": true,
+        "record_operations": true,
+        "tamper_protection": {
+            "enabled": true,
+            "method": "hmac-sha256"
+        }
+    },
+    "hash_algorithms": {
+        "primary": "sha256",
+        "additional": [
+            "sha1"
+        ],
+        "verify_after_collection": true
+    },
+    "memory_acquisition": {
+        "preferred_method": "lime",
+        "fallback_methods": [
+            "winpmem",
+            "dumpit",
+            "avml"
+        ],
+        "compression": true,
+        "verify_acquisition": true,
+        "chunk_size_mb": 512,
+        "timeout_seconds": 1800,
+        "max_retry_count": 2,
+        "analysis": {
+            "auto_analyze": false,
+            "base_volatility_plugins": [
+                "pslist",
+                "psscan",
+                "netscan",
+                "malfind"
+            ],
+            "ioc_check_enabled": true
+        }
+    },
+    "volatile_data": {
+        "default_categories": [
+            "processes",
+            "network",
+            "users",
+            "services",
+            "modules",
+            "startup_items",
+            "scheduled_tasks"
+        ],
+        "minimal_categories": [
+            "processes",
+            "network",
+            "users"
+        ],
+        "process_options": {
+            "include_arguments": true,
+            "include_environment": false,
+            "include_memory_maps": false,
+            "include_open_files": true,
+            "max_processes": 5000
+        },
+        "command_history": {
+            "enabled": true,
+            "max_lines": 1000,
+            "include_timestamps": true
+        },
+        "system_info_collection": {
+            "hardware_info": true,
+            "os_info": true,
+            "kernel_info": true,
+            "installed_software": true,
+            "local_users": true,
+            "mounted_filesystems": true,
+            "environment_variables": true
+        },
+        "artifact_collection": {
+            "prefetch": true,
+            "registry_hives": false,
+            "event_logs": false,
+            "browser_history": false,
+            "recent_documents": true
+        }
+    },
+    "network_state": {
+        "connections": {
+            "include_tcp": true,
+            "include_udp": true,
+            "include_unix": true,
+            "include_raw": false,
+            "resolve_hostnames": true,
+            "resolve_ports": true,
+            "include_routing": true,
+            "include_arp": true,
+            "include_dns_cache": true
+        },
+        "interfaces": {
+            "collect_stats": true,
+            "include_promiscuous": true
+        },
+        "firewall": {
+            "collect_rules": true,
+            "collect_logs": false
+        },
+        "packet_capture": {
+            "enabled": true,
+            "max_packets": 10000,
+            "max_size_mb": 100,
+            "capture_filter": "not port 22",
+            "timeout_seconds": 300,
+            "protocols": [
+                "tcp",
+                "udp",
+                "icmp"
+            ],
+            "save_to_pcap": true
+        }
+    },
+    "artifact_analysis": {
+        "suspicious_patterns": {
+            "check_processes": true,
+            "check_connections": true,
+            "check_services": true,
+            "check_modules": true
+        },
+        "ioc_matching": {
+            "enabled": true,
+            "extract_network_indicators": true,
+            "extract_file_indicators": true,
+            "detect_suspicious_commands": true,
+            "detect_privilege_escalation": true,
+            "detect_persistence": true,
+            "detect_data_exfil": true
+        },
+        "timeline": {
+            "enabled": true,
+            "correlation_window": 300
+        }
+    },
+    "execution": {
+        "max_concurrent_tasks": 2,
+        "max_runtime_minutes": 120,
+        "retry_count": 3,
+        "retry_delay_seconds": 5,
+        "verification_enabled": true,
+        "cleanup_temp_files": true
+    },
+    "output_options": {
+        "format": "structured",
+        "timestamp_format": "iso8601",
+        "timezone": "UTC",
+        "include_system_info": true,
+        "include_collection_info": true,
+        "include_command_outputs": true,
+        "compress_outputs": true
+    },
+    "remote_collection": {
+        "ssh": {
+            "timeout_seconds": 30,
+            "key_auth_preferred": true,
+            "keep_connection": true,
+            "verify_host": true
+        },
+        "winrm": {
+            "timeout_seconds": 60,
+            "use_ssl": true,
+            "verify_ssl": false
+        },
+        "agent": {
+            "port": 8443,
+            "use_tls": true,
+            "verify_certificate": true
+        },
+        "default_credentials_path": "${CREDENTIALS_PATH:~/.ssh/ir_key}"
+    },
+    "logging": {
+        "level": "INFO",
+        "file_enabled": true,
+        "file_path": "${LOG_DIR:/var/log/forensics}/live_response.log",
+        "console_enabled": true,
+        "include_timestamp": true,
+        "include_hostname": true,
+        "format": "text",
+        "max_size_mb": 10,
+        "backup_count": 5
+    },
+    "validation_suite": {
+        "run_on_completion": true,
+        "validation_types": [
+            "collection_completeness",
+            "metadata_consistency",
+            "file_integrity"
+        ],
+        "report_format": "json",
+        "fail_on_error": false
+    },
+    "environments": {
+        "production": {
+            "evidence_base_dir": "/secure/evidence",
+            "log_dir": "/var/log/forensics",
+            "require_encryption": true,
+            "verification_required": true,
+            "remote_collection": {
+                "verify_host": true,
+                "verify_certificate": true
+            }
+        },
+        "staging": {
+            "evidence_base_dir": "/secure/staging/evidence",
+            "log_dir": "/var/log/forensics-staging",
+            "require_encryption": true,
+            "verification_required": true,
+            "remote_collection": {
+                "verify_host": true,
+                "verify_certificate": true
+            }
+        },
+        "development": {
+            "evidence_base_dir": "/tmp/forensic_dev/evidence",
+            "log_dir": "/tmp/forensic_dev/logs",
+            "require_encryption": false,
+            "verification_required": false,
+            "remote_collection": {
+                "verify_host": false,
+                "verify_certificate": false
+            }
+        },
+        "testing": {
+            "evidence_base_dir": "/tmp/forensic_test/evidence",
+            "log_dir": "/tmp/forensic_test/logs",
+            "require_encryption": false,
+            "verification_required": true,
+            "remote_collection": {
+                "verify_host": false,
+                "verify_certificate": false
+            }
+        }
+    }
+}

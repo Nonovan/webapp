@@ -6,7 +6,16 @@
             "method": "auto",
             "compress": true,
             "verify_acquisition": true,
-            "acquire_pagefile": true
+            "acquire_pagefile": true,
+            "post_acquisition_analysis": true,
+            "volatility_plugins": [
+                "pslist",
+                "psscan",
+                "malfind",
+                "dlllist",
+                "handles",
+                "netscan"
+            ]
         },
         "volatile_data": {
             "enabled": true,
@@ -20,12 +29,16 @@
                 "command_history",
                 "system_info",
                 "loaded_dlls",
-                "registry_autorun"
+                "registry_autorun",
+                "autoruns"
             ],
             "process_arguments": true,
             "process_environment": false,
             "process_handles": true,
-            "process_memory_strings": true
+            "process_memory_strings": true,
+            "analyze_suspicious_processes": true,
+            "extract_network_indicators": true,
+            "extract_suspicious_binaries": true
         },
         "network_state": {
             "enabled": true,
@@ -34,12 +47,16 @@
             "arp_cache": true,
             "dns_cache": true,
             "interfaces": true,
+            "firewall_rules": true,
+            "analyze_network_activity": true,
             "packet_capture": {
                 "enabled": true,
                 "max_packets": 10000,
                 "max_size_mb": 200,
                 "filter": "not port 22 and not port 3389",
-                "capture_duration_seconds": 300
+                "capture_duration_seconds": 300,
+                "extract_suspicious_traffic": true,
+                "extract_files": true
             }
         },
         "custom_commands": [
@@ -47,17 +64,36 @@
             "find /var/tmp -type f -mmin -60 -ls",
             "find /dev/shm -type f -ls",
             "find /home -name '.*' -type f -mtime -7 -ls",
-            "grep -l 'HttpBrowser|NanoCore|Meterpreter|Cobalt' /var/log/auth.log*"
-        ]
+            "grep -l 'HttpBrowser\\|NanoCore\\|Meterpreter\\|Cobalt' /var/log/auth.log*",
+            "find / -type f -path '*/bin/*' -mtime -2 -exec ls -la {} \\;",
+            "find / -type f -perm -u+x -mtime -1 -not -path '*/proc/*' 2>/dev/null",
+            "find /etc -type f -mtime -2 -ls | grep -v '.dpkg-*'",
+            "strings /proc/*/exe 2>/dev/null | grep -i 'http\\|socket\\|connect\\|download'"
+        ],
+        "evidence_handling": {
+            "compress_artifacts": true,
+            "hash_algorithm": "sha256",
+            "verify_integrity": true,
+            "detailed_metadata": true,
+            "correlation_enabled": true
+        },
+        "analysis_profile": "malware_hunting"
     },
     "data_breach": {
         "description": "Profile for suspected data breaches, focusing on network connections, file system access, user activity, and potentially relevant processes.",
         "memory_acquisition": {
-            "enabled": false,
+            "enabled": true,
             "method": "auto",
             "compress": true,
             "verify_acquisition": true,
-            "acquire_pagefile": false
+            "acquire_pagefile": true,
+            "post_acquisition_analysis": true,
+            "volatility_plugins": [
+                "netscan",
+                "filescan",
+                "malfind",
+                "handles"
+            ]
         },
         "volatile_data": {
             "enabled": true,
@@ -70,11 +106,14 @@
                 "system_info",
                 "file_access_history",
                 "login_history",
-                "network_shares"
+                "network_shares",
+                "recent_files"
             ],
             "process_arguments": true,
             "process_environment": false,
-            "file_access_monitoring": true
+            "file_access_monitoring": true,
+            "detect_data_exfil": true,
+            "monitor_large_file_operations": true
         },
         "network_state": {
             "enabled": true,
@@ -83,13 +122,16 @@
             "arp_cache": true,
             "dns_cache": true,
             "interfaces": true,
+            "detect_unusual_connections": true,
             "packet_capture": {
                 "enabled": true,
                 "max_packets": 25000,
                 "max_size_mb": 500,
                 "filter": "tcp or udp and port not 22",
                 "capture_duration_seconds": 600,
-                "focus_outbound": true
+                "focus_outbound": true,
+                "detect_data_exfiltration": true,
+                "capture_http_headers": true
             }
         },
         "custom_commands": [
@@ -99,16 +141,34 @@
             "find /tmp -type f -mtime -2 -size +1M -ls",
             "grep -i 'transfer\\|download\\|upload\\|copy' ~/.bash_history",
             "grep -i 'access\\|denied\\|unauthorized' /var/log/auth.log* | tail -n 500",
-            "who -a"
-        ]
+            "who -a",
+            "find /var/www -type f -mtime -2 -name '*.php'",
+            "find /home -type f -mtime -7 \\( -name '*.csv' -o -name '*.sql' -o -name '*.xls*' \\) -size +1M",
+            "netstat -antp | grep ESTABLISHED | grep -v '^127'",
+            "find /var/log -name '*access*log*' -exec grep -i 'data\\|download\\|admin\\|extract' {} \\; | tail -n 1000"
+        ],
+        "evidence_handling": {
+            "compress_artifacts": true,
+            "hash_algorithm": "sha256",
+            "verify_integrity": true,
+            "chain_of_custody": true,
+            "prioritize_large_transfers": true
+        },
+        "analysis_profile": "network_threat_hunting"
     },
     "unauthorized_access": {
         "description": "Profile for investigating unauthorized access, focusing on user sessions, login history, command execution, and network activity.",
         "memory_acquisition": {
-            "enabled": false,
+            "enabled": true,
             "method": "auto",
             "compress": true,
-            "verify_acquisition": false
+            "verify_acquisition": true,
+            "volatility_plugins": [
+                "pslist",
+                "cmdline",
+                "hashdump",
+                "clipboard"
+            ]
         },
         "volatile_data": {
             "enabled": true,
@@ -123,12 +183,16 @@
                 "sudo_history",
                 "ssh_config",
                 "auth_config",
-                "user_accounts"
+                "user_accounts",
+                "active_logins",
+                "ssh_sessions"
             ],
             "process_arguments": true,
-            "process_environment": false,
+            "process_environment": true,
             "collect_bash_histories": true,
-            "collect_auth_logs": true
+            "collect_auth_logs": true,
+            "detect_privilege_escalation": true,
+            "detect_modified_binaries": true
         },
         "network_state": {
             "enabled": true,
@@ -137,8 +201,14 @@
             "arp_cache": true,
             "dns_cache": true,
             "interfaces": true,
+            "detect_tunnel_connections": true,
             "packet_capture": {
-                "enabled": false
+                "enabled": true,
+                "max_packets": 10000,
+                "max_size_mb": 200,
+                "filter": "port 22 or port 23 or port 3389 or port 5900 or port 3306 or port 1433",
+                "capture_duration_seconds": 300,
+                "focus_credentials": true
             }
         },
         "custom_commands": [
@@ -151,8 +221,19 @@
             "find / -perm -4000 -type f -ls 2>/dev/null",
             "find /etc -mtime -7 -type f -ls",
             "ausearch -m user_login -ts today",
-            "getent passwd | grep -v nologin | grep -v false"
-        ]
+            "getent passwd | grep -v nologin | grep -v false",
+            "grep -i 'sudo\\|su\\|failure\\|error\\|warn' /var/log/secure /var/log/auth.log* | tail -n 1000",
+            "find / -path '*/.*' -name '.*rc' -type f -mtime -7 -ls 2>/dev/null",
+            "dmesg | grep -i 'auth\\|fail\\|error\\|warn\\|usb\\|new device'",
+            "grep -i 'session\\|login\\|user\\|fail' /var/log/syslog | tail -n 500"
+        ],
+        "evidence_handling": {
+            "compress_artifacts": true,
+            "hash_algorithm": "sha256",
+            "verify_integrity": true,
+            "chain_of_custody": true
+        },
+        "analysis_profile": "default"
     },
     "quick_triage": {
         "description": "Minimal profile for rapid initial assessment of system state.",
@@ -170,13 +251,14 @@
             ],
             "process_arguments": true,
             "process_environment": false,
-            "minimal_collection": true
+            "minimal_collection": true,
+            "detect_suspicious_processes": true
         },
         "network_state": {
             "enabled": true,
             "connections": "listening",
-            "routing_table": false,
-            "arp_cache": false,
+            "routing_table": true,
+            "arp_cache": true,
             "dns_cache": false,
             "interfaces": true,
             "packet_capture": {
@@ -189,8 +271,19 @@
             "ps auxf | head -30",
             "netstat -tulpn | grep LISTEN",
             "ss -tulpn | grep LISTEN",
-            "last | head -20"
-        ]
+            "last | head -20",
+            "grep -i 'fail\\|error\\|warn\\|invalid' /var/log/*log | tail -50",
+            "find /tmp -type f -mmin -60 | head -20",
+            "cat /etc/passwd | grep -E '(bash|sh)$'",
+            "journalctl -p err --since '30 min ago' --no-pager 2>/dev/null || grep -i error /var/log/syslog | tail -50"
+        ],
+        "evidence_handling": {
+            "compress_artifacts": true,
+            "hash_algorithm": "sha256",
+            "verify_integrity": true,
+            "minimal_metadata": true
+        },
+        "analysis_profile": "rapid_triage"
     },
     "full_collection": {
         "description": "Comprehensive profile capturing maximum volatile data. Use with caution due to potential system impact and large evidence size.",
@@ -200,7 +293,19 @@
             "compress": true,
             "verify_acquisition": true,
             "acquire_pagefile": true,
-            "acquire_hibernation_file": true
+            "acquire_hibernation_file": true,
+            "post_acquisition_analysis": true,
+            "volatility_plugins": [
+                "pslist",
+                "psscan",
+                "netscan",
+                "malfind",
+                "svcscan",
+                "dlllist",
+                "handles",
+                "cmdscan",
+                "filescan"
+            ]
         },
         "volatile_data": {
             "enabled": true,
@@ -226,7 +331,10 @@
                 "auth_config",
                 "user_accounts",
                 "usb_history",
-                "network_usage"
+                "network_usage",
+                "clipboard",
+                "kernel_modules",
+                "installed_software"
             ],
             "process_arguments": true,
             "process_environment": true,
@@ -235,7 +343,11 @@
             "collect_bash_histories": true,
             "collect_auth_logs": true,
             "file_access_monitoring": true,
-            "preserve_timestamp_metadata": true
+            "preserve_timestamp_metadata": true,
+            "analyze_suspicious_processes": true,
+            "detect_privilege_escalation": true,
+            "extract_network_indicators": true,
+            "detect_data_exfil": true
         },
         "network_state": {
             "enabled": true,
@@ -244,13 +356,19 @@
             "arp_cache": true,
             "dns_cache": true,
             "interfaces": true,
+            "firewall_rules": true,
+            "detect_unusual_connections": true,
+            "detect_tunnel_connections": true,
             "packet_capture": {
                 "enabled": true,
                 "max_packets": 50000,
                 "max_size_mb": 1000,
                 "filter": "",
                 "capture_duration_seconds": 900,
-                "focus_outbound": true
+                "focus_outbound": true,
+                "extract_suspicious_traffic": true,
+                "capture_http_headers": true,
+                "extract_files": true
             }
         },
         "custom_commands": [
@@ -282,8 +400,22 @@
             "getent passwd | sort",
             "dpkg -l || rpm -qa",
             "grep -r '^[^#]' /etc/cron*",
-            "journalctl -b -p warning,err,crit,alert,emerg --no-pager"
-        ]
+            "journalctl -b -p warning,err,crit,alert,emerg --no-pager",
+            "find /home -name '.*rc' -type f | xargs cat",
+            "stat /boot/vmlinuz* /boot/initrd*",
+            "find / -path '*/bin/*' -mtime -7 -type f -executable -ls 2>/dev/null",
+            "cat /proc/modules",
+            "dmesg | grep -i 'denied\\|error\\|warn\\|fail'"
+        ],
+        "evidence_handling": {
+            "compress_artifacts": true,
+            "hash_algorithm": "sha256",
+            "verify_integrity": true,
+            "chain_of_custody": true,
+            "detailed_metadata": true,
+            "correlation_enabled": true
+        },
+        "analysis_profile": "malware_hunting"
     },
     "ransomware_incident": {
         "description": "Profile for suspected ransomware incidents, focusing on file encryption activities, persistence, and common ransomware indicators.",
@@ -292,7 +424,18 @@
             "method": "auto",
             "compress": true,
             "verify_acquisition": true,
-            "acquire_pagefile": true
+            "acquire_pagefile": true,
+            "post_acquisition_analysis": true,
+            "volatility_plugins": [
+                "pslist",
+                "psscan",
+                "cmdline",
+                "dlllist",
+                "malfind",
+                "handles",
+                "filescan",
+                "netscan"
+            ]
         },
         "volatile_data": {
             "enabled": true,
@@ -307,12 +450,16 @@
                 "system_info",
                 "open_files",
                 "file_access_history",
-                "registry_autorun"
+                "registry_autorun",
+                "registry_modifications"
             ],
             "process_arguments": true,
             "process_environment": true,
             "process_handles": true,
-            "minimal_collection": false
+            "minimal_collection": false,
+            "detect_suspicious_processes": true,
+            "extract_suspicious_binaries": true,
+            "track_file_operations": true
         },
         "network_state": {
             "enabled": true,
@@ -321,12 +468,14 @@
             "arp_cache": true,
             "dns_cache": true,
             "interfaces": true,
+            "detect_c2_connections": true,
             "packet_capture": {
                 "enabled": true,
                 "max_packets": 15000,
                 "max_size_mb": 300,
                 "filter": "",
-                "capture_duration_seconds": 300
+                "capture_duration_seconds": 300,
+                "focus_outbound": true
             }
         },
         "custom_commands": [
@@ -338,7 +487,164 @@
             "find /home -type f -name \"*.zip\" -o -name \"*.7z\" -o -name \"*.tar.*\" -o -name \"*.rar\" -o -name \"*.gpg\" -mtime -2",
             "find / -type f -perm 777 -mtime -2",
             "cat /var/log/syslog | grep -i 'denied\\|error\\|failed\\|crypto\\|permission'",
-            "find / -name \"*.sh\" -type f -mtime -2 -perm /111"
-        ]
+            "find / -name \"*.sh\" -type f -mtime -2 -perm /111",
+            "find / -type f -name \"*.exe\" -o -name \"*.dll\" -o -name \"*.vbs\" -o -name \"*.ps1\" -mtime -7 2>/dev/null",
+            "find / -type f -name '*.txt' -mtime -1 -size -10k -exec grep -l 'bitcoin\\|wallet\\|ransom\\|decrypt' {} \\; 2>/dev/null",
+            "find /home -type d -name '.config' -o -name '.cache' -mtime -2 -exec ls -la {} \\; 2>/dev/null"
+        ],
+        "evidence_handling": {
+            "compress_artifacts": true,
+            "hash_algorithm": "sha256",
+            "verify_integrity": true,
+            "chain_of_custody": true,
+            "detailed_metadata": true,
+            "correlation_enabled": true,
+            "preserve_encrypted_samples": true
+        },
+        "analysis_profile": "malware"
+    },
+    "lateral_movement_detection": {
+        "description": "Profile for investigating potential lateral movement activity across the network, focusing on authentication, remote access, and credential usage.",
+        "memory_acquisition": {
+            "enabled": true,
+            "method": "auto",
+            "compress": true,
+            "verify_acquisition": true,
+            "post_acquisition_analysis": true,
+            "volatility_plugins": [
+                "pslist",
+                "netscan",
+                "hashdump",
+                "shimcache",
+                "svcscan"
+            ]
+        },
+        "volatile_data": {
+            "enabled": true,
+            "categories": [
+                "processes",
+                "network",
+                "users",
+                "services",
+                "ssh_config",
+                "auth_config",
+                "login_history",
+                "command_history",
+                "sudo_history",
+                "ssh_sessions",
+                "active_logins"
+            ],
+            "process_arguments": true,
+            "process_environment": true,
+            "collect_auth_logs": true,
+            "detect_suspicious_processes": true,
+            "detect_privilege_escalation": true
+        },
+        "network_state": {
+            "enabled": true,
+            "connections": "all",
+            "routing_table": true,
+            "arp_cache": true,
+            "dns_cache": true,
+            "interfaces": true,
+            "detect_unusual_connections": true,
+            "packet_capture": {
+                "enabled": true,
+                "max_packets": 20000,
+                "max_size_mb": 400,
+                "filter": "port 22 or port 23 or port 3389 or port 445 or port 139 or port 135 or port 5985 or port 5986",
+                "capture_duration_seconds": 600
+            }
+        },
+        "custom_commands": [
+            "last -F",
+            "grep -i 'accepted\\|session opened\\|authentication success' /var/log/auth.log* | tail -n 1000",
+            "grep -i 'ssh\\|login\\|session' /var/log/secure /var/log/auth.log* | tail -n 1000",
+            "find /home -name '.ssh' -type d -exec ls -la {} \\; 2>/dev/null",
+            "find /home -name 'known_hosts' -o -name 'authorized_keys' -exec ls -la {} \\; 2>/dev/null",
+            "find /root -name '.ssh' -type d -exec ls -la {} \\; 2>/dev/null",
+            "netstat -antp | grep -E 'ssh|rdp|vnc|telnet|winrm'",
+            "grep -i 'smbclient\\|mount.cifs\\|net use' /home/*/.bash_history 2>/dev/null",
+            "find / -name '.bash_history' -exec grep -l 'ssh\\|scp\\|ftp\\|rsync\\|rsh' {} \\; 2>/dev/null",
+            "ausearch -m user_login -ts today",
+            "aureport -au --summary",
+            "ausearch -m user_cmd -ts today"
+        ],
+        "evidence_handling": {
+            "compress_artifacts": true,
+            "hash_algorithm": "sha256",
+            "verify_integrity": true,
+            "chain_of_custody": true,
+            "correlation_enabled": true
+        },
+        "analysis_profile": "default"
+    },
+    "persistence_analysis": {
+        "description": "Profile focused on identifying persistence mechanisms and backdoors installed on the system.",
+        "memory_acquisition": {
+            "enabled": true,
+            "method": "auto",
+            "compress": true,
+            "verify_acquisition": true,
+            "post_acquisition_analysis": true,
+            "volatility_plugins": [
+                "pslist",
+                "svcscan",
+                "autoruns",
+                "modscan",
+                "shimcache"
+            ]
+        },
+        "volatile_data": {
+            "enabled": true,
+            "categories": [
+                "processes",
+                "services",
+                "modules",
+                "startup_items",
+                "scheduled_tasks",
+                "registry_autorun"
+            ],
+            "process_arguments": true,
+            "detect_suspicious_processes": true,
+            "detect_hidden_processes": true
+        },
+        "network_state": {
+            "enabled": true,
+            "connections": "all",
+            "routing_table": true,
+            "interfaces": true,
+            "packet_capture": {
+                "enabled": true,
+                "max_packets": 5000,
+                "max_size_mb": 200,
+                "capture_duration_seconds": 300
+            }
+        },
+        "custom_commands": [
+            "systemctl list-units --type=service",
+            "find /etc/systemd/system -type f",
+            "find /usr/lib/systemd/system -type f -mtime -30",
+            "find /etc/init.d -type f",
+            "find /etc/cron* -type f",
+            "crontab -l",
+            "for user in $(cut -f1 -d: /etc/passwd); do echo $user; crontab -u $user -l 2>/dev/null; done",
+            "find /etc/sudoers.d -type f -exec ls -la {} \\;",
+            "find /home -path '*/.*' -name '.*rc' -type f -mtime -30 -exec ls -la {} \\;",
+            "find /home -path '*/.config/*' -type f -mtime -30 -exec ls -la {} \\;",
+            "find /etc/profile.d -type f -mtime -30",
+            "find / -path '*/bin' -o -path '*/sbin' -type f -mtime -30 -exec ls -la {} \\;",
+            "find /etc/ld.so.conf.d -type f -exec ls -la {} \\;",
+            "grep -r 'PreSession\\|PostSession' /etc/ssh/",
+            "find /var/spool/cron -type f",
+            "find /usr/local/bin /usr/local/sbin -type f -mtime -30",
+            "find / -name '.bashrc' -o -name '.bash_profile' -o -name '.profile' -mtime -30 2>/dev/null"
+        ],
+        "evidence_handling": {
+            "compress_artifacts": true,
+            "hash_algorithm": "sha256",
+            "verify_integrity": true
+        },
+        "analysis_profile": "default"
     }
 }
