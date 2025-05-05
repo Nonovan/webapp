@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union, Any, Tuple, Set
 
 # Package versioning
-__version__ = '1.0.0'
+__version__ = '0.1.1'
 __author__ = 'Security Team'
 __email__ = 'security-team@example.com'
 
@@ -41,7 +41,7 @@ CONFIG_AVAILABLE = os.path.exists(MODULE_PATH / "config")
 
 # Import constants from dedicated constants file
 try:
-    from .irk_constants import (
+    from .incident_constants import (
         IncidentStatus, IncidentPhase, IncidentSeverity, IncidentType,
         PHASE_STATUS_MAPPING, STATUS_TRANSITIONS
     )

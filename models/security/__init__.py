@@ -1,63 +1,49 @@
 """
-Security models for Cloud Infrastructure Platform.
+Security models package.
 
-This package contains database models related to security functionalities:
-- SecurityIncident: Security incident tracking and management
-- Vulnerability: Modern vulnerability management
-- ThreatIndicator: Threat intelligence data management
-- AuditLog: Security event logging
-- SystemConfig: Security configuration management
-- Other system-level security components
+This package contains models related to security operations including
+incident management, vulnerability tracking, and security auditing.
 
-These models provide the foundation for security operations, incident response,
-vulnerability management, and compliance tracking across the platform.
+It provides core security features for tracking and managing security
+events within the application.
 """
 
 import logging
-from typing import Dict, Any, List, Optional, Union
+from typing import List
 
-# Configure package logger
+# Setup package logging
 logger = logging.getLogger(__name__)
 
-# Import core security models
+# Import directly accessible models (what the package exposes)
+from .system import AuditLog, SystemConfig
+from .login_attempt import LoginAttempt
 from .security_incident import SecurityIncident
 from .vulnerability import Vulnerability
-from .circuit_breaker import (
-    CircuitBreaker, CircuitBreakerState, CircuitOpenError,
-    RateLimiter, RateLimitExceededError
-)
-from .login_attempt import LoginAttempt
 
-# Extract incident phase and status constants from SecurityIncident for use elsewhere
-SECURITY_INCIDENT_PHASES = {
-    'IDENTIFICATION': SecurityIncident.PHASE_IDENTIFICATION,
-    'CONTAINMENT': SecurityIncident.PHASE_CONTAINMENT,
-    'ERADICATION': SecurityIncident.PHASE_ERADICATION,
-    'RECOVERY': SecurityIncident.PHASE_RECOVERY,
-    'LESSONS_LEARNED': SecurityIncident.PHASE_LESSONS_LEARNED
-}
-
-SECURITY_INCIDENT_STATUSES = {
-    'OPEN': SecurityIncident.STATUS_OPEN,
-    'INVESTIGATING': SecurityIncident.STATUS_INVESTIGATING,
-    'RESOLVED': SecurityIncident.STATUS_RESOLVED,
-    'CLOSED': SecurityIncident.STATUS_CLOSED,
-    'MERGED': SecurityIncident.STATUS_MERGED
-}
-
-SECURITY_INCIDENT_SEVERITIES = {
-    'CRITICAL': SecurityIncident.SEVERITY_CRITICAL,
-    'HIGH': SecurityIncident.SEVERITY_HIGH,
-    'MEDIUM': SecurityIncident.SEVERITY_MEDIUM,
-    'LOW': SecurityIncident.SEVERITY_LOW
-}
-
-# Import incident response models
+# Import circuit breaker functionality
 try:
-    from ...admin.security.incident_response_kit.incident_status import (
-        Incident, IncidentStatus, IncidentPhase,
-        IncidentSeverity, IncidentType,
-        PHASE_STATUS_MAPPING, STATUS_TRANSITIONS
+    from .circuit_breaker import (
+        CircuitBreaker,
+        CircuitBreakerState,
+        CircuitOpenError,
+        RateLimiter,
+        RateLimitExceededError
+    )
+    CIRCUIT_BREAKER_AVAILABLE = True
+    logger.debug("Circuit breaker functionality successfully imported")
+except ImportError:
+    CIRCUIT_BREAKER_AVAILABLE = False
+    logger.debug("Circuit breaker functionality not available")
+
+# Try to import incident response constants
+try:
+    from ...admin.security.incident_response_kit.incident_constants import (
+        IncidentStatus,
+        IncidentPhase,
+        IncidentSeverity,
+        IncidentType,
+        PHASE_STATUS_MAPPING,
+        STATUS_TRANSITIONS
     )
     INCIDENT_RESPONSE_AVAILABLE = True
     logger.debug("Incident response models successfully imported")

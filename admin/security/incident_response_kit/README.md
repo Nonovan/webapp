@@ -2,19 +2,20 @@
 
 ## Contents
 
-- Overview
-- Configuration Files
-- Core Response Tools
-- Directory Structure
-- Documentation Templates
-- Forensic Tools
-- Recovery Tools
-- Reference Materials
-- Response Coordination
-- Response Playbooks
-- Security Features
-- Usage Examples
-- Related Documentation
+- [Overview](#overview)
+- [Configuration Files](#configuration-files)
+- [Core Response Tools](#core-response-tools)
+- [Documentation Templates](#documentation-templates)
+- [Forensic Tools](#forensic-tools)
+- [Recovery Tools](#recovery-tools)
+- [Reference Materials](#reference-materials)
+- [Response Coordination](#response-coordination)
+- [Response Playbooks](#response-playbooks)
+- [Security Features](#security-features)
+- [API Reference](#api-reference)
+- [Directory Structure](#directory-structure)
+- [Usage Examples](#usage-examples)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
@@ -109,6 +110,51 @@ This incident response kit follows the NIST SP 800-61 incident handling framewor
 - **Secure Communications**: Encrypted channels for incident response communications
 - **Secure Documentation**: Templates for proper security documentation
 - **Secure Storage**: Encryption of sensitive artifacts and evidence
+
+## API Reference
+
+### Classes
+
+- **`Incident`** - Represents a security incident with tracking and management capabilities
+- **`IncidentResponseError`** - Base exception for all incident response errors
+- **`ConfigurationError`** - Error in configuration parameters
+- **`InitializationError`** - Error initializing an incident
+- **`EvidenceCollectionError`** - Error during evidence collection
+- **`IsolationError`** - Error during system isolation
+- **`NotificationError`** - Error sending notifications
+- **`IncidentStatusError`** - Error updating incident status
+- **`PlaybookExecutionError`** - Error running playbook steps
+- **`RecoveryError`** - Error during recovery operations
+- **`ValidationError`** - Error validating incident data
+
+### Constants
+
+- **`IncidentStatus`** - Incident status constants (OPEN, INVESTIGATING, RESOLVED, CLOSED, MERGED)
+- **`IncidentPhase`** - Incident phase constants (IDENTIFICATION, CONTAINMENT, ERADICATION, RECOVERY, LESSONS_LEARNED)
+- **`IncidentSeverity`** - Incident severity constants (CRITICAL, HIGH, MEDIUM, LOW)
+- **`IncidentType`** - Incident type constants (MALWARE, DATA_BREACH, etc.)
+- **`PHASE_STATUS_MAPPING`** - Maps incident phases to appropriate statuses
+- **`STATUS_TRANSITIONS`** - Defines valid status transitions
+
+### Functions
+
+- **`initialize_incident`** - Set up an incident response environment
+- **`collect_evidence`** - Collect evidence from target systems
+- **`isolate_system`** - Isolate a compromised system from the network
+- **`notify_stakeholders`** - Send notifications to incident stakeholders
+- **`update_status`** - Update the status of an incident
+- **`get_incident_status`** - Get the current status of an incident
+- **`list_incidents`** - List all incidents matching given criteria
+- **`run_playbook`** - Run a specific incident response playbook
+- **`restore_service`** - Restore services after containment
+- **`harden_system`** - Apply security hardening after an incident
+- **`track_incident_status`** - Initialize status tracking for an incident
+- **`verify_file_integrity`** - Verify the integrity of collected evidence
+- **`build_timeline`** - Build a timeline of incident events
+- **`generate_report`** - Generate incident reports
+- **`get_available_components`** - Check which toolkit components are available
+- **`create_evidence_directory`** - Create a directory for evidence collection
+- **`sanitize_incident_id`** - Sanitize incident ID for file operations
 
 ## Directory Structure
 
@@ -226,6 +272,16 @@ admin/security/incident_response_kit/
     --update-phase containment \
     --status "in-progress" \
     --notes "Network isolation complete, evidence collection in progress"
+```
+
+### Component Availability Check
+
+```python
+# Check which components are available in the toolkit
+from admin.security.incident_response_kit import get_available_components
+
+components = get_available_components()
+print(f"Available components: {components}")
 ```
 
 ## Related Documentation
