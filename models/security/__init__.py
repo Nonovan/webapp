@@ -1,22 +1,16 @@
 """
-Security models package for the Cloud Infrastructure Platform.
+Security models for Cloud Infrastructure Platform.
 
-This package contains models related to security management including:
-- SecurityIncident: For tracking and managing security incidents
-- AuditLog: For comprehensive security auditing and compliance reporting
-- SystemConfig: For security-related configuration management
-- LoginAttempt: For tracking authentication attempts and preventing brute force attacks
-- Vulnerability: For tracking and managing security vulnerabilities
-- SecurityBaseline: For defining and managing security standards and configurations
-- SecurityScan: For tracking security scans and their findings
-- ThreatIntelligence: For managing threat intelligence data
-- ComplianceCheck: For compliance verification and reporting
-- CircuitBreaker: For preventing cascading failures through service protection
+This package contains database models related to security functionalities:
+- SecurityIncident: Security incident tracking and management
+- Vulnerability: Modern vulnerability management
+- ThreatIndicator: Threat intelligence data management
+- AuditLog: Security event logging
+- SystemConfig: Security configuration management
+- Other system-level security components
 
-These models provide the foundation for the security features of the platform,
-enabling incident response, vulnerability management, compliance auditing,
-audit trail maintenance, secure configuration management, service resilience,
-and protection against authentication-based attacks.
+These models provide the foundation for security operations, incident response,
+vulnerability management, and compliance tracking across the platform.
 """
 
 import logging
@@ -26,13 +20,50 @@ from typing import Dict, Any, List, Optional, Union
 logger = logging.getLogger(__name__)
 
 # Import core security models
+from .security_incident import SecurityIncident
+from .vulnerability import Vulnerability
 from .circuit_breaker import (
     CircuitBreaker, CircuitBreakerState, CircuitOpenError,
     RateLimiter, RateLimitExceededError
 )
 from .login_attempt import LoginAttempt
-from .security_incident import SecurityIncident
-from .vulnerability import Vulnerability
+
+# Extract incident phase and status constants from SecurityIncident for use elsewhere
+SECURITY_INCIDENT_PHASES = {
+    'IDENTIFICATION': SecurityIncident.PHASE_IDENTIFICATION,
+    'CONTAINMENT': SecurityIncident.PHASE_CONTAINMENT,
+    'ERADICATION': SecurityIncident.PHASE_ERADICATION,
+    'RECOVERY': SecurityIncident.PHASE_RECOVERY,
+    'LESSONS_LEARNED': SecurityIncident.PHASE_LESSONS_LEARNED
+}
+
+SECURITY_INCIDENT_STATUSES = {
+    'OPEN': SecurityIncident.STATUS_OPEN,
+    'INVESTIGATING': SecurityIncident.STATUS_INVESTIGATING,
+    'RESOLVED': SecurityIncident.STATUS_RESOLVED,
+    'CLOSED': SecurityIncident.STATUS_CLOSED,
+    'MERGED': SecurityIncident.STATUS_MERGED
+}
+
+SECURITY_INCIDENT_SEVERITIES = {
+    'CRITICAL': SecurityIncident.SEVERITY_CRITICAL,
+    'HIGH': SecurityIncident.SEVERITY_HIGH,
+    'MEDIUM': SecurityIncident.SEVERITY_MEDIUM,
+    'LOW': SecurityIncident.SEVERITY_LOW
+}
+
+# Import incident response models
+try:
+    from .incident_response import (
+        Incident, IncidentStatus, IncidentPhase,
+        IncidentSeverity, IncidentType,
+        PHASE_STATUS_MAPPING, STATUS_TRANSITIONS
+    )
+    INCIDENT_RESPONSE_AVAILABLE = True
+    logger.debug("Incident response models successfully imported")
+except ImportError:
+    INCIDENT_RESPONSE_AVAILABLE = False
+    logger.debug("Incident response models not available")
 
 # Import from system sub-package
 from .system import AuditLog, SecurityBaseline, SecurityScan, SystemConfig
@@ -53,36 +84,45 @@ __all__ = [
     "CircuitBreakerState",
     "CircuitOpenError",
     "RateLimiter",
-    "RateLimitExceededError"
+    "RateLimitExceededError",
+
+    # Security incident constants
+    "SECURITY_INCIDENT_PHASES",
+    "SECURITY_INCIDENT_STATUSES",
+    "SECURITY_INCIDENT_SEVERITIES"
 ]
+
+# Add incident response components if available
+if INCIDENT_RESPONSE_AVAILABLE:
+    __all__.extend([
+        "Incident",
+        "IncidentStatus",
+        "IncidentPhase",
+        "IncidentSeverity",
+        "IncidentType",
+        "PHASE_STATUS_MAPPING",
+        "STATUS_TRANSITIONS"
+    ])
 
 # Try to import additional models that might not be available in all deployments
 try:
-    from .threat_intelligence import ThreatIndicator, ThreatFeed
-    __all__.extend(["ThreatIndicator", "ThreatFeed"])
+    from .threat_intelligence import ThreatIndicator, ThreatFeed, ThreatEvent
+    __all__.extend(["ThreatIndicator", "ThreatFeed", "ThreatEvent"])
     logger.debug("ThreatIntelligence models successfully imported")
 except ImportError:
     logger.debug("ThreatIntelligence models not available")
 
+# Try to import compliance models
 try:
-    from .compliance_check import ComplianceCheck
-    __all__.append("ComplianceCheck")
+    from .system.compliance_check import (
+        ComplianceCheck,
+        ComplianceStatus,
+        ComplianceSeverity
+    )
+    __all__.extend(["ComplianceCheck", "ComplianceStatus", "ComplianceSeverity"])
     logger.debug("ComplianceCheck model successfully imported")
 except ImportError:
     logger.debug("ComplianceCheck model not available")
 
-# Try to import system-level models if not already imported
-try:
-    from .system import (
-        SecurityBaseline as SystemSecurityBaseline,
-        SecurityScan as SystemSecurityScan
-    )
-    logger.debug("System-level security models imported")
-except ImportError:
-    logger.debug("System-level security models not available as separate imports")
-
-# Version tracking for package
-__version__ = '0.1.1'  # Updated version to reflect addition of circuit breaker
-
-# Log initialization status
-logger.debug(f"Security models package initialized with {len(__all__)} components, version {__version__}")
+# Track initialization for diagnostics
+logger.debug(f"Security models initialized: {', '.join(__all__)}")

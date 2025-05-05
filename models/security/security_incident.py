@@ -69,6 +69,18 @@ class SecurityIncident(BaseModel, AuditableMixin):
 
     VALID_STATUSES = [STATUS_OPEN, STATUS_INVESTIGATING, STATUS_RESOLVED, STATUS_CLOSED, STATUS_MERGED]
 
+    # Phase constants
+    PHASE_IDENTIFICATION = 'identification'
+    PHASE_CONTAINMENT = 'containment'
+    PHASE_ERADICATION = 'eradication'
+    PHASE_RECOVERY = 'recovery'
+    PHASE_LESSONS_LEARNED = 'lessons_learned'
+
+    VALID_PHASES = [
+        PHASE_IDENTIFICATION, PHASE_CONTAINMENT, PHASE_ERADICATION,
+        PHASE_RECOVERY, PHASE_LESSONS_LEARNED
+    ]
+
     # Severity constants
     SEVERITY_CRITICAL = 'critical'
     SEVERITY_HIGH = 'high'
@@ -791,6 +803,133 @@ class SecurityIncident(BaseModel, AuditableMixin):
         # Add new resource
         self.affected_resources.append(resource)
         self._record_activity()
+
+    def change_status(self, new_status: str, reason: str, user_id: Optional[int] = None) -> None:
+        """
+        Change the incident status with audit trail.
+
+        Args:
+            new_status: The new status to set
+            reason: Reason for the status change
+            user_id: ID of the user changing the status
+
+        Raises:
+            ValueError: If the status is invalid
+        """
+        # Validate status
+        if new_status not in self.VALID_STATUSES:
+            raise ValueError(f"Invalid status: {new_status}")
+
+        # Check if there's actually a change
+        if self.status == new_status:
+            return
+
+        old_status = self.status
+        self.status = new_status
+
+        # Add change reason to notes
+        status_note = f"Status changed from {old_status} to {new_status}. Reason: {reason}"
+        self.add_note(status_note, user_id)
+
+        # Handle specific status transitions
+        if new_status == self.STATUS_RESOLVED:
+            self.resolved_at = datetime.now(timezone.utc)
+            self.resolved_by = user_id
+        elif old_status in (self.STATUS_RESOLVED, self.STATUS_CLOSED) and new_status in (self.STATUS_OPEN, self.STATUS_INVESTIGATING):
+            # Reset resolution info if reopening
+            self.resolved_at = None
+            self.resolved_by = None
+
+        # Record the change
+        fields_changed = ['status']
+        if new_status == self.STATUS_RESOLVED:
+            fields_changed.extend(['resolved_at', 'resolved_by'])
+
+        self.log_change(
+            fields_changed,
+            f"Status changed by user ID {user_id}" if user_id else "Status changed"
+        )
+
+        # Update activity timestamp and priority score
+        self._record_activity()
+
+        # Track status change in audit log
+        if user_id:
+            log_security_event(
+                event_type=AuditLog.EVENT_SECURITY_INCIDENT_STATUS_CHANGED,
+                description=f"Security incident #{self.id} status changed to {new_status}",
+                user_id=user_id,
+                severity='info',
+                object_id=self.id,
+                object_type='SecurityIncident',
+                details={
+                    'old_status': old_status,
+                    'new_status': new_status,
+                    'reason': reason[:100] + '...' if len(reason) > 100 else reason
+                }
+            )
+
+    def change_phase(self, new_phase: str, reason: str, user_id: Optional[int] = None) -> None:
+        """
+        Change the incident phase with audit trail.
+
+        Args:
+            new_phase: The new phase to set
+            reason: Reason for the phase change
+            user_id: ID of the user changing the phase
+
+        Raises:
+            ValueError: If the phase is invalid
+        """
+        # Define valid phases - needed here as they're not class constants
+        VALID_PHASES = [
+            'identification', 'containment', 'eradication',
+            'recovery', 'lessons_learned'
+        ]
+
+        # Validate phase
+        if new_phase not in VALID_PHASES:
+            raise ValueError(f"Invalid phase: {new_phase}")
+
+        # Store old phase - this might be None if phase hasn't been set before
+        old_phase = getattr(self, 'phase', None)
+
+        # Check if there's actually a change
+        if old_phase == new_phase:
+            return
+
+        # Set new phase
+        self.phase = new_phase
+
+        # Add change reason to notes
+        phase_note = f"Phase changed to {new_phase}" + (f" from {old_phase}" if old_phase else "")
+        phase_note += f". Reason: {reason}"
+        self.add_note(phase_note, user_id)
+
+        # Record the change
+        self.log_change(
+            ['phase'],
+            f"Phase changed by user ID {user_id}" if user_id else "Phase changed"
+        )
+
+        # Update activity timestamp
+        self._record_activity()
+
+        # Track phase change in audit log
+        if user_id:
+            log_security_event(
+                event_type=AuditLog.EVENT_SECURITY_INCIDENT_PHASE_CHANGED,
+                description=f"Security incident #{self.id} phase changed to {new_phase}",
+                user_id=user_id,
+                severity='info',
+                object_id=self.id,
+                object_type='SecurityIncident',
+                details={
+                    'old_phase': old_phase,
+                    'new_phase': new_phase,
+                    'reason': reason[:100] + '...' if len(reason) > 100 else reason
+                }
+            )
 
     @classmethod
     def get_active_incidents(cls) -> List['SecurityIncident']:

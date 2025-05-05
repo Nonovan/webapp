@@ -32,50 +32,22 @@ These models support security operations, incident management, vulnerability tra
   - Tracks failure statistics and recovery metrics
   - Supports configurable fallback mechanisms
 
-- **`ComplianceCheck`**: Compliance status tracking and verification
-  - Tracks compliance requirements and statuses
-  - Maps controls to compliance frameworks
-  - Maintains evidence collections for audits
-  - Supports gap analysis and remediation
-
 - **`LoginAttempt`**: Authentication attempt monitoring
   - Tracks successful and failed login attempts
   - Implements brute force protection through rate limiting
   - Provides account lockout mechanisms with progressive timing
   - Records IP addresses and geolocation data for threat analysis
 
-- **`SecurityBaseline`**: Security standard definitions
-  - Defines expected security configurations for various systems
-  - Supports baseline validation and deviation reporting
-  - Implements versioned security standards
-  - Maps to compliance requirements and security best practices
-
 - **`SecurityIncident`**: Security incident tracking and management
-  - Comprehensive incident lifecycle management
-  - Status tracking from detection through resolution
-  - Assignment and escalation workflows
+  - Comprehensive incident lifecycle management (open, investigating, resolved, closed, merged)
+  - Status and phase tracking from identification through resolution
+  - Assignment, note tracking, and escalation workflows
   - Impact assessment and root cause analysis
-  - Integration with notification systems
-
-- **`SecurityScan`**: Security scanning configuration and results
-  - Manages security scan schedules and configurations
-  - Stores scan results with finding details
-  - Tracks remediation status for identified vulnerabilities
-  - Integrates with external scanning tools
-
-- **`SystemConfig`**: Security-related configuration management
-  - Maintains security parameters and settings
-  - Stores security configuration with versioning
-  - Supports configuration validation and change tracking
-  - Provides environment-specific security settings
-
-- **`ThreatIntelligence`**: Threat intelligence data management
-  - Stores indicators of compromise (IOCs) with comprehensive metadata
-  - Tracks suspicious IPs, domains, file hashes, and URLs
-  - Manages threat feed integrations with automatic updates
-  - Provides real-time threat detection capabilities
-  - Implements confidence scoring and severity classification
-  - Maintains historical tracking of threat indicators
+  - Related incident tracking and merging capabilities
+  - Affected resource management for comprehensive impact assessment
+  - Priority scoring based on severity and age
+  - SLA tracking with time-based alerts
+  - Tag-based categorization for improved organization
 
 - **`Vulnerability`**: Modern vulnerability tracking and management
   - Implements complete vulnerability lifecycle from discovery to resolution
@@ -92,21 +64,21 @@ These models support security operations, incident management, vulnerability tra
 
 ```plaintext
 models/security/
-├── __init__.py               # Package exports
+├── __init__.py               # Package exports and constants
 ├── circuit_breaker.py        # Service protection components
 ├── login_attempt.py          # Authentication attempt tracking
 ├── README.md                 # This documentation
 ├── security_incident.py      # Security incident management
 ├── system/                   # System-level security models
 │   ├── __init__.py           # System security package exports
-│   ├── audit_log.py          # System event logging
-│   ├── compliance_check.py   # System compliance verification
+│   ├── audit_log.py          # Security event logging
+│   ├── compliance_check.py   # Compliance verification models
 │   ├── README.md             # System security documentation
-│   ├── security_baseline.py  # System security standards
-│   ├── security_scan.py      # System security scanning
+│   ├── security_baseline.py  # Security standards definition
+│   ├── security_scan.py      # Security scanning configuration and results
 │   └── system_config.py      # Security configuration storage
-├── threat_intelligence.py    # Threat intelligence data
-└── vulnerability.py          # Modern vulnerability management
+├── threat_intelligence.py    # Threat intelligence data management
+└── vulnerability.py          # Vulnerability tracking and management
 ```
 
 ## Usage Examples
@@ -141,6 +113,27 @@ incident.escalate(
     user_id=5
 )
 
+# Change incident phase
+incident.change_phase(
+    new_phase=SecurityIncident.PHASE_CONTAINMENT,
+    reason="Implementing network isolation",
+    user_id=5
+)
+
+# Add affected resources
+incident.add_affected_resource(
+    resource_type="server",
+    resource_id="web-server-01",
+    details={"services": ["http", "https"]}
+)
+
+# Add related incident
+incident.add_related_incident(related_incident_id=42)
+
+# Add tags for better categorization
+incident.add_tag("web-server")
+incident.add_tag("credential-theft")
+
 # After implementing countermeasures, resolve the incident
 incident.resolve(
     resolution="Blocked originating IP address, reset affected user passwords, " +
@@ -153,12 +146,36 @@ incident.reopen(
     reason="Similar attack pattern detected from new IP range",
     user_id=5
 )
+
+# When fully addressed, close the incident
+incident.close(
+    reason="All countermeasures validated and no further suspicious activity detected",
+    user_id=5
+)
+
+# Merge with a parent incident if related
+incident.merge_into(
+    parent_incident_id=50,
+    reason="Part of coordinated attack from same threat actor",
+    user_id=5
+)
+
+# Search for incidents
+incidents = SecurityIncident.search(
+    query="credential theft",
+    status=[SecurityIncident.STATUS_OPEN, SecurityIncident.STATUS_INVESTIGATING],
+    severity=[SecurityIncident.SEVERITY_HIGH, SecurityIncident.SEVERITY_CRITICAL],
+    days=30
+)
+
+# Check for breached SLA incidents
+sla_breached = SecurityIncident.get_breached_sla_incidents()
 ```
 
 ### Audit Logging
 
 ```python
-from models.security import AuditLog
+from models.security.system import AuditLog
 
 # Record a security-relevant event
 AuditLog.log_event(
@@ -290,84 +307,10 @@ except RateLimitExceededError as e:
     return {"error": "Rate limit exceeded", "retry_after": e.retry_after}
 ```
 
-### Threat Intelligence Management
-
-```python
-from models.security import ThreatIntelligence
-
-# Create a new threat indicator
-indicator = ThreatIntelligence.ThreatIndicator(
-    indicator_type=ThreatIntelligence.ThreatIndicator.TYPE_IP,
-    value="192.168.1.100",
-    source="manual",
-    description="Suspicious IP address showing brute force patterns",
-    severity=ThreatIntelligence.ThreatIndicator.SEVERITY_HIGH,
-    confidence=85,
-    tags=["brute-force", "ssh-attack"]
-)
-indicator.save()
-
-# Check if an IP matches any threat indicators
-matches = ThreatIntelligence.ThreatIndicator.check_for_matches(
-    value="192.168.1.100",
-    indicator_type=ThreatIntelligence.ThreatIndicator.TYPE_IP
-)
-
-if matches:
-    # Create a security event from the match
-    ThreatIntelligence.ThreatEvent.create_from_indicator_match(
-        indicator=matches[0],
-        context={"source_type": "ssh_log", "attempt_count": 35},
-        ip_address="192.168.1.100",
-        action=ThreatIntelligence.ThreatEvent.ACTION_BLOCKED
-    )
-```
-
-### Compliance Checks
-
-```python
-from models.security import ComplianceCheck
-
-# Create a compliance requirement
-pci_req = ComplianceCheck(
-    framework="PCI-DSS",
-    control_id="6.5.1",
-    description="Injection flaws, particularly SQL injection",
-    requirement="Address injection flaws, particularly SQL injection",
-    status=ComplianceCheck.STATUS_IN_PROGRESS
-)
-pci_req.save()
-
-# Link to a vulnerability record
-pci_req.link_vulnerability(vulnerability_id=123)
-
-# Add verification evidence
-pci_req.add_evidence(
-    evidence_type=ComplianceCheck.EVIDENCE_SECURITY_TEST,
-    description="Penetration test report for SQL injection",
-    location="s3://evidence-bucket/pentest-reports/sql-injection-2023.pdf",
-    collected_by=current_user.id
-)
-
-# Update compliance status
-pci_req.update_status(
-    new_status=ComplianceCheck.STATUS_COMPLIANT,
-    notes="Implemented parameterized queries across all endpoints",
-    reviewer_id=auditor_id
-)
-
-# Generate compliance report
-compliance_report = ComplianceCheck.generate_report(
-    framework="PCI-DSS",
-    section="6.5",
-    as_of_date=datetime.now(timezone.utc)
-)
-```
-
 ### Security Baseline Management
 
 ```python
-from models.security import SecurityBaseline
+from models.security.system import SecurityBaseline
 
 # Create a new security baseline
 linux_baseline = SecurityBaseline(
@@ -375,39 +318,109 @@ linux_baseline = SecurityBaseline(
     version="1.2.0",
     description="Security baseline for Linux servers based on CIS Benchmarks",
     system_type="linux_server",
-    created_by=security_admin_id
+    created_by_id=security_admin_id
 )
 linux_baseline.save()
 
 # Add baseline items
-linux_baseline.add_item(
+linux_baseline.add_control(
+    category="filesystem",
     control_id="1.1",
-    title="Disable unused filesystems",
-    description="Disable mounting of unused filesystems",
-    implementation="Edit /etc/modprobe.d/CIS.conf and add `install cramfs /bin/true`",
-    verification="Run `lsmod | grep cramfs` should return no results",
-    remediation="Add lines to /etc/modprobe.d/CIS.conf",
-    impact="Low",
-    priority=SecurityBaseline.PRIORITY_MEDIUM
+    control_data={
+        "title": "Disable unused filesystems",
+        "description": "Disable mounting of unused filesystems",
+        "implementation": "Edit /etc/modprobe.d/CIS.conf and add `install cramfs /bin/true`",
+        "verification": "Run `lsmod | grep cramfs` should return no results",
+        "remediation": "Add lines to /etc/modprobe.d/CIS.conf",
+        "impact": "Low",
+        "priority": "medium"
+    }
 )
 
-# Create baseline assessment
-assessment = linux_baseline.create_assessment(
-    system_id="web-server-01",
-    assessor_id=current_user.id
+# Publish the baseline when ready
+linux_baseline.publish(user_id=security_admin_id)
+
+# Archive old baseline versions
+linux_baseline.archive(
+    user_id=security_admin_id,
+    reason="Superseded by version 1.3.0"
+)
+```
+
+### Compliance Verification
+
+```python
+from models.security.system import ComplianceCheck, ComplianceStatus, ComplianceValidator
+
+# Create a compliance check
+check = ComplianceCheck(
+    control_id=1,
+    name="Verify Password Policy",
+    check_type=ComplianceCheck.CHECK_TYPE_CONFIG,
+    description="Verify password policy meets requirements",
+    parameters={
+        "config_path": "security/password_policy.conf",
+        "key": "min_length",
+        "expected": "12",
+        "check_type": "key_value_min"
+    },
+    enabled=True
 )
 
-# Record assessment results
-assessment.add_result(
-    control_id="1.1",
-    status=SecurityBaseline.STATUS_PASS,
-    evidence="Command output confirmed cramfs is not loaded",
-    notes="Verified via SSH and running lsmod | grep cramfs"
+# Execute the check
+status, details = check.execute(user_id=admin_id)
+if status == ComplianceStatus.FAILED.value:
+    print(f"Check failed: {details.get('message', '')}")
+
+# Run compliance validation for specific framework
+validator = ComplianceValidator(framework="PCI-DSS")
+results = validator.validate(user_id=admin_id)
+
+# Generate compliance reports in different formats
+text_report = validator.generate_report(format='text')
+html_report = validator.generate_report(format='html', output_file='compliance_report.html')
+json_report = validator.generate_report(format='json')
+```
+
+### Configuration Management
+
+```python
+from models.security.system import SystemConfig
+
+# Store security configuration
+SystemConfig.set_config(
+    name="password_policy",
+    value={
+        "min_length": 12,
+        "require_uppercase": True,
+        "require_lowercase": True,
+        "require_numbers": True,
+        "require_special_chars": True,
+        "max_age_days": 90
+    },
+    category="authentication",
+    environment="production",
+    is_sensitive=False
 )
 
-# Generate baseline compliance report
-compliance_percentage = assessment.calculate_compliance()
-print(f"System is {compliance_percentage}% compliant with baseline")
+# Retrieve configuration
+pwd_policy = SystemConfig.get_config("password_policy", environment="production")
+
+# Update configuration with versioning
+SystemConfig.update_config(
+    name="password_policy",
+    value={"min_length": 14, "max_age_days": 60},
+    category="authentication",
+    environment="production",
+    changed_by_id=admin_id,
+    reason="Increasing security posture",
+    merge=True  # Merge with existing values
+)
+
+# Get configuration history
+history = SystemConfig.get_config_history("password_policy", limit=5)
+for version in history:
+    print(f"Changed on {version.changed_at} by {version.changed_by}: {version.change_reason}")
 ```
 
 ## Implementation Notes

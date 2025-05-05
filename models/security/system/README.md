@@ -34,6 +34,26 @@ The system-level security models provide foundational security infrastructure th
   - Tracks remediation efforts for non-compliant controls
   - Provides compliance metrics and trend analysis
   - Generates compliance attestation reports
+  - Supports file, configuration, and API-based checks
+
+- **`ComplianceControl`**: Compliance control implementation
+  - Links controls to specific compliance frameworks
+  - Defines implementation requirements and validation methods
+  - Supports control categorization and prioritization
+  - Maps to technical security baseline controls
+
+- **`ComplianceFramework`**: Compliance standards definition
+  - Manages compliance standard information and structure
+  - Tracks compliance framework versions and requirements
+  - Supports mapping between different compliance frameworks
+  - Provides focused views for specific compliance domains
+
+- **`ComplianceValidator`**: Compliance validation engine
+  - Validates systems against compliance requirements
+  - Generates comprehensive validation reports in multiple formats
+  - Supports framework-specific and category-based validation
+  - Provides summary metrics and detailed results
+  - Integrates with security incident workflows
 
 - **`SecurityBaseline`**: Security standard definitions and tracking
   - Defines expected security configurations for different systems
@@ -50,6 +70,7 @@ The system-level security models provide foundational security infrastructure th
   - Supports different scan types (vulnerability, compliance, etc.)
   - Provides scan metrics and trend analysis
   - Integrates with external scanning tools
+  - Filters findings by severity, status, and target
 
 - **`SystemConfig`**: Security-related configuration management
   - Stores security parameters with version tracking
@@ -65,7 +86,7 @@ The system-level security models provide foundational security infrastructure th
 models/security/system/
 ├── __init__.py           # Package initialization and exports
 ├── audit_log.py          # Security event logging system
-├── compliance_check.py   # Compliance verification model
+├── compliance_check.py   # Compliance verification models
 ├── README.md             # This documentation
 ├── security_baseline.py  # Security standards definition
 ├── security_scan.py      # Security scanning results
@@ -164,38 +185,43 @@ print(f"System is {compliance}% compliant with baseline")
 ### Compliance Verification
 
 ```python
-from models.security.system import ComplianceCheck
+from models.security.system import ComplianceCheck, ComplianceStatus, ComplianceSeverity, ComplianceValidator
 
-# Create a compliance requirement
-pci_req = ComplianceCheck(
-    framework="PCI-DSS",
-    section="6.5.1",
-    requirement="Prevent SQL injection vulnerabilities",
-    description="Review code to prevent SQL injection",
-    created_by_id=security_officer_id
-)
-pci_req.save()
-
-# Add implemented controls
-pci_req.add_control(
-    control_id="APP-SEC-012",
-    control_name="Parameterized Queries",
-    implementation_status=ComplianceCheck.STATUS_IMPLEMENTED,
-    evidence_references=["doc-123", "code-review-456"],
-    implementation_notes="All database access uses SQLAlchemy with parameterized queries"
+# Create a compliance check
+check = ComplianceCheck(
+    control_id=1,
+    name="Verify Password Policy",
+    check_type=ComplianceCheck.CHECK_TYPE_CONFIG,
+    description="Verify password policy meets requirements",
+    parameters={
+        "config_path": "security/password_policy.conf",
+        "key": "min_length",
+        "expected": "12",
+        "check_type": "key_value_min"
+    },
+    enabled=True
 )
 
-# Generate compliance report
-report = ComplianceCheck.generate_report(
-    framework="PCI-DSS",
-    section="6.5",
-    as_of_date=datetime.now(timezone.utc)
-)
+# Execute the check
+status, details = check.execute(user_id=admin_id)
+if status == ComplianceStatus.FAILED.value:
+    print(f"Check failed: {details.get('message', '')}")
 
-# Check compliance gap
-gaps = ComplianceCheck.find_compliance_gaps(framework="HIPAA")
-for gap in gaps:
-    print(f"Missing control for {gap.section}: {gap.requirement}")
+# Run compliance validation for specific framework
+validator = ComplianceValidator(framework="PCI-DSS")
+results = validator.validate(user_id=admin_id)
+
+# Generate compliance reports in different formats
+text_report = validator.generate_report(format='text')
+html_report = validator.generate_report(format='html', output_file='compliance_report.html')
+json_report = validator.generate_report(format='json')
+
+# Check the overall compliance status
+if json_report['summary']['overall_status'] == ComplianceStatus.PASSED.value:
+    print("System is compliant with all requirements!")
+else:
+    print(f"Failed checks: {json_report['summary']['failed']}")
+    print(f"Errors encountered: {json_report['summary']['errors']}")
 ```
 
 ### Security Scan Management
@@ -241,6 +267,11 @@ scan_metrics = SecurityScan.get_scan_metrics(
     past_days=90,
     group_by="week"
 )
+
+# Check scan health
+health_metrics = SecurityScan.get_scan_health_metrics()
+if health_metrics['health_status'] == 'degraded':
+    print(f"Warning: {health_metrics['long_running_scans']} scans running for too long")
 ```
 
 ### Configuration Management
@@ -295,6 +326,7 @@ for version in history:
 - Versioning is implemented for security-critical components for compliance and traceability
 - Each model provides pagination support for handling large result sets efficiently
 - Bulk operation methods are available for efficiency with large data sets
+- Compliance models use enum classes for consistent status and severity values
 
 ## Best Practices & Security
 
@@ -308,6 +340,8 @@ for version in history:
 - Rotate sensitive security configurations regularly
 - Review audit logs periodically for suspicious activity
 - Export and archive audit logs according to retention policies
+- Use ComplianceSeverity and ComplianceStatus enums for consistent status values
+- Store compliance evidence with proper references and documentation
 
 ## Common Features
 
@@ -321,6 +355,8 @@ for version in history:
 - Integration with the platform's notification system
 - Environment-aware configuration capabilities
 - Tamper-resistant logging mechanisms
+- Multiple report format generation (text, HTML, JSON)
+- Enum-based constants for consistency and type safety
 
 ## Related Documentation
 
@@ -331,3 +367,6 @@ for version in history:
 - Security Scanning Implementation
 - Configuration Management Guide
 - RBAC Implementation Guide
+- Compliance Status Codes Reference
+- File Integrity Checking Implementation
+- API-Based Compliance Checks

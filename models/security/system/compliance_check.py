@@ -9,6 +9,7 @@ with the platform's audit logging, file integrity monitoring, and security basel
 import os
 import json
 import re
+import requests
 from typing import Dict, List, Optional, Union, Any, Tuple
 from datetime import datetime, timezone
 from enum import Enum
@@ -537,7 +538,6 @@ class ComplianceCheck(BaseModel, AuditableMixin):
                 }
 
             # Prepare request
-            import requests
             headers = self.parameters.get('headers', {})
             params = self.parameters.get('params', {})
             data = self.parameters.get('data')
