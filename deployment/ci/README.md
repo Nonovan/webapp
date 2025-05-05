@@ -4,15 +4,16 @@ This directory contains the configuration files, scripts, and documentation for 
 
 ## Contents
 
-- Overview
-- Directory Structure
-- CI/CD Pipeline
-- Environments
-- Security Features
-- Usage
-- Integration with Deployment Scripts
-- Troubleshooting
-- References
+- [Overview](#overview)
+- [Directory Structure](#directory-structure)
+- [CI/CD Pipeline](#cicd-pipeline)
+- [Environments](#environments)
+- [Security Features](#security-features)
+- [Usage](#usage)
+- [Security Scanning](#security-scanning)
+- [Integration with Deployment Scripts](#integration-with-deployment-scripts)
+- [Troubleshooting](#troubleshooting)
+- [References](#references)
 
 ## Overview
 
@@ -26,6 +27,7 @@ deployment/ci/
 ├── Dockerfile              # Container for CI/CD operations
 ├── Jenkinsfile             # Jenkins pipeline configuration
 ├── README.md               # This documentation
+├── __init__.py             # Package initialization with dependency checking
 ├── build_package.py        # Script to build deployment packages
 ├── config.yml              # Shared CI/CD configuration settings
 ├── dependency_check.py     # Script to analyze dependencies for vulnerabilities
@@ -62,6 +64,8 @@ The pipeline includes several security measures:
 - Compliance checks
 - Container security scanning
 - Dependency vulnerability scanning
+- File integrity verification
+- Package integrity monitoring
 - Security test automation
 - Static Application Security Testing (SAST)
 
@@ -92,9 +96,48 @@ The CI container supports these commands:
 - `test:integration` - Run integration tests
 - `test:unit` - Run unit tests
 
+## Security Scanning
+
+### Dependency Checking
+
+The dependency_check.py module performs comprehensive dependency security scanning with the following capabilities:
+
+- **Vulnerability Assessment**: Scans Python dependencies using the Safety database
+- **License Compliance**: Verifies that dependencies use approved licenses
+- **Outdated Package Detection**: Identifies outdated packages that need updating
+- **File Integrity Verification**: Detects tampering with installed packages by comparing file hashes
+- **Reporting**: Generates detailed reports with findings categorized by severity
+
+#### Dependency Checking Key Functions
+
+- `run_safety_check()`: Scans for known security vulnerabilities
+- `check_licenses()`: Verifies compliance with allowed license types
+- `check_outdated_dependencies()`: Identifies packages with updates available
+- `verify_dependency_integrity()`: Detects tampering with installed packages
+- `generate_dependency_report()`: Creates comprehensive security reports
+
+### Static Application Security Testing (SAST)
+
+The sast_scan.py module performs static code analysis to identify potential security issues:
+
+- **Multi-Tool Analysis**: Combines results from Bandit, Semgrep, and PyLint
+- **Critical Path Protection**: Enhanced security checks for sensitive code paths
+- **Customizable Thresholds**: Configurable severity thresholds by category
+- **Integrated File Integrity**: Incorporates core file integrity verification
+- **GitLab Integration**: Produces GitLab-compatible SAST reports
+
+#### SAST Key Functions
+
+- `run_bandit()`: Performs Python-specific security scanning
+- `run_semgrep()`: Applies customizable security rule patterns
+- `run_pylint()`: Applies Python code quality and security checks
+- `run_safety_check()`: Identifies vulnerable dependencies
+- `check_file_integrity()`: Verifies critical file integrity
+- `generate_report()`: Creates comprehensive security reports
+
 ## Integration with Deployment Scripts
 
-The CI/CD pipeline leverages the scripts in the `deployment/scripts` directory for many operations:
+The CI/CD pipeline leverages the scripts in the `scripts/deployment` directory for many operations:
 
 - Deployment execution
 - Health checks
@@ -111,6 +154,7 @@ The CI/CD pipeline leverages the scripts in the `deployment/scripts` directory f
 - **Deployment Failures**: Check deployment logs for error messages. Common issues include connectivity problems and permission errors.
 - **Failed Tests**: Check test logs for details. Most test failures include information about the specific test and assertion that failed.
 - **Security Scan Failures**: Review security reports in the artifacts. Each finding includes a severity level and recommended remediation.
+- **Integrity Check Failures**: If dependency integrity checks fail, investigate possible tampering. Use the `CI_SKIP_INTEGRITY_CHECK` environment variable to bypass in exceptional cases.
 
 ### Logs and Artifacts
 
@@ -119,7 +163,7 @@ CI/CD runs produce several artifacts that can help with troubleshooting:
 - Build packages
 - Coverage reports
 - Deployment logs
-- Security scan reports
+- Security scan reports (Dependency check and SAST)
 - Test results (JUnit XML format)
 
 ## References
@@ -128,3 +172,6 @@ CI/CD runs produce several artifacts that can help with troubleshooting:
 - [GitHub Actions Documentation](https://docs.github.com/en/actions)
 - [Jenkins Pipeline Documentation](https://www.jenkins.io/doc/book/pipeline/)
 - [SonarQube Documentation](https://docs.sonarqube.org/)
+- [Safety Documentation](https://github.com/pyupio/safety)
+- [Bandit Documentation](https://github.com/PyCQA/bandit)
+- [Semgrep Documentation](https://semgrep.dev/docs/)

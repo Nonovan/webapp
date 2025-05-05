@@ -369,6 +369,10 @@ def generate_report(
     return report
 
 
+# Alias for the generate_report function to match API exposed in __init__.py
+generate_dependency_report = generate_report
+
+
 def main() -> int:
     """Main function to run all dependency checks.
 
@@ -395,7 +399,7 @@ def main() -> int:
         log(f"Found {len(integrity_issues)} dependency integrity issues", "WARNING")
 
     # Generate report
-    report = generate_report(vulnerabilities, license_issues, outdated, integrity_issues)
+    report = generate_dependency_report(vulnerabilities, license_issues, outdated, integrity_issues)
     log(f"Report generated: {REPORT_FILE}")
 
     # Determine exit code based on thresholds
