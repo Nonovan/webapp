@@ -79,6 +79,12 @@ def setup_argparse() -> argparse.Namespace:
         action="store_true",
         help="Enable verbose output"
     )
+    parser.add_argument(
+        "--backup-dir", "-b",
+        type=Path,
+        default=DEFAULT_BACKUP_DIR,
+        help=f"Directory for configuration backups (default: {DEFAULT_BACKUP_DIR})"
+    )
     return parser.parse_args()
 
 
@@ -570,7 +576,7 @@ def main() -> int:
         ensure_directory(args.backup_dir, False)
 
     # Backup existing configuration
-    backup_config(args.nginx_root, DEFAULT_BACKUP_DIR, args.dry_run)
+    backup_config(args.nginx_root, args.backup_dir, args.dry_run)
 
     # Generate configuration if possible
     if not generate_config(args.environment, args.source_dir, args.force, args.dry_run):

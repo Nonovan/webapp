@@ -28,10 +28,10 @@ The NGINX script utilities provide automation for critical NGINX server manageme
   - Environment-aware template processing
   - Variable substitution
   - Configuration organization
-  - Multi-environment support (development/staging/production)
+  - Multi-environment support (development/staging/production/dr-recovery)
   - Template validation
 
-- **`install-configs.sh`**: Installs and activates NGINX configuration files
+- **`install-configs.sh`** / **`install_configs.py`**: Installs and activates NGINX configuration files
   - Configuration backup
   - Environment-specific installations
   - Configuration testing
@@ -39,15 +39,16 @@ The NGINX script utilities provide automation for critical NGINX server manageme
   - Dry-run capability
   - Symlink management
 
-- **`nginx-reload.sh`**: Safely reloads NGINX configuration
+- **`nginx-reload.sh`** / **`nginx_reload.py`**: Safely reloads NGINX configuration
   - Change detection
   - Configuration testing
   - Configuration backup
   - Graceful reload
   - Service health verification
   - SSL certificate checking
+  - Certificate expiration warning
 
-- **`performance.sh`**: Optimizes NGINX performance settings
+- **`performance.sh`** / **`performance.py`**: Optimizes NGINX performance settings
   - Environment-specific tuning
   - CPU and memory-aware configuration
   - Worker process optimization
@@ -55,7 +56,7 @@ The NGINX script utilities provide automation for critical NGINX server manageme
   - Buffer size optimization
   - Current configuration analysis
 
-- **`setup-modsecurity.sh`**: Installs and configures ModSecurity WAF
+- **`setup-modsecurity.sh`** / **`setup_modsecurity.py`**: Installs and configures ModSecurity WAF
   - OWASP Core Rule Set integration
   - Custom WAF rules installation
   - Rule updates
@@ -71,13 +72,14 @@ The NGINX script utilities provide automation for critical NGINX server manageme
   - DH parameter integration
   - Server block generation
 
-- **`test-config.sh`**: Verifies NGINX configuration correctness and security
+- **`test-config.sh`** / **`test_config.py`**: Verifies NGINX configuration correctness and security
   - Syntax validation
   - Security header verification
   - SSL/TLS version checking
   - Certificate validation
   - WAF configuration check
   - Common security issues detection
+  - JSON reporting option
 
 ## Usage Examples
 
@@ -134,6 +136,19 @@ sudo ./performance.sh --environment production --apply
 
 # Safely reload NGINX
 sudo ./nginx-reload.sh --graceful
+
+# Using Python implementation with timeout
+sudo python3 nginx_reload.py --graceful --timeout 60
+```
+
+### Testing and Validation
+
+```bash
+# Test configuration and generate JSON report
+sudo ./test_config.py --json --output report.json
+
+# Validate configuration with strict mode
+sudo ./test_config.py --strict
 ```
 
 ## Best Practices & Security
@@ -158,7 +173,7 @@ These scripts share several common features:
 - **Comprehensive Logging**: Detailed output for troubleshooting
 - **Confirmation Prompts**: User confirmation for potentially breaking changes
 - **Dry-Run Mode**: Preview changes without applying them
-- **Environment Detection**: Adapt behavior based on environment
+- **Environment Detection**: Adapt behavior based on environment (development, staging, production, dr-recovery)
 - **Error Reporting**: Clear and helpful error messages
 - **Force Options**: Override safety checks when necessary
 - **Status Reporting**: Report operation status and next steps

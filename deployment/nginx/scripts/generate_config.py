@@ -32,6 +32,58 @@ CONFIG_EXTENSIONS = [".env", ".json", ".yaml", ".yml"]
 # Security-sensitive variables that need validation
 SENSITIVE_VARIABLES = ["DOMAIN_NAME", "SSL_CERTIFICATE_PATH", "SSL_KEY_PATH"]
 
+# Environment settings
+ENVIRONMENTS = ["development", "staging", "production", "dr-recovery"]
+ENVIRONMENT_SETTINGS = {
+    "development": {
+        "CACHE_CONTROL": "no-cache, no-store, must-revalidate",
+        "KEEPALIVE_TIMEOUT": "120",
+        "LOG_LEVEL": "debug",
+        "RATE_LIMIT": "20r/s",
+        "ENABLE_WAF": False,
+        "WORKER_PROCESSES": "1",
+    },
+    "staging": {
+        "CACHE_CONTROL": "public, max-age=3600",
+        "KEEPALIVE_TIMEOUT": "65",
+        "LOG_LEVEL": "info",
+        "RATE_LIMIT": "30r/s",
+        "ENABLE_WAF": True,
+        "WORKER_PROCESSES": "auto",
+    },
+    "production": {
+        "CACHE_CONTROL": "public, max-age=86400",
+        "KEEPALIVE_TIMEOUT": "65",
+        "LOG_LEVEL": "warn",
+        "RATE_LIMIT": "10r/s",
+        "ENABLE_WAF": True,
+        "WORKER_PROCESSES": "auto",
+    },
+    "dr-recovery": {
+        "CACHE_CONTROL": "no-store",
+        "KEEPALIVE_TIMEOUT": "30",
+        "LOG_LEVEL": "warn",
+        "RATE_LIMIT": "5r/s",
+        "ENABLE_WAF": True,
+        "WORKER_PROCESSES": "auto",
+    }
+}
+
+# Security settings
+SECURE_SSL_PROTOCOLS = ["TLSv1.2", "TLSv1.3"]
+INSECURE_SSL_PROTOCOLS = ["SSLv2", "SSLv3", "TLSv1", "TLSv1.0", "TLSv1.1"]
+DEFAULT_SSL_CIPHERS = (
+    "ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:"
+    "ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:"
+    "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256"
+)
+REQUIRED_SECURITY_HEADERS = [
+    "X-Content-Type-Options",
+    "X-Frame-Options",
+    "Strict-Transport-Security",
+    "Content-Security-Policy"
+]
+
 # Setup logging
 logging.basicConfig(
     format="[%(asctime)s] [%(levelname)s] %(message)s",
@@ -49,7 +101,7 @@ def setup_argparse():
     parser.add_argument(
         "--environment", "-e",
         required=True,
-        choices=["development", "staging", "production", "dr-recovery"],
+        choices=ENVIRONMENTS,
         help="Environment to generate configuration for"
     )
     parser.add_argument(
@@ -113,6 +165,11 @@ def load_environment_config(env_name: str, config_dir: str) -> Dict[str, Any]:
     """
     config = {}
     found_config = False
+
+    # Apply environment defaults first
+    if env_name in ENVIRONMENT_SETTINGS:
+        config.update(ENVIRONMENT_SETTINGS[env_name])
+        found_config = True
 
     # Look for environment config files with different extensions
     for ext in CONFIG_EXTENSIONS:
@@ -185,6 +242,10 @@ def create_template_context(env_name: str, config: Dict[str, Any]) -> Dict[str, 
         "SSL_KEY_PATH": config.get("SSL_KEY_PATH", "/etc/ssl/private/cloud-platform.key"),
         "WORKER_CONNECTIONS": config.get("WORKER_CONNECTIONS", "1024"),
         "WORKER_PROCESSES": config.get("WORKER_PROCESSES", "auto"),
+        "SSL_CIPHERS": config.get("SSL_CIPHERS", DEFAULT_SSL_CIPHERS),
+        "KEEPALIVE_TIMEOUT": config.get("KEEPALIVE_TIMEOUT", "65"),
+        "KEEPALIVE_REQUESTS": config.get("KEEPALIVE_REQUESTS", "1000"),
+        "CLIENT_BODY_BUFFER_SIZE": config.get("CLIENT_BODY_BUFFER_SIZE", "16k"),
     }
 
     # Add ICS restricted IPs
@@ -207,12 +268,20 @@ def create_template_context(env_name: str, config: Dict[str, Any]) -> Dict[str, 
         context["ENABLE_WAF"] = config.get("ENABLE_WAF", True)
     elif env_name == "dr-recovery":
         context["INTERNAL_HEALTH_CHECK"] = config.get("INTERNAL_HEALTH_CHECK", True)
-        context["CACHE_CONTROL"] = config.get("CACHE_CONTROL", "public, max-age=60")
+        context["CACHE_CONTROL"] = config.get("CACHE_CONTROL", "no-store")
         context["ENABLE_WAF"] = config.get("ENABLE_WAF", True)
+        # DR-specific settings
+        context["DR_MODE"] = config.get("DR_MODE", True)
+        context["REDUCED_FEATURES"] = config.get("REDUCED_FEATURES", True)
+        context["EMERGENCY_ACCESS"] = config.get("EMERGENCY_ACCESS", True)
+        context["STATUS_PAGE_ENABLED"] = config.get("STATUS_PAGE_ENABLED", True)
     else:  # development
         context["INTERNAL_HEALTH_CHECK"] = config.get("INTERNAL_HEALTH_CHECK", False)
         context["CACHE_CONTROL"] = config.get("CACHE_CONTROL", "no-cache, no-store, must-revalidate")
         context["ENABLE_WAF"] = config.get("ENABLE_WAF", False)
+        # Development-specific settings
+        context["DEBUG_HEADERS"] = config.get("DEBUG_HEADERS", True)
+        context["AUTO_RELOAD"] = config.get("AUTO_RELOAD", True)
 
     return context
 
@@ -531,6 +600,49 @@ def validate_nginx_config(output_dir: str) -> bool:
         return False
 
 
+def verify_environment_templates(env_name: str, templates_dir: str) -> bool:
+    """
+    Verify that all required templates for the specified environment exist.
+
+    Args:
+        env_name: Environment name to verify
+        templates_dir: Directory containing templates
+
+    Returns:
+        True if all required templates exist, False otherwise
+    """
+    templates_dir = os.path.abspath(templates_dir)
+    if not os.path.isdir(templates_dir):
+        logger.error(f"Templates directory {templates_dir} not found")
+        return False
+
+    # Required templates for all environments
+    required_templates = [
+        "server.conf.template",
+        "ssl-params.conf.template",
+        "upstream.conf.template"
+    ]
+
+    # Environment-specific templates
+    if env_name == "dr-recovery":
+        required_templates.extend([
+            "dr-status.conf.template",
+            "reduced-features.conf.template"
+        ])
+
+    missing_templates = []
+    for template in required_templates:
+        template_path = os.path.join(templates_dir, template)
+        if not os.path.exists(template_path):
+            missing_templates.append(template)
+
+    if missing_templates:
+        logger.warning(f"Missing required templates for {env_name} environment: {', '.join(missing_templates)}")
+        return False
+
+    return True
+
+
 def main():
     """Main entry point for the script."""
     args = setup_argparse()
@@ -549,6 +661,13 @@ def main():
     includes_dir = os.path.join(script_dir, args.includes_dir)
 
     logger.info(f"Generating NGINX configuration for {args.environment} environment")
+
+    # Verify environment templates
+    if not verify_environment_templates(args.environment, templates_dir):
+        if not args.force:
+            logger.error("Missing required templates. Use --force to continue anyway")
+            return 1
+        logger.warning("Continuing despite missing templates due to --force flag")
 
     # Load configuration
     config = load_environment_config(args.environment, config_dir)
