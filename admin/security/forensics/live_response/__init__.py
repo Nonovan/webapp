@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# filepath: admin/security/forensics/live_response/__init__.py
 """
 Live Response Forensic Toolkit Package
 
@@ -42,7 +44,7 @@ from pathlib import Path
 from datetime import datetime
 
 # Version information
-__version__ = "0.0.1"
+__version__ = "0.1.1"
 __author__ = "Security Forensics Team"
 __email__ = "security-forensics@example.com"
 __status__ = "Production"
@@ -1309,6 +1311,7 @@ __all__ = [
     '__version__',
     '__author__',
     '__email__',
+    '__status__',
 
     # Classes
     'LiveResponseConfig',
@@ -1334,4 +1337,6 @@ __all__ = [
     # Constants
     'COLLECTION_TYPES',
     'ARTIFACT_TYPES',
+    'MODULE_PATH',
+    'DEFAULT_CONFIG_PATH',
 ]
