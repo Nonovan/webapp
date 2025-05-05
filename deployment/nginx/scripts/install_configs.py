@@ -321,6 +321,141 @@ def generate_config(environment: str, source_dir: Path, force: bool = False, dry
         return False
 
 
+def install_environment_config(
+    environment: str,
+    source_dir: Path,
+    nginx_root: Path,
+    force: bool = False,
+    dry_run: bool = False
+) -> bool:
+    """
+    Install configuration files specific to a given environment.
+
+    This is a specialized version of install_config_files that focuses only on
+    environment-specific configurations without installing shared components.
+
+    Args:
+        environment: Target environment (development, staging, production, dr-recovery)
+        source_dir: Base directory containing NGINX config
+        nginx_root: NGINX installation directory
+        force: If True, overwrite existing files
+        dry_run: If True, don't actually install files
+
+    Returns:
+        True if installation was successful
+    """
+    logger.info(f"Installing environment-specific configuration for {environment}")
+
+    # Create necessary directories
+    dirs_to_create = [
+        nginx_root / "sites-available",
+        nginx_root / "sites-enabled"
+    ]
+
+    for directory in dirs_to_create:
+        if not ensure_directory(directory, dry_run):
+            return False
+
+    success = True
+
+    # Remove existing symlinks for other environments to avoid conflicts
+    if not dry_run:
+        for env_config in (nginx_root / "sites-enabled").glob("*.conf"):
+            try:
+                env_config.unlink()
+                logger.info(f"Removed existing environment config symlink: {env_config}")
+            except Exception as e:
+                logger.warning(f"Failed to remove existing symlink {env_config}: {e}")
+
+    # Install the specific environment configuration
+    if environment == "production":
+        site_config = source_dir / "sites-available" / "cloud-platform.conf"
+        if site_config.exists():
+            success &= copy_file(
+                site_config,
+                nginx_root / "sites-available" / "cloud-platform.conf",
+                force,
+                dry_run
+            )
+            success &= create_symlink(
+                nginx_root / "sites-available" / "cloud-platform.conf",
+                nginx_root / "sites-enabled" / "cloud-platform.conf",
+                force,
+                dry_run
+            )
+        else:
+            logger.warning(f"Production configuration not found: {site_config}")
+            success = False
+
+    elif environment == "staging":
+        staging_config = source_dir / "sites-available" / "staging.conf"
+        if staging_config.exists():
+            success &= copy_file(
+                staging_config,
+                nginx_root / "sites-available" / "staging.conf",
+                force,
+                dry_run
+            )
+            success &= create_symlink(
+                nginx_root / "sites-available" / "staging.conf",
+                nginx_root / "sites-enabled" / "staging.conf",
+                force,
+                dry_run
+            )
+        else:
+            logger.warning(f"Staging configuration not found: {staging_config}")
+            success = False
+
+    elif environment == "development":
+        dev_config = source_dir / "sites-available" / "development.conf"
+        if dev_config.exists():
+            success &= copy_file(
+                dev_config,
+                nginx_root / "sites-available" / "development.conf",
+                force,
+                dry_run
+            )
+            success &= create_symlink(
+                nginx_root / "sites-available" / "development.conf",
+                nginx_root / "sites-enabled" / "development.conf",
+                force,
+                dry_run
+            )
+        else:
+            logger.warning(f"Development configuration not found: {dev_config}")
+            success = False
+
+    elif environment == "dr-recovery":
+        dr_config = source_dir / "sites-available" / "dr-recovery.conf"
+        if dr_config.exists():
+            success &= copy_file(
+                dr_config,
+                nginx_root / "sites-available" / "dr-recovery.conf",
+                force,
+                dry_run
+            )
+            success &= create_symlink(
+                nginx_root / "sites-available" / "dr-recovery.conf",
+                nginx_root / "sites-enabled" / "dr-recovery.conf",
+                force,
+                dry_run
+            )
+        else:
+            logger.warning(f"DR recovery configuration not found: {dr_config}")
+            success = False
+
+    else:
+        logger.error(f"Unknown environment: {environment}")
+        success = False
+
+    if success:
+        logger.info(f"Environment-specific configuration for {environment} installed successfully")
+    else:
+        logger.error(f"Failed to install environment-specific configuration for {environment}")
+
+    return success
+
+
 def install_config_files(environment: str, source_dir: Path, nginx_root: Path,
                          force: bool = False, dry_run: bool = False) -> bool:
     """

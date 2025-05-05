@@ -292,6 +292,19 @@ def reload_nginx(graceful: bool = True, dry_run: bool = False) -> bool:
             return False
 
 
+def restart_nginx(dry_run: bool = False) -> bool:
+    """
+    Restart the NGINX service (wrapper for reload_nginx with graceful=False).
+
+    Args:
+        dry_run: If True, don't actually restart NGINX
+
+    Returns:
+        True if NGINX was restarted successfully or in dry run, False otherwise
+    """
+    return reload_nginx(graceful=False, dry_run=dry_run)
+
+
 def verify_nginx_responding(timeout: int = DEFAULT_TIMEOUT, dry_run: bool = False) -> bool:
     """
     Verify NGINX is responding after reload.

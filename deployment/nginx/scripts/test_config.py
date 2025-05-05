@@ -88,8 +88,52 @@ def parse_arguments() -> argparse.Namespace:
         action="store_true",
         help="Fail on warnings"
     )
-
     return parser.parse_args()
+
+
+def validate_nginx_installation() -> bool:
+    """
+    Check if NGINX is installed and configured properly.
+
+    Returns:
+        bool: True if NGINX is installed and configured properly, False otherwise
+    """
+    logger.info("Checking NGINX installation...")
+
+    # Check if NGINX is installed
+    if not check_nginx_installed():
+        logger.error("❌ NGINX is not installed")
+        return False
+
+    # Check if configuration files exist
+    nginx_conf = NGINX_ROOT / "nginx.conf"
+    if not nginx_conf.exists():
+        logger.error(f"❌ Main NGINX configuration file not found: {nginx_conf}")
+        return False
+
+    # Check if required directories exist
+    required_dirs = [SITES_AVAILABLE, SITES_ENABLED, CONF_DIR, INCLUDES_DIR]
+    missing_dirs = []
+
+    for directory in required_dirs:
+        if not directory.exists():
+            missing_dirs.append(directory)
+
+    if missing_dirs:
+        for directory in missing_dirs:
+            logger.warning(f"⚠️ WARNING: Required directory not found: {directory}")
+
+        if len(missing_dirs) == len(required_dirs):
+            logger.error("❌ NGINX directory structure not configured properly")
+            return False
+
+    # Check basic syntax
+    config_valid = test_basic_syntax(nginx_conf)
+    if not config_valid:
+        return False
+
+    logger.info("✅ NGINX is installed and configured properly")
+    return True
 
 
 def check_nginx_installed() -> bool:
@@ -137,19 +181,12 @@ def find_config_files() -> List[Path]:
     Find all NGINX configuration files.
 
     Returns:
-        List of path objects for all config files
+        List of Path objects to configuration files
     """
     config_files = []
 
-    dirs_to_check = [
-        NGINX_ROOT,
-        NGINX_ROOT / "conf.d",
-        NGINX_ROOT / "sites-available",
-        NGINX_ROOT / "sites-enabled",
-        NGINX_ROOT / "includes"
-    ]
-
-    for directory in dirs_to_check:
+    # Find all .conf files in NGINX directories
+    for directory in [NGINX_ROOT, SITES_AVAILABLE, SITES_ENABLED, CONF_DIR, INCLUDES_DIR]:
         if directory.exists():
             for file_path in directory.glob("**/*.conf"):
                 if file_path.is_file():
@@ -251,13 +288,13 @@ def check_server_tokens(config_files: List[Path]) -> bool:
 
 def check_rate_limiting(config_files: List[Path]) -> bool:
     """
-    Check if rate limiting is configured.
+    Check for rate limiting configuration.
 
     Args:
         config_files: List of configuration files to check
 
     Returns:
-        True if rate limiting is found, False otherwise
+        True if rate limiting is configured, False otherwise
     """
     for file_path in config_files:
         try:
@@ -365,7 +402,7 @@ def check_https_redirect(config_files: List[Path]) -> bool:
     for file_path in config_files:
         try:
             content = file_path.read_text()
-            if "return 301 https://" in content:
+            if re.search(r"return\s+301\s+https://", content):
                 logger.info("✅ HTTP to HTTPS redirect is configured")
                 return True
         except Exception as e:
@@ -388,7 +425,7 @@ def check_custom_log_format(config_files: List[Path]) -> bool:
     for file_path in config_files:
         try:
             content = file_path.read_text()
-            if "log_format" in content:
+            if re.search(r"log_format\s+\w+", content):
                 logger.info("✅ Custom log format is configured")
                 return True
         except Exception as e:
@@ -409,7 +446,7 @@ def check_environment_configs() -> Dict[str, bool]:
     result = {}
 
     if SITES_AVAILABLE.exists():
-        for env in ["production", "staging", "development", "dr-recovery"]:
+        for env in VALID_ENVIRONMENTS:
             # Map environment names to file names
             if env == "production":
                 file_name = "cloud-platform.conf"
@@ -427,30 +464,222 @@ def check_environment_configs() -> Dict[str, bool]:
     return result
 
 
-def generate_report(results: Dict[str, Any]) -> Dict[str, Any]:
+def check_security_configs(config_files: List[Path]) -> Dict[str, bool]:
     """
-    Generate a comprehensive report with all findings.
+    Check for comprehensive security configurations.
 
     Args:
-        results: Dictionary with all test results
+        config_files: List of configuration files to check
 
     Returns:
-        Report dictionary with additional metadata
+        Dictionary with detailed security checks results
+    """
+    logger.info("Checking security configurations...")
+    results = {}
+
+    # Check for security headers
+    headers_secure, missing_headers = check_security_headers(config_files)
+    results["security_headers"] = headers_secure
+    results["missing_headers"] = missing_headers
+
+    # Check for server tokens
+    results["server_tokens_disabled"] = check_server_tokens(config_files)
+
+    # Check for SSL/TLS protocols
+    ssl_secure, insecure_protocols = check_ssl_protocols(config_files)
+    results["ssl_protocols_secure"] = ssl_secure
+    results["insecure_protocols"] = list(insecure_protocols)
+
+    # Check for DH parameters
+    dh_params_found, dh_params_file = check_dh_parameters(config_files)
+    results["dh_parameters_configured"] = dh_params_found
+    if dh_params_file:
+        results["dh_parameters_file"] = str(dh_params_file)
+
+    # Check for rate limiting
+    results["rate_limiting_configured"] = check_rate_limiting(config_files)
+
+    # Check for HTTP to HTTPS redirect
+    results["https_redirect_configured"] = check_https_redirect(config_files)
+
+    # Check for ModSecurity WAF
+    results["modsecurity_enabled"] = check_modsecurity_waf(config_files)
+
+    # Check for client certificate validation
+    results["client_cert_validation"] = check_client_certificate_validation(config_files)
+
+    logger.info("Security configuration check complete")
+    return results
+
+
+def check_ssl_certificates(config_files: List[Path]) -> Dict[str, Any]:
+    """
+    Check SSL certificate configurations and expiry.
+
+    Args:
+        config_files: List of configuration files to check
+
+    Returns:
+        Dictionary with certificate details
+    """
+    logger.info("Checking SSL certificates...")
+    results = {
+        "certificates_found": False,
+        "certificates": []
+    }
+
+    ssl_paths = set()
+
+    # Find all SSL certificate paths in configuration files
+    for file_path in config_files:
+        try:
+            content = file_path.read_text()
+            for match in re.finditer(r'ssl_certificate\s+([^;]+);', content):
+                cert_path = match.group(1).strip()
+                ssl_paths.add(cert_path)
+        except Exception as e:
+            logger.warning(f"Could not read {file_path}: {e}")
+
+    if not ssl_paths:
+        logger.warning("⚠️ WARNING: No SSL certificates found in configuration")
+        return results
+
+    results["certificates_found"] = True
+
+    for cert_path in ssl_paths:
+        cert_info = {
+            "path": cert_path,
+            "exists": False
+        }
+
+        # Convert to Path and handle relative paths
+        cert_file = Path(cert_path)
+        if not cert_file.is_absolute():
+            cert_file = NGINX_ROOT / cert_path
+
+        if not cert_file.exists():
+            logger.error(f"❌ Certificate file not found: {cert_path}")
+            results["certificates"].append(cert_info)
+            continue
+
+        cert_info["exists"] = True
+
+        # Check certificate expiry
+        try:
+            result = subprocess.run(
+                ["openssl", "x509", "-enddate", "-noout", "-in", str(cert_file)],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+
+            expiry_date = result.stdout.split('=')[1].strip()
+            cert_info["expiry_date"] = expiry_date
+
+            # Convert to datetime and calculate days remaining
+            expiry_datetime = datetime.datetime.strptime(expiry_date, "%b %d %H:%M:%S %Y %Z")
+            days_left = (expiry_datetime.date() - datetime.datetime.now().date()).days
+            cert_info["days_left"] = days_left
+
+            if days_left < 30:
+                cert_info["expiring_soon"] = True
+                if days_left < 7:
+                    logger.error(f"❌ Certificate {cert_path} will expire in {days_left} days")
+                    cert_info["critical"] = True
+                else:
+                    logger.warning(f"⚠️ Certificate {cert_path} will expire in {days_left} days")
+            else:
+                logger.info(f"✅ Certificate {cert_path} valid for {days_left} days")
+
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Error checking certificate {cert_path}: {e}")
+            cert_info["error"] = str(e)
+
+        results["certificates"].append(cert_info)
+
+    return results
+
+
+def generate_report(results: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Generate a comprehensive report from all test results.
+
+    Args:
+        results: Dictionary containing test results
+
+    Returns:
+        Formatted report dictionary
     """
     report = {
         "timestamp": datetime.datetime.now().isoformat(),
         "nginx_version": get_nginx_version(),
-        "results": results,
         "summary": {
-            "issues_count": sum(1 for key, value in results.items()
-                               if isinstance(value, bool) and value is False),
-            "passed_count": sum(1 for key, value in results.items()
-                               if isinstance(value, bool) and value is True)
-        }
+            "status": "pass",
+            "issues_count": 0
+        },
+        "details": results
     }
 
-    # Add overall status
-    report["status"] = "pass" if report["summary"]["issues_count"] == 0 else "warn"
+    # Count issues
+    issues_count = 0
+    warnings = []
+    errors = []
+
+    # Check SSL protocols
+    if results.get("ssl_protocols_secure") is False:
+        issues_count += 1
+        warnings.append("Insecure SSL protocols found")
+
+    # Check security headers
+    if results.get("security_headers_complete") is False:
+        issues_count += 1
+        warnings.append("Missing security headers")
+
+    # Check server tokens
+    if results.get("server_tokens_disabled") is False:
+        issues_count += 1
+        warnings.append("Server tokens not disabled")
+
+    # Check rate limiting
+    if results.get("rate_limiting_configured") is False:
+        issues_count += 1
+        warnings.append("Rate limiting not configured")
+
+    # Check DH parameters
+    if results.get("dh_parameters_configured") is False:
+        issues_count += 1
+        warnings.append("Custom DH parameters not configured")
+
+    # Check HTTPS redirect
+    if results.get("https_redirect_configured") is False:
+        issues_count += 1
+        warnings.append("HTTP to HTTPS redirect not configured")
+
+    # Check ModSecurity WAF
+    if results.get("modsecurity_enabled") is False:
+        issues_count += 1
+        warnings.append("ModSecurity WAF not enabled")
+
+    # Check SSL certificates
+    if "certificates" in results:
+        for cert in results["certificates"]:
+            if cert.get("exists") is False:
+                issues_count += 1
+                errors.append(f"Certificate not found: {cert['path']}")
+            elif cert.get("critical"):
+                issues_count += 1
+                errors.append(f"Certificate expiring soon: {cert['path']}")
+
+    # Update summary
+    report["summary"]["issues_count"] = issues_count
+    if issues_count > 0:
+        if errors:
+            report["summary"]["status"] = "fail"
+        else:
+            report["summary"]["status"] = "warn"
+
+    report["summary"]["warnings"] = warnings
+    report["summary"]["errors"] = errors
 
     return report
 
@@ -464,52 +693,49 @@ def get_nginx_version() -> str:
             text=True,
             check=False
         )
-        if result.stderr:  # nginx -v outputs to stderr
-            match = re.search(r"nginx/(\d+\.\d+\.\d+)", result.stderr)
-            if match:
-                return match.group(1)
-        return "unknown"
+        # NGINX outputs version to stderr
+        version_output = result.stderr
+        match = re.search(r'nginx/(\d+\.\d+\.\d+)', version_output)
+        if match:
+            return match.group(1)
     except Exception:
-        return "unknown"
+        pass
+
+    return "unknown"
 
 
 def main() -> int:
     """
-    Main entry point for the script.
+    Main function for the script.
 
     Returns:
-        Exit code (0 for success, non-zero for error)
+        Exit code: 0 for success, 1 for error
     """
     args = parse_arguments()
 
-    # Configure logging level
     if args.quiet:
         logger.setLevel(logging.WARNING)
 
-    # Check if NGINX is installed
-    if not check_nginx_installed():
-        logger.error("❌ ERROR: NGINX is not installed")
+    # Check if NGINX is installed and configured
+    if not validate_nginx_installation():
         return 1
 
-    logger.info(f"Testing NGINX configuration: {args.config}")
-    config_path = Path(args.config)
-
-    # Test basic syntax
-    if not test_basic_syntax(config_path):
-        return 1
-
-    # Find all configuration files
+    # Get all configuration files
     config_files = find_config_files()
     if not config_files:
-        logger.warning("No configuration files found")
+        logger.error("No NGINX configuration files found")
+        return 1
 
-    # Initialize results dictionary
+    # Initialize results
     results = {}
+    exit_code = 0
 
-    # Check for common security issues
-    logger.info("Checking for common security issues...")
+    # Test basic syntax
+    results["basic_syntax_valid"] = test_basic_syntax(Path(args.config))
+    if not results["basic_syntax_valid"]:
+        exit_code = 1
 
-    # SSL protocol checks
+    # Check SSL protocols
     ssl_protocols_secure, insecure_protocols = check_ssl_protocols(config_files)
     results["ssl_protocols_secure"] = ssl_protocols_secure
     results["insecure_protocols"] = list(insecure_protocols)
@@ -548,12 +774,17 @@ def main() -> int:
     # Environment configuration checks
     results["environment_configs"] = check_environment_configs()
 
+    # SSL certificate checks
+    results["certificates"] = check_ssl_certificates(config_files)
+
     # Generate final report
     report = generate_report(results)
 
     # Determine exit code
     exit_code = 0
-    if report["status"] == "warn" and args.strict:
+    if report["summary"]["status"] == "warn" and args.strict:
+        exit_code = 1
+    elif report["summary"]["status"] == "fail":
         exit_code = 1
 
     # Output report
@@ -578,6 +809,14 @@ def main() -> int:
             logger.info("✅ NGINX configuration is valid and ready to use")
         else:
             logger.warning(f"⚠️ Found {report['summary']['issues_count']} potential issues")
+            if report["summary"]["warnings"]:
+                logger.warning("Warnings:")
+                for warning in report["summary"]["warnings"]:
+                    logger.warning(f"  - {warning}")
+            if report["summary"]["errors"]:
+                logger.error("Errors:")
+                for error in report["summary"]["errors"]:
+                    logger.error(f"  - {error}")
 
     return exit_code
 

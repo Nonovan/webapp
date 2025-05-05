@@ -9,6 +9,7 @@ This directory contains utility scripts for managing, configuring, and optimizin
 - Usage Examples
 - Best Practices & Security
 - Common Features
+- Exposed Python APIs
 - Related Documentation
 
 ## Overview
@@ -17,7 +18,7 @@ The NGINX script utilities provide automation for critical NGINX server manageme
 
 ## Key Scripts
 
-- **`create-dhparams.sh`**: Generates secure Diffie-Hellman parameters
+- **`create-dhparams.sh`** / **`create_dhparams.py`**: Generates secure Diffie-Hellman parameters
   - Configurable key size (2048/4096)
   - Automatic nginx.conf integration
   - Secure file permissions
@@ -64,7 +65,7 @@ The NGINX script utilities provide automation for critical NGINX server manageme
   - WAF status endpoint
   - Log rotation setup
 
-- **`setup-ssl.sh`**: Configures SSL/TLS certificates for NGINX
+- **`setup-ssl.sh`** / **`setup_ssl.py`**: Configures SSL/TLS certificates for NGINX
   - Let's Encrypt integration
   - Self-signed certificate generation
   - Certificate import capability
@@ -80,6 +81,12 @@ The NGINX script utilities provide automation for critical NGINX server manageme
   - WAF configuration check
   - Common security issues detection
   - JSON reporting option
+
+- **`nginx_constants.py`**: Central configuration for NGINX-related constants
+  - Environment-specific settings
+  - Security defaults and constants
+  - Directory paths and file locations
+  - Default protocol and cipher configurations
 
 ## Usage Examples
 
@@ -179,6 +186,58 @@ These scripts share several common features:
 - **Status Reporting**: Report operation status and next steps
 - **Testing Integration**: Configuration testing before application
 
+## Exposed Python APIs
+
+The package provides importable Python modules with the following key functions:
+
+### Core NGINX Utilities
+
+- `reload_nginx`: Gracefully reload NGINX configuration
+- `restart_nginx`: Restart the NGINX service
+- `backup_config`: Create backup of current configuration
+- `check_config_changes`: Check if configuration has changed since last reload
+- `verify_nginx_responding`: Verify NGINX is responding after reload
+- `check_nginx_status`: Get detailed status of the NGINX service
+
+### Installation Utilities
+
+- `install_config_files`: Install all configuration files for an environment
+- `install_environment_config`: Install only environment-specific configurations
+- `generate_config`: Generate configuration from templates
+- `copy_file`: Copy a file with proper permissions
+- `create_symlink`: Create a symbolic link with validation
+- `ensure_directory`: Create directory with proper permissions
+
+### Configuration Testing
+
+- `validate_nginx_installation`: Check if NGINX is properly installed
+- `check_ssl_certificates`: Check SSL certificate configuration and expiry
+- `check_security_headers`: Verify security headers are configured
+- `check_security_configs`: Comprehensive security configuration checks
+- `check_environment_configs`: Verify environment-specific configurations
+- `generate_report`: Generate report of all configuration checks
+
+### Performance Management
+
+- `calculate_worker_processes`: Calculate optimal worker process count
+- `calculate_worker_connections`: Calculate optimal connection settings
+- `generate_performance_config`: Generate optimized NGINX configuration
+- `apply_performance_settings`: Apply performance settings to NGINX
+
+### SSL Management
+
+- `generate_dhparams`: Generate secure Diffie-Hellman parameters
+- `create_self_signed_cert`: Create self-signed SSL certificate
+- `create_letsencrypt_cert`: Obtain and install Let's Encrypt certificate
+- `configure_ssl`: Configure SSL settings for NGINX
+
+### ModSecurity WAF
+
+- `setup_modsecurity`: Setup ModSecurity WAF
+- `install_owasp_crs`: Install OWASP Core Rule Set
+- `enable_modsecurity`: Enable ModSecurity in NGINX
+- `disable_modsecurity`: Disable ModSecurity in NGINX
+
 ## Related Documentation
 
 - Let's Encrypt Documentation
@@ -188,3 +247,4 @@ These scripts share several common features:
 - OWASP ModSecurity Core Rule Set Documentation
 - SSL/TLS Best Practices
 - Web Application Security Guide
+- NGINX ModSecurity Module Documentation
