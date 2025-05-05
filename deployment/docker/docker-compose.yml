@@ -1,0 +1,158 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:14-alpine
+    container_name: cloud-platform-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-cloud_platform_development}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/pgdata
+      - ./init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./schema.sql:/docker-entrypoint-initdb.d/02-schema.sql:ro
+      - ./seed.sql:/docker-entrypoint-initdb.d/03-seed.sql:ro
+      - ./db_config.ini:/etc/cloud_platform/db_config.ini:ro
+      - ./backup:/var/backups/cloud-platform:delegated
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - cloud-platform-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  pgbouncer:
+    image: edoburu/pgbouncer:1.18.0
+    container_name: cloud-platform-pgbouncer
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: "postgres://${POSTGRES_APP_USER:-cloud_platform_app}:${POSTGRES_APP_PASSWORD:-dev_password}@postgres:5432/${POSTGRES_DB:-cloud_platform_development}"
+      MAX_CLIENT_CONN: "${PGBOUNCER_MAX_CLIENTS:-100}"
+      DEFAULT_POOL_SIZE: "${PGBOUNCER_POOL_SIZE:-20}"
+      MAX_DB_CONNECTIONS: "${PGBOUNCER_MAX_DB_CONNECTIONS:-50}"
+      POOL_MODE: "transaction"
+      ADMIN_USERS: "${POSTGRES_ADMIN_USER:-postgres}"
+    ports:
+      - "${PGBOUNCER_PORT:-6432}:6432"
+    depends_on:
+      - postgres
+    networks:
+      - cloud-platform-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  postgres-exporter:
+    image: wrouesnel/postgres_exporter:latest
+    container_name: cloud-platform-postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_MONITOR_USER:-cloud_platform_monitor}:${POSTGRES_MONITOR_PASSWORD:-monitor_password}@postgres:5432/${POSTGRES_DB:-cloud_platform_development}?sslmode=disable"
+    ports:
+      - "${POSTGRES_EXPORTER_PORT:-9187}:9187"
+    depends_on:
+      - postgres
+    networks:
+      - cloud-platform-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  db-maintenance:
+    image: python:3.9-slim
+    container_name: cloud-platform-db-maintenance
+    restart: "no"
+    working_dir: /app
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-cloud_platform_development}
+      POSTGRES_ADMIN_USER: ${POSTGRES_ADMIN_USER:-postgres}
+      POSTGRES_ADMIN_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:-postgres}
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:-cloud_platform_app}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-dev_password}
+    volumes:
+      - ../../:/app:ro
+      - ./db_config.ini:/app/deployment/database/db_config.ini:ro
+      - ./maintenance-tasks:/etc/cron.d/maintenance-tasks:ro
+      - ./backup:/var/backups/cloud-platform:delegated
+    entrypoint: >
+      bash -c "pip install -r /app/requirements.txt &&
+      python -m deployment.database.init_db --env ${ENVIRONMENT:-development} --verify &&
+      tail -f /dev/null"
+    depends_on:
+      - postgres
+    networks:
+      - cloud-platform-network
+    profiles:
+      - maintenance
+
+  db-backup:
+    image: python:3.9-slim
+    container_name: cloud-platform-db-backup
+    restart: "no"
+    working_dir: /app
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-cloud_platform_development}
+      POSTGRES_BACKUP_USER: ${POSTGRES_BACKUP_USER:-cloud_platform_backup}
+      POSTGRES_BACKUP_PASSWORD: ${POSTGRES_BACKUP_PASSWORD:-backup_password}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
+    volumes:
+      - ../../:/app:ro
+      - ./db_config.ini:/app/deployment/database/db_config.ini:ro
+      - ./backup:/var/backups/cloud-platform:delegated
+      - ./backup-tasks:/etc/cron.d/backup-tasks:ro
+    command: >
+      bash -c "pip install -r /app/requirements.txt &&
+      python -m deployment.database.backup_db --env ${ENVIRONMENT:-development} --compress"
+    depends_on:
+      - postgres
+    networks:
+      - cloud-platform-network
+    profiles:
+      - backup
+
+  adminer:
+    image: adminer:latest
+    container_name: cloud-platform-adminer
+    restart: unless-stopped
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+      ADMINER_DESIGN: pepa-linha
+    ports:
+      - "${ADMINER_PORT:-8080}:8080"
+    depends_on:
+      - postgres
+    networks:
+      - cloud-platform-network
+    profiles:
+      - dev
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  cloud-platform-network:
+    driver: bridge
+    name: ${NETWORK_NAME:-cloud-platform-network}
