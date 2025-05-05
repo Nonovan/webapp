@@ -1,0 +1,234 @@
+{
+    "version": "1.3.0",
+    "last_updated": "2023-11-15",
+    "description": "Configuration for forensic evidence collection and handling",
+    "evidence_collection": {
+        "base_dir": "/secure/evidence",
+        "retention_days": 180,
+        "required_metadata": [
+            "case_id",
+            "evidence_id",
+            "acquisition_date",
+            "examiner_id",
+            "hash_value"
+        ],
+        "auto_generate_id": true,
+        "id_format": "EV-{case_id}-{timestamp:%Y%m%d%H%M%S}",
+        "compression": {
+            "enabled": true,
+            "algorithm": "zstd",
+            "level": 3
+        },
+        "encryption": {
+            "enabled": true,
+            "algorithm": "AES-256-GCM",
+            "key_management": "file",
+            "key_path": "/secure/keys/forensic.key"
+        },
+        "verify_after_collection": true,
+        "permissions": {
+            "evidence_dir": "0700",
+            "evidence_files": "0400",
+            "metadata_files": "0600"
+        }
+    },
+    "chain_of_custody": {
+        "enabled": true,
+        "format": "jsonl",
+        "file_name": "chain_of_custody.jsonl",
+        "required_fields": [
+            "timestamp",
+            "action",
+            "performer",
+            "from_location",
+            "to_location",
+            "purpose"
+        ],
+        "record_access": true,
+        "record_verification": true,
+        "tamper_protection": {
+            "enabled": true,
+            "method": "hmac-sha256"
+        }
+    },
+    "hash_algorithms": {
+        "primary": "sha256",
+        "additional": [
+            "sha1",
+            "md5"
+        ],
+        "fuzzy_hashing": {
+            "enabled": true,
+            "algorithm": "ssdeep"
+        }
+    },
+    "live_response": {
+        "memory_acquisition": {
+            "preferred_method": "lime",
+            "fallback_methods": [
+                "winpmem",
+                "dumpit",
+                "avml"
+            ],
+            "compression": true,
+            "page_size_mb": 4,
+            "verify_acquisition": true
+        },
+        "volatile_data": {
+            "default_categories": [
+                "processes",
+                "network",
+                "users",
+                "services",
+                "modules",
+                "drivers"
+            ],
+            "process_arguments": true,
+            "process_environment": false,
+            "command_history_lines": 1000
+        },
+        "network_state": {
+            "packet_capture": {
+                "enabled": true,
+                "max_packets": 10000,
+                "max_size_mb": 100,
+                "capture_filter": "not port 22",
+                "timeout_seconds": 300
+            }
+        },
+        "output_options": {
+            "format": "structured",
+            "timestamp_format": "iso8601",
+            "timezone": "UTC"
+        }
+    },
+    "static_analysis": {
+        "yara_rules_path": "static_analysis/common/signature_db/yara_rules",
+        "max_file_size_mb": 100,
+        "default_analysis_depth": "standard",
+        "max_embedded_depth": 5,
+        "max_embedded_files": 20,
+        "memory_threshold_mb": 2048,
+        "scan_timeout_seconds": 300,
+        "allowed_file_types": [
+            "text/plain",
+            "application/pdf",
+            "application/x-executable",
+            "application/x-dosexec",
+            "application/zip",
+            "application/x-7z-compressed",
+            "image/jpeg",
+            "image/png"
+        ]
+    },
+    "evidence_validation": {
+        "verify_hashes_on_access": true,
+        "periodic_verification": {
+            "enabled": true,
+            "interval_days": 30
+        },
+        "validation_suite": {
+            "check_completeness": true,
+            "check_metadata_consistency": true,
+            "check_file_integrity": true
+        }
+    },
+    "logging": {
+        "level": "INFO",
+        "file": "/var/log/forensics/operations.log",
+        "format": "json",
+        "max_size_mb": 10,
+        "backup_count": 10,
+        "secure_permissions": true,
+        "include_fields": [
+            "timestamp",
+            "level",
+            "operation",
+            "success",
+            "details",
+            "message"
+        ],
+        "redact_sensitive": [
+            "password",
+            "token",
+            "key",
+            "secret",
+            "credential"
+        ]
+    },
+    "documentation": {
+        "templates_path": "templates/evidence_handling",
+        "report_formats": [
+            "html",
+            "pdf",
+            "json",
+            "text"
+        ],
+        "default_format": "pdf",
+        "include_chain_of_custody": true,
+        "include_verification_results": true,
+        "evidence_inventory_template": "evidence_inventory.md",
+        "chain_of_custody_template": "chain_of_custody.md",
+        "evidence_log_template": "evidence_log.md"
+    },
+    "sanitization": {
+        "enabled": true,
+        "redact_pii": true,
+        "redaction_placeholder": "[REDACTED]",
+        "external_report": {
+            "remove_internal_identifiers": true,
+            "remove_usernames": true,
+            "remove_hostnames": true,
+            "remove_file_paths": true,
+            "redact_ip_addresses": true
+        }
+    },
+    "environments": {
+        "production": {
+            "evidence_base_dir": "/secure/evidence",
+            "log_dir": "/var/log/forensics",
+            "require_encryption": true,
+            "verification_required": true
+        },
+        "staging": {
+            "evidence_base_dir": "/secure/staging/evidence",
+            "log_dir": "/var/log/forensics-staging",
+            "require_encryption": true,
+            "verification_required": true
+        },
+        "development": {
+            "evidence_base_dir": "/tmp/forensic_dev/evidence",
+            "log_dir": "/tmp/forensic_dev/logs",
+            "require_encryption": false,
+            "verification_required": false
+        },
+        "testing": {
+            "evidence_base_dir": "/tmp/forensic_test/evidence",
+            "log_dir": "/tmp/forensic_test/logs",
+            "require_encryption": false,
+            "verification_required": true
+        }
+    },
+    "case_management": {
+        "auto_register_evidence": true,
+        "default_classification": "confidential",
+        "default_retention_period": "1 year",
+        "case_id_format": "CASE-{year}-{sequence:03d}",
+        "evidence_categories": [
+            "memory",
+            "disk_image",
+            "network_capture",
+            "log_file",
+            "document",
+            "volatile_data",
+            "other"
+        ],
+        "required_case_fields": [
+            "case_id",
+            "title",
+            "classification",
+            "lead_investigator",
+            "open_date"
+        ]
+    }
+}

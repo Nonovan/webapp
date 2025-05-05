@@ -1,0 +1,271 @@
+{
+    "version": "1.2.0",
+    "last_updated": "2024-07-22",
+    "description": "Configuration of sensitive paths requiring special handling during forensic analysis",
+    "system_paths": {
+        "critical": [
+            "/etc/passwd",
+            "/etc/shadow",
+            "/etc/group",
+            "/etc/sudoers",
+            "/etc/sudoers.d/*",
+            "/etc/pam.d/*",
+            "/etc/ssh/sshd_config",
+            "/etc/ssl/certs/*",
+            "/boot/grub/grub.cfg",
+            "/boot/initrd.img*",
+            "/boot/vmlinuz*",
+            "/lib/systemd/system/*",
+            "/usr/bin/sudo",
+            "/usr/bin/su"
+        ],
+        "high": [
+            "/etc/crontab",
+            "/etc/cron.d/*",
+            "/etc/cron.hourly/*",
+            "/etc/cron.daily/*",
+            "/etc/cron.weekly/*",
+            "/etc/cron.monthly/*",
+            "/var/spool/cron/*",
+            "/etc/hosts",
+            "/etc/hosts.allow",
+            "/etc/hosts.deny",
+            "/etc/fstab",
+            "/etc/resolv.conf",
+            "/etc/rc.local",
+            "/etc/rc.d/*",
+            "/etc/init.d/*",
+            "/etc/systemd/*"
+        ],
+        "medium": [
+            "/etc/profile",
+            "/etc/bash.bashrc",
+            "/etc/profile.d/*",
+            "/etc/skel/*",
+            "/var/log/auth.log",
+            "/var/log/secure",
+            "/var/log/syslog"
+        ]
+    },
+    "application_paths": {
+        "critical": [
+            "{app_root}/core/security/*.py",
+            "{app_root}/core/middleware.py",
+            "{app_root}/core/auth.py",
+            "{app_root}/models/security/*.py",
+            "{app_root}/config/security.ini",
+            "{app_root}/app.py",
+            "{app_root}/wsgi.py"
+        ],
+        "high": [
+            "{app_root}/api/*.py",
+            "{app_root}/models/*.py",
+            "{app_root}/core/*.py",
+            "{app_root}/config/*.ini",
+            "{app_root}/config/*.json",
+            "{app_root}/config/*.yaml",
+            "{app_root}/deployment/security/scripts/*",
+            "{app_root}/admin/security/incident_response_kit/config/*"
+        ],
+        "medium": [
+            "{app_root}/blueprints/*.py",
+            "{app_root}/services/*.py",
+            "{app_root}/templates/*.html",
+            "{app_root}/static/js/*.js"
+        ]
+    },
+    "extension_types": {
+        "credentials": [
+            ".key",
+            ".pem",
+            ".p12",
+            ".pfx",
+            ".keystore",
+            ".jks",
+            ".env",
+            ".secret",
+            ".kdbx",
+            ".crt"
+        ],
+        "configuration": [
+            ".ini",
+            ".conf",
+            ".config",
+            ".yaml",
+            ".yml",
+            ".json",
+            ".xml",
+            ".toml"
+        ],
+        "database": [
+            ".db",
+            ".sqlite",
+            ".sqlite3",
+            ".mdb",
+            ".accdb",
+            ".frm",
+            ".myd",
+            ".myi",
+            ".ibd"
+        ],
+        "sensitive_data": [
+            ".csv",
+            ".xls",
+            ".xlsx",
+            ".pdf",
+            ".docx",
+            ".txt"
+        ],
+        "executable": [
+            ".exe",
+            ".dll",
+            ".so",
+            ".dylib",
+            ".sys",
+            ".bin",
+            ".sh",
+            ".bat",
+            ".cmd",
+            ".ps1",
+            ".psm1"
+        ]
+    },
+    "content_signatures": {
+        "credentials": [
+            "password\\s*[=:]\\s*['\"][^'\"]+['\"]",
+            "apikey\\s*[=:]\\s*['\"][^'\"]+['\"]",
+            "api[_\\-]?key\\s*[=:]\\s*['\"][^'\"]+['\"]",
+            "secret\\s*[=:]\\s*['\"][^'\"]+['\"]",
+            "-----BEGIN\\s+(?:RSA\\s+|DSA\\s+)?PRIVATE\\s+KEY-----",
+            "BEGIN\\s+OpenVPN\\s+Static\\s+key",
+            "token\\s*[=:]\\s*['\"][0-9a-zA-Z_\\-.=]+['\"]",
+            "auth\\s*[=:]\\s*['\"][^'\"]+['\"]",
+            "bearer\\s+[a-zA-Z0-9_\\-.=]+"
+        ],
+        "personal_data": [
+            "\\b\\d{3}-\\d{2}-\\d{4}\\b",
+            "\\b\\d{16}\\b",
+            "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b",
+            "\\b(?:\\+\\d{1,2}\\s?)?\\(?\\d{3}\\)?[\\s.-]?\\d{3}[\\s.-]?\\d{4}\\b"
+        ],
+        "suspicious_commands": [
+            "chmod\\s+[\\+]?[0-7]*\\s*[u]?[\\+]?[s]",
+            "nc\\s+(?:-[el]|.*\\s+-[el])\\s+\\d+",
+            "bash\\s+-i",
+            "python\\s+-c\\s+.*socket",
+            "curl\\s+.*\\s+\\|\\s+bash",
+            "wget\\s+.*\\s+\\|\\s+bash",
+            "eval\\s*\\(",
+            "system\\s*\\("
+        ],
+        "web_attacks": [
+            "select.*from",
+            "union\\s+select",
+            "<script>",
+            "document\\.cookie",
+            "onload=",
+            "onerror=",
+            "javascript:"
+        ]
+    },
+    "artifact_locations": {
+        "windows": {
+            "high": [
+                "%SystemRoot%\\System32\\config\\SAM",
+                "%SystemRoot%\\System32\\config\\SECURITY",
+                "%SystemRoot%\\System32\\config\\SOFTWARE",
+                "%SystemRoot%\\System32\\config\\SYSTEM",
+                "%SystemRoot%\\System32\\winevt\\Logs\\Security.evtx",
+                "%SystemRoot%\\System32\\winevt\\Logs\\System.evtx",
+                "%SystemRoot%\\System32\\winevt\\Logs\\Application.evtx",
+                "%SystemRoot%\\System32\\drivers\\etc\\hosts",
+                "%SystemRoot%\\System32\\Tasks\\",
+                "%SystemRoot%\\SysWOW64\\Tasks\\"
+            ],
+            "medium": [
+                "%SystemRoot%\\Prefetch\\",
+                "%SystemRoot%\\inf\\setupapi.dev.log",
+                "%SystemRoot%\\debug\\",
+                "%SystemDrive%\\$Recycle.Bin\\",
+                "%SystemRoot%\\System32\\LogFiles\\W3SVC*\\",
+                "%SystemRoot%\\System32\\spool\\drivers\\",
+                "%SystemRoot%\\System32\\Wbem\\Logs\\"
+            ]
+        },
+        "linux": {
+            "high": [
+                "/var/log/auth.log*",
+                "/var/log/secure*",
+                "/var/log/syslog*",
+                "/var/log/messages*",
+                "/var/log/audit/audit.log*",
+                "~/.bash_history",
+                "~/.zsh_history"
+            ],
+            "medium": [
+                "/var/log/apache2/*",
+                "/var/log/nginx/*",
+                "/var/log/httpd/*",
+                "/tmp/",
+                "/var/tmp/",
+                "/var/www/",
+                "/home/*/.ssh/"
+            ]
+        }
+    },
+    "special_handling": {
+        "encryption_required": [
+            "credentials",
+            "personal_data"
+        ],
+        "chain_of_custody": [
+            "critical",
+            "high"
+        ],
+        "access_restrictions": {
+            "critical": [
+                "security_admin",
+                "forensic_analyst"
+            ],
+            "high": [
+                "security_admin",
+                "forensic_analyst",
+                "incident_responder"
+            ],
+            "medium": [
+                "security_admin",
+                "forensic_analyst",
+                "incident_responder",
+                "security_analyst"
+            ]
+        },
+        "retention_policy": {
+            "critical": 365,
+            "high": 180,
+            "medium": 90,
+            "low": 30
+        }
+    },
+    "environments": {
+        "production": {
+            "root_dir": "/secure/evidence/sensitive",
+            "require_encryption": true,
+            "require_approval": true
+        },
+        "staging": {
+            "root_dir": "/secure/staging/evidence/sensitive",
+            "require_encryption": true,
+            "require_approval": false
+        },
+        "development": {
+            "root_dir": "/tmp/forensic_dev/evidence/sensitive",
+            "require_encryption": false,
+            "require_approval": false
+        },
+        "testing": {
+            "root_dir": "/tmp/forensic_test/evidence/sensitive",
+            "require_encryption": false,
+            "require_approval": false
+        }
+    }
+}

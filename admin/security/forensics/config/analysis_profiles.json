@@ -1,0 +1,951 @@
+{
+    "version": "1.2.0",
+    "last_updated": "2024-07-22",
+    "description": "Configuration profiles for forensic analysis operations",
+    "static_analysis": {
+        "default": {
+            "name": "Default Static Analysis Profile",
+            "description": "Balanced analysis for general forensic examination",
+            "file_analysis": {
+                "extract_strings": true,
+                "min_string_length": 4,
+                "max_string_count": 10000,
+                "calculate_entropy": true,
+                "entropy_block_size": 256,
+                "extract_embedded_files": true,
+                "max_embedded_depth": 3,
+                "max_embedded_files": 10,
+                "deobfuscation_attempt": true
+            },
+            "signature_analysis": {
+                "check_malware_signatures": true,
+                "verify_code_signatures": true,
+                "yara_rules_sets": [
+                    "common",
+                    "suspicious"
+                ],
+                "max_file_size_mb": 50
+            },
+            "hashing": {
+                "algorithms": [
+                    "md5",
+                    "sha1",
+                    "sha256"
+                ],
+                "calculate_fuzzy_hash": true,
+                "verify_against_database": true
+            },
+            "pattern_matching": {
+                "patterns": [
+                    "credentials",
+                    "network_indicators",
+                    "commands",
+                    "pii",
+                    "encryption_references",
+                    "obfuscation_techniques"
+                ]
+            },
+            "output": {
+                "format": "json",
+                "include_sections": [
+                    "basic_info",
+                    "strings",
+                    "entropy",
+                    "resources",
+                    "signatures",
+                    "yara_matches",
+                    "embedded_files",
+                    "code_analysis"
+                ],
+                "max_report_size_mb": 20,
+                "save_extracted_resources": true
+            }
+        },
+        "quick": {
+            "name": "Quick Triage Analysis",
+            "description": "Fast initial assessment with minimal resource usage",
+            "file_analysis": {
+                "extract_strings": true,
+                "min_string_length": 6,
+                "max_string_count": 1000,
+                "calculate_entropy": false,
+                "extract_embedded_files": false,
+                "deobfuscation_attempt": false
+            },
+            "signature_analysis": {
+                "check_malware_signatures": true,
+                "verify_code_signatures": false,
+                "yara_rules_sets": [
+                    "high_confidence"
+                ],
+                "max_file_size_mb": 25
+            },
+            "hashing": {
+                "algorithms": [
+                    "sha256"
+                ],
+                "calculate_fuzzy_hash": false,
+                "verify_against_database": true
+            },
+            "pattern_matching": {
+                "patterns": [
+                    "credentials",
+                    "network_indicators",
+                    "commands"
+                ]
+            },
+            "output": {
+                "format": "json",
+                "include_sections": [
+                    "basic_info",
+                    "signatures",
+                    "yara_matches"
+                ],
+                "max_report_size_mb": 5,
+                "save_extracted_resources": false
+            }
+        },
+        "malware": {
+            "name": "Malware Analysis Profile",
+            "description": "Detailed analysis focused on malware identification",
+            "file_analysis": {
+                "extract_strings": true,
+                "min_string_length": 4,
+                "max_string_count": 20000,
+                "calculate_entropy": true,
+                "entropy_block_size": 128,
+                "extract_embedded_files": true,
+                "max_embedded_depth": 5,
+                "max_embedded_files": 20,
+                "deobfuscation_attempt": true
+            },
+            "signature_analysis": {
+                "check_malware_signatures": true,
+                "verify_code_signatures": true,
+                "yara_rules_sets": [
+                    "malware",
+                    "suspicious",
+                    "ransomware",
+                    "trojans",
+                    "backdoors"
+                ],
+                "max_file_size_mb": 100
+            },
+            "hashing": {
+                "algorithms": [
+                    "md5",
+                    "sha1",
+                    "sha256",
+                    "sha512"
+                ],
+                "calculate_fuzzy_hash": true,
+                "verify_against_database": true
+            },
+            "pattern_matching": {
+                "patterns": [
+                    "credentials",
+                    "network_indicators",
+                    "commands",
+                    "pii",
+                    "encryption_references",
+                    "obfuscation_techniques",
+                    "registry_keys",
+                    "persistence_mechanisms",
+                    "evasion_techniques"
+                ]
+            },
+            "output": {
+                "format": "json",
+                "include_sections": [
+                    "basic_info",
+                    "strings",
+                    "entropy",
+                    "resources",
+                    "signatures",
+                    "yara_matches",
+                    "embedded_files",
+                    "code_analysis",
+                    "obfuscation_analysis"
+                ],
+                "max_report_size_mb": 50,
+                "save_extracted_resources": true,
+                "generate_timeline": true
+            }
+        },
+        "document": {
+            "name": "Document Analysis Profile",
+            "description": "Focused on document file analysis and metadata extraction",
+            "file_analysis": {
+                "extract_strings": true,
+                "min_string_length": 4,
+                "max_string_count": 15000,
+                "calculate_entropy": true,
+                "extract_embedded_files": true,
+                "max_embedded_depth": 3,
+                "max_embedded_files": 15,
+                "extract_metadata": true,
+                "extract_macros": true,
+                "analyze_external_references": true
+            },
+            "signature_analysis": {
+                "check_malware_signatures": true,
+                "verify_code_signatures": true,
+                "yara_rules_sets": [
+                    "documents",
+                    "macros",
+                    "suspicious"
+                ],
+                "max_file_size_mb": 50
+            },
+            "hashing": {
+                "algorithms": [
+                    "sha1",
+                    "sha256"
+                ],
+                "calculate_fuzzy_hash": true,
+                "verify_against_database": true
+            },
+            "pattern_matching": {
+                "patterns": [
+                    "credentials",
+                    "network_indicators",
+                    "commands",
+                    "pii",
+                    "obfuscation_techniques",
+                    "email_addresses",
+                    "urls"
+                ]
+            },
+            "output": {
+                "format": "json",
+                "include_sections": [
+                    "basic_info",
+                    "metadata",
+                    "strings",
+                    "embedded_files",
+                    "external_references",
+                    "macros",
+                    "yara_matches",
+                    "signatures"
+                ],
+                "max_report_size_mb": 30,
+                "save_extracted_resources": true,
+                "extract_images": true,
+                "extract_ole_objects": true
+            }
+        }
+    },
+    "memory_analysis": {
+        "default": {
+            "name": "Default Memory Analysis Profile",
+            "description": "Balanced analysis for most memory forensics cases",
+            "memory_acquisition": {
+                "preferred_method": "lime",
+                "compression": true,
+                "verify_acquisition": true
+            },
+            "volatility": {
+                "default_plugins": [
+                    "pslist",
+                    "psscan",
+                    "pstree",
+                    "netscan",
+                    "netstat",
+                    "dlllist",
+                    "cmdline",
+                    "malfind",
+                    "yarascan",
+                    "svcscan",
+                    "handles",
+                    "modules",
+                    "filescan"
+                ],
+                "plugin_options": {
+                    "yarascan": {
+                        "rules": [
+                            "malware",
+                            "suspicious_memory"
+                        ],
+                        "all": true
+                    },
+                    "malfind": {
+                        "dump": true,
+                        "yara": true
+                    }
+                },
+                "timeout_seconds": 600
+            },
+            "string_analysis": {
+                "perform_string_extraction": true,
+                "encoding": [
+                    "ascii",
+                    "utf-16le",
+                    "utf-8"
+                ],
+                "min_string_length": 6,
+                "analyze_patterns": true,
+                "pattern_types": [
+                    "ip_addresses",
+                    "domains",
+                    "urls",
+                    "emails",
+                    "file_paths",
+                    "registry_keys",
+                    "credentials",
+                    "commands",
+                    "api_keys"
+                ],
+                "extract_limit_mb": 500
+            },
+            "timeline": {
+                "create_timeline": true,
+                "include_events": [
+                    "process_creation",
+                    "network_connections",
+                    "file_access"
+                ]
+            },
+            "output": {
+                "format": "json",
+                "include_screenshots": true,
+                "include_process_dumps": true,
+                "include_network_data": true,
+                "max_report_size_mb": 50
+            },
+            "post_processing": {
+                "hash_extracted_files": true,
+                "analyze_extracted_code": true,
+                "match_indicators": true
+            }
+        },
+        "rapid_triage": {
+            "name": "Rapid Memory Triage",
+            "description": "Fast initial memory assessment for live systems",
+            "memory_acquisition": {
+                "preferred_method": "winpmem",
+                "compression": false,
+                "only_essential_memory": true,
+                "verify_acquisition": false
+            },
+            "volatility": {
+                "default_plugins": [
+                    "pslist",
+                    "pstree",
+                    "netscan",
+                    "malfind",
+                    "cmdline"
+                ],
+                "plugin_options": {
+                    "malfind": {
+                        "dump": false,
+                        "yara": true
+                    }
+                },
+                "timeout_seconds": 300
+            },
+            "string_analysis": {
+                "perform_string_extraction": true,
+                "encoding": [
+                    "ascii",
+                    "utf-16le"
+                ],
+                "min_string_length": 8,
+                "analyze_patterns": true,
+                "pattern_types": [
+                    "ip_addresses",
+                    "domains",
+                    "credentials",
+                    "commands"
+                ],
+                "extract_limit_mb": 100
+            },
+            "timeline": {
+                "create_timeline": false
+            },
+            "output": {
+                "format": "json",
+                "include_screenshots": false,
+                "include_process_dumps": false,
+                "include_network_data": true,
+                "max_report_size_mb": 10
+            },
+            "post_processing": {
+                "hash_extracted_files": true,
+                "analyze_extracted_code": false,
+                "match_indicators": true
+            }
+        },
+        "malware_hunting": {
+            "name": "Malware Hunting Memory Profile",
+            "description": "Detailed memory analysis focused on malware detection",
+            "memory_acquisition": {
+                "preferred_method": "lime",
+                "compression": true,
+                "verify_acquisition": true
+            },
+            "volatility": {
+                "default_plugins": [
+                    "pslist",
+                    "psscan",
+                    "pstree",
+                    "netscan",
+                    "netstat",
+                    "connscan",
+                    "dlllist",
+                    "cmdline",
+                    "malfind",
+                    "yarascan",
+                    "svcscan",
+                    "ldrmodules",
+                    "apihooks",
+                    "callbacks",
+                    "driverirp",
+                    "handles",
+                    "modules",
+                    "modscan",
+                    "filescan",
+                    "thrdscan",
+                    "ssdt",
+                    "mutantscan",
+                    "shimcache",
+                    "unloadedmodules",
+                    "userassist"
+                ],
+                "plugin_options": {
+                    "yarascan": {
+                        "rules": [
+                            "malware",
+                            "suspicious_memory",
+                            "ransomware",
+                            "trojans",
+                            "rootkits"
+                        ],
+                        "all": true,
+                        "wide": true
+                    },
+                    "malfind": {
+                        "dump": true,
+                        "yara": true
+                    },
+                    "handles": {
+                        "type": "all"
+                    }
+                },
+                "timeout_seconds": 1200
+            },
+            "string_analysis": {
+                "perform_string_extraction": true,
+                "encoding": [
+                    "ascii",
+                    "utf-16le",
+                    "utf-8",
+                    "utf-16be"
+                ],
+                "min_string_length": 5,
+                "analyze_patterns": true,
+                "pattern_types": [
+                    "ip_addresses",
+                    "domains",
+                    "urls",
+                    "emails",
+                    "file_paths",
+                    "registry_keys",
+                    "credentials",
+                    "commands",
+                    "api_keys",
+                    "encryption_keys",
+                    "known_malware_patterns",
+                    "c2_patterns"
+                ],
+                "extract_limit_mb": 2000
+            },
+            "timeline": {
+                "create_timeline": true,
+                "include_events": [
+                    "process_creation",
+                    "network_connections",
+                    "file_access",
+                    "registry_access",
+                    "module_loads",
+                    "api_calls"
+                ]
+            },
+            "output": {
+                "format": "json",
+                "include_screenshots": true,
+                "include_process_dumps": true,
+                "include_network_data": true,
+                "include_registry_data": true,
+                "max_report_size_mb": 200
+            },
+            "post_processing": {
+                "hash_extracted_files": true,
+                "analyze_extracted_code": true,
+                "match_indicators": true,
+                "perform_static_analysis": true,
+                "correlate_network_indicators": true
+            }
+        }
+    },
+    "network_analysis": {
+        "default": {
+            "name": "Default Network Analysis Profile",
+            "description": "Balanced analysis for general network forensics",
+            "capture_settings": {
+                "max_packet_count": 100000,
+                "max_file_size_mb": 1000,
+                "timeout_seconds": 300,
+                "capture_filter": "not port 22"
+            },
+            "protocol_analysis": {
+                "decode_protocols": true,
+                "protocols": [
+                    "http",
+                    "https",
+                    "dns",
+                    "smtp",
+                    "ftp",
+                    "ssh",
+                    "telnet",
+                    "rdp",
+                    "smb",
+                    "ldap",
+                    "dhcp",
+                    "ntp"
+                ],
+                "follow_streams": true,
+                "max_streams": 1000
+            },
+            "traffic_analysis": {
+                "analyze_flows": true,
+                "identify_conversations": true,
+                "extract_hostnames": true,
+                "extract_urls": true,
+                "extract_files": true,
+                "max_extracted_files": 100,
+                "max_file_size_mb": 50
+            },
+            "signature_matching": {
+                "rules_sets": [
+                    "network",
+                    "suspicious"
+                ],
+                "detect_tunneling": true,
+                "detect_data_exfil": true,
+                "check_malicious_hosts": true
+            },
+            "anomaly_detection": {
+                "detect_anomalies": true,
+                "baseline_deviation_threshold": 3.0,
+                "protocols": [
+                    "http",
+                    "dns",
+                    "tls"
+                ]
+            },
+            "output": {
+                "format": "json",
+                "include_packet_details": true,
+                "include_flows": true,
+                "include_payloads": true,
+                "include_statistics": true,
+                "max_report_size_mb": 100
+            }
+        },
+        "traffic_monitoring": {
+            "name": "Traffic Monitoring Profile",
+            "description": "Lightweight continuous monitoring profile",
+            "capture_settings": {
+                "max_packet_count": 0,
+                "max_file_size_mb": 100,
+                "timeout_seconds": 0,
+                "rotate_files": true,
+                "rotation_interval_minutes": 15,
+                "files_to_keep": 24,
+                "capture_filter": "not port 22 and not port 3389"
+            },
+            "protocol_analysis": {
+                "decode_protocols": true,
+                "protocols": [
+                    "http",
+                    "https",
+                    "dns",
+                    "smtp"
+                ],
+                "follow_streams": false
+            },
+            "traffic_analysis": {
+                "analyze_flows": true,
+                "identify_conversations": true,
+                "extract_hostnames": true,
+                "extract_urls": false,
+                "extract_files": false
+            },
+            "signature_matching": {
+                "rules_sets": [
+                    "high_priority"
+                ],
+                "detect_tunneling": true,
+                "detect_data_exfil": true,
+                "check_malicious_hosts": true
+            },
+            "anomaly_detection": {
+                "detect_anomalies": true,
+                "baseline_deviation_threshold": 4.0,
+                "protocols": [
+                    "http",
+                    "dns"
+                ]
+            },
+            "output": {
+                "format": "json",
+                "include_packet_details": false,
+                "include_flows": true,
+                "include_payloads": false,
+                "include_statistics": true,
+                "max_report_size_mb": 20
+            }
+        },
+        "threat_hunting": {
+            "name": "Network Threat Hunting Profile",
+            "description": "Deep packet inspection for threat hunting",
+            "capture_settings": {
+                "max_packet_count": 0,
+                "max_file_size_mb": 5000,
+                "timeout_seconds": 1800,
+                "capture_filter": ""
+            },
+            "protocol_analysis": {
+                "decode_protocols": true,
+                "protocols": [
+                    "http",
+                    "https",
+                    "dns",
+                    "smtp",
+                    "ftp",
+                    "ssh",
+                    "telnet",
+                    "rdp",
+                    "smb",
+                    "ldap",
+                    "dhcp",
+                    "ntp",
+                    "imap",
+                    "pop3",
+                    "modbus",
+                    "s7comm",
+                    "dnp3",
+                    "mqtt",
+                    "coap"
+                ],
+                "follow_streams": true,
+                "max_streams": 10000
+            },
+            "traffic_analysis": {
+                "analyze_flows": true,
+                "identify_conversations": true,
+                "extract_hostnames": true,
+                "extract_urls": true,
+                "extract_files": true,
+                "max_extracted_files": 500,
+                "max_file_size_mb": 200,
+                "extract_certificates": true,
+                "extract_dns_queries": true
+            },
+            "signature_matching": {
+                "rules_sets": [
+                    "network",
+                    "suspicious",
+                    "apt",
+                    "malware",
+                    "lateral_movement",
+                    "c2"
+                ],
+                "detect_tunneling": true,
+                "detect_data_exfil": true,
+                "check_malicious_hosts": true,
+                "detect_covert_channels": true
+            },
+            "anomaly_detection": {
+                "detect_anomalies": true,
+                "baseline_deviation_threshold": 2.5,
+                "protocols": [
+                    "http",
+                    "dns",
+                    "tls",
+                    "smtp",
+                    "smb"
+                ]
+            },
+            "output": {
+                "format": "json",
+                "include_packet_details": true,
+                "include_flows": true,
+                "include_payloads": true,
+                "include_statistics": true,
+                "max_report_size_mb": 500
+            }
+        }
+    },
+    "disk_forensics": {
+        "default": {
+            "name": "Default Disk Forensics Profile",
+            "description": "Standard disk forensics examination profile",
+            "acquisition": {
+                "create_forensic_image": true,
+                "image_format": "e01",
+                "compression": true,
+                "compression_level": 1,
+                "calculate_hashes": true,
+                "hash_algorithms": [
+                    "md5",
+                    "sha1",
+                    "sha256"
+                ],
+                "block_size": 65536,
+                "verify_image": true
+            },
+            "filesystem_analysis": {
+                "recover_deleted_files": true,
+                "analyze_filesystem_metadata": true,
+                "parse_file_signatures": true,
+                "extract_timestamps": true,
+                "build_timeline": true
+            },
+            "artifact_processing": {
+                "operating_systems": [
+                    "windows",
+                    "linux",
+                    "macos"
+                ],
+                "windows_artifacts": [
+                    "registry",
+                    "event_logs",
+                    "prefetch",
+                    "scheduled_tasks",
+                    "user_activity",
+                    "browser_history",
+                    "recycle_bin"
+                ],
+                "linux_artifacts": [
+                    "logs",
+                    "bash_history",
+                    "user_accounts",
+                    "cron_jobs",
+                    "ssh_config",
+                    "installed_packages"
+                ],
+                "macos_artifacts": [
+                    "unified_logs",
+                    "bash_history",
+                    "plist_files",
+                    "user_accounts",
+                    "safari_history"
+                ]
+            },
+            "file_carving": {
+                "perform_carving": true,
+                "carve_unallocated_space": true,
+                "file_types": [
+                    "jpg",
+                    "png",
+                    "pdf",
+                    "docx",
+                    "xlsx",
+                    "zip",
+                    "gz",
+                    "exe",
+                    "dll",
+                    "sh",
+                    "evtx",
+                    "db",
+                    "sqlite"
+                ],
+                "max_file_size_mb": 100,
+                "max_files": 10000
+            },
+            "output": {
+                "format": "json",
+                "include_file_list": true,
+                "include_directory_structure": true,
+                "include_timeline": true,
+                "max_report_size_mb": 200
+            }
+        },
+        "quick_triage": {
+            "name": "Quick Disk Triage Profile",
+            "description": "Fast examination of key artifacts without full imaging",
+            "acquisition": {
+                "create_forensic_image": false,
+                "targeted_collection": true,
+                "collection_targets": [
+                    "windows_registry",
+                    "windows_event_logs",
+                    "browsers",
+                    "user_profiles",
+                    "system_logs",
+                    "network_config"
+                ],
+                "calculate_hashes": true,
+                "hash_algorithms": [
+                    "sha256"
+                ]
+            },
+            "filesystem_analysis": {
+                "recover_deleted_files": false,
+                "analyze_filesystem_metadata": true,
+                "parse_file_signatures": true,
+                "extract_timestamps": true,
+                "build_timeline": true
+            },
+            "artifact_processing": {
+                "operating_systems": [
+                    "windows",
+                    "linux",
+                    "macos"
+                ],
+                "windows_artifacts": [
+                    "registry_minimal",
+                    "event_logs_security",
+                    "prefetch",
+                    "user_recent_activity",
+                    "browser_history"
+                ],
+                "linux_artifacts": [
+                    "auth_logs",
+                    "bash_history",
+                    "ssh_config"
+                ],
+                "macos_artifacts": [
+                    "unified_logs_security",
+                    "bash_history",
+                    "launch_agents"
+                ]
+            },
+            "file_carving": {
+                "perform_carving": false
+            },
+            "output": {
+                "format": "json",
+                "include_file_list": true,
+                "include_directory_structure": false,
+                "include_timeline": true,
+                "max_report_size_mb": 50
+            }
+        },
+        "malware_investigation": {
+            "name": "Malware Investigation Profile",
+            "description": "Disk forensics focused on malware detection and analysis",
+            "acquisition": {
+                "create_forensic_image": true,
+                "image_format": "e01",
+                "compression": true,
+                "compression_level": 1,
+                "calculate_hashes": true,
+                "hash_algorithms": [
+                    "md5",
+                    "sha1",
+                    "sha256",
+                    "sha512"
+                ],
+                "block_size": 65536,
+                "verify_image": true
+            },
+            "filesystem_analysis": {
+                "recover_deleted_files": true,
+                "analyze_filesystem_metadata": true,
+                "parse_file_signatures": true,
+                "detect_file_type_mismatches": true,
+                "extract_timestamps": true,
+                "build_timeline": true,
+                "analyze_alternate_data_streams": true
+            },
+            "artifact_processing": {
+                "operating_systems": [
+                    "windows",
+                    "linux",
+                    "macos"
+                ],
+                "windows_artifacts": [
+                    "registry",
+                    "event_logs",
+                    "prefetch",
+                    "scheduled_tasks",
+                    "user_activity",
+                    "browser_history",
+                    "recycle_bin",
+                    "services",
+                    "startup_items",
+                    "wmi",
+                    "shimcache",
+                    "amcache",
+                    "autoruns",
+                    "driver_signing"
+                ],
+                "linux_artifacts": [
+                    "logs",
+                    "bash_history",
+                    "user_accounts",
+                    "cron_jobs",
+                    "ssh_config",
+                    "installed_packages",
+                    "services",
+                    "startup_items",
+                    "loaded_modules"
+                ],
+                "macos_artifacts": [
+                    "unified_logs",
+                    "bash_history",
+                    "plist_files",
+                    "user_accounts",
+                    "safari_history",
+                    "launch_agents",
+                    "launch_daemons",
+                    "kernel_extensions"
+                ]
+            },
+            "file_carving": {
+                "perform_carving": true,
+                "carve_unallocated_space": true,
+                "file_types": [
+                    "jpg",
+                    "png",
+                    "pdf",
+                    "docx",
+                    "xlsx",
+                    "zip",
+                    "gz",
+                    "exe",
+                    "dll",
+                    "sh",
+                    "ps1",
+                    "vbs",
+                    "js",
+                    "jar"
+                ],
+                "max_file_size_mb": 200,
+                "max_files": 20000
+            },
+            "malware_scanning": {
+                "perform_yara_scan": true,
+                "yara_rules_sets": [
+                    "malware",
+                    "ransomware",
+                    "trojans",
+                    "backdoors"
+                ],
+                "scan_executable_files": true,
+                "scan_scripts": true,
+                "scan_documents": true
+            },
+            "output": {
+                "format": "json",
+                "include_file_list": true,
+                "include_directory_structure": true,
+                "include_timeline": true,
+                "include_iocs": true,
+                "max_report_size_mb": 500
+            }
+        }
+    }
+}
