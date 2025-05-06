@@ -465,6 +465,82 @@ def verify_file_signature(filepath: str) -> bool:
         return True
 
 
+def verify_file_integrity(file_path: str, expected_hash: str, algorithm: str = None) -> Dict[str, Any]:
+    """
+    Verify the integrity of a file by comparing its hash with an expected value.
+
+    Extended version of check_file_integrity that returns more detailed results
+    for compatibility with incident response toolkit.
+
+    Args:
+        file_path: Path to the file to verify
+        expected_hash: Expected hash value to compare against
+        algorithm: Hash algorithm to use (default: based on security config)
+
+    Returns:
+        Dict with verification results containing:
+        - verified: bool - True if integrity check passed
+        - file_path: str - Path that was checked
+        - current_hash: str - Calculated hash of the file
+        - expected_hash: str - Hash that was expected
+        - algorithm: str - Algorithm that was used
+        - timestamp: str - ISO format timestamp when check was performed
+        - error: str - Any error that occurred (only present if there was an error)
+    """
+    result = {
+        "verified": False,
+        "file_path": file_path,
+        "expected_hash": expected_hash,
+        "timestamp": format_timestamp()
+    }
+
+    if not os.path.exists(file_path):
+        result["error"] = "File does not exist"
+        log_warning(f"File does not exist: {file_path}")
+        return result
+
+    try:
+        # Use default hash algorithm from SECURITY_CONFIG if none specified
+        if algorithm is None and has_app_context():
+            algorithm = current_app.config.get(
+                'FILE_HASH_ALGORITHM',
+                SECURITY_CONFIG.get('FILE_HASH_ALGORITHM', 'sha256')
+            )
+        elif algorithm is None:
+            algorithm = DEFAULT_HASH_ALGORITHM
+
+        result["algorithm"] = algorithm
+        current_hash = calculate_file_hash(file_path, algorithm)
+        result["current_hash"] = current_hash
+        result["verified"] = current_hash == expected_hash
+
+        if not result["verified"]:
+            log_warning(f"File integrity check failed for {file_path}")
+            metrics.increment('security.file_integrity.failed')
+        else:
+            log_info(f"File integrity verified for {file_path}")
+            metrics.increment('security.file_integrity.passed')
+
+        return result
+
+    except (IOError, OSError) as e:
+        result["error"] = f"Error reading file: {str(e)}"
+        log_error(f"Error checking file integrity for {file_path}: {e}")
+        metrics.increment('security.file_integrity.error')
+        return result
+
+    except ValueError as e:
+        result["error"] = f"Invalid hash algorithm '{algorithm}': {str(e)}"
+        log_error(f"Invalid hash algorithm '{algorithm}' for {file_path}: {e}")
+        metrics.increment('security.file_integrity.algorithm_error')
+        return result
+
+    except Exception as e:
+        result["error"] = f"Unexpected error: {str(e)}"
+        log_error(f"Unexpected error in verify_file_integrity for {file_path}: {e}")
+        return result
+
+
 def log_file_integrity_event(changes: List[Dict[str, Any]]) -> None:
     """
     Log file integrity violations to both the application log and audit log.

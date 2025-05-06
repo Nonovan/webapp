@@ -87,8 +87,9 @@ try:
         update_incident_status as update_status,
         get_incident_status,
         list_incidents,
-        generate_report,
-        add_related_incident
+        generate_report as generate_status_report,
+        add_related_incident,
+        reopen_incident
     )
     STATUS_TRACKER_AVAILABLE = True
     logger.debug("Status tracker module loaded successfully")
@@ -109,11 +110,14 @@ except ImportError as e:
     def list_incidents(*args, **kwargs):
         raise NotImplementedError("Status tracking not available")
 
-    def generate_report(*args, **kwargs):
+    def generate_status_report(*args, **kwargs):
         raise NotImplementedError("Report generation not available")
 
     def add_related_incident(*args, **kwargs):
         raise NotImplementedError("Relationship management not available")
+
+    def reopen_incident(*args, **kwargs):
+        raise NotImplementedError("Incident reopening not available")
 
 try:
     from .notification_system import notify_stakeholders
@@ -176,6 +180,32 @@ except ImportError as e:
     def archive_war_room(*args, **kwargs):
         raise NotImplementedError("War room management not available")
 
+# Import report generator functionality
+try:
+    from .report_generator import (
+        generate_report,
+        generate_status_report,
+        generate_full_report,
+        generate_timeline_report,
+        REPORT_FORMATS
+    )
+    REPORT_GENERATOR_AVAILABLE = True
+    logger.debug("Report generator module loaded successfully")
+except ImportError as e:
+    logger.warning(f"Failed to import report_generator module: {e}")
+    REPORT_GENERATOR_AVAILABLE = False
+
+    def generate_report(*args, **kwargs):
+        raise NotImplementedError("Report generation not available")
+
+    def generate_full_report(*args, **kwargs):
+        raise NotImplementedError("Full report generation not available")
+
+    def generate_timeline_report(*args, **kwargs):
+        raise NotImplementedError("Timeline report generation not available")
+
+    REPORT_FORMATS = ["text", "markdown", "json", "html", "pdf"]
+
 def track_incident_status(*args, **kwargs):
     """
     Alias for initialize_incident_status to maintain compatibility with parent module.
@@ -185,135 +215,55 @@ def track_incident_status(*args, **kwargs):
     """
     return initialize_incident_status(*args, **kwargs)
 
-def reopen_incident(
-    incident_id: str,
-    reason: str,
-    user_id: Optional[str] = None,
-    phase: str = IncidentPhase.IDENTIFICATION
-) -> Dict[str, Any]:
-    """
-    Reopen a previously closed or resolved security incident.
-
-    This function:
-    - Changes the incident status to INVESTIGATING
-    - Resets the incident phase (default: IDENTIFICATION)
-    - Records the reason for reopening
-    - Creates an audit trail entry
-
-    Args:
-        incident_id: Unique identifier for the incident to reopen
-        reason: Reason for reopening the incident
-        user_id: ID or name of user reopening the incident (optional)
-        phase: New phase for the incident (defaults to IDENTIFICATION)
-
-    Returns:
-        Dict containing results of the reopening operation
-
-    Raises:
-        ValidationError: If incident_id or reason is invalid
-        IncidentStatusError: If incident status can't be changed (not resolved/closed)
-    """
-    if not incident_id:
-        raise ValidationError("Incident ID is required")
-
-    if not reason:
-        raise ValidationError("Reason for reopening is required")
-
-    if not STATUS_TRACKER_AVAILABLE:
-        raise NotImplementedError("Status tracker not available for reopening incidents")
-
-    try:
-        # Get current incident status
-        incident_data = get_incident_status(incident_id)
-
-        if not incident_data:
-            raise IncidentStatusError(f"Incident {incident_id} not found")
-
-        current_status = incident_data.get("status")
-
-        # Check if incident can be reopened (must be resolved or closed)
-        if current_status not in [IncidentStatus.RESOLVED, IncidentStatus.CLOSED]:
-            raise IncidentStatusError(
-                f"Cannot reopen incident with status '{current_status}'. "
-                f"Only incidents with status '{IncidentStatus.RESOLVED}' or '{IncidentStatus.CLOSED}' can be reopened."
-            )
-
-        # Update the incident status to investigating
-        status_updated = update_status(
-            incident_id=incident_id,
-            status=IncidentStatus.INVESTIGATING,
-            phase=phase,
-            notes=f"Incident reopened: {reason}",
-            user=user_id
-        )
-
-        if not status_updated:
-            raise IncidentStatusError(f"Failed to update status for incident {incident_id}")
-
-        logger.info(f"Successfully reopened incident {incident_id}")
-
-        return {
-            "success": True,
-            "incident_id": incident_id,
-            "new_status": IncidentStatus.INVESTIGATING,
-            "new_phase": phase,
-            "reason": reason,
-            "reopened_by": user_id
-        }
-
-    except Exception as e:
-        if isinstance(e, (ValidationError, IncidentStatusError)):
-            # Re-raise these specific exceptions
-            raise
-        else:
-            # Convert other exceptions to IncidentStatusError
-            logger.error(f"Error reopening incident {incident_id}: {e}", exc_info=True)
-            raise IncidentStatusError(f"Failed to reopen incident: {str(e)}")
-
-# Check available components
-def get_available_components() -> Dict[str, bool]:
-    """Return a dictionary indicating which coordination components are available."""
+# Helper function to check available components
+def get_available_components():
+    """Returns status of available coordination components."""
     return {
-        "status_tracker": STATUS_TRACKER_AVAILABLE,
-        "notification_system": NOTIFICATION_SYSTEM_AVAILABLE,
-        "task_manager": TASK_MANAGER_AVAILABLE,
-        "war_room": WAR_ROOM_AVAILABLE
+        'status_tracker': STATUS_TRACKER_AVAILABLE,
+        'notification_system': NOTIFICATION_SYSTEM_AVAILABLE,
+        'task_manager': TASK_MANAGER_AVAILABLE,
+        'war_room': WAR_ROOM_AVAILABLE,
+        'report_generator': REPORT_GENERATOR_AVAILABLE
     }
 
-# Public exports
+# Export public API
 __all__ = [
-    # Status tracking functions
+    # Status tracking
     'initialize_incident_status',
     'update_status',
     'get_incident_status',
     'list_incidents',
-    'generate_report',
     'add_related_incident',
+    'reopen_incident',
     'track_incident_status',
 
-    # Incident management functions
-    'reopen_incident',
-
-    # Notification functions
+    # Notification
     'notify_stakeholders',
 
-    # Task management functions
+    # Task management
     'create_task',
     'assign_task',
     'update_task_status',
     'get_task_list',
 
-    # War room functions
+    # War room
     'setup_war_room',
     'add_participants',
     'add_resource',
     'archive_war_room',
 
-    # Utility functions
-    'get_available_components',
+    # Report generation
+    'generate_report',
+    'generate_status_report',
+    'generate_full_report',
+    'generate_timeline_report',
+    'REPORT_FORMATS',
+
+    # Utility
+    'get_available_components'
 ]
 
-# Log initialization status
+# Check and log available components
 available_components = get_available_components()
 logger.info(f"Incident Response Coordination module loaded")
 logger.debug(f"Available components: {', '.join([k for k, v in available_components.items() if v])}")

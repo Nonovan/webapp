@@ -40,6 +40,13 @@ The coordination tools provide centralized management capabilities for incident 
   - Template-based message generation
   - Secure delivery confirmation tracking
 
+- **`report_generator.py`**: Reporting and documentation system
+  - Automatic incident report creation
+  - Timeline report generation from incident history
+  - Template-based report formatting
+  - Multiple output formats (markdown, HTML, PDF)
+  - Integration with incident data sources
+
 - **`war_room.py`**: Virtual war room management
   - Secure collaboration environment setup
   - Document and resource sharing
@@ -53,6 +60,7 @@ The coordination tools provide centralized management capabilities for incident 
 admin/security/incident_response_kit/coordination/
 ├── README.md                 # This documentation
 ├── notification_system.py    # Automated notification system
+├── report_generator.py       # Report generation system
 ├── status_tracker.py         # Incident response status tracking
 ├── task_manager.py           # Task assignment and management
 └── war_room.py               # Virtual war room setup and management
@@ -85,6 +93,7 @@ Important configuration settings for coordination include:
 - Authentication methods for secure access
 - Integration endpoints for other systems
 - Logging and audit trail settings
+- Report and documentation templates
 
 ## Usage Examples
 
@@ -124,6 +133,19 @@ Important configuration settings for coordination include:
 ./notification_system.py --incident-id IR-2023-042 --message "Scheduled containment status update" --schedule "2023-07-15T16:00:00" --recipients incident-response-team --template status-update
 ```
 
+### Report Generation
+
+```bash
+# Generate a timeline report from incident history
+./report_generator.py --incident-id IR-2023-042 --report-type timeline --output /secure/evidence/IR-2023-042/incident_timeline.md
+
+# Create an executive summary report
+./report_generator.py --incident-id IR-2023-042 --report-type executive --template executive_briefing.md --output /secure/evidence/IR-2023-042/executive_summary.md
+
+# Generate a comprehensive incident report
+./report_generator.py --incident-id IR-2023-042 --report-type full --include-timeline --output /secure/evidence/IR-2023-042/final_report.md
+```
+
 ### War Room Management
 
 ```bash
@@ -148,6 +170,7 @@ Important configuration settings for coordination include:
 - **Need-to-Know Principle**: Restrict sensitive details to essential personnel only
 - **Secure Documentation**: Store all coordination records securely with appropriate access controls
 - **Physical Security**: Consider physical security aspects for in-person coordination activities
+- **Timeline Integrity**: Ensure timeline events are accurately recorded with proper timestamps
 
 ## Common Features
 
@@ -161,6 +184,22 @@ All coordination tools share these common features:
 - **Secure Communications**: Encrypted data in transit and at rest
 - **Incident Context Awareness**: All tools maintain awareness of incident context
 - **Templating System**: Reusable templates for common scenarios
+- **Timeline Integration**: All tools contribute to and reference the master incident timeline
+
+## API Reference
+
+### Functions
+
+- **`initialize_incident_status`**: Set up tracking for a new incident
+- **`update_incident_status`**: Update the status of an incident
+- **`get_incident_status`**: Retrieve current status of an incident
+- **`list_incidents`**: List all incidents matching given criteria
+- **`generate_report`**: Generate various incident reports
+- **`generate_timeline_report`**: Create a timeline report from incident history
+- **`generate_full_report`**: Create comprehensive incident documentation
+- **`notify_stakeholders`**: Send notifications to incident stakeholders
+- **`track_incident_status`**: Alias for initialize_incident_status
+- **`reopen_incident`**: Reactivate a previously closed incident
 
 ## Related Documentation
 
@@ -170,3 +209,4 @@ All coordination tools share these common features:
 - Documentation Templates
 - Incident Response Procedures
 - Security Incident Response Plan
+- Forensic Timeline Builder

@@ -29,7 +29,6 @@ try:
         initialize_incident, update_status, get_incident_status,
         notify_stakeholders, verify_file_integrity, sanitize_incident_id
     )
-    from admin.security.incident_response_kit.coordination.status_tracker import track_incident_status
     TOOLKIT_IMPORTS_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: Error importing toolkit modules: {e}", file=sys.stderr)
@@ -650,7 +649,7 @@ def run_playbook(incident_id: str, playbook_name: str, phase: Optional[str] = No
     selected_phase = None
     if phase:
         phase = phase.lower()
-        for phase_enum in IncidentPhase:
+        for phase_enum in list(IncidentPhase):
             if phase_enum.value.lower() == phase:
                 selected_phase = phase_enum
                 break

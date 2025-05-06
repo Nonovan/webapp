@@ -62,7 +62,7 @@ try:
     try:
         # Prefer the central notification service if available
         try:
-            from services.notification.manager import NotificationManager
+            from services.notification.note_manager import NotificationManager
             notification_manager = NotificationManager()
 
             def notify_stakeholders(subject, message, level, recipients=None, incident_id=None):
@@ -986,6 +986,58 @@ def create_secure_directory(path: Path, dry_run: bool = False) -> bool:
     except Exception as e:
         logger.error(f"Failed to create secure directory {path}: {e}")
         return False
+
+def restore_service(
+    incident_id: str,
+    service_type: str,
+    template_path: Path,
+    environment: str,
+    config_source: Optional[Path] = None,
+    custom_params: Optional[Dict[str, str]] = None,
+    validate: bool = True,
+    notify: Optional[List[str]] = None,
+    dry_run: bool = False,
+    force: bool = False
+) -> bool:
+    """
+    Restores a service after a security incident using a predefined template.
+
+    This is a simplified interface to the restoration functionality, suitable for
+    programmatic use within the incident response toolkit.
+
+    Args:
+        incident_id: Unique identifier for incident tracking
+        service_type: Type of service being restored
+        template_path: Path to the restoration template
+        environment: Target environment (development, staging, production)
+        config_source: Path to specific configuration source directory
+        custom_params: Custom parameters for the restoration template
+        validate: Whether to validate after restoration
+        notify: List of email addresses or channels to notify on completion/failure
+        dry_run: If True, simulate restoration without making changes
+        force: If True, continue despite non-critical issues
+
+    Returns:
+        True if restoration was successful, False otherwise
+
+    Raises:
+        FileNotFoundError: If template or required files don't exist
+        ValueError: If template has invalid JSON or missing required fields
+        IncidentResponseError: For other restoration failures
+    """
+    return restore_service_main(
+        incident_id=incident_id,
+        service_type=service_type,
+        template_path=template_path,
+        environment=environment,
+        config_source=config_source,
+        custom_params=custom_params,
+        validate_steps=validate,
+        approval_required=False,  # For programmatic use, skip approval by default
+        notify_list=notify,
+        dry_run=dry_run,
+        force=force
+    )
 
 # --- Main Restoration Logic ---
 
