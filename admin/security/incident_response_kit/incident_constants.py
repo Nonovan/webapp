@@ -226,12 +226,15 @@ class EvidenceType:
     SYSTEM_STATE = "system_state"
     USER_INTERVIEW = "user_interview"
     EMAIL = "email"
+    TIMELINE = "timeline"
+    FILE_SYSTEM = "file_system"
+    HASH_LIST = "hash_list"
 
     # All valid evidence types
     VALID_TYPES = [
         LOG_FILE, MEMORY_DUMP, DISK_IMAGE, NETWORK_CAPTURE,
         SCREENSHOT, CONFIGURATION, MALWARE_SAMPLE, SYSTEM_STATE,
-        USER_INTERVIEW, EMAIL
+        USER_INTERVIEW, EMAIL, TIMELINE, FILE_SYSTEM, HASH_LIST
     ]
 
     # Evidence display names
@@ -245,7 +248,10 @@ class EvidenceType:
         MALWARE_SAMPLE: "Malware Sample",
         SYSTEM_STATE: "System State",
         USER_INTERVIEW: "User Interview",
-        EMAIL: "Email"
+        EMAIL: "Email",
+        TIMELINE: "Event Timeline",
+        FILE_SYSTEM: "File System Artifacts",
+        HASH_LIST: "Hash Values List"
     }
 
 # ======= Action Constants =======
@@ -260,11 +266,14 @@ class ActionType:
     ERADICATION = "eradication"
     RECOVERY = "recovery"
     DOCUMENTATION = "documentation"
+    ESCALATION = "escalation"
+    STATUS_UPDATE = "status_update"
 
     # All valid action types
     VALID_TYPES = [
         CONTAINMENT, EVIDENCE_COLLECTION, ANALYSIS, NOTIFICATION,
-        MITIGATION, ERADICATION, RECOVERY, DOCUMENTATION
+        MITIGATION, ERADICATION, RECOVERY, DOCUMENTATION,
+        ESCALATION, STATUS_UPDATE
     ]
 
 # ======= Relationship Mappings =======
@@ -301,12 +310,21 @@ PHASE_REQUIRED_ACTIONS: Dict[str, List[str]] = {
 
 # Recommended evidence by incident type
 INCIDENT_TYPE_RECOMMENDED_EVIDENCE: Dict[str, List[str]] = {
-    IncidentType.MALWARE: [EvidenceType.MEMORY_DUMP, EvidenceType.LOG_FILE, EvidenceType.MALWARE_SAMPLE],
-    IncidentType.RANSOMWARE: [EvidenceType.DISK_IMAGE, EvidenceType.MEMORY_DUMP, EvidenceType.MALWARE_SAMPLE],
-    IncidentType.DATA_BREACH: [EvidenceType.LOG_FILE, EvidenceType.NETWORK_CAPTURE],
-    IncidentType.UNAUTHORIZED_ACCESS: [EvidenceType.LOG_FILE, EvidenceType.SYSTEM_STATE],
-    IncidentType.DENIAL_OF_SERVICE: [EvidenceType.NETWORK_CAPTURE, EvidenceType.LOG_FILE],
-    # Additional mapping can be added for other incident types
+    IncidentType.MALWARE: [EvidenceType.MEMORY_DUMP, EvidenceType.LOG_FILE, EvidenceType.MALWARE_SAMPLE, EvidenceType.SYSTEM_STATE],
+    IncidentType.RANSOMWARE: [EvidenceType.DISK_IMAGE, EvidenceType.MEMORY_DUMP, EvidenceType.MALWARE_SAMPLE, EvidenceType.SCREENSHOT],
+    IncidentType.DATA_BREACH: [EvidenceType.LOG_FILE, EvidenceType.NETWORK_CAPTURE, EvidenceType.TIMELINE, EvidenceType.FILE_SYSTEM],
+    IncidentType.UNAUTHORIZED_ACCESS: [EvidenceType.LOG_FILE, EvidenceType.SYSTEM_STATE, EvidenceType.TIMELINE, EvidenceType.CONFIGURATION],
+    IncidentType.DENIAL_OF_SERVICE: [EvidenceType.NETWORK_CAPTURE, EvidenceType.LOG_FILE, EvidenceType.SYSTEM_STATE],
+    IncidentType.WEB_APPLICATION_ATTACK: [EvidenceType.LOG_FILE, EvidenceType.NETWORK_CAPTURE, EvidenceType.SCREENSHOT, EvidenceType.CONFIGURATION],
+    IncidentType.ACCOUNT_COMPROMISE: [EvidenceType.LOG_FILE, EvidenceType.EMAIL, EvidenceType.TIMELINE, EvidenceType.USER_INTERVIEW],
+    IncidentType.PRIVILEGE_ESCALATION: [EvidenceType.SYSTEM_STATE, EvidenceType.LOG_FILE, EvidenceType.MEMORY_DUMP],
+    IncidentType.INSIDER_THREAT: [EvidenceType.LOG_FILE, EvidenceType.USER_INTERVIEW, EvidenceType.EMAIL, EvidenceType.FILE_SYSTEM],
+    IncidentType.PHISHING: [EvidenceType.EMAIL, EvidenceType.MALWARE_SAMPLE, EvidenceType.NETWORK_CAPTURE, EvidenceType.USER_INTERVIEW],
+    IncidentType.SYSTEM_COMPROMISE: [EvidenceType.MEMORY_DUMP, EvidenceType.DISK_IMAGE, EvidenceType.SYSTEM_STATE, EvidenceType.LOG_FILE],
+    IncidentType.NETWORK_ANOMALY: [EvidenceType.NETWORK_CAPTURE, EvidenceType.LOG_FILE, EvidenceType.SYSTEM_STATE],
+    IncidentType.POLICY_VIOLATION: [EvidenceType.LOG_FILE, EvidenceType.USER_INTERVIEW, EvidenceType.FILE_SYSTEM, EvidenceType.EMAIL],
+    IncidentType.CONFIGURATION_ERROR: [EvidenceType.CONFIGURATION, EvidenceType.SYSTEM_STATE, EvidenceType.LOG_FILE],
+    IncidentType.SUSPICIOUS_ACTIVITY: [EvidenceType.LOG_FILE, EvidenceType.SYSTEM_STATE, EvidenceType.NETWORK_CAPTURE, EvidenceType.TIMELINE]
 }
 
 # Required notifications by severity
@@ -315,6 +333,15 @@ SEVERITY_REQUIRED_NOTIFICATIONS: Dict[str, Set[str]] = {
     IncidentSeverity.HIGH: {"ir-manager", "ciso", "security-team"},
     IncidentSeverity.MEDIUM: {"ir-manager", "security-team"},
     IncidentSeverity.LOW: {"security-team"}
+}
+
+# Incident phase transition notifications
+PHASE_CHANGE_NOTIFICATIONS: Dict[str, Set[str]] = {
+    IncidentPhase.IDENTIFICATION: {"security-team"},
+    IncidentPhase.CONTAINMENT: {"security-team", "it-operations"},
+    IncidentPhase.ERADICATION: {"security-team", "it-operations"},
+    IncidentPhase.RECOVERY: {"security-team", "it-operations", "business-owners"},
+    IncidentPhase.LESSONS_LEARNED: {"security-team", "management"}
 }
 
 # Module exports
@@ -333,5 +360,6 @@ __all__ = [
     'STATUS_TRANSITIONS',
     'PHASE_REQUIRED_ACTIONS',
     'INCIDENT_TYPE_RECOMMENDED_EVIDENCE',
-    'SEVERITY_REQUIRED_NOTIFICATIONS'
+    'SEVERITY_REQUIRED_NOTIFICATIONS',
+    'PHASE_CHANGE_NOTIFICATIONS'
 ]

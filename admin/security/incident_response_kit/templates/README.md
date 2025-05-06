@@ -8,6 +8,8 @@ This directory contains standardized templates for documenting security incident
 - Key Components
 - Directory Structure
 - Usage Guidelines
+- Template Variables
+- API Reference
 - Best Practices & Security
 - Common Features
 - Related Documentation
@@ -78,12 +80,14 @@ The documentation templates provide structured formats for capturing critical in
 ```plaintext
 admin/security/incident_response_kit/templates/
 ├── README.md                # This documentation
+├── __init__.py              # Module initialization and exports
 ├── incident_report.md       # Complete incident report template
 ├── incident_timeline.md     # Timeline documentation template
 ├── chain_of_custody.md      # Evidence tracking documentation
 ├── communication_plan.md    # Stakeholder communication templates
 ├── executive_briefing.md    # Management briefing template
-└── remediation_plan.md      # Recovery action planning template
+├── remediation_plan.md      # Recovery action planning template
+└── template_variables.py    # Template variable definitions
 ```
 
 ## Usage Guidelines
@@ -144,6 +148,86 @@ The templates are designed to work with other incident response tools:
     --output-format markdown \
     >> /secure/evidence/IR-2023-042/documentation/incident_report.md
 ```
+
+## Template Variables
+
+Templates use standardized variables defined in `template_variables.py` that can be populated programmatically:
+
+### Variable Categories
+
+- **Common Variables**: Shared across all templates (incident ID, dates, etc.)
+- **Incident Report Variables**: Specific to incident reporting
+- **Timeline Variables**: For timeline documentation
+- **Chain of Custody Variables**: For evidence tracking
+- **Communication Variables**: For stakeholder communications
+- **Remediation Variables**: For recovery planning
+
+### Using Variables Programmatically
+
+```python
+from admin.security.incident_response_kit.templates import (
+    get_template_variables, render_template, TemplateType
+)
+
+# Get variables for a specific template type
+variables = get_variables_by_template(TemplateType.EXECUTIVE_BRIEFING)
+
+# Set variable values for your specific incident
+incident_vars = {
+    "INCIDENT_ID": "IR-2023-042",
+    "CLASSIFICATION": "Confidential",
+    "STATUS": "Investigating",
+    "DATE": "2023-07-15",
+    "LEAD_RESPONDER": "John Smith",
+    "EXECUTIVE_SUMMARY": "Critical database server compromise detected..."
+    # Add other variables as needed
+}
+
+# Render the template with variables
+rendered_template = render_template("executive_briefing.md", incident_vars)
+with open("/secure/evidence/IR-2023-042/executive_briefing.md", "w") as f:
+    f.write(rendered_template)
+```
+
+## API Reference
+
+The templates module exposes the following functionality through `__init__.py`:
+
+### Classes and Enums
+
+- `TemplateType`: Enum of template types (INCIDENT_REPORT, INCIDENT_TIMELINE, etc.)
+- `VariableCategory`: Enum of variable categories (COMMON, TIMELINE, etc.)
+
+### Functions
+
+- `get_variable_categories()`: Return all available variable categories
+- `get_variables_by_category(category)`: Get variables for a specific category
+- `get_variables_by_template(template_type)`: Get variables for a specific template type
+- `get_available_templates()`: Get dictionary of available templates
+- `get_template_path(template_name)`: Get full path to a specific template
+- `render_template(template_name, variables)`: Render a template with provided variables
+- `get_template_type(template_name)`: Determine template type from filename
+- `get_template_variables(template_name)`: Get variables applicable to a template
+
+### Constants
+
+- `TEMPLATE_DIR`: Path to the templates directory
+- `DEFAULT_INCIDENT_TEMPLATE`: Default incident report template filename
+- `DEFAULT_TIMELINE_TEMPLATE`: Default timeline template filename
+- `DEFAULT_CHAIN_OF_CUSTODY_TEMPLATE`: Default chain of custody template filename
+- `DEFAULT_COMMUNICATION_TEMPLATE`: Default communication plan template filename
+- `DEFAULT_EXECUTIVE_BRIEFING_TEMPLATE`: Default executive briefing template filename
+- `DEFAULT_REMEDIATION_TEMPLATE`: Default remediation plan template filename
+
+### Variable Dictionaries
+
+- `COMMON_VARIABLES`: Common variables used across all templates
+- `INCIDENT_REPORT_VARIABLES`: Variables specific to incident reports
+- `TIMELINE_VARIABLES`: Variables specific to timelines
+- `CHAIN_OF_CUSTODY_VARIABLES`: Variables specific to chain of custody
+- `COMMUNICATION_VARIABLES`: Variables specific to communications
+- `REMEDIATION_VARIABLES`: Variables specific to remediation
+- `TEMPLATE_VARIABLES`: Combined dictionary of all variables
 
 ## Best Practices & Security
 

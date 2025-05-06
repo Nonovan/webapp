@@ -18,7 +18,7 @@ The recovery tools provide structured methods for restoring services, validating
 
 ## Key Components
 
-- **`security_hardening.sh`**: Post-incident security enhancement
+- **`security_hardening.py`**: Post-incident security enhancement
   - Configuration hardening based on incident findings
   - Defense-in-depth enhancements
   - Implementation of additional security controls
@@ -34,6 +34,8 @@ The recovery tools provide structured methods for restoring services, validating
   - Progressive user access restoration
   - Restoration validation with health checks
   - Rollback capability for failed restorations
+  - Database restoration and integrity verification
+  - Template-driven service configuration
 
 - **`verification_checklist.md`**: System integrity validation framework
   - Application functionality checks
@@ -49,22 +51,34 @@ The recovery tools provide structured methods for restoring services, validating
 ```plaintext
 admin/security/incident_response_kit/recovery/
 ├── README.md                    # This documentation
-├── security_hardening.sh        # Post-incident security hardening
+├── __init__.py                  # Module initialization and exports
+├── security_hardening.py        # Post-incident security hardening
+├── security_hardening.sh        # Security hardening script wrapper
 ├── service_restoration.py       # Service restoration automation
 ├── verification_checklist.md    # System integrity validation
 └── resources/                   # Support resources for recovery
     ├── hardening_profiles/      # Security hardening profiles
+    │   ├── README.md            # Hardening profiles documentation
     │   ├── application.json     # Application hardening profile
     │   ├── database.json        # Database hardening profile
     │   └── web_server.json      # Web server hardening profile
     ├── restoration_templates/   # Templates for different service types
+    │   ├── README.md            # Restoration templates documentation
+    │   ├── api_service.json     # API service restoration
     │   ├── auth_system.json     # Authentication system restoration
     │   ├── database.json        # Database restoration template
+    │   ├── messaging.json       # Messaging system restoration
+    │   ├── monitoring.json      # Monitoring system restoration
     │   └── web_application.json # Web application restoration
     └── verification_scripts/    # Automated verification scripts
+        ├── README.md            # Verification scripts documentation
         ├── app_functionality.py # Application functionality tests
         ├── data_integrity.py    # Data integrity checks
-        └── network_verify.sh    # Network connectivity verification
+        ├── generate_checklist.py # Checklist generation utility
+        ├── logging_verify.py     # Logging system verification
+        ├── network_verify.sh     # Network security tests
+        ├── run_verification.sh   # Verification coordinator
+        └── security_controls.py  # Security control validation
 ```
 
 ## Usage Examples
@@ -76,12 +90,12 @@ Apply additional security measures to prevent similar incidents in the future.
 ```bash
 # Apply security hardening based on incident findings
 ./security_hardening.sh --incident-id IR-2023-042 \
-    --system web-app-01 --profile resources/hardening_profiles/web_server.json \
+    --target web-app-01 --profile resources/hardening_profiles/web_server.json \
     --log-file /secure/evidence/IR-2023-042/hardening_web.log
 
 # Apply targeted hardening to specific components
 ./security_hardening.sh --components "authentication,authorization" \
-    --system api-server --apply-recommendations IR-2023-042 \
+    --target api-server --apply-recommendations IR-2023-042 \
     --backup-configs
 
 # Review and apply security recommendations from incident analysis
@@ -96,18 +110,22 @@ Service restoration must be performed in a controlled, methodical manner to ensu
 ```bash
 # Restore core services in proper sequence with validation
 ./service_restoration.py --incident-id IR-2023-042 --environment production \
-    --services "authentication,database,api,web" \
+    --service web-application \
+    --template resources/restoration_templates/web_application.json \
     --validate-each-step \
     --approval-required
 
 # Restore a specific service with custom configuration
 ./service_restoration.py --incident-id IR-2023-042 --service database \
+    --template resources/restoration_templates/database.json \
     --config-source /secure/backup/verified/db_config.json \
     --notify database-team@example.com
 
 # Perform dry run to check restoration plan
-./service_restoration.py --incident-id IR-2023-042 --environment staging \
-    --services "all" --dry-run --verbose
+./service_restoration.py --incident-id IR-2023-042 --service api-service \
+    --template resources/restoration_templates/api_service.json \
+    --environment staging \
+    --dry-run --verbose
 ```
 
 ### System Verification
@@ -157,6 +175,47 @@ The recovery tools share these common features:
 - **Metrics Tracking**: Collection of metrics on recovery time and effectiveness
 - **Notification System**: Automated notifications at key recovery stages
 - **Rollback Capabilities**: Ability to roll back changes if issues occur during recovery
+
+## API Reference
+
+### Core Functions
+
+- **`restore_service()`**: Template-driven service restoration with validation
+- **`harden_system()`**: Apply security hardening profiles to systems
+- **`perform_validation()`**: Verify system integrity and functionality
+- **`validate_dependencies()`**: Check service dependencies before restoration
+- **`apply_control()`**: Apply specific security control to target system
+- **`load_hardening_profile()`**: Load and validate security hardening profile
+- **`run_verification_script()`**: Execute system verification scripts
+- **`backup_file()`**: Create secure backup of configuration files
+- **`attempt_rollback()`**: Attempt recovery from failed restoration
+- **`generate_summary_report()`**: Generate restoration summary report
+
+### Helper Functions
+
+- **`load_template()`**: Load and validate service restoration template
+- **`create_secure_directory()`**: Create directory with secure permissions
+- **`get_template_list()`**: List available restoration templates
+- **`verify_configuration_integrity()`**: Verify configuration file integrity
+- **`cleanup_backups()`**: Remove backup files after successful restoration
+- **`restore_file_from_backup()`**: Restore file from backup copy
+- **`run_command()`**: Execute command with secure parameter interpolation
+
+### Constants
+
+- **`RECOVERY_DIR`**: Base directory for recovery module
+- **`RESOURCES_DIR`**: Directory containing recovery resources
+- **`HARDENING_PROFILES_DIR`**: Directory containing hardening profiles
+- **`RESTORATION_TEMPLATES_DIR`**: Directory containing restoration templates
+- **`VERIFICATION_SCRIPTS_DIR`**: Directory containing verification scripts
+
+### Exceptions
+
+- **`RecoveryError`**: Base exception for recovery errors
+- **`ServiceRestorationError`**: Error during service restoration
+- **`SecurityHardeningError`**: Error during security hardening
+- **`VerificationError`**: Error during system verification
+- **`ProfileNotFoundError`**: Requested hardening profile not found
 
 ## Related Documentation
 
