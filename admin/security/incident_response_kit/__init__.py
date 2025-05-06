@@ -90,19 +90,51 @@ except ImportError as e:
             raise NotImplementedError("VolatileDataCapture module not available")
 
 # Add imports for run_playbook module
-from .run_playbook import (
-    run_playbook,
-    get_available_playbooks,
-    get_playbook_details,
-    PlaybookRunner,
-    PlaybookParser,
-    PlaybookExecutionContext,
-    Playbook,
-    PlaybookSection,
-    PlaybookSubsection,
-    PlaybookFormat,
-    PlaybookExecutionError
-)
+try:
+    from .run_playbook import (
+        run_playbook,
+        get_available_playbooks,
+        get_playbook_details,
+        PlaybookRunner,
+        PlaybookParser,
+        PlaybookExecutionContext,
+        Playbook,
+        PlaybookSection,
+        PlaybookSubsection,
+        PlaybookFormat,
+        PlaybookExecutionError
+    )
+except ImportError as e:
+    logger.warning(f"Failed to import run_playbook module: {e}")
+    # Define fallbacks if imports aren't available
+    def run_playbook(*args, **kwargs):
+        raise NotImplementedError("Playbook module not available")
+    def get_available_playbooks(*args, **kwargs):
+        raise NotImplementedError("Playbook module not available")
+    def get_playbook_details(*args, **kwargs):
+        raise NotImplementedError("Playbook module not available")
+    class PlaybookRunner:
+        def __init__(self, *args, **kwargs):
+            raise NotImplementedError("PlaybookRunner not available")
+    class PlaybookParser:
+        def __init__(self, *args, **kwargs):
+            raise NotImplementedError("PlaybookParser not available")
+    class PlaybookExecutionContext:
+        def __init__(self, *args, **kwargs):
+            raise NotImplementedError("PlaybookExecutionContext not available")
+    class Playbook:
+        def __init__(self, *args, **kwargs):
+            raise NotImplementedError("Playbook class not available")
+    class PlaybookSection:
+        def __init__(self, *args, **kwargs):
+            raise NotImplementedError("PlaybookSection not available")
+    class PlaybookSubsection:
+        def __init__(self, *args, **kwargs):
+            raise NotImplementedError("PlaybookSubsection not available")
+    class PlaybookFormat:
+        MARKDOWN = "markdown"
+    class PlaybookExecutionError(Exception):
+        pass
 
 # Load configurations
 try:
@@ -154,8 +186,10 @@ except (FileNotFoundError, json.JSONDecodeError) as e:
     EVIDENCE_COMPRESSION = True
     EVIDENCE_RETENTION_DAYS = 180
     CONFIG_LOADED = False
+    response_config = {}
+    tool_paths = {}
 
-# Exception classes
+# Define exceptions
 class IncidentResponseError(Exception):
     """Base exception for all incident response errors."""
     pass
@@ -184,10 +218,6 @@ class IncidentStatusError(IncidentResponseError):
     """Error updating incident status."""
     pass
 
-class PlaybookExecutionError(IncidentResponseError):
-    """Error running playbook steps."""
-    pass
-
 class RecoveryError(IncidentResponseError):
     """Error during recovery operations."""
     pass
@@ -196,133 +226,66 @@ class ValidationError(IncidentResponseError):
     """Error validating incident data."""
     pass
 
-# Function placeholders to be populated by import_core_functions
-initialize_incident = None
-collect_evidence = None
-isolate_system = None
-notify_stakeholders = None
-update_status = None
-track_incident_status = None
-verify_file_integrity = None
-build_timeline = None
-get_incident_status = None
-list_incidents = None
-generate_report = None
-capture_volatile_data = None
-analyze_logs = None
-harden_system = None
-restore_service = None
-
-# Define the reopen_incident function at module level instead of inside import_core_functions
-def reopen_incident(incident_id: str, reason: str, user_id: Optional[str] = None,
-                   phase: str = IncidentPhase.IDENTIFICATION) -> Dict[str, Any]:
+# Common utility functions
+def sanitize_incident_id(incident_id: str) -> str:
     """
-    Reopen a previously closed or resolved incident.
-
-    This function changes the status of a closed or resolved incident back to 'investigating'
-    and resets the phase to identification (or specified phase), allowing the incident to be
-    worked on again when new evidence or related activity is discovered.
+    Sanitize incident ID to ensure it's safe for use in filenames and paths.
 
     Args:
-        incident_id: The ID of the incident to reopen
-        reason: Reason for reopening the incident
-        user_id: User who is reopening the incident
-        phase: The phase to set the incident to (defaults to IDENTIFICATION)
+        incident_id: The incident ID to sanitize
 
     Returns:
-        Dict containing operation results and updated incident information
+        A sanitized incident ID safe for use in filenames and paths
+    """
+    return re.sub(r'[^a-zA-Z0-9_\-]', '_', incident_id)
+
+def create_evidence_directory(incident_id: str) -> Path:
+    """
+    Create a directory for storing incident evidence.
+
+    Args:
+        incident_id: The incident ID to create a directory for
+
+    Returns:
+        Path object for the evidence directory
 
     Raises:
-        IncidentStatusError: If the incident doesn't exist or cannot be reopened
-        ValidationError: If validation fails (e.g., no reason provided)
+        EvidenceCollectionError: If directory creation fails
     """
-    if not reason:
-        raise ValidationError("Reason for reopening is required")
+    try:
+        # Sanitize the incident ID
+        safe_id = sanitize_incident_id(incident_id)
 
-    # Sanitize the incident ID
-    incident_id = sanitize_incident_id(incident_id)
+        # Create the directory path
+        evidence_dir = Path(DEFAULT_EVIDENCE_DIR) / safe_id
 
-    # Result dictionary to track progress
-    result = {
-        "incident_id": incident_id,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "success": False,
-        "status_updated": False,
-        "notifications_sent": False,
-        "errors": []
+        # Create the directory if it doesn't exist
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+
+        return evidence_dir
+    except Exception as e:
+        raise EvidenceCollectionError(f"Failed to create evidence directory: {str(e)}")
+
+def get_available_components() -> Dict[str, bool]:
+    """
+    Check which toolkit components are available.
+
+    Returns:
+        Dictionary with component availability status
+    """
+    return {
+        'coordination': COORDINATION_AVAILABLE,
+        'documentation': DOCUMENTATION_AVAILABLE,
+        'forensic_tools': FORENSIC_TOOLS_AVAILABLE,
+        'playbooks': PLAYBOOKS_AVAILABLE,
+        'recovery': RECOVERY_AVAILABLE,
+        'references': REFERENCES_AVAILABLE,
+        'config': CONFIG_AVAILABLE,
+        'volatile_data_capture': VOLATILE_DATA_CAPTURE_AVAILABLE,
+        'log_analyzer': LOG_ANALYZER_AVAILABLE
     }
 
-    try:
-        # Get current incident status using coordination module
-        incident_data = get_incident_status(incident_id)
-
-        if not incident_data:
-            raise IncidentStatusError(f"Incident {incident_id} not found")
-
-        current_status = incident_data.get("status")
-
-        # Check if incident can be reopened (must be resolved or closed)
-        if current_status not in [IncidentStatus.RESOLVED, IncidentStatus.CLOSED]:
-            raise IncidentStatusError(
-                f"Cannot reopen incident with status '{current_status}'. "
-                f"Only incidents with status '{IncidentStatus.RESOLVED}' or '{IncidentStatus.CLOSED}' can be reopened."
-            )
-
-        # Use status_tracker's update_incident_status to change status
-        status_updated = update_status(
-            incident_id=incident_id,
-            status=IncidentStatus.INVESTIGATING,
-            phase=phase,
-            notes=f"Incident reopened: {reason}",
-            user=user_id
-        )
-
-        result["status_updated"] = status_updated
-
-        if not status_updated:
-            result["errors"].append("Failed to update incident status")
-            return result
-
-        # Send notifications if enabled
-        if NOTIFICATION_ENABLED:
-            try:
-                # Notify based on incident severity
-                severity = incident_data.get("severity", IncidentSeverity.MEDIUM)
-                notification_sent = notify_stakeholders(
-                    subject=f"Security Incident Reopened: {incident_id}",
-                    message=(
-                        f"A security incident has been reopened.\n\n"
-                        f"ID: {incident_id}\n"
-                        f"Reason: {reason}\n"
-                        f"Reopened by: {user_id or 'System'}\n"
-                        f"New status: {IncidentStatus.INVESTIGATING}\n"
-                        f"New phase: {phase}"
-                    ),
-                    severity=severity
-                )
-
-                result["notifications_sent"] = notification_sent
-                if notification_sent:
-                    logger.info(f"Sent notifications for reopened incident: {incident_id}")
-            except Exception as e:
-                logger.error(f"Error sending notifications for reopened incident: {e}", exc_info=True)
-                result["errors"].append(f"Notification error: {str(e)}")
-
-        # Set success flag if we got this far
-        result["success"] = True
-        logger.info(f"Successfully reopened incident: {incident_id}")
-
-        return result
-
-    except (ValidationError, IncidentStatusError) as e:
-        # Re-raise these specific exceptions
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error reopening incident: {e}", exc_info=True)
-        result["errors"].append(str(e))
-        return result
-
-# Dynamically import and expose main functionality
+# Function to import and expose core functions
 def import_core_functions():
     global initialize_incident, collect_evidence, isolate_system, notify_stakeholders
     global update_status, run_playbook, restore_service, harden_system
@@ -333,11 +296,13 @@ def import_core_functions():
 
     try:
         # Import primary functions from module scripts
-        from .initialize import initialize_incident
+        from .initialize import initialize_incident, reopen_incident
         logger.debug("Loaded initialize_incident function")
     except ImportError as e:
         logger.warning(f"Failed to import initialize module: {e}")
         def initialize_incident(*args, **kwargs):
+            raise NotImplementedError("Initialize module not available")
+        def reopen_incident(*args, **kwargs):
             raise NotImplementedError("Initialize module not available")
 
     try:
@@ -357,21 +322,25 @@ def import_core_functions():
             raise NotImplementedError("Network isolation module not available")
 
     # Import volatile data capture function if available
-    try:
-        from .volatile_data_capture import VolatileDataCapture
+    if VOLATILE_DATA_CAPTURE_AVAILABLE:
+        try:
+            from .volatile_data_capture import VolatileDataCapture
 
-        def capture_volatile_data(incident_id=None, output_dir=None, analyst=None,
-                                target=None, categories=None, minimal=False, **kwargs):
-            capture = VolatileDataCapture(
-                incident_id=incident_id,
-                output_dir=output_dir,
-                analyst=analyst,
-                **kwargs
-            )
-            return capture.collect_data(target=target, categories=categories, minimal=minimal)
-        logger.debug("Loaded capture_volatile_data function")
-    except ImportError as e:
-        logger.warning(f"Failed to import volatile_data_capture module: {e}")
+            def capture_volatile_data(incident_id=None, output_dir=None, analyst=None,
+                                    target=None, categories=None, minimal=False, **kwargs):
+                capture = VolatileDataCapture(
+                    incident_id=incident_id,
+                    output_dir=output_dir,
+                    analyst=analyst,
+                    **kwargs
+                )
+                return capture.collect_data(target=target, categories=categories, minimal=minimal)
+            logger.debug("Loaded capture_volatile_data function")
+        except ImportError as e:
+            logger.warning(f"Failed to import volatile_data_capture module: {e}")
+            def capture_volatile_data(*args, **kwargs):
+                raise NotImplementedError("Volatile data capture module not available")
+    else:
         def capture_volatile_data(*args, **kwargs):
             raise NotImplementedError("Volatile data capture module not available")
 
@@ -395,9 +364,10 @@ def import_core_functions():
                 raise NotImplementedError("Notification system not available")
 
         try:
-            from .coordination.status_tracker import update_status, get_incident_status, list_incidents
+            from .coordination.status_tracker import update_incident_status as update_status
+            from .coordination.status_tracker import get_incident_status, list_incidents
             logger.debug("Loaded status_tracker functions")
-            # Note: reopen_incident is now defined at module level
+            # Note: reopen_incident is now defined in the initialize module
         except ImportError as e:
             logger.warning(f"Failed to import status_tracker module: {e}")
             def update_status(*args, **kwargs):
@@ -482,125 +452,8 @@ def import_core_functions():
         def harden_system(*args, **kwargs):
             raise NotImplementedError("Recovery modules not available")
 
-# Import functions
+# Import all necessary functions
 import_core_functions()
-
-# Check which components of the toolkit are available
-def get_available_components() -> Dict[str, bool]:
-    """Return a dictionary indicating which components of the toolkit are available."""
-    return {
-        "coordination": COORDINATION_AVAILABLE,
-        "documentation": DOCUMENTATION_AVAILABLE,
-        "forensic_tools": FORENSIC_TOOLS_AVAILABLE,
-        "playbooks": PLAYBOOKS_AVAILABLE,
-        "recovery": RECOVERY_AVAILABLE,
-        "references": REFERENCES_AVAILABLE,
-        "config": CONFIG_LOADED,
-        "volatile_data_capture": VOLATILE_DATA_CAPTURE_AVAILABLE,
-        "log_analyzer": LOG_ANALYZER_AVAILABLE
-    }
-
-# Create evidence directory safely if it doesn't exist
-def create_evidence_directory(incident_id: str) -> Path:
-    """Create a directory for evidence collection based on incident ID."""
-    # Sanitize incident ID for safe file operations
-    safe_id = sanitize_incident_id(incident_id)
-
-    # Create the base directory
-    base_dir = Path(DEFAULT_EVIDENCE_DIR)
-    try:
-        base_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as e:
-        logger.error(f"Failed to create base evidence directory: {e}")
-        raise EvidenceCollectionError(f"Cannot create evidence directory: {e}")
-
-    # Create incident-specific directory
-    evidence_dir = base_dir / safe_id
-    try:
-        evidence_dir.mkdir(exist_ok=True)
-        logger.debug(f"Created evidence directory: {evidence_dir}")
-        return evidence_dir
-    except OSError as e:
-        logger.error(f"Failed to create incident evidence directory: {e}")
-        raise EvidenceCollectionError(f"Cannot create evidence directory for incident {incident_id}: {e}")
-
-# Sanitize incident ID to ensure it's safe for file operations
-def sanitize_incident_id(incident_id: str) -> str:
-    """Sanitize incident ID to ensure it's safe for file operations."""
-    # Replace any potentially unsafe characters with underscores
-    return re.sub(r'[^a-zA-Z0-9_\-]', '_', incident_id)
-
-# Check file integrity
-def check_file_integrity(
-    file_path: Union[str, Path],
-    expected_hash: Optional[str] = None,
-    hash_algorithm: str = 'sha256',
-    verify_permissions: bool = True
-) -> Dict[str, Any]:
-    """
-    Check integrity of a file using hash verification and permission checks.
-
-    Args:
-        file_path: Path to file to check
-        expected_hash: Expected hash value (if None, only calculate current hash)
-        hash_algorithm: Algorithm to use for hashing
-        verify_permissions: Whether to verify file permissions are secure
-
-    Returns:
-        Dictionary with integrity check results
-    """
-    file_path = Path(file_path)
-    result = {
-        "file_exists": False,
-        "hash_verified": False if expected_hash else None,
-        "current_hash": None,
-        "permissions_secure": None,
-        "errors": []
-    }
-
-    try:
-        if file_path.exists():
-            result["file_exists"] = True
-
-            # Calculate hash
-            try:
-                from hashlib import new as new_hash
-                hash_obj = new_hash(hash_algorithm)
-                with open(file_path, 'rb') as f:
-                    for chunk in iter(lambda: f.read(4096), b''):
-                        hash_obj.update(chunk)
-                current_hash = hash_obj.hexdigest()
-                result["current_hash"] = current_hash
-
-                # Verify if expected hash provided
-                if expected_hash:
-                    result["hash_verified"] = current_hash == expected_hash
-            except Exception as e:
-                result["errors"].append(f"Hash calculation failed: {str(e)}")
-
-            # Check permissions if requested
-            if verify_permissions:
-                try:
-                    import stat
-                    permissions = file_path.stat().st_mode
-                    # Check if file is world-writable or group-writable
-                    if permissions & stat.S_IWOTH or permissions & stat.S_IWGRP:
-                        result["permissions_secure"] = False
-                    else:
-                        result["permissions_secure"] = True
-                except Exception as e:
-                    result["errors"].append(f"Permission check failed: {str(e)}")
-        else:
-            result["errors"].append("File does not exist")
-    except Exception as e:
-        result["errors"].append(f"Integrity check failed: {str(e)}")
-
-    return result
-
-# Log initialization status
-logger.info(f"Incident Response Toolkit initialized, version {__version__}")
-available = get_available_components()
-logger.debug(f"Available components: {', '.join([k for k, v in available.items() if v])}")
 
 # Public exports
 __all__ = [

@@ -49,10 +49,13 @@ The forensic tools provide capabilities for collecting, preserving, and analyzin
 
 - **`timeline_builder.py`**: Incident timeline construction
   - Event correlation across multiple log sources
-  - Timeline visualization and export options
+  - Timeline visualization and export options (JSON, CSV, HTML, Markdown)
   - Automated timestamp normalization
   - Anomaly detection in event sequences
-  - Evidence linkage functionality
+  - Pattern recognition in event data
+  - Phase identification in incident timelines
+  - Timeline merging and correlation capabilities
+  - Template-based timeline creation
 
 ## Usage Examples
 
@@ -110,15 +113,24 @@ python file_integrity.py --directory /secure/evidence/incident-42/files --extrac
 
 ### Timeline Building
 
-```python
-# Build timeline from multiple log sources
-python timeline_builder.py --auth-logs /var/log/auth.log --web-logs /var/log/nginx/ --incident-id 42 --output /secure/evidence/incident-42/timeline.json
+```bash
+# Create a new timeline from source files
+python timeline_builder.py create --incident-id INC-2023-001 --sources /var/log/auth.log /var/log/apache2/access.log --output /secure/evidence/INC-2023-001/timeline.json
 
-# Create a timeline with automatic correlation
-python timeline_builder.py --directory /secure/evidence/incident-42/logs/ --auto-correlate --timezone UTC --output /secure/evidence/incident-42/correlated-timeline.json
+# Extract timeline from log files
+python timeline_builder.py extract --logs /var/log/syslog /var/log/auth.log --incident-id INC-2023-001 --output /secure/evidence/INC-2023-001/logs-timeline.json
 
-# Timeline visualization with critical events highlighted
-python timeline_builder.py --input /secure/evidence/incident-42/timeline.json --highlight "login,data access,configuration change" --visualize --output /secure/evidence/incident-42/timeline-visualization.html
+# Merge multiple timelines
+python timeline_builder.py merge --timelines /secure/evidence/INC-2023-001/timeline1.json /secure/evidence/INC-2023-001/timeline2.json --output /secure/evidence/INC-2023-001/merged-timeline.json
+
+# Correlate events across timelines
+python timeline_builder.py correlate --timelines /secure/evidence/INC-2023-001/network.json /secure/evidence/INC-2023-001/auth.json --window 300 --output /secure/evidence/INC-2023-001/correlated-events.json
+
+# Analyze timeline for anomalies and patterns
+python timeline_builder.py analyze --timeline /secure/evidence/INC-2023-001/timeline.json --output /secure/evidence/INC-2023-001/analysis-results.json
+
+# Create a timeline from a template
+python timeline_builder.py template --incident-id INC-2023-001 --vars LEAD_RESPONDER="John Smith" --output /secure/evidence/INC-2023-001/incident-timeline.md
 ```
 
 ## Directory Structure
@@ -170,6 +182,28 @@ TCPDUMP_PATH=$(jq -r '.system_tools.tcpdump // "/usr/sbin/tcpdump"' "$TOOL_PATHS
 DD_PATH=$(jq -r '.system_tools.dd // "/bin/dd"' "$TOOL_PATHS_CONFIG")
 ```
 
+## Timeline Builder API
+
+The timeline_builder.py module exposes the following key classes and functions:
+
+### Classes
+
+- **`Timeline`**: Class representing a chronological timeline of incident events
+- **`Event`**: Class representing a single timeline event with standardized attributes
+- **`TimelineSource`**: Class representing a source of timeline events
+- **`CorrelationCluster`**: Class representing a cluster of correlated events
+- **`TimelineBuilderError`**: Exception raised for errors in the timeline builder module
+
+### Functions
+
+- **`build_timeline`**: Build a timeline from various sources of events
+- **`extract_timeline_from_logs`**: Extract a timeline from log files
+- **`merge_timelines`**: Merge multiple timelines into a single timeline
+- **`correlate_timelines`**: Correlate events across multiple timelines
+- **`analyze_timeline`**: Analyze a timeline to identify patterns, anomalies, and key events
+- **`identify_timeline_anomalies`**: Identify anomalies in a timeline
+- **`create_template_timeline`**: Create a timeline document from a template
+
 ## Best Practices & Security
 
 - **Evidence Integrity**: All tools use hashing to verify evidence integrity
@@ -196,7 +230,7 @@ All forensic tools share these common features:
 - **Evidence Tagging**: Consistent tagging and labeling of evidence artifacts
 - **System Preservation**: Minimization of impact on target systems
 - **Cross-Platform Support**: Tools work across Linux, Windows, and macOS
-- **Output Formatting**: Standardized output formats (JSON, CSV, XML)
+- **Output Formatting**: Standardized output formats (JSON, CSV, HTML, Markdown)
 
 ## Related Documentation
 

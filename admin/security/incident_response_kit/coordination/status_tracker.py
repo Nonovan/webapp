@@ -67,6 +67,13 @@ except ImportError as e:
 
 # --- Configuration ---
 DEFAULT_STORAGE_DIR = "/secure/incidents"  # Default, should be overridden by config
+
+# Check if notification functionality is available
+try:
+    from services.notification import notify_stakeholders
+    NOTIFICATION_AVAILABLE = True
+except ImportError:
+    NOTIFICATION_AVAILABLE = False
 DEFAULT_TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 MAX_HISTORY_ITEMS = 100  # Maximum number of history items to keep
 MAX_NOTES_ITEMS = 200    # Maximum number of notes to keep
@@ -104,6 +111,16 @@ else:
 # In-memory cache for incident data to reduce disk I/O
 INCIDENT_CACHE = {}
 INCIDENT_CACHE_TIMESTAMPS = {}
+
+# --- Custom Exceptions ---
+
+class IncidentStatusError(Exception):
+    """Custom exception for errors related to incident status."""
+    pass
+
+class ValidationError(Exception):
+    """Custom exception for validation errors."""
+    pass
 
 # --- Helper Functions ---
 
@@ -1047,6 +1064,128 @@ def add_related_incident(incident_id: str, related_id: str, relationship_type: s
 
     # Save the updated data
     return save_incident_data(incident_id, data)
+
+def reopen_incident(
+    incident_id: str,
+    reason: str,
+    user_id: Optional[str] = None,
+    phase: str = IncidentPhase.IDENTIFICATION
+) -> Dict[str, Any]:
+    """
+    Reopen a previously resolved or closed security incident.
+
+    This function transitions an incident from RESOLVED or CLOSED status back to
+    INVESTIGATING status, allowing for further investigation when new information
+    or related activity is discovered.
+
+    Args:
+        incident_id: Unique identifier for the incident
+        reason: Reason for reopening the incident (required)
+        user_id: User initiating the reopening (defaults to system user if None)
+        phase: Incident phase to set (defaults to IDENTIFICATION)
+
+    Returns:
+        Dict containing operation results and status
+
+    Raises:
+        ValidationError: If reason is not provided
+        IncidentStatusError: If incident doesn't exist or can't be reopened
+    """
+    # Input validation
+    if not incident_id:
+        raise ValidationError("Incident ID is required")
+    if not reason:
+        raise ValidationError("Reason for reopening is required")
+
+    # Sanitize the incident ID
+    incident_id = sanitize_incident_id(incident_id)
+
+    # Get current user if not specified
+    user = user_id or get_user_identity()
+
+    # Result dictionary to track progress
+    result = {
+        "incident_id": incident_id,
+        "timestamp": get_current_timestamp(),
+        "success": False,
+        "status_updated": False,
+        "notifications_sent": False,
+        "errors": []
+    }
+
+    try:
+        # Get current incident status
+        incident_data = get_incident_status(incident_id)
+        if not incident_data:
+            raise IncidentStatusError(f"Incident {incident_id} not found")
+
+        current_status = incident_data.get("status")
+
+        # Check if incident can be reopened (must be resolved or closed)
+        if current_status not in [IncidentStatus.RESOLVED, IncidentStatus.CLOSED]:
+            raise IncidentStatusError(
+                f"Cannot reopen incident with status '{current_status}'. "
+                f"Only incidents with status '{IncidentStatus.RESOLVED}' or "
+                f"'{IncidentStatus.CLOSED}' can be reopened."
+            )
+
+        # Update status to investigating and record reason
+        status_updated = update_incident_status(
+            incident_id=incident_id,
+            status=IncidentStatus.INVESTIGATING,
+            phase=phase,
+            notes=f"Incident reopened: {reason}",
+            user=user
+        )
+
+        result["status_updated"] = status_updated
+
+        if not status_updated:
+            result["errors"].append("Failed to update incident status")
+            return result
+
+        # Send notifications if enabled
+        if NOTIFICATION_AVAILABLE and notify_stakeholders:
+            try:
+                severity = incident_data.get("severity", IncidentSeverity.MEDIUM)
+                notification_sent = notify_stakeholders(
+                    subject=f"Security Incident Reopened: {incident_id}",
+                    message=(
+                        f"A security incident has been reopened.\n\n"
+                        f"ID: {incident_id}\n"
+                        f"Reason: {reason}\n"
+                        f"Reopened by: {user}\n"
+                        f"New status: {IncidentStatus.INVESTIGATING}\n"
+                        f"New phase: {phase}"
+                    ),
+                    severity=severity
+                )
+
+                result["notifications_sent"] = notification_sent
+                if notification_sent:
+                    logger.info(f"Sent notifications for reopened incident: {incident_id}")
+            except Exception as e:
+                logger.error(f"Error sending notifications for reopened incident: {e}", exc_info=True)
+                result["errors"].append(f"Notification error: {str(e)}")
+
+        # Record successful reopening
+        logger.info(
+            f"Incident {incident_id} reopened by {user} in phase {phase}. "
+            f"Reason: {reason}"
+        )
+
+        # Set success flag
+        result["success"] = True
+
+        return result
+
+    except (ValueError, IncidentStatusError) as e:
+        # Re-raise these specific exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error reopening incident: {e}", exc_info=True)
+        result["errors"].append(str(e))
+        return result
 
 # --- Main Execution ---
 
