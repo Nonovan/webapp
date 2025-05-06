@@ -9,6 +9,7 @@ This directory contains structured response procedures for different types of se
 - Directory Structure
 - Playbook Structure
 - Usage Guidelines
+- Available Functions and Classes
 - Best Practices & Security
 - Common Response Elements
 - Related Documentation
@@ -159,6 +160,33 @@ Each playbook follows a consistent structure to ensure clarity and completeness:
 4. Maintain communication with the incident response team throughout execution
 5. Update the incident commander on progress and any obstacles encountered
 
+### Playbook Automation
+
+The playbooks can be executed using the `run_playbook` utility from the incident response toolkit:
+
+```python
+from admin.security.incident_response_kit import run_playbook
+
+# Run a specific playbook for an incident
+run_playbook(
+    playbook_name="web_application_attack",
+    incident_id="IR-2023-047",
+    affected_systems=["web-app-01", "api-gateway"],
+    team_lead="security-analyst@example.com"
+)
+
+# To get information about available playbooks
+from admin.security.incident_response_kit import get_available_playbooks, get_playbook_details
+
+# List all available playbooks
+available_playbooks = get_available_playbooks()
+print(f"Available playbooks: {available_playbooks}")
+
+# Get details about a specific playbook
+playbook_details = get_playbook_details("web_application_attack")
+print(f"Sections in web application attack playbook: {playbook_details['sections']}")
+```
+
 ### Playbook Customization
 
 When necessary, customize the standard playbook to address specific incident circumstances:
@@ -173,6 +201,65 @@ cp data_breach.md incident-42-data-breach-response.md
     --affected-systems "db-prod-03,web-prod-01" \
     --team-lead "security-analyst@example.com"
 ```
+
+## Available Functions and Classes
+
+The incident response kit provides these key functions and classes for use with playbooks:
+
+### Core Incident Management
+
+- `initialize_incident(incident_type, severity, affected_systems, ...)` - Create a new incident and set up response environment
+- `update_status(incident_id, status, user, notes)` - Update the status of an incident
+- `reopen_incident(incident_id, reason, user)` - Reopen a previously closed incident
+- `track_incident_status(incident_id)` - Generate status report for an incident
+
+### Evidence Collection and Analysis
+
+- `collect_evidence(target, evidence_type, output_dir, ...)` - Collect digital evidence from target systems
+- `analyze_logs(log_paths, pattern_type, start_time, end_time, ...)` - Analyze logs for incident indicators
+- `verify_file_integrity(system, baseline, report_path)` - Verify system file integrity against baseline
+- `build_timeline(incident_id, evidence_paths, output_file)` - Construct an incident timeline
+- `capture_volatile_data(target, data_types, output_dir)` - Capture volatile data from live systems
+- `check_file_integrity(file_path, expected_hash)` - Verify integrity of a specific file
+
+### Containment and Recovery
+
+- `isolate_system(target, isolation_method, allow_ip, duration)` - Network isolation for compromised systems
+- `enhance_monitoring(target, user, monitor_level, duration)` - Enhanced monitoring for suspicious activity
+- `notify_stakeholders(incident_id, message, recipients, channels)` - Send notifications to stakeholders
+- `restore_service(target, service_profile, validation)` - Restore services after containment
+- `harden_system(target, hardening_profile, components)` - Apply security hardening after an incident
+
+### Documentation and Reporting
+
+- `generate_report(incident_id, report_type, output_format, ...)` - Generate comprehensive incident report
+
+### Playbook Management
+
+- `run_playbook(playbook_name, incident_id, affected_systems, ...)` - Execute a specific playbook for an incident
+- `get_available_playbooks()` - Get list of available incident response playbooks
+- `get_playbook_details(playbook_name)` - Get details about a specific playbook
+
+### Utility Functions
+
+- `create_evidence_directory(incident_id)` - Create directory structure for evidence collection
+- `sanitize_incident_id(incident_id)` - Sanitize incident ID for use in filenames
+- `get_available_components(component_type)` - List available components of a specific type
+
+### Key Classes
+
+- `Incident` - Represents a security incident with tracking and management capabilities
+- `VolatileDataCapture` - Utility for capturing volatile data from live systems
+- `PlaybookRunner` - Execution engine for playbooks
+- `PlaybookParser` - Parser for playbook files
+- `PlaybookExecutionContext` - Context for playbook execution
+
+### Key Constants
+
+- `IncidentStatus` - Status constants (OPEN, INVESTIGATING, CONTAINED, ERADICATED, etc.)
+- `IncidentPhase` - Phase constants (IDENTIFICATION, CONTAINMENT, ERADICATION, etc.)
+- `IncidentSeverity` - Severity constants (CRITICAL, HIGH, MEDIUM, LOW)
+- `IncidentType` - Type constants (MALWARE, DATA_BREACH, WEB_APPLICATION_ATTACK, etc.)
 
 ## Best Practices & Security
 
@@ -207,7 +294,8 @@ These elements are common across all playbooks:
 - Incident Response Kit Overview
 - Documentation Templates
 - Forensic Tools Documentation
-- Coordination Tools
+- Recovery Tools
+- Reference Materials
+- Chain of Custody Template
 - Security Incident Response Plan
-- Incident Response Procedures
 - [NIST SP 800-61r2: Computer Security Incident Handling Guide](https://csrc.nist.gov/publications/detail/sp/800-61/rev-2/final)
