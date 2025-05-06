@@ -34,6 +34,7 @@ The documentation templates provide structured formats for capturing critical in
   - Evidence linkage markers
   - Attribution details when available
   - Confidence levels for timeline entries
+  - Classification of security events by severity
 
 - **`chain_of_custody.md`**: Evidence management documentation
   - Evidence identification information
@@ -42,6 +43,7 @@ The documentation templates provide structured formats for capturing critical in
   - Transfer and storage records
   - Access log and verification steps
   - Evidence disposition documentation
+  - SHA-256 integrity verification
 
 - **`communication_plan.md`**: Stakeholder communication templates
   - Internal team communication templates
@@ -50,6 +52,7 @@ The documentation templates provide structured formats for capturing critical in
   - Regulatory notification templates
   - Media statement templates
   - Communication timing guidelines
+  - Severity-based notification requirements
 
 - **`executive_briefing.md`**: Management reporting template
   - Non-technical incident summary
@@ -58,6 +61,7 @@ The documentation templates provide structured formats for capturing critical in
   - Risk assessment and mitigation status
   - Decision points requiring executive input
   - Recommended actions and timeline
+  - Executive approval workflows
 
 - **`remediation_plan.md`**: Recovery planning document
   - Prioritized remediation actions
@@ -66,6 +70,8 @@ The documentation templates provide structured formats for capturing critical in
   - Testing and verification procedures
   - Rollback procedures
   - Progress tracking metrics
+  - Security hardening measures
+  - Integrity verification steps
 
 ## Directory Structure
 
@@ -131,6 +137,12 @@ The templates are designed to work with other incident response tools:
     --format executive \
     --template templates/executive_briefing.md \
     --output /secure/evidence/IR-2023-042/documentation/executive_briefing.md
+
+# Integrate file integrity violations into reporting
+../forensic_tools/file_integrity.py --verify \
+    --baseline /secure/baselines/critical_files.json \
+    --output-format markdown \
+    >> /secure/evidence/IR-2023-042/documentation/incident_report.md
 ```
 
 ## Best Practices & Security
@@ -145,6 +157,9 @@ The templates are designed to work with other incident response tools:
 - **Sanitization**: Sanitize templates before sharing with external parties
 - **Consistency**: Use consistent terminology throughout all documents
 - **Attribution**: Clearly document who performed actions or made observations
+- **Integrity Verification**: Include file integrity validation in technical documentation
+- **Time Synchronization**: Use consistent timezone (UTC) for all timestamps
+- **Evidence Linking**: Reference evidence IDs consistently across all documents
 
 ## Common Features
 
@@ -160,6 +175,9 @@ All templates include these common elements:
 - **Footer Information**: Page numbers, document ID, date
 - **Formatting Consistency**: Standardized headings and structure
 - **Legal Disclaimer**: Standard legal text where applicable
+- **Change History**: Timestamped record of document modifications
+- **Document Owner**: Clear identification of document ownership
+- **Review Frequency**: Required review cadence based on incident status
 
 ## Related Documentation
 
@@ -171,3 +189,7 @@ All templates include these common elements:
 - Evidence Collection Guide
 - [NIST SP 800-61: Computer Security Incident Handling Guide](https://csrc.nist.gov/publications/detail/sp/800-61/rev-2/final)
 - Chain of Custody Requirements
+- File Integrity Monitoring Guide
+- Log Analysis Documentation
+- AuditLog Model Reference
+- Core Security Module Documentation
