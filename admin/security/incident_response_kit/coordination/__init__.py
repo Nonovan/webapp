@@ -135,7 +135,16 @@ try:
         create_task,
         assign_task,
         update_task_status,
-        get_task_list
+        get_task_list,
+        get_task,
+        add_task_comment,
+        delete_task,
+        create_subtask,
+        generate_tasks_report,
+        TaskPriority,
+        TaskStatus,
+        TaskManagementError,
+        TaskNotFoundError
     )
     TASK_MANAGER_AVAILABLE = True
     logger.debug("Task manager loaded successfully")
@@ -155,12 +164,51 @@ except ImportError as e:
     def get_task_list(*args, **kwargs):
         raise NotImplementedError("Task management not available")
 
+    def get_task(*args, **kwargs):
+        raise NotImplementedError("Task management not available")
+
+    def add_task_comment(*args, **kwargs):
+        raise NotImplementedError("Task management not available")
+
+    def delete_task(*args, **kwargs):
+        raise NotImplementedError("Task management not available")
+
+    def create_subtask(*args, **kwargs):
+        raise NotImplementedError("Task management not available")
+
+    def generate_tasks_report(*args, **kwargs):
+        raise NotImplementedError("Task management not available")
+
+    class TaskPriority:
+        CRITICAL = "critical"
+        HIGH = "high"
+        MEDIUM = "medium"
+        LOW = "low"
+
+    class TaskStatus:
+        NEW = "new"
+        ASSIGNED = "assigned"
+        IN_PROGRESS = "in_progress"
+        BLOCKED = "blocked"
+        COMPLETED = "completed"
+        CANCELLED = "cancelled"
+
+    class TaskManagementError(Exception):
+        """Base exception for task management errors."""
+        pass
+
+    class TaskNotFoundError(TaskManagementError):
+        """Exception raised when a task is not found."""
+        pass
+
 try:
     from .war_room import (
         setup_war_room,
         add_participants,
         add_resource,
-        archive_war_room
+        archive_war_room,
+        list_war_rooms,
+        get_war_room_details
     )
     WAR_ROOM_AVAILABLE = True
     logger.debug("War room module loaded successfully")
@@ -178,6 +226,12 @@ except ImportError as e:
         raise NotImplementedError("War room management not available")
 
     def archive_war_room(*args, **kwargs):
+        raise NotImplementedError("War room management not available")
+
+    def list_war_rooms(*args, **kwargs):
+        raise NotImplementedError("War room management not available")
+
+    def get_war_room_details(*args, **kwargs):
         raise NotImplementedError("War room management not available")
 
 # Import report generator functionality
@@ -245,12 +299,23 @@ __all__ = [
     'assign_task',
     'update_task_status',
     'get_task_list',
+    'get_task',
+    'add_task_comment',
+    'delete_task',
+    'create_subtask',
+    'generate_tasks_report',
+    'TaskPriority',
+    'TaskStatus',
+    'TaskManagementError',
+    'TaskNotFoundError',
 
     # War room
     'setup_war_room',
     'add_participants',
     'add_resource',
     'archive_war_room',
+    'list_war_rooms',
+    'get_war_room_details',
 
     # Report generation
     'generate_report',

@@ -4,14 +4,15 @@ This directory contains tools for coordinating incident response activities, man
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- Configuration
-- Usage Examples
-- Best Practices & Security
-- Common Features
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Configuration](#configuration)
+- [Usage Examples](#usage-examples)
+- [API Reference](#api-reference)
+- [Best Practices & Security](#best-practices--security)
+- [Common Features](#common-features)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
@@ -32,6 +33,7 @@ The coordination tools provide centralized management capabilities for incident 
   - Dependency tracking between tasks
   - Deadline monitoring and alerting
   - Workload balancing across team members
+  - Progress tracking and reporting
 
 - **`notification_system.py`**: Automated notification system
   - Multi-channel notification delivery (email, SMS, chat)
@@ -53,12 +55,14 @@ The coordination tools provide centralized management capabilities for incident 
   - Real-time chat and communication channels
   - Integration with video conferencing systems
   - Session recording for documentation purposes
+  - Participant management and access control
 
 ## Directory Structure
 
 ```plaintext
 admin/security/incident_response_kit/coordination/
 ├── README.md                 # This documentation
+├── __init__.py               # Module initialization and exports
 ├── notification_system.py    # Automated notification system
 ├── report_generator.py       # Report generation system
 ├── status_tracker.py         # Incident response status tracking
@@ -94,6 +98,8 @@ Important configuration settings for coordination include:
 - Integration endpoints for other systems
 - Logging and audit trail settings
 - Report and documentation templates
+- War room file storage locations
+- Task management defaults and priorities
 
 ## Usage Examples
 
@@ -113,14 +119,14 @@ Important configuration settings for coordination include:
 ### Task Management
 
 ```bash
-# Create and assign a new task
-./task_manager.py --incident-id IR-2023-042 --create-task "Analyze suspicious processes" --assign-to "security-analyst" --priority high --deadline "2023-07-15T18:00:00"
+# Create a new task for an incident
+./task_manager.py --incident-id IR-2023-042 --create --title "Analyze suspicious files" --description "Perform static and dynamic analysis on identified suspicious executables" --priority high --assign-to "forensic-analyst"
 
-# List all pending tasks
-./task_manager.py --incident-id IR-2023-042 --list-tasks --status pending
+# Update task status
+./task_manager.py --incident-id IR-2023-042 --task-id IR-2023-042-T1686245 --status in_progress --notes "Analysis in progress, two malicious files identified"
 
-# Mark task as complete
-./task_manager.py --incident-id IR-2023-042 --task-id 12 --status completed --notes "Found and eliminated malicious process"
+# Generate task report
+./task_manager.py --incident-id IR-2023-042 --report --format markdown --output /secure/evidence/IR-2023-042/tasks_report.md
 ```
 
 ### Notification System
@@ -136,14 +142,11 @@ Important configuration settings for coordination include:
 ### Report Generation
 
 ```bash
-# Generate a timeline report from incident history
-./report_generator.py --incident-id IR-2023-042 --report-type timeline --output /secure/evidence/IR-2023-042/incident_timeline.md
+# Generate timeline report
+./report_generator.py --incident-id IR-2023-042 --type timeline --output /secure/evidence/IR-2023-042/timeline_report.pdf
 
-# Create an executive summary report
-./report_generator.py --incident-id IR-2023-042 --report-type executive --template executive_briefing.md --output /secure/evidence/IR-2023-042/executive_summary.md
-
-# Generate a comprehensive incident report
-./report_generator.py --incident-id IR-2023-042 --report-type full --include-timeline --output /secure/evidence/IR-2023-042/final_report.md
+# Generate comprehensive incident report
+./report_generator.py --incident-id IR-2023-042 --type full --template executive --output /secure/evidence/IR-2023-042/executive_report.pdf
 ```
 
 ### War Room Management
@@ -158,6 +161,69 @@ Important configuration settings for coordination include:
 # Archive war room contents for documentation
 ./war_room.py --incident-id IR-2023-042 --archive --output /secure/evidence/IR-2023-042/war_room_archive
 ```
+
+## API Reference
+
+### Functions
+
+#### Status Tracking Functions
+
+- **`initialize_incident_status(incident_id, status, phase, severity, ...)`**: Initialize tracking for a new incident
+- **`update_status(incident_id, status, phase, notes, ...)`**: Update the status of an incident
+- **`get_incident_status(incident_id)`**: Retrieve current status of an incident
+- **`list_incidents(status=None, phase=None, ...)`**: List all incidents matching given criteria
+- **`add_related_incident(incident_id, related_id, ...)`**: Link related incidents together
+- **`reopen_incident(incident_id, reason, user)`**: Reopen a previously closed incident
+- **`track_incident_status(incident_id, ...)`**: Alias for initialize_incident_status
+
+#### Notification System Functions
+
+- **`notify_stakeholders(recipients, subject, message, ...)`**: Send notifications to incident stakeholders
+
+#### Task Management Functions
+
+- **`create_task(incident_id, title, description, ...)`**: Create a task for an incident
+- **`assign_task(incident_id, task_id, assignees, ...)`**: Assign a task to one or more users
+- **`update_task_status(incident_id, task_id, status, ...)`**: Update the status of a task
+- **`get_task_list(incident_id, status=None, ...)`**: Get list of tasks for an incident
+- **`get_task(incident_id, task_id)`**: Get details of a specific task
+- **`add_task_comment(incident_id, task_id, comment, ...)`**: Add a comment to a task
+- **`delete_task(incident_id, task_id, ...)`**: Delete a task
+- **`create_subtask(incident_id, parent_task_id, ...)`**: Create a subtask under a parent task
+- **`generate_tasks_report(incident_id, ...)`**: Generate a report of tasks
+
+#### War Room Management Functions
+
+- **`setup_war_room(incident_id, name, participants, ...)`**: Set up a virtual war room
+- **`add_participants(incident_id, participants, ...)`**: Add participants to a war room
+- **`add_resource(incident_id, resource, ...)`**: Add a resource to a war room
+- **`archive_war_room(incident_id, war_room_id, ...)`**: Archive a war room
+- **`list_war_rooms(incident_id=None)`**: List war rooms for an incident
+- **`get_war_room_details(incident_id, war_room_id=None)`**: Get detailed information about a war room
+
+#### Report Generation Functions
+
+- **`generate_report(incident_id, report_type, ...)`**: Generate various incident reports
+- **`generate_status_report(incident_id, ...)`**: Generate a status report
+- **`generate_full_report(incident_id, ...)`**: Create comprehensive incident documentation
+- **`generate_timeline_report(incident_id, ...)`**: Create a timeline report from incident history
+
+#### Utility
+
+- **`get_available_components()`**: Check which coordination components are available
+
+### Classes
+
+#### Task Management Classes
+
+- **`TaskPriority`**: Priority levels for tasks (CRITICAL, HIGH, MEDIUM, LOW)
+- **`TaskStatus`**: Status values for tasks (NEW, ASSIGNED, IN_PROGRESS, BLOCKED, COMPLETED, CANCELLED)
+- **`TaskManagementError`**: Base exception for task management errors
+- **`TaskNotFoundError`**: Exception raised when a task is not found
+
+### Constants
+
+- **`REPORT_FORMATS`**: Supported report formats (text, markdown, json, html, pdf)
 
 ## Best Practices & Security
 
@@ -186,21 +252,6 @@ All coordination tools share these common features:
 - **Templating System**: Reusable templates for common scenarios
 - **Timeline Integration**: All tools contribute to and reference the master incident timeline
 
-## API Reference
-
-### Functions
-
-- **`initialize_incident_status`**: Set up tracking for a new incident
-- **`update_incident_status`**: Update the status of an incident
-- **`get_incident_status`**: Retrieve current status of an incident
-- **`list_incidents`**: List all incidents matching given criteria
-- **`generate_report`**: Generate various incident reports
-- **`generate_timeline_report`**: Create a timeline report from incident history
-- **`generate_full_report`**: Create comprehensive incident documentation
-- **`notify_stakeholders`**: Send notifications to incident stakeholders
-- **`track_incident_status`**: Alias for initialize_incident_status
-- **`reopen_incident`**: Reactivate a previously closed incident
-
 ## Related Documentation
 
 - Incident Response Kit Overview
@@ -209,4 +260,5 @@ All coordination tools share these common features:
 - Documentation Templates
 - Incident Response Procedures
 - Security Incident Response Plan
-- Forensic Timeline Builder
+- Task Management System Reference
+- War Room Collaboration Guide
