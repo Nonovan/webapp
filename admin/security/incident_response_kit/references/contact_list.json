@@ -1,0 +1,644 @@
+{
+    "incident_response_team": [
+        {
+            "role": "Incident Response Coordinator",
+            "primary": {
+                "name": "Jane Smith",
+                "email": "security-lead@example.com",
+                "phone": "555-123-4567",
+                "pager": "555-123-4567-911",
+                "slack": "@jane.smith",
+                "teams": "@jane.smith",
+                "pgp_key": "0xA1B2C3D4E5F6G7H8",
+                "availability": "24/7"
+            },
+            "secondary": {
+                "name": "John Doe",
+                "email": "security-backup@example.com",
+                "phone": "555-123-4568",
+                "pager": "555-123-4568-911",
+                "slack": "@john.doe",
+                "teams": "@john.doe",
+                "pgp_key": "0xB2C3D4E5F6G7H8I9",
+                "availability": "24/7"
+            },
+            "notification_priority": "highest",
+            "notification_methods": [
+                "email",
+                "phone",
+                "pager",
+                "slack",
+                "teams"
+            ],
+            "escalation_after_minutes": 15
+        },
+        {
+            "role": "Security Analyst",
+            "primary": {
+                "name": "Alex Johnson",
+                "email": "security-analyst@example.com",
+                "phone": "555-123-4569",
+                "slack": "@alex.johnson",
+                "teams": "@alex.johnson",
+                "pgp_key": "0xC3D4E5F6G7H8I9J0",
+                "availability": "Business hours, on-call rotation"
+            },
+            "secondary": {
+                "name": "Sarah Williams",
+                "email": "analyst-backup@example.com",
+                "phone": "555-123-4570",
+                "slack": "@sarah.williams",
+                "teams": "@sarah.williams",
+                "pgp_key": "0xD4E5F6G7H8I9J0K1",
+                "availability": "Business hours, on-call rotation"
+            },
+            "notification_priority": "high",
+            "notification_methods": [
+                "email",
+                "phone",
+                "slack",
+                "teams"
+            ],
+            "escalation_after_minutes": 30
+        },
+        {
+            "role": "System Administrator",
+            "primary": {
+                "name": "Michael Brown",
+                "email": "sysadmin@example.com",
+                "phone": "555-123-4571",
+                "slack": "@michael.brown",
+                "teams": "@michael.brown",
+                "pgp_key": "0xE5F6G7H8I9J0K1L2",
+                "availability": "Business hours, on-call rotation"
+            },
+            "secondary": {
+                "name": "Lisa Davis",
+                "email": "sysadmin-backup@example.com",
+                "phone": "555-123-4572",
+                "slack": "@lisa.davis",
+                "teams": "@lisa.davis",
+                "pgp_key": "0xF6G7H8I9J0K1L2M3",
+                "availability": "Business hours, on-call rotation"
+            },
+            "notification_priority": "high",
+            "notification_methods": [
+                "email",
+                "phone",
+                "slack",
+                "teams"
+            ],
+            "escalation_after_minutes": 30
+        },
+        {
+            "role": "Network Administrator",
+            "primary": {
+                "name": "Thomas Wilson",
+                "email": "netadmin@example.com",
+                "phone": "555-123-4573",
+                "slack": "@thomas.wilson",
+                "teams": "@thomas.wilson",
+                "pgp_key": "0xG7H8I9J0K1L2M3N4",
+                "availability": "Business hours, on-call rotation"
+            },
+            "secondary": {
+                "name": "Emily Rodriguez",
+                "email": "netadmin-backup@example.com",
+                "phone": "555-123-4574",
+                "slack": "@emily.rodriguez",
+                "teams": "@emily.rodriguez",
+                "pgp_key": "0xH8I9J0K1L2M3N4O5",
+                "availability": "Business hours, on-call rotation"
+            },
+            "notification_priority": "high",
+            "notification_methods": [
+                "email",
+                "phone",
+                "slack",
+                "teams"
+            ],
+            "escalation_after_minutes": 30
+        },
+        {
+            "role": "Legal Counsel",
+            "primary": {
+                "name": "Robert Miller",
+                "email": "legal@example.com",
+                "phone": "555-123-4575",
+                "slack": "@robert.miller",
+                "teams": "@robert.miller",
+                "pgp_key": "0xI9J0K1L2M3N4O5P6",
+                "availability": "Business hours, emergency after hours"
+            },
+            "secondary": {
+                "name": "Jennifer Taylor",
+                "email": "legal-backup@example.com",
+                "phone": "555-123-4576",
+                "slack": "@jennifer.taylor",
+                "teams": "@jennifer.taylor",
+                "pgp_key": "0xJ0K1L2M3N4O5P6Q7",
+                "availability": "Business hours, emergency after hours"
+            },
+            "notification_priority": "medium",
+            "notification_methods": [
+                "email",
+                "phone"
+            ],
+            "escalation_after_minutes": 60
+        },
+        {
+            "role": "Communications Lead",
+            "primary": {
+                "name": "David Anderson",
+                "email": "comms@example.com",
+                "phone": "555-123-4577",
+                "slack": "@david.anderson",
+                "teams": "@david.anderson",
+                "pgp_key": "0xK1L2M3N4O5P6Q7R8",
+                "availability": "Business hours, emergency after hours"
+            },
+            "secondary": {
+                "name": "Michelle Garcia",
+                "email": "comms-backup@example.com",
+                "phone": "555-123-4578",
+                "slack": "@michelle.garcia",
+                "teams": "@michelle.garcia",
+                "pgp_key": "0xL2M3N4O5P6Q7R8S9",
+                "availability": "Business hours, emergency after hours"
+            },
+            "notification_priority": "medium",
+            "notification_methods": [
+                "email",
+                "phone",
+                "slack"
+            ],
+            "escalation_after_minutes": 60
+        },
+        {
+            "role": "Executive Sponsor",
+            "primary": {
+                "name": "James Martinez",
+                "title": "Chief Information Officer",
+                "email": "cio@example.com",
+                "phone": "555-123-4579",
+                "assistant_name": "Carol White",
+                "assistant_email": "cio-assistant@example.com",
+                "assistant_phone": "555-123-4581",
+                "pgp_key": "0xM3N4O5P6Q7R8S9T0",
+                "availability": "Business hours, critical emergencies after hours"
+            },
+            "secondary": {
+                "name": "Patricia Lewis",
+                "title": "Chief Information Security Officer",
+                "email": "ciso@example.com",
+                "phone": "555-123-4580",
+                "assistant_name": "Brian Johnson",
+                "assistant_email": "ciso-assistant@example.com",
+                "assistant_phone": "555-123-4582",
+                "pgp_key": "0xN4O5P6Q7R8S9T0U1",
+                "availability": "Business hours, critical emergencies after hours"
+            },
+            "notification_priority": "low",
+            "notification_methods": [
+                "email",
+                "phone"
+            ],
+            "escalation_criteria": "Critical severity incidents only",
+            "escalation_after_minutes": 120
+        },
+        {
+            "role": "HR Representative",
+            "primary": {
+                "name": "Amanda Chen",
+                "email": "hr-security@example.com",
+                "phone": "555-123-4583",
+                "slack": "@amanda.chen",
+                "teams": "@amanda.chen",
+                "pgp_key": "0xO5P6Q7R8S9T0U1V2",
+                "availability": "Business hours, employee-related emergencies after hours"
+            },
+            "secondary": {
+                "name": "Kevin Porter",
+                "email": "hr-security-backup@example.com",
+                "phone": "555-123-4584",
+                "slack": "@kevin.porter",
+                "teams": "@kevin.porter",
+                "pgp_key": "0xP6Q7R8S9T0U1V2W3",
+                "availability": "Business hours, employee-related emergencies after hours"
+            },
+            "notification_priority": "medium",
+            "notification_methods": [
+                "email",
+                "phone"
+            ],
+            "escalation_criteria": "Employee-related incidents only",
+            "escalation_after_minutes": 60
+        }
+    ],
+    "external_resources": [
+        {
+            "organization": "Forensic Services Provider",
+            "contact_name": "Forensic Team Lead",
+            "title": "Director of Incident Response",
+            "phone": "555-987-6543",
+            "emergency_phone": "555-987-6543-911",
+            "email": "forensics@provider.com",
+            "website": "https://www.provider.com/forensics",
+            "address": "123 Security Blvd, Cyber City, ST 12345",
+            "services": [
+                "Digital forensics",
+                "Malware analysis",
+                "Memory forensics"
+            ],
+            "contract_id": "FS-2023-42",
+            "contract_expiration": "2024-12-31",
+            "sla_response_time": "4 hours",
+            "availability": "24/7"
+        },
+        {
+            "organization": "Incident Response Consulting",
+            "contact_name": "IR Consultant Lead",
+            "title": "Principal Security Consultant",
+            "phone": "555-987-6544",
+            "emergency_phone": "555-987-6544-911",
+            "email": "emergency@irconsulting.com",
+            "website": "https://www.irconsulting.com",
+            "address": "456 Incident Rd, Response City, ST 12345",
+            "services": [
+                "Incident response assistance",
+                "Threat hunting",
+                "Crisis management"
+            ],
+            "contract_id": "IR-2023-87",
+            "contract_expiration": "2024-12-31",
+            "sla_response_time": "2 hours",
+            "availability": "24/7"
+        },
+        {
+            "organization": "Threat Intelligence Provider",
+            "contact_name": "Threat Intel Analyst",
+            "title": "Senior Intelligence Analyst",
+            "phone": "555-987-6545",
+            "email": "intel@threatprovider.com",
+            "website": "https://www.threatprovider.com",
+            "address": "789 Intelligence Ave, Threat City, ST 12345",
+            "services": [
+                "Threat intelligence",
+                "IOC feeds",
+                "Actor attribution"
+            ],
+            "contract_id": "TI-2023-21",
+            "contract_expiration": "2024-06-30",
+            "api_endpoint": "https://api.threatprovider.com/v1",
+            "api_key_reference": "THREAT_INTELLIGENCE_API_KEY in vault",
+            "availability": "Business hours, critical alerts 24/7"
+        },
+        {
+            "organization": "Cloud Security Services",
+            "contact_name": "Cloud Security Operations",
+            "title": "Cloud Security Manager",
+            "phone": "555-987-6546",
+            "emergency_phone": "555-987-6546-911",
+            "email": "cloud-security@cloudprovider.com",
+            "website": "https://www.cloudprovider.com/security",
+            "services": [
+                "Cloud incident response",
+                "Cloud forensics",
+                "Cloud security monitoring"
+            ],
+            "contract_id": "CS-2023-54",
+            "contract_expiration": "2024-09-30",
+            "portal_url": "https://security.cloudprovider.com",
+            "support_pin": "PIN stored in secure vault",
+            "availability": "24/7"
+        }
+    ],
+    "regulatory_contacts": [
+        {
+            "authority": "Data Protection Authority",
+            "jurisdiction": "European Union",
+            "contact_name": "DPA Breach Reporting Team",
+            "phone": "555-789-0123",
+            "email": "breachreporting@dpa.eu",
+            "website": "https://www.dpa.eu/breach-reporting",
+            "reporting_timeframe": "72 hours from discovery",
+            "reporting_portal": "https://breach.dpa.eu/report",
+            "required_information": [
+                "Nature of the breach",
+                "Categories and number of data subjects",
+                "Categories and volume of records",
+                "Contact details of DPO",
+                "Likely consequences",
+                "Measures taken or proposed"
+            ],
+            "report_template_path": "../templates/regulatory_notification_dpa.md"
+        },
+        {
+            "authority": "State Attorney General",
+            "jurisdiction": "California, USA",
+            "contact_name": "Consumer Protection Division",
+            "phone": "555-789-0124",
+            "email": "databreach@state.gov",
+            "website": "https://www.state.gov/databreach",
+            "reporting_timeframe": "Most expedient time possible, without unreasonable delay",
+            "reporting_portal": "https://breach.state.gov/report",
+            "required_information": [
+                "Description of incident",
+                "Types of information compromised",
+                "Steps taken to protect affected individuals",
+                "Sample notification that will be sent to consumers"
+            ],
+            "report_template_path": "../templates/regulatory_notification_state.md"
+        },
+        {
+            "authority": "Health and Human Services",
+            "jurisdiction": "United States - HIPAA",
+            "contact_name": "Office for Civil Rights",
+            "phone": "555-789-0125",
+            "email": "hipaa-breach@hhs.gov",
+            "website": "https://www.hhs.gov/hipaa/breach-reporting",
+            "reporting_timeframe": "60 days from discovery for breaches affecting 500+ individuals",
+            "reporting_portal": "https://ocrportal.hhs.gov/breach",
+            "required_information": [
+                "Nature of breach",
+                "PHI involved",
+                "When breach occurred and was discovered",
+                "Affected individuals",
+                "Steps individuals should take",
+                "What covered entity is doing to investigate, mitigate, and protect against future breaches"
+            ],
+            "report_template_path": "../templates/regulatory_notification_hipaa.md"
+        },
+        {
+            "authority": "Financial Regulatory Authority",
+            "jurisdiction": "Financial Institutions",
+            "contact_name": "Cybersecurity Division",
+            "phone": "555-789-0126",
+            "email": "cybersecurity@fra.gov",
+            "website": "https://www.fra.gov/cybersecurity-incidents",
+            "reporting_timeframe": "36 hours after determination",
+            "reporting_portal": "https://secure.fra.gov/incident-report",
+            "required_information": [
+                "Incident date and discovery date",
+                "Incident description",
+                "Systems and data affected",
+                "Duration of the incident",
+                "Impact to operations",
+                "Remediation status"
+            ],
+            "report_template_path": "../templates/regulatory_notification_financial.md"
+        }
+    ],
+    "law_enforcement": [
+        {
+            "agency": "Federal Bureau of Investigation",
+            "unit": "Cyber Division",
+            "contact_name": "FBI Cyber Task Force",
+            "phone": "555-321-9876",
+            "emergency_phone": "555-321-9876-911",
+            "email": "cyber@fbi.gov",
+            "website": "https://www.fbi.gov/cyber",
+            "reporting_portal": "https://www.ic3.gov",
+            "field_office": "Cyber City Field Office",
+            "field_office_address": "321 Investigation Blvd, Cyber City, ST 12345",
+            "when_to_contact": "Ransomware attacks, data theft, critical infrastructure attacks",
+            "report_template_path": "../templates/law_enforcement_report.md"
+        },
+        {
+            "agency": "US Secret Service",
+            "unit": "Electronic Crimes Task Force",
+            "contact_name": "ECTF Coordinator",
+            "phone": "555-321-9877",
+            "emergency_phone": "555-321-9877-911",
+            "email": "ectf@secretservice.gov",
+            "website": "https://www.secretservice.gov/ectf",
+            "field_office": "Financial District Office",
+            "field_office_address": "456 Treasury St, Financial District, ST 12345",
+            "when_to_contact": "Financial crimes, payment card breaches, counterfeit currency operations",
+            "report_template_path": "../templates/law_enforcement_report.md"
+        },
+        {
+            "agency": "Local Police Department",
+            "unit": "Cyber Crimes Unit",
+            "contact_name": "Cyber Crimes Detective",
+            "phone": "555-321-9878",
+            "emergency_phone": "911",
+            "email": "cybercrime@localpd.gov",
+            "address": "789 Police Plaza, Local City, ST 12345",
+            "when_to_contact": "Physical security breaches, stolen devices, local crimes",
+            "report_template_path": "../templates/law_enforcement_report_local.md"
+        }
+    ],
+    "escalation_paths": [
+        {
+            "incident_type": "data_breach",
+            "severity": "critical",
+            "contacts": [
+                {
+                    "role": "Incident Response Coordinator",
+                    "timing": "immediate"
+                },
+                {
+                    "role": "Security Analyst",
+                    "timing": "immediate"
+                },
+                {
+                    "role": "Legal Counsel",
+                    "timing": "immediate"
+                },
+                {
+                    "role": "Executive Sponsor",
+                    "timing": "within 1 hour"
+                },
+                {
+                    "role": "Communications Lead",
+                    "timing": "within 1 hour"
+                },
+                {
+                    "organization": "Forensic Services Provider",
+                    "timing": "within 2 hours"
+                }
+            ],
+            "regulatory_notification": [
+                {
+                    "authority": "Data Protection Authority",
+                    "criteria": "If EU resident data involved"
+                },
+                {
+                    "authority": "State Attorney General",
+                    "criteria": "If California resident data involved"
+                },
+                {
+                    "authority": "Health and Human Services",
+                    "criteria": "If PHI involved"
+                },
+                {
+                    "authority": "Financial Regulatory Authority",
+                    "criteria": "If financial institution data involved"
+                }
+            ],
+            "law_enforcement": [
+                {
+                    "agency": "Federal Bureau of Investigation",
+                    "criteria": "All critical data breaches"
+                }
+            ]
+        },
+        {
+            "incident_type": "malware",
+            "severity": "high",
+            "contacts": [
+                {
+                    "role": "Incident Response Coordinator",
+                    "timing": "immediate"
+                },
+                {
+                    "role": "Security Analyst",
+                    "timing": "immediate"
+                },
+                {
+                    "role": "System Administrator",
+                    "timing": "immediate"
+                },
+                {
+                    "role": "Network Administrator",
+                    "timing": "within 1 hour"
+                },
+                {
+                    "role": "Executive Sponsor",
+                    "timing": "within 4 hours"
+                },
+                {
+                    "organization": "Forensic Services Provider",
+                    "timing": "as needed"
+                }
+            ],
+            "regulatory_notification": [],
+            "law_enforcement": []
+        },
+        {
+            "incident_type": "insider_threat",
+            "severity": "high",
+            "contacts": [
+                {
+                    "role": "Incident Response Coordinator",
+                    "timing": "immediate"
+                },
+                {
+                    "role": "Security Analyst",
+                    "timing": "immediate"
+                },
+                {
+                    "role": "HR Representative",
+                    "timing": "immediate"
+                },
+                {
+                    "role": "Legal Counsel",
+                    "timing": "immediate"
+                },
+                {
+                    "role": "Executive Sponsor",
+                    "timing": "within 2 hours"
+                }
+            ],
+            "regulatory_notification": [],
+            "law_enforcement": [
+                {
+                    "agency": "Federal Bureau of Investigation",
+                    "criteria": "If theft of intellectual property or classified information"
+                }
+            ]
+        },
+        {
+            "incident_type": "ddos",
+            "severity": "high",
+            "contacts": [
+                {
+                    "role": "Incident Response Coordinator",
+                    "timing": "immediate"
+                },
+                {
+                    "role": "Network Administrator",
+                    "timing": "immediate"
+                },
+                {
+                    "role": "System Administrator",
+                    "timing": "immediate"
+                },
+                {
+                    "role": "Communications Lead",
+                    "timing": "within 1 hour"
+                },
+                {
+                    "organization": "Cloud Security Services",
+                    "timing": "if cloud resources affected"
+                }
+            ],
+            "regulatory_notification": [],
+            "law_enforcement": []
+        }
+    ],
+    "on_call_schedule": {
+        "primary_schedule_url": "https://oncall.example.com/schedule/primary",
+        "secondary_schedule_url": "https://oncall.example.com/schedule/secondary",
+        "current_primary_contact": {
+            "fetch_method": "api",
+            "endpoint": "https://oncall.example.com/api/current-primary",
+            "token_reference": "ONCALL_API_TOKEN in vault",
+            "fallback": {
+                "role": "Incident Response Coordinator",
+                "contact": "primary"
+            }
+        },
+        "rotation_schedule": [
+            {
+                "week": "Week 1",
+                "primary": "Alex Johnson",
+                "secondary": "Sarah Williams"
+            },
+            {
+                "week": "Week 2",
+                "primary": "Michael Brown",
+                "secondary": "Lisa Davis"
+            },
+            {
+                "week": "Week 3",
+                "primary": "Thomas Wilson",
+                "secondary": "Emily Rodriguez"
+            },
+            {
+                "week": "Week 4",
+                "primary": "Jane Smith",
+                "secondary": "John Doe"
+            }
+        ]
+    },
+    "meta": {
+        "last_updated": "2023-11-15",
+        "next_review_date": "2024-05-15",
+        "reviewed_by": "Jane Smith",
+        "version": "2.3",
+        "changelog": [
+            {
+                "version": "2.3",
+                "date": "2023-11-15",
+                "changes": "Updated contact information for Forensic Services Provider, added cloud security services contact"
+            },
+            {
+                "version": "2.2",
+                "date": "2023-08-10",
+                "changes": "Added regulatory contacts for financial institutions, updated escalation paths"
+            },
+            {
+                "version": "2.1",
+                "date": "2023-05-22",
+                "changes": "Updated phone numbers and email addresses for incident response team"
+            },
+            {
+                "version": "2.0",
+                "date": "2023-03-01",
+                "changes": "Complete reorganization of contact list structure for better API integration"
+            }
+        ]
+    }
+}
