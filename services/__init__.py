@@ -1,39 +1,98 @@
 """
-Services package for the myproject application.
+Services package for the Cloud Infrastructure Platform.
 
-This package contains service classes that implement business logic and coordinate
-interactions between different parts of the application. Services encapsulate
-complex operations and provide clean APIs for controllers/routes to use.
-
-The services follow a functional core/imperative shell architecture where business
-logic is separated from side effects (like database operations). This approach
-enhances testability and maintainability by reducing complexity in individual components.
-
-Key services in this package:
-- AuthService: User authentication, registration, and session management
-- EmailService: Email template rendering and delivery
-- NewsletterService: Subscription management and newsletter distribution
-- SecurityService: Security operations including file integrity monitoring
-- ScanningService: Security scanning management and vulnerability assessment
-- WebhookService: Management of webhooks, subscriptions, and event delivery
+This package provides business logic services that form the core functionality
+of the application. These services abstract the underlying implementation details
+and provide a consistent API for other application components.
 """
 
-import yaml
 import logging
-import os
-from datetime import datetime, timezone
+from typing import Dict, Any, Optional, List, Union, Callable, Tuple
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple, Union, Set, Callable, TypeVar
+import os
+import json
 
-from .auth_service import AuthService
-from .email_service import EmailService, send_email, send_template_email, validate_email_address, test_email_configuration
-from .newsletter_service import NewsletterService
-from .scanning_service import ScanningService
-from .security_service import SecurityService
-from .webhook_service import WebhookService
-
-# Initialize logger for service package
 logger = logging.getLogger(__name__)
+
+# Track feature availability
+AUTH_SERVICE_AVAILABLE = False
+EMAIL_SERVICE_AVAILABLE = False
+NEWSLETTER_SERVICE_AVAILABLE = False
+SECURITY_SERVICE_AVAILABLE = False
+SCANNING_SERVICE_AVAILABLE = False
+WEBHOOK_SERVICE_AVAILABLE = False
+NOTIFICATION_SERVICE_AVAILABLE = False
+NOTIFICATION_MODULE_AVAILABLE = False
+
+# Import and expose NotificationManager from the notification package
+try:
+    from .notification import NotificationManager, notification_manager, notify_stakeholders
+    from .notification import CHANNEL_IN_APP, CHANNEL_EMAIL, CHANNEL_SMS, CHANNEL_WEBHOOK
+    NOTIFICATION_MODULE_AVAILABLE = True
+    logger.debug("Notification module available")
+except ImportError as e:
+    logger.warning(f"Notification module not available: {e}")
+
+# Try to import original NotificationService (for backward compatibility)
+try:
+    from .notification_service import (
+        NotificationService,
+        send_system_notification,
+        send_security_alert,
+        send_success_notification,
+        send_warning_notification,
+        send_user_notification,
+        CHANNEL_IN_APP,
+        CHANNEL_EMAIL,
+        CHANNEL_SMS,
+        CHANNEL_WEBHOOK
+    )
+    NOTIFICATION_SERVICE_AVAILABLE = True
+except ImportError:
+    NOTIFICATION_SERVICE_AVAILABLE = False
+    if not NOTIFICATION_MODULE_AVAILABLE:
+        logger.warning("NotificationService functionality may be limited or unavailable")
+
+# Import other services if available
+try:
+    from .auth_service import AuthService
+    AUTH_SERVICE_AVAILABLE = True
+except ImportError:
+    logger.warning("AuthService not available")
+
+try:
+    from .email_service import EmailService, send_email, send_template_email, validate_email_address, test_email_configuration
+    EMAIL_SERVICE_AVAILABLE = True
+except ImportError:
+    logger.warning("EmailService not available")
+
+try:
+    from .newsletter_service import NewsletterService
+    NEWSLETTER_SERVICE_AVAILABLE = True
+except ImportError:
+    logger.warning("NewsletterService not available")
+
+try:
+    from .security_service import SecurityService
+    SECURITY_SERVICE_AVAILABLE = True
+except ImportError:
+    logger.warning("SecurityService not available")
+
+try:
+    from .scanning_service import ScanningService
+    SCANNING_SERVICE_AVAILABLE = True
+except ImportError:
+    logger.warning("ScanningService not available")
+
+try:
+    from .webhook_service import WebhookService
+    WEBHOOK_SERVICE_AVAILABLE = True
+except ImportError:
+    logger.warning("WebhookService not available")
+
+# Version information
+__version__ = '0.1.1'
 
 # Export classes and functions to make them available when importing this package
 __all__ = [
@@ -44,12 +103,31 @@ __all__ = [
     'ScanningService',
     'SecurityService',
     'WebhookService',
+    'NotificationManager',
+    'NotificationService',
 
-    # Utility functions
+    # Email utility functions
     'send_email',
     'send_template_email',
     'validate_email_address',
     'test_email_configuration',
+
+    # Notification functions
+    'send_system_notification',
+    'send_security_alert',
+    'send_success_notification',
+    'send_warning_notification',
+    'send_user_notification',
+    'notify_stakeholders',
+
+    # Notification channels
+    'CHANNEL_IN_APP',
+    'CHANNEL_EMAIL',
+    'CHANNEL_SMS',
+    'CHANNEL_WEBHOOK',
+
+    # Notification instances
+    'notification_manager',
 
     # Security functions
     'check_integrity',
@@ -64,6 +142,10 @@ __all__ = [
     'export_baseline',
 
     # Scanning functions
+    'run_security_scan',
+    'get_scan_status',
+    'get_scan_results',
+    'get_scan_history',
     'get_scan_profiles',
     'start_security_scan',
     'cancel_security_scan',
@@ -78,651 +160,675 @@ __all__ = [
     'delete_webhook_subscription',
     'check_subscription_health',
 
-    # Feature flags
+    # Feature availability flags
     'SECURITY_SERVICE_AVAILABLE',
-    'SCANNING_SERVICE_AVAILABLE'
+    'SCANNING_SERVICE_AVAILABLE',
+    'EMAIL_SERVICE_AVAILABLE',
+    'NOTIFICATION_SERVICE_AVAILABLE',
+    'NOTIFICATION_MODULE_AVAILABLE',
+    'AUTH_SERVICE_AVAILABLE',
+    'NEWSLETTER_SERVICE_AVAILABLE',
+    'WEBHOOK_SERVICE_AVAILABLE',
+
+    # Version info
+    '__version__'
 ]
 
-# Version information - incremented to reflect security service enhancements
-__version__ = '0.1.1'  # Version bumped for new security baseline features
+# Conditionally add security functions if SecurityService is available
+if SECURITY_SERVICE_AVAILABLE:
+    # Helper functions from SecurityService
+    def check_integrity(paths: Optional[List[str]] = None) -> Tuple[bool, List[Dict[str, Any]]]:
+        """
+        Check file integrity against a stored baseline.
 
-def check_integrity(paths: Optional[List[str]] = None) -> Tuple[bool, List[Dict[str, Any]]]:
-    """
-    Check file integrity for specified paths or critical files.
+        This is a convenience function that delegates to SecurityService.
 
-    This is a convenience function that delegates to SecurityService.
+        Args:
+            paths: Optional list of specific file paths to check.
+                  If None, checks all files in the baseline.
 
-    Args:
-        paths: Optional list of file paths to check. If None, checks default critical paths.
+        Returns:
+            Tuple of (integrity_status, changes)
+        """
+        return SecurityService.check_file_integrity(paths)
 
-    Returns:
-        Tuple of (integrity_status, changes)
-        - integrity_status: True if all files match baseline, False otherwise
-        - changes: List of dictionaries with details about changed files
-    """
-    return SecurityService.check_file_integrity(paths)
+    def update_security_baseline(paths_to_update: Optional[List[str]] = None,
+                               remove_missing: bool = False) -> Tuple[bool, str]:
+        """
+        Update the security baseline with new file hashes.
 
-def update_security_baseline(paths_to_update: Optional[List[str]] = None,
-                           remove_missing: bool = False) -> Tuple[bool, str]:
-    """
-    Update the security baseline with new file hashes.
+        This is a convenience function that delegates to SecurityService.
 
-    This is a convenience function that delegates to SecurityService.
+        Args:
+            paths_to_update: Optional list of specific file paths to update in the baseline.
+                           If None, re-scans all files in the current baseline.
+            remove_missing: Whether to remove entries for files that no longer exist
 
-    Args:
-        paths_to_update: Optional list of specific file paths to update in the baseline.
-                       If None, re-scans all files in the current baseline.
-        remove_missing: Whether to remove entries for files that no longer exist
+        Returns:
+            Tuple of (success, message)
+        """
+        return SecurityService.update_baseline(paths_to_update, remove_missing)
 
-    Returns:
-        Tuple of (success, message)
-    """
-    return SecurityService.update_baseline(paths_to_update, remove_missing)
+    def verify_file_hash(filepath: str, expected_hash: Optional[str] = None) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Verify a file's hash against an expected value.
 
-def verify_file_hash(filepath: str, expected_hash: Optional[str] = None) -> Tuple[bool, Dict[str, Any]]:
-    """
-    Verify the hash of a specific file against baseline or provided hash.
+        This is a convenience function that delegates to SecurityService.
 
-    Args:
-        filepath: Path to the file to verify
-        expected_hash: Optional expected hash. If None, uses hash from baseline
+        Args:
+            filepath: Path to the file to verify
+            expected_hash: Expected hash value (if not provided, uses baseline)
 
-    Returns:
-        Tuple of (match_status, details)
-        - match_status: True if hash matches, False otherwise
-        - details: Dictionary with verification details
-    """
-    return SecurityService.verify_file_hash(filepath, expected_hash)
+        Returns:
+            Tuple of (match_status, details)
+        """
+        return SecurityService.verify_file_hash(filepath, expected_hash)
 
-def calculate_file_hash(filepath: str, algorithm: str = "sha256") -> Optional[str]:
-    """
-    Calculate cryptographic hash for a file.
+    def calculate_file_hash(filepath: str, algorithm: str = "sha256") -> Optional[str]:
+        """
+        Calculate hash for a file.
 
-    Args:
-        filepath: Path to the file
-        algorithm: Hash algorithm to use (sha256, sha512, etc.)
+        This is a convenience function that delegates to SecurityService.
 
-    Returns:
-        Calculated hash string or None if file cannot be read
-    """
-    return SecurityService._calculate_hash(filepath, algorithm)
+        Args:
+            filepath: Path to the file to hash
+            algorithm: Hash algorithm to use
 
-def get_integrity_status() -> Dict[str, Any]:
-    """
-    Get the current integrity status of the system.
+        Returns:
+            File hash as string or None if error
+        """
+        return SecurityService._calculate_hash(filepath, algorithm)
 
-    Returns:
-        Dictionary with integrity status information:
-        - last_check_time: DateTime of the last integrity check
-        - baseline_status: Status of the baseline file ('valid', 'empty', 'missing', 'error')
-        - file_count: Number of files monitored
-        - changes_detected: Number of changes since last baseline update
-        - critical_changes: List of critical file changes
-        - monitoring_enabled: Whether file integrity monitoring is enabled
-    """
-    return SecurityService.get_integrity_status()
+    def get_integrity_status() -> Dict[str, Any]:
+        """
+        Get current file integrity status information.
 
-def schedule_integrity_check(interval_seconds: int = 3600,
-                           callback: Optional[Callable[[bool, List[Dict[str, Any]]], None]] = None) -> bool:
-    """
-    Schedule periodic integrity checks.
+        This is a convenience function that delegates to SecurityService.
 
-    Args:
-        interval_seconds: Time between checks in seconds (default: 1 hour)
-        callback: Optional function to call with check results
+        Returns:
+            Dictionary with integrity status information
+        """
+        return SecurityService.get_integrity_status()
 
-    Returns:
-        Boolean indicating if scheduling was successful
-    """
-    return SecurityService.schedule_integrity_check(interval_seconds, callback)
+    def schedule_integrity_check(interval_seconds: int = 3600,
+                               callback: Optional[Callable[..., Any]] = None) -> bool:
+        """
+        Schedule periodic integrity checks.
 
-def update_file_integrity_baseline(app, baseline_path: str, changes: List[Dict[str, Any]],
-                                 auto_update_limit: int = 10,
-                                 bypass_critical_check: bool = False) -> Tuple[bool, str]:
-    """
-    Update the file integrity baseline with changes.
+        This is a convenience function that delegates to SecurityService.
 
-    This function is used to update the baseline when changes are detected.
-    It incorporates new file hashes into the baseline, typically used in development
-    or controlled update scenarios.
+        Args:
+            interval_seconds: Interval between checks in seconds
+            callback: Optional callback function to call with check results
 
-    Args:
-        app: Flask application instance
-        baseline_path: Path to the baseline JSON file
-        changes: List of change dictionaries from integrity check
-        auto_update_limit: Maximum number of files to auto-update (safety limit)
-        bypass_critical_check: If True, allows updating critical files (use with caution)
+        Returns:
+            True if scheduled successfully, False otherwise
+        """
+        return SecurityService.schedule_integrity_check(interval_seconds, callback)
 
-    Returns:
-        Tuple containing (success, message)
-    """
-    try:
-        # Import required security functions
-        from core.security.cs_file_integrity import update_file_integrity_baseline as core_update_baseline
 
-        # Filter changes to include only those that should be updated
-        if bypass_critical_check:
-            non_critical = changes
-        else:
-            # Exclude critical/high severity changes
-            non_critical = [c for c in changes if c.get('severity') not in ('critical', 'high')]
+    def update_file_integrity_baseline(app, baseline_path: str, changes: List[Dict[str, Any]],
+                                     auto_update_limit: int = 10,
+                                     bypass_critical_check: bool = False) -> Tuple[bool, str]:
+        """
+        Update the file integrity baseline with changes.
 
-        # Safety check - don't update if too many files changed
-        if len(non_critical) > auto_update_limit and not app.config.get('BYPASS_UPDATE_LIMITS', False):
-            logger.warning(f"Too many files to update: {len(non_critical)} exceeds limit of {auto_update_limit}")
-            return False, f"Too many files to update: {len(non_critical)} exceeds safety limit"
+        This function is used to update the baseline when changes are detected.
+        It incorporates new file hashes into the baseline, typically used in development
+        or controlled update scenarios.
 
-        if not non_critical:
-            return True, "No changes to update"
+        Args:
+            app: Flask application instance
+            baseline_path: Path to the baseline JSON file
+            changes: List of change dictionaries from integrity check
+            auto_update_limit: Maximum number of files to auto-update (safety limit)
+            bypass_critical_check: If True, allows updating critical files (use with caution)
 
-        # Format the changes for the core function
-        # The core function expects updates with 'path' and 'current_hash' keys
-        formatted_updates = []
-        for change in non_critical:
-            if 'path' in change and 'actual_hash' in change:
-                formatted_updates.append({
-                    'path': change['path'],
-                    'current_hash': change['actual_hash']
-                })
-            # Support alternate key names for backward compatibility
-            elif 'path' in change and 'current_hash' in change:
-                formatted_updates.append({
-                    'path': change['path'],
-                    'current_hash': change['current_hash']
-                })
-
-        if not formatted_updates:
-            logger.warning("No valid changes found to update baseline")
-            return False, "No valid changes to update"
-
-        # Log the update details
-        logger.info(f"Updating baseline at {baseline_path} with {len(formatted_updates)} changes")
-
-        # Update the baseline with these changes
-        result = core_update_baseline(app, baseline_path, formatted_updates)
-
-        if result:
-            logger.info("File integrity baseline updated successfully")
-            return True, f"Updated baseline with {len(formatted_updates)} changes"
-        else:
-            logger.error("Failed to update file integrity baseline")
-            return False, "Failed to update baseline"
-
-    except ImportError as e:
-        logger.warning(f"Could not update baseline: cs_file_integrity module not available - {e}")
-        return False, "File integrity module not available"
-    except PermissionError as e:
-        logger.error(f"Permission error updating baseline: {str(e)}")
-        return False, f"Permission denied: {str(e)}"
-    except Exception as e:
-        logger.error(f"Error updating baseline: {str(e)}")
-        return False, f"Error updating baseline: {str(e)}"
-
-def update_file_baseline(baseline_path: str,
-                        updates: Dict[str, str],
-                        remove_missing: bool = False,
-                        create_if_missing: bool = False) -> Tuple[bool, str]:
-    """
-    Update file integrity baseline with new hashes.
-
-    This function provides a direct way to update the file baseline with explicit
-    hash values without requiring a Flask application context.
-
-    Args:
-        baseline_path: Path to the baseline JSON file
-        updates: Dictionary mapping file paths to new hashes
-        remove_missing: Whether to remove entries for files that no longer exist
-        create_if_missing: Whether to create the baseline file if it doesn't exist
-
-    Returns:
-        Tuple of (success, message)
-    """
-    try:
-        # Try to use the utility from core
+        Returns:
+            Tuple containing (success, message)
+        """
         try:
-            from core.utils import update_file_integrity_baseline as core_update_baseline
-            return core_update_baseline(baseline_path, updates, remove_missing)
-        except ImportError:
-            logger.debug("Core utility not available, using SecurityService directly")
+            # Import required security functions
+            from core.security.cs_file_integrity import update_file_integrity_baseline as core_update_baseline
 
-        # Convert baseline_path to Path object for consistency
-        baseline_file = Path(baseline_path)
+            # Filter changes to include only those that should be updated
+            if bypass_critical_check:
+                non_critical = changes
+            else:
+                # Exclude critical/high severity changes
+                non_critical = [c for c in changes if c.get('severity') not in ('critical', 'high')]
 
-        # Handle case where baseline doesn't exist but create_if_missing is True
-        if create_if_missing and not baseline_file.exists():
-            logger.info(f"Creating new baseline at {baseline_path}")
-            baseline_dir = baseline_file.parent
-            if not baseline_dir.exists():
-                baseline_dir.mkdir(parents=True, exist_ok=True)
-                # Set secure permissions on Unix systems
-                if os.name == 'posix':
-                    try:
-                        os.chmod(baseline_dir, 0o750)  # rwxr-x---
-                    except OSError:
-                        logger.warning(f"Could not set permissions on directory: {baseline_dir}")
+            # Safety check - don't update if too many files changed
+            if len(non_critical) > auto_update_limit and not app.config.get('BYPASS_UPDATE_LIMITS', False):
+                logger.warning(f"Too many files to update: {len(non_critical)} exceeds limit of {auto_update_limit}")
+                return False, f"Too many files to update: {len(non_critical)} exceeds safety limit"
 
-            # Create a new baseline with the provided updates
-            baseline_data = {
-                "files": updates,
-                "metadata": {
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                    "last_updated_at": datetime.now(timezone.utc).isoformat(),
-                    "hash_algorithm": "sha256"
-                }
-            }
-            SecurityService._save_baseline(baseline_data, baseline_file)
-            return True, f"Created baseline with {len(updates)} entries"
+            if not non_critical:
+                return True, "No changes to update"
 
-        # Format updates for SecurityService
-        paths = list(updates.keys())
+            # Format the changes for the core function
+            # The core function expects updates with 'path' and 'current_hash' keys
+            formatted_updates = []
+            for change in non_critical:
+                if 'path' in change and 'actual_hash' in change:
+                    formatted_updates.append({
+                        'path': change['path'],
+                        'current_hash': change['actual_hash']
+                    })
+                # Support alternate key names for backward compatibility
+                elif 'path' in change and 'current_hash' in change:
+                    formatted_updates.append({
+                        'path': change['path'],
+                        'current_hash': change['current_hash']
+                    })
 
-        # First update the baseline with the specified paths
-        success, message = SecurityService.update_baseline(paths_to_update=paths,
-                                                         remove_missing=remove_missing)
+            if not formatted_updates:
+                logger.warning("No valid changes found to update baseline")
+                return False, "No valid changes to update"
 
-        # If successful and we need to verify hashes match exactly what was provided
-        if success and paths:
-            # Load the baseline again to ensure consistency
-            baseline_data = SecurityService._load_baseline(baseline_file)
-            files = baseline_data.get("files", {})
+            # Log the update details
+            logger.info(f"Updating baseline at {baseline_path} with {len(formatted_updates)} changes")
 
-            # Check if hashes match what was requested
-            mismatched = [p for p in paths if p in files and files[p] != updates.get(p)]
-            if mismatched:
-                logger.warning(f"Hash mismatch after baseline update for: {mismatched}")
+            # Update the baseline with these changes
+            result = core_update_baseline(app, baseline_path, formatted_updates)
 
-                # Force update the file directly with exact hashes if mismatches found
-                try:
-                    # Make a copy of the baseline data and update it with the exact hashes
-                    updated_baseline = baseline_data.copy()
-                    for path, hash_value in updates.items():
-                        if path in updated_baseline["files"]:
-                            updated_baseline["files"][path] = hash_value
+            if result:
+                logger.info("File integrity baseline updated successfully")
+                return True, f"Updated baseline with {len(formatted_updates)} changes"
+            else:
+                logger.error("Failed to update file integrity baseline")
+                return False, "Failed to update baseline"
 
-                    # Write the updated baseline back to file
-                    SecurityService._save_baseline(updated_baseline, baseline_file)
-                    logger.info(f"Forced update of {len(mismatched)} hash values to match exactly")
-                    return True, f"{message} (with {len(mismatched)} forced hash updates)"
-                except Exception as e:
-                    logger.error(f"Failed to force hash updates: {e}")
+        except ImportError as e:
+            logger.warning(f"Could not update baseline: cs_file_integrity module not available - {e}")
+            return False, "File integrity module not available"
+        except PermissionError as e:
+            logger.error(f"Permission error updating baseline: {str(e)}")
+            return False, f"Permission denied: {str(e)}"
+        except Exception as e:
+            logger.error(f"Error updating baseline: {str(e)}")
+            return False, f"Error updating baseline: {str(e)}"
 
-        return success, message
+    def update_file_baseline(baseline_path: str,
+                            updates: Dict[str, str],
+                            remove_missing: bool = False,
+                            create_if_missing: bool = False) -> Tuple[bool, str]:
+        """
+        Update file integrity baseline with new hashes.
 
-    except Exception as e:
-        logger.error(f"Unexpected error updating file baseline: {str(e)}")
-        return False, f"Error: {str(e)}"
+        This function provides a direct way to update the file baseline with explicit
+        hash values without requiring a Flask application context.
 
-def verify_baseline_consistency(baseline_path: Optional[str] = None) -> Tuple[bool, Dict[str, Any]]:
-    """
-    Verify the internal consistency and integrity of the baseline file itself.
+        Args:
+            baseline_path: Path to the baseline JSON file
+            updates: Dictionary mapping file paths to new hashes
+            remove_missing: Whether to remove entries for files that no longer exist
+            create_if_missing: Whether to create the baseline file if it doesn't exist
 
-    This function checks if the baseline file exists, has valid format, and contains
-    expected metadata. It's useful for validating the baseline's trustworthiness.
+        Returns:
+            Tuple of (success, message)
+        """
+        try:
+            # Try to use the utility from core
+            try:
+                from core.utils import update_file_integrity_baseline as core_update_baseline
+                return core_update_baseline(baseline_path, updates, remove_missing)
+            except ImportError:
+                logger.debug("Core utility not available, using SecurityService directly")
 
-    Args:
-        baseline_path: Optional path to baseline file. If None, uses default path.
-
-    Returns:
-        Tuple of (consistency_status, details)
-        - consistency_status: True if baseline is consistent, False otherwise
-        - details: Dictionary with verification details
-    """
-    try:
-        # Use either provided path or default path
-        if baseline_path:
+            # Convert baseline_path to Path object for consistency
             baseline_file = Path(baseline_path)
-        else:
-            # Get default baseline file path from SecurityService
-            baseline_file = SecurityService._get_default_baseline_path()
 
-        result = {
-            "exists": baseline_file.exists(),
-            "readable": os.access(baseline_file, os.R_OK) if baseline_file.exists() else False,
-            "last_modified": None,
-            "size": None,
-            "file_count": 0,
-            "has_required_fields": False,
-            "has_metadata": False,
-            "valid_format": False,
-            "errors": []
-        }
+            # Handle case where baseline doesn't exist but create_if_missing is True
+            if create_if_missing and not baseline_file.exists():
+                logger.info(f"Creating new baseline at {baseline_path}")
+                baseline_dir = baseline_file.parent
+                if not baseline_dir.exists():
+                    baseline_dir.mkdir(parents=True, exist_ok=True)
+                    # Set secure permissions on Unix systems
+                    if os.name == 'posix':
+                        try:
+                            os.chmod(baseline_dir, 0o750)  # rwxr-x---
+                        except OSError:
+                            logger.warning(f"Could not set permissions on directory: {baseline_dir}")
 
-        # Validate file existence and basic properties
-        if not result["exists"]:
-            result["errors"].append("Baseline file does not exist")
-            return False, result
+                # Create a new baseline with the provided updates
+                baseline_data = {
+                    "files": updates,
+                    "metadata": {
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "last_updated_at": datetime.now(timezone.utc).isoformat(),
+                        "hash_algorithm": "sha256"
+                    }
+                }
+                SecurityService._save_baseline(baseline_data, baseline_file)
+                return True, f"Created baseline with {len(updates)} entries"
 
-        if not result["readable"]:
-            result["errors"].append("Baseline file is not readable")
-            return False, result
+            # Format updates for SecurityService
+            paths = list(updates.keys())
 
-        # Get file stats
-        try:
-            stats = baseline_file.stat()
-            result["last_modified"] = datetime.fromtimestamp(stats.st_mtime, tz=timezone.utc).isoformat()
-            result["size"] = stats.st_size
-        except OSError as e:
-            result["errors"].append(f"Error getting file stats: {e}")
+            # First update the baseline with the specified paths
+            success, message = SecurityService.update_baseline(paths_to_update=paths,
+                                                             remove_missing=remove_missing)
 
-        # Check file permissions
-        if os.name == 'posix':
-            permissions = stats.st_mode & 0o777
-            result["permissions"] = oct(permissions)[2:]
-            if permissions & 0o077:  # Check if world or group has any access
-                result["errors"].append(f"Insecure permissions: {result['permissions']}")
+            # If successful and we need to verify hashes match exactly what was provided
+            if success and paths:
+                # Load the baseline again to ensure consistency
+                baseline_data = SecurityService._load_baseline(baseline_file)
+                files = baseline_data.get("files", {})
 
-        # Try to load baseline and validate content
-        try:
-            baseline_data = SecurityService._load_baseline(baseline_file)
+                # Check if hashes match what was requested
+                mismatched = [p for p in paths if p in files and files[p] != updates.get(p)]
+                if mismatched:
+                    logger.warning(f"Hash mismatch after baseline update for: {mismatched}")
 
-            # Check required fields
-            if "files" in baseline_data:
-                result["has_required_fields"] = True
-                result["file_count"] = len(baseline_data["files"])
-            else:
-                result["errors"].append("Missing 'files' in baseline data")
+                    # Force update the file directly with exact hashes if mismatches found
+                    try:
+                        # Make a copy of the baseline data and update it with the exact hashes
+                        updated_baseline = baseline_data.copy()
+                        for path, hash_value in updates.items():
+                            if path in updated_baseline["files"]:
+                                updated_baseline["files"][path] = hash_value
 
-            # Check metadata
-            if "metadata" in baseline_data:
-                result["has_metadata"] = True
-                result["metadata_keys"] = list(baseline_data["metadata"].keys())
-            else:
-                result["metadata_keys"] = []
+                        # Write the updated baseline back to file
+                        SecurityService._save_baseline(updated_baseline, baseline_file)
+                        logger.info(f"Forced update of {len(mismatched)} hash values to match exactly")
+                        return True, f"{message} (with {len(mismatched)} forced hash updates)"
+                    except Exception as e:
+                        logger.error(f"Failed to force hash updates: {e}")
 
-            # Passed all checks
-            result["valid_format"] = result["has_required_fields"]
+            return success, message
 
         except Exception as e:
-            result["errors"].append(f"Error parsing baseline file: {str(e)}")
-            result["valid_format"] = False
+            logger.error(f"Unexpected error updating file baseline: {str(e)}")
+            return False, f"Error: {str(e)}"
 
-        # Determine overall consistency status
-        consistency_status = (
-            result["exists"] and
-            result["readable"] and
-            result["valid_format"] and
-            len(result["errors"]) == 0
-        )
+    def verify_baseline_consistency(baseline_path: Optional[str] = None) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Verify the consistency and health of a baseline file.
 
-        return consistency_status, result
+        Args:
+            baseline_path: Optional path to the baseline file to check.
+                          If None, checks the default baseline.
 
-    except Exception as e:
-        logger.error(f"Error verifying baseline consistency: {str(e)}")
-        return False, {"error": str(e), "exists": False, "valid_format": False}
-
-def export_baseline(baseline_path: Optional[str] = None, destination: Optional[str] = None,
-                   format_type: str = "json") -> Tuple[bool, str]:
-    """
-    Export the file integrity baseline to another location or format.
-
-    This function helps create distributable or backup copies of baselines.
-
-    Args:
-        baseline_path: Source baseline path. If None, uses default.
-        destination: Destination path. If None, creates a timestamped copy.
-        format_type: Export format ('json' or 'yaml')
-
-    Returns:
-        Tuple of (success, message)
-    """
-    try:
-        import shutil
-        import json
-
-        # Use either provided path or default path
-        if baseline_path:
-            source_file = Path(baseline_path)
-        else:
-            # Get default baseline file path from SecurityService
-            source_file = SecurityService._get_default_baseline_path()
-
-        # Verify source exists
-        if not source_file.exists():
-            return False, "Source baseline file does not exist"
-
-        # Create destination path if not provided
-        if not destination:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            if format_type == "json":
-                destination = str(source_file.with_name(f"{source_file.stem}_{timestamp}.json"))
-            elif format_type == "yaml":
-                destination = str(source_file.with_name(f"{source_file.stem}_{timestamp}.yaml"))
+        Returns:
+            Tuple of (consistency_status, details)
+        """
+        try:
+            if baseline_path:
+                baseline_file = Path(baseline_path)
             else:
+                from core.security.cs_file_integrity import get_baseline_path
+                baseline_file = Path(get_baseline_path())
+
+            # Initialize result dictionary
+            result = {
+                "exists": baseline_file.exists(),
+                "readable": baseline_file.exists() and os.access(baseline_file, os.R_OK),
+                "size": 0,
+                "last_modified": None,
+                "permissions": None,
+                "file_count": 0,
+                "has_required_fields": False,
+                "has_metadata": False,
+                "valid_format": False,
+                "errors": []
+            }
+
+            # Validate file existence and basic properties
+            if not result["exists"]:
+                result["errors"].append("Baseline file does not exist")
+                return False, result
+
+            if not result["readable"]:
+                result["errors"].append("Baseline file is not readable")
+                return False, result
+
+            # Get file stats
+            try:
+                stats = baseline_file.stat()
+                result["last_modified"] = datetime.fromtimestamp(stats.st_mtime, tz=timezone.utc).isoformat()
+                result["size"] = stats.st_size
+            except OSError as e:
+                result["errors"].append(f"Error getting file stats: {e}")
+
+            # Check file permissions
+            if os.name == 'posix':
+                permissions = stats.st_mode & 0o777
+                result["permissions"] = oct(permissions)[2:]
+
+                if permissions & 0o077:  # Check if world or group has any access
+                    result["errors"].append(f"Insecure permissions: {result['permissions']}")
+
+            # Try to load baseline and validate content
+            try:
+                baseline_data = SecurityService._load_baseline(baseline_file)
+
+                # Check required fields
+                if "files" in baseline_data:
+                    result["has_required_fields"] = True
+                    result["file_count"] = len(baseline_data["files"])
+                else:
+                    result["errors"].append("Missing 'files' in baseline data")
+
+                # Check metadata
+                if "metadata" in baseline_data:
+                    result["has_metadata"] = True
+                    result["metadata_keys"] = list(baseline_data["metadata"].keys())
+                else:
+                    result["metadata_keys"] = []
+
+                # Passed all checks
+                result["valid_format"] = result["has_required_fields"]
+
+            except Exception as e:
+                result["errors"].append(f"Error parsing baseline content: {e}")
+                result["valid_format"] = False
+
+            # Overall consistency status
+            is_consistent = (
+                result["exists"] and
+                result["readable"] and
+                result["valid_format"] and
+                not result["errors"]
+            )
+
+            return is_consistent, result
+
+        except Exception as e:
+            logger.error(f"Error checking baseline consistency: {e}")
+            return False, {"error": str(e), "exists": False, "valid_format": False}
+
+    def export_baseline(baseline_path: Optional[str] = None, destination: Optional[str] = None,
+                       format_type: str = "json") -> Tuple[bool, str]:
+        """
+        Export a baseline file to another format or location.
+
+        Args:
+            baseline_path: Optional path to the baseline file to export.
+                         If None, exports the default baseline.
+            destination: Optional destination path.
+                        If None, uses a timestamped version of the source path.
+            format_type: Export format type ("json" or "yaml")
+
+        Returns:
+            Tuple of (success, message)
+        """
+        try:
+            # Validate format type
+            if format_type not in ["json", "yaml"]:
                 return False, f"Unsupported format: {format_type}"
 
-        # Ensure destination directory exists
-        dest_path = Path(destination)
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
+            # Check YAML availability if needed
+            if format_type == "yaml":
+                try:
+                    import yaml
+                except ImportError:
+                    return False, "YAML export requires PyYAML package"
 
-        # Handle different export formats
-        baseline_data = SecurityService._load_baseline(source_file)
+            # Get source baseline path if not provided
+            if not baseline_path:
+                from core.security.cs_file_integrity import get_baseline_path
+                baseline_path = get_baseline_path()
 
-        if format_type == "json":
-            with open(dest_path, 'w') as f:
-                json.dump(baseline_data, f, indent=2)
+            source_file = Path(baseline_path)
+            if not source_file.exists():
+                return False, f"Baseline file not found: {baseline_path}"
 
-        elif format_type == "yaml":
-            try:
-                with open(dest_path, 'w') as f:
-                    yaml.dump(baseline_data, f, default_flow_style=False)
-            except ImportError:
-                # Fall back to JSON if yaml module is not available
-                logger.warning("YAML module not available, falling back to JSON format")
+            # Auto-generate destination path if not provided
+            if not destination:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                if format_type == "json":
+                    destination = str(source_file.with_name(f"{source_file.stem}_{timestamp}.json"))
+                elif format_type == "yaml":
+                    destination = str(source_file.with_name(f"{source_file.stem}_{timestamp}.yaml"))
+                else:
+                    return False, f"Unsupported format: {format_type}"
+
+            # Ensure destination directory exists
+            dest_path = Path(destination)
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Handle different export formats
+            baseline_data = SecurityService._load_baseline(source_file)
+
+            if format_type == "json":
                 with open(dest_path, 'w') as f:
                     json.dump(baseline_data, f, indent=2)
 
-        # Set secure permissions on Unix systems
-        if os.name == 'posix':
-            try:
-                os.chmod(dest_path, 0o600)  # rw-------
-            except OSError:
-                logger.warning(f"Could not set secure permissions on {dest_path}")
+            elif format_type == "yaml":
+                with open(dest_path, 'w') as f:
+                    yaml.dump(baseline_data, f, default_flow_style=False)
 
-        logger.info(f"Baseline exported to {dest_path}")
-        return True, f"Baseline exported to {destination}"
+            return True, f"Baseline exported to {destination}"
 
-    except Exception as e:
-        logger.error(f"Error exporting baseline: {str(e)}")
-        return False, f"Error exporting baseline: {str(e)}"
+        except Exception as e:
+            logger.error(f"Error exporting baseline: {e}")
+            return False, f"Export error: {str(e)}"
 
-# Security scanning convenience functions
-def get_scan_profiles() -> List[Dict[str, Any]]:
-    """
-    Get available security scan profiles.
+# Import ScanningService functions if available
+if SCANNING_SERVICE_AVAILABLE:
+    def run_security_scan(target: str, scan_type: str = "standard",
+                        parameters: Optional[Dict[str, Any]] = None) -> str:
+        """
+        Run a security scan on a specified target.
 
-    This is a convenience function that delegates to ScanningService.
+        This is a convenience function that delegates to ScanningService.
 
-    Returns:
-        List of available scan profile configurations
-    """
-    return ScanningService.get_available_scan_profiles()
+        Args:
+            target: Target to scan (URL, hostname, IP, etc.)
+            scan_type: Type of scan to run (standard, deep, compliance, etc.)
+            parameters: Additional scan parameters
 
-def start_security_scan(scan: Any) -> bool:
-    """
-    Start a security scan.
+        Returns:
+            Scan ID for tracking the scan status
+        """
+        return ScanningService.run_scan(target, scan_type, parameters)
 
-    This is a convenience function that delegates to ScanningService.
+    def get_scan_status(scan_id: str) -> Dict[str, Any]:
+        """
+        Get status of a specific scan.
 
-    Args:
-        scan: SecurityScan object to start
+        This is a convenience function that delegates to ScanningService.
 
-    Returns:
-        Boolean indicating if scan was successfully started
-    """
-    return ScanningService.start_scan(scan)
+        Args:
+            scan_id: ID of scan to check status
 
-def cancel_security_scan(scan: Any) -> bool:
-    """
-    Cancel a running or queued security scan.
+        Returns:
+            Dictionary with scan status information
+        """
+        return ScanningService.get_scan_status(scan_id)
 
-    This is a convenience function that delegates to ScanningService.
+    def get_scan_results(scan_id: str) -> Dict[str, Any]:
+        """
+        Get results of a completed scan.
 
-    Args:
-        scan: SecurityScan object to cancel
+        This is a convenience function that delegates to ScanningService.
 
-    Returns:
-        Boolean indicating if cancellation was successful
-    """
-    return ScanningService.cancel_scan(scan)
+        Args:
+            scan_id: ID of scan to get results for
 
-def get_scan_health_metrics() -> Dict[str, Any]:
-    """
-    Get health metrics for security scanning operations.
+        Returns:
+            Dictionary with scan results
+        """
+        return ScanningService.get_scan_results(scan_id)
 
-    This is a convenience function that delegates to ScanningService.
+    def get_scan_history(limit: int = 10,
+                       offset: int = 0,
+                       filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """
+        Get scan history.
 
-    Returns:
-        Dictionary containing scan health metrics
-    """
-    return ScanningService.get_scan_health_metrics()
+        This is a convenience function that delegates to ScanningService.
 
-def estimate_scan_duration(scan_type: str, targets: List[Dict[str, Any]], profile: str = "standard") -> int:
-    """
-    Estimate the duration of a security scan based on type, targets, and profile.
+        Args:
+            limit: Maximum number of results to return
+            offset: Offset for pagination
+            filters: Optional filters to apply
 
-    This is a convenience function that delegates to ScanningService.
+        Returns:
+            List of scan history entries
+        """
+        return ScanningService.get_scan_history(limit, offset, filters)
 
-    Args:
-        scan_type: Type of scan to execute
-        targets: List of scan targets
-        profile: Scan profile name
+    def get_scan_profiles() -> List[Dict[str, Any]]:
+        """
+        Get available scan profiles.
 
-    Returns:
-        Estimated duration in minutes
-    """
-    return ScanningService.estimate_scan_duration(scan_type, targets, profile)
+        This is a convenience function that delegates to ScanningService.
 
-def trigger_webhook_event(event_type: str, payload: Dict[str, Any],
-                        user_id: Optional[int] = None,
-                        tags: Optional[List[str]] = None) -> int:
-    """
-    Trigger a webhook event to be delivered to all relevant subscribers.
+        Returns:
+            List of scan profiles with their configurations
+        """
+        return ScanningService.get_profiles()
 
-    This is a convenience function that delegates to WebhookService.
+    def start_security_scan(*args, **kwargs):
+        """
+        Start a security scan with advanced options.
 
-    Args:
-        event_type: The type of event that occurred (e.g., 'resource.created')
-        payload: The data associated with the event
-        user_id: Optional user ID associated with the event
-        tags: Optional list of tags to include with the event
+        This is a convenience function that delegates to ScanningService.
+        """
+        return ScanningService.start_scan(*args, **kwargs)
 
-    Returns:
-        The number of webhook deliveries initiated
-    """
-    return WebhookService.trigger_event(event_type, payload, user_id, tags)
+    def cancel_security_scan(scan_id: str) -> bool:
+        """
+        Cancel an in-progress scan.
 
-def create_webhook_subscription(user_id: int, target_url: str, event_types: List[str],
-                              description: Optional[str] = None,
-                              headers: Optional[Dict[str, str]] = None,
-                              is_active: bool = True,
-                              max_retries: int = 3,
-                              group_id: Optional[int] = None,
-                              rate_limit: Optional[Dict[str, int]] = None) -> Tuple[Optional[Any], Optional[str], Optional[str]]:
-    """
-    Create a new webhook subscription.
+        This is a convenience function that delegates to ScanningService.
 
-    This is a convenience function that delegates to WebhookService.
+        Args:
+            scan_id: ID of scan to cancel
 
-    Args:
-        user_id: The ID of the user creating the subscription
-        target_url: URL where webhook events will be sent
-        event_types: List of event types to subscribe to
-        description: Optional description for this subscription
-        headers: Optional custom HTTP headers to include in requests
-        is_active: Whether the subscription is active
-        max_retries: Maximum number of delivery attempts
-        group_id: Optional ID of a webhook group to associate with
-        rate_limit: Optional rate limiting settings
+        Returns:
+            True if successfully cancelled, False otherwise
+        """
+        return ScanningService.cancel_scan(scan_id)
 
-    Returns:
-        Tuple containing (subscription object, secret, error message)
-    """
-    return WebhookService.create_subscription(
-        user_id=user_id,
-        target_url=target_url,
-        event_types=event_types,
-        description=description,
-        headers=headers,
-        is_active=is_active,
-        max_retries=max_retries,
-        group_id=group_id,
-        rate_limit=rate_limit
-    )
+    def get_scan_health_metrics() -> Dict[str, Any]:
+        """
+        Get health metrics of the scanning system.
 
-def get_webhook_subscription(subscription_id: str, user_id: int) -> Optional[Any]:
-    """
-    Get a webhook subscription by ID.
+        This is a convenience function that delegates to ScanningService.
 
-    This is a convenience function that delegates to WebhookService.
+        Returns:
+            Dictionary with scanning system health metrics
+        """
+        return ScanningService.get_health_metrics()
 
-    Args:
-        subscription_id: The ID of the subscription
-        user_id: The ID of the user requesting the subscription
+    def estimate_scan_duration(target: str, scan_type: str) -> Dict[str, Any]:
+        """
+        Estimate the duration of a scan.
 
-    Returns:
-        The webhook subscription object or None if not found
-    """
-    return WebhookService.get_subscription_by_id(subscription_id, user_id)
+        This is a convenience function that delegates to ScanningService.
 
-def update_webhook_subscription(subscription_id: str, user_id: int, **kwargs) -> Tuple[Optional[Any], Optional[str]]:
-    """
-    Update an existing webhook subscription.
+        Args:
+            target: Target to estimate scan time for
+            scan_type: Type of scan
 
-    This is a convenience function that delegates to WebhookService.
+        Returns:
+            Dictionary with scan duration estimates
+        """
+        return ScanningService.estimate_duration(target, scan_type)
 
-    Args:
-        subscription_id: The ID of the subscription to update
-        user_id: The ID of the user requesting the update
-        **kwargs: Fields to update (target_url, event_types, description, etc.)
+# Import WebhookService functions if available
+if WEBHOOK_SERVICE_AVAILABLE:
+    def trigger_webhook_event(event_type: str, payload: Dict[str, Any],
+                            subscriptions: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Trigger a webhook event to subscribers.
 
-    Returns:
-        Tuple containing (updated subscription object, error message)
-    """
-    return WebhookService.update_subscription(subscription_id, user_id, **kwargs)
+        This is a convenience function that delegates to WebhookService.
 
-def delete_webhook_subscription(subscription_id: str, user_id: int) -> Tuple[bool, Optional[str]]:
-    """
-    Delete a webhook subscription.
+        Args:
+            event_type: Type of event being triggered
+            payload: Event payload data
+            subscriptions: Optional list of subscription IDs to limit delivery
 
-    This is a convenience function that delegates to WebhookService.
+        Returns:
+            Dictionary with delivery results
+        """
+        return WebhookService.trigger_event(event_type, payload, subscriptions)
 
-    Args:
-        subscription_id: The ID of the subscription to delete
-        user_id: The ID of the user requesting the deletion
+    def create_webhook_subscription(callback_url: str, event_types: List[str],
+                                  secret: Optional[str] = None,
+                                  description: Optional[str] = None) -> str:
+        """
+        Create a new webhook subscription.
 
-    Returns:
-        Tuple containing (success status, error message)
-    """
-    return WebhookService.delete_subscription(subscription_id, user_id)
+        This is a convenience function that delegates to WebhookService.
 
-def check_subscription_health(subscription_id: str, user_id: int, lookback_hours: int = 24) -> Optional[Dict[str, Any]]:
-    """
-    Check the health and delivery statistics for a webhook subscription.
+        Args:
+            callback_url: URL to send webhook payloads to
+            event_types: List of event types to subscribe to
+            secret: Optional secret for payload signing
+            description: Optional description of the subscription
 
-    This is a convenience function that delegates to WebhookService.
+        Returns:
+            Subscription ID
+        """
+        return WebhookService.create_subscription(callback_url, event_types, secret, description)
 
-    Args:
-        subscription_id: The ID of the subscription to check
-        user_id: The ID of the user requesting the health check
-        lookback_hours: Number of hours of history to analyze
+    def get_webhook_subscription(subscription_id: str) -> Dict[str, Any]:
+        """
+        Get details of a webhook subscription.
 
-    Returns:
-        Dictionary with health metrics or None if access denied
-    """
-    return WebhookService.get_subscription_health(subscription_id, user_id, lookback_hours)
+        This is a convenience function that delegates to WebhookService.
 
-# Determine if security services have all required functionality
-try:
-    SECURITY_SERVICE_AVAILABLE = hasattr(SecurityService, 'check_file_integrity') and callable(SecurityService.check_file_integrity)
-except (ImportError, AttributeError):
-    SECURITY_SERVICE_AVAILABLE = False
-    logger.warning("SecurityService functionality may be limited or unavailable")
+        Args:
+            subscription_id: ID of subscription to get
 
-try:
-    SCANNING_SERVICE_AVAILABLE = hasattr(ScanningService, 'start_scan') and callable(ScanningService.start_scan)
-except (ImportError, AttributeError):
-    SCANNING_SERVICE_AVAILABLE = False
-    logger.warning("ScanningService functionality may be limited or unavailable")
+        Returns:
+            Dictionary with subscription details
+        """
+        return WebhookService.get_subscription(subscription_id)
 
-# Log initialization status
-logger.debug(f"Services package initialized - version {__version__} - Security service available: {SECURITY_SERVICE_AVAILABLE}, Scanning service available: {SCANNING_SERVICE_AVAILABLE}")
+    def update_webhook_subscription(subscription_id: str,
+                                 updates: Dict[str, Any]) -> bool:
+        """
+        Update a webhook subscription.
+
+        This is a convenience function that delegates to WebhookService.
+
+        Args:
+            subscription_id: ID of subscription to update
+            updates: Dictionary of fields to update
+
+        Returns:
+            True if successfully updated, False otherwise
+        """
+        return WebhookService.update_subscription(subscription_id, updates)
+
+    def delete_webhook_subscription(subscription_id: str) -> bool:
+        """
+        Delete a webhook subscription.
+
+        This is a convenience function that delegates to WebhookService.
+
+        Args:
+            subscription_id: ID of subscription to delete
+
+        Returns:
+            True if successfully deleted, False otherwise
+        """
+        return WebhookService.delete_subscription(subscription_id)
+
+    def check_subscription_health(subscription_id: str) -> Dict[str, Any]:
+        """
+        Check health of a webhook subscription.
+
+        This is a convenience function that delegates to WebhookService.
+
+        Args:
+            subscription_id: ID of subscription to check
+
+        Returns:
+            Dictionary with subscription health details
+        """
+        return WebhookService.check_subscription_health(subscription_id)
+
+# Log package initialization
+logger.debug(f"Services package initialized (version: {__version__}), " +
+            f"Security service available: {SECURITY_SERVICE_AVAILABLE}, " +
+            f"Scanning service available: {SCANNING_SERVICE_AVAILABLE}, " +
+            f"Notification module available: {NOTIFICATION_MODULE_AVAILABLE}, " +
+            f"Notification service available: {NOTIFICATION_SERVICE_AVAILABLE}")
