@@ -93,9 +93,13 @@ admin/security/incident_response_kit/references/
 ├── ddos_defense_architecture.md        # DDoS defense references
 ├── evidence_collection_guide.md        # Evidence collection procedures
 ├── ioc_checklist.md                    # Indicators of compromise guide
+├── insider_threat_indicators.md        # Insider threat detection guide
+├── permission_validation.md            # Permission validation procedures
 ├── privilege_escalation_techniques.md  # Privilege escalation vectors
 ├── regulatory_requirements.md          # Regulatory compliance guidance
-└── severity_classification.md          # Incident severity guidelines
+├── security_tools_reference.md         # Security tools documentation
+├── severity_classification.md          # Incident severity guidelines
+└── web_hardening.md                    # Web application hardening guide
 ```
 
 ## Usage Guidelines
