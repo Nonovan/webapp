@@ -46,7 +46,6 @@ class IncidentStatus:
         MERGED: "Merged"
     }
 
-
 # ======= Phase Constants =======
 
 class IncidentPhase:
@@ -77,7 +76,6 @@ class IncidentPhase:
         RECOVERY: "Restoring systems to normal operation",
         LESSONS_LEARNED: "Reviewing the incident and improving processes"
     }
-
 
 # ======= Severity Constants =======
 
@@ -121,7 +119,6 @@ class IncidentSeverity:
         MEDIUM: 12,   # 12 hours without resolution escalates from Medium to High
         HIGH: 2       # 2 hours without resolution escalates from High to Critical
     }
-
 
 # ======= Incident Type Constants =======
 
@@ -184,7 +181,6 @@ class IncidentType:
         SUSPICIOUS_ACTIVITY: "Suspicious Activity"
     }
 
-
 # ======= Source Constants =======
 
 class IncidentSource:
@@ -215,7 +211,6 @@ class IncidentSource:
         THREAT_INTELLIGENCE: "Threat Intelligence",
         VULNERABILITY_SCAN: "Vulnerability Scan"
     }
-
 
 # ======= Evidence Type Constants =======
 
@@ -253,7 +248,6 @@ class EvidenceType:
         EMAIL: "Email"
     }
 
-
 # ======= Action Constants =======
 
 class ActionType:
@@ -272,7 +266,6 @@ class ActionType:
         CONTAINMENT, EVIDENCE_COLLECTION, ANALYSIS, NOTIFICATION,
         MITIGATION, ERADICATION, RECOVERY, DOCUMENTATION
     ]
-
 
 # ======= Relationship Mappings =======
 

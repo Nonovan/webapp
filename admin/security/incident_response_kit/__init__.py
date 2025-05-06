@@ -196,13 +196,139 @@ class ValidationError(IncidentResponseError):
     """Error validating incident data."""
     pass
 
+# Function placeholders to be populated by import_core_functions
+initialize_incident = None
+collect_evidence = None
+isolate_system = None
+notify_stakeholders = None
+update_status = None
+track_incident_status = None
+verify_file_integrity = None
+build_timeline = None
+get_incident_status = None
+list_incidents = None
+generate_report = None
+capture_volatile_data = None
+analyze_logs = None
+harden_system = None
+restore_service = None
+
+# Define the reopen_incident function at module level instead of inside import_core_functions
+def reopen_incident(incident_id: str, reason: str, user_id: Optional[str] = None,
+                   phase: str = IncidentPhase.IDENTIFICATION) -> Dict[str, Any]:
+    """
+    Reopen a previously closed or resolved incident.
+
+    This function changes the status of a closed or resolved incident back to 'investigating'
+    and resets the phase to identification (or specified phase), allowing the incident to be
+    worked on again when new evidence or related activity is discovered.
+
+    Args:
+        incident_id: The ID of the incident to reopen
+        reason: Reason for reopening the incident
+        user_id: User who is reopening the incident
+        phase: The phase to set the incident to (defaults to IDENTIFICATION)
+
+    Returns:
+        Dict containing operation results and updated incident information
+
+    Raises:
+        IncidentStatusError: If the incident doesn't exist or cannot be reopened
+        ValidationError: If validation fails (e.g., no reason provided)
+    """
+    if not reason:
+        raise ValidationError("Reason for reopening is required")
+
+    # Sanitize the incident ID
+    incident_id = sanitize_incident_id(incident_id)
+
+    # Result dictionary to track progress
+    result = {
+        "incident_id": incident_id,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "success": False,
+        "status_updated": False,
+        "notifications_sent": False,
+        "errors": []
+    }
+
+    try:
+        # Get current incident status using coordination module
+        incident_data = get_incident_status(incident_id)
+
+        if not incident_data:
+            raise IncidentStatusError(f"Incident {incident_id} not found")
+
+        current_status = incident_data.get("status")
+
+        # Check if incident can be reopened (must be resolved or closed)
+        if current_status not in [IncidentStatus.RESOLVED, IncidentStatus.CLOSED]:
+            raise IncidentStatusError(
+                f"Cannot reopen incident with status '{current_status}'. "
+                f"Only incidents with status '{IncidentStatus.RESOLVED}' or '{IncidentStatus.CLOSED}' can be reopened."
+            )
+
+        # Use status_tracker's update_incident_status to change status
+        status_updated = update_status(
+            incident_id=incident_id,
+            status=IncidentStatus.INVESTIGATING,
+            phase=phase,
+            notes=f"Incident reopened: {reason}",
+            user=user_id
+        )
+
+        result["status_updated"] = status_updated
+
+        if not status_updated:
+            result["errors"].append("Failed to update incident status")
+            return result
+
+        # Send notifications if enabled
+        if NOTIFICATION_ENABLED:
+            try:
+                # Notify based on incident severity
+                severity = incident_data.get("severity", IncidentSeverity.MEDIUM)
+                notification_sent = notify_stakeholders(
+                    subject=f"Security Incident Reopened: {incident_id}",
+                    message=(
+                        f"A security incident has been reopened.\n\n"
+                        f"ID: {incident_id}\n"
+                        f"Reason: {reason}\n"
+                        f"Reopened by: {user_id or 'System'}\n"
+                        f"New status: {IncidentStatus.INVESTIGATING}\n"
+                        f"New phase: {phase}"
+                    ),
+                    severity=severity
+                )
+
+                result["notifications_sent"] = notification_sent
+                if notification_sent:
+                    logger.info(f"Sent notifications for reopened incident: {incident_id}")
+            except Exception as e:
+                logger.error(f"Error sending notifications for reopened incident: {e}", exc_info=True)
+                result["errors"].append(f"Notification error: {str(e)}")
+
+        # Set success flag if we got this far
+        result["success"] = True
+        logger.info(f"Successfully reopened incident: {incident_id}")
+
+        return result
+
+    except (ValidationError, IncidentStatusError) as e:
+        # Re-raise these specific exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error reopening incident: {e}", exc_info=True)
+        result["errors"].append(str(e))
+        return result
+
 # Dynamically import and expose main functionality
 def import_core_functions():
     global initialize_incident, collect_evidence, isolate_system, notify_stakeholders
     global update_status, run_playbook, restore_service, harden_system
     global track_incident_status, verify_file_integrity, build_timeline
     global get_incident_status, list_incidents, generate_report
-    global capture_volatile_data, reopen_incident, analyze_logs
+    global capture_volatile_data, analyze_logs
     global get_available_playbooks, get_playbook_details
 
     try:
@@ -271,55 +397,7 @@ def import_core_functions():
         try:
             from .coordination.status_tracker import update_status, get_incident_status, list_incidents
             logger.debug("Loaded status_tracker functions")
-
-            # Define reopen_incident function that uses update_status for reopening
-            def reopen_incident(incident_id: str, reason: str, user: Optional[str] = None):
-                """
-                Reopen a previously closed or resolved incident.
-
-                Args:
-                    incident_id: The ID of the incident to reopen
-                    reason: Reason for reopening the incident
-                    user: User who is reopening the incident
-
-                Returns:
-                    bool: True if successful, False otherwise
-                """
-                try:
-                    # Get current status
-                    incident_data = get_incident_status(incident_id)
-                    if not incident_data:
-                        logger.error(f"Cannot reopen non-existent incident: {incident_id}")
-                        return False
-
-                    current_status = incident_data.get("status")
-
-                    # Check if incident can be reopened
-                    if current_status not in [IncidentStatus.RESOLVED, IncidentStatus.CLOSED]:
-                        logger.warning(f"Incident {incident_id} has status {current_status} and cannot be reopened")
-                        return False
-
-                    # Use update_status to set status back to investigating
-                    status_updated = update_status(
-                        incident_id=incident_id,
-                        status=IncidentStatus.INVESTIGATING,
-                        notes=f"Incident reopened: {reason}",
-                        user=user,
-                        phase=IncidentPhase.IDENTIFICATION  # Reset phase to identification
-                    )
-
-                    if status_updated:
-                        logger.info(f"Successfully reopened incident {incident_id}")
-                    else:
-                        logger.error(f"Failed to reopen incident {incident_id}")
-
-                    return status_updated
-
-                except Exception as e:
-                    logger.error(f"Error reopening incident {incident_id}: {e}", exc_info=True)
-                    return False
-            logger.debug("Created reopen_incident function")
-
+            # Note: reopen_incident is now defined at module level
         except ImportError as e:
             logger.warning(f"Failed to import status_tracker module: {e}")
             def update_status(*args, **kwargs):
@@ -328,8 +406,6 @@ def import_core_functions():
                 raise NotImplementedError("Status tracker not available")
             def list_incidents(*args, **kwargs):
                 raise NotImplementedError("Status tracker not available")
-            def reopen_incident(*args, **kwargs):
-                raise NotImplementedError("Reopen incident function not available")
 
         try:
             from .coordination.status_tracker import initialize_incident_status as track_incident_status
@@ -359,29 +435,6 @@ def import_core_functions():
             raise NotImplementedError("Status tracking not available")
         def generate_report(*args, **kwargs):
             raise NotImplementedError("Report generation not available")
-        def reopen_incident(*args, **kwargs):
-            raise NotImplementedError("Reopen incident function not available")
-
-    # Import playbook functions if available
-    if PLAYBOOKS_AVAILABLE:
-        try:
-            from .run_playbook import run_playbook, get_available_playbooks, get_playbook_details
-            logger.debug("Loaded playbook functions")
-        except ImportError as e:
-            logger.warning(f"Failed to import run_playbook module: {e}")
-            def run_playbook(*args, **kwargs):
-                raise NotImplementedError("Playbook module not available")
-            def get_available_playbooks(*args, **kwargs):
-                raise NotImplementedError("Playbook module not available")
-            def get_playbook_details(*args, **kwargs):
-                raise NotImplementedError("Playbook module not available")
-    else:
-        def run_playbook(*args, **kwargs):
-            raise NotImplementedError("Playbooks not available")
-        def get_available_playbooks(*args, **kwargs):
-            raise NotImplementedError("Playbooks not available")
-        def get_playbook_details(*args, **kwargs):
-            raise NotImplementedError("Playbooks not available")
 
     # Import forensic tool functions if available
     if FORENSIC_TOOLS_AVAILABLE:
