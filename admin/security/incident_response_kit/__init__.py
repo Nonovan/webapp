@@ -18,6 +18,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Union, Any, Tuple, Set, Callable
+import re
 
 # Package versioning
 __version__ = '0.1.1'
@@ -87,6 +88,21 @@ except ImportError as e:
     class VolatileDataCapture:
         def __init__(self, *args, **kwargs):
             raise NotImplementedError("VolatileDataCapture module not available")
+
+# Add imports for run_playbook module
+from .run_playbook import (
+    run_playbook,
+    get_available_playbooks,
+    get_playbook_details,
+    PlaybookRunner,
+    PlaybookParser,
+    PlaybookExecutionContext,
+    Playbook,
+    PlaybookSection,
+    PlaybookSubsection,
+    PlaybookFormat,
+    PlaybookExecutionError
+)
 
 # Load configurations
 try:
@@ -187,6 +203,7 @@ def import_core_functions():
     global track_incident_status, verify_file_integrity, build_timeline
     global get_incident_status, list_incidents, generate_report
     global capture_volatile_data, reopen_incident, analyze_logs
+    global get_available_playbooks, get_playbook_details
 
     try:
         # Import primary functions from module scripts
@@ -348,14 +365,22 @@ def import_core_functions():
     # Import playbook functions if available
     if PLAYBOOKS_AVAILABLE:
         try:
-            from .run_playbook import run_playbook
-            logger.debug("Loaded run_playbook function")
+            from .run_playbook import run_playbook, get_available_playbooks, get_playbook_details
+            logger.debug("Loaded playbook functions")
         except ImportError as e:
             logger.warning(f"Failed to import run_playbook module: {e}")
             def run_playbook(*args, **kwargs):
                 raise NotImplementedError("Playbook module not available")
+            def get_available_playbooks(*args, **kwargs):
+                raise NotImplementedError("Playbook module not available")
+            def get_playbook_details(*args, **kwargs):
+                raise NotImplementedError("Playbook module not available")
     else:
         def run_playbook(*args, **kwargs):
+            raise NotImplementedError("Playbooks not available")
+        def get_available_playbooks(*args, **kwargs):
+            raise NotImplementedError("Playbooks not available")
+        def get_playbook_details(*args, **kwargs):
             raise NotImplementedError("Playbooks not available")
 
     # Import forensic tool functions if available
@@ -558,6 +583,13 @@ __all__ = [
     'PlaybookExecutionError',
     'RecoveryError',
     'ValidationError',
+    'Playbook',
+    'PlaybookParser',
+    'PlaybookRunner',
+    'PlaybookSection',
+    'PlaybookSubsection',
+    'PlaybookFormat',
+    'PlaybookExecutionContext',
 
     # Functions
     'initialize_incident',
@@ -568,6 +600,8 @@ __all__ = [
     'get_incident_status',
     'list_incidents',
     'run_playbook',
+    'get_available_playbooks',
+    'get_playbook_details',
     'restore_service',
     'harden_system',
     'verify_file_integrity',
