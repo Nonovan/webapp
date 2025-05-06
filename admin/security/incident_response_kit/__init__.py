@@ -39,15 +39,16 @@ RECOVERY_AVAILABLE = os.path.exists(MODULE_PATH / "recovery")
 REFERENCES_AVAILABLE = os.path.exists(MODULE_PATH / "references")
 CONFIG_AVAILABLE = os.path.exists(MODULE_PATH / "config")
 VOLATILE_DATA_CAPTURE_AVAILABLE = os.path.exists(MODULE_PATH / "volatile_data_capture.py")
+LOG_ANALYZER_AVAILABLE = os.path.exists(MODULE_PATH / "log_analyzer.py")
 
 # Import constants from dedicated constants file
-
 from .incident_constants import (
     IncidentStatus, IncidentPhase, IncidentSeverity, IncidentType,
     PHASE_STATUS_MAPPING, STATUS_TRANSITIONS, IncidentSource, EvidenceType,
     ActionType, PHASE_REQUIRED_ACTIONS, INCIDENT_TYPE_RECOMMENDED_EVIDENCE,
     SEVERITY_REQUIRED_NOTIFICATIONS
 )
+
 # Import the Incident class
 try:
     from .incident import Incident
@@ -185,7 +186,7 @@ def import_core_functions():
     global update_status, run_playbook, restore_service, harden_system
     global track_incident_status, verify_file_integrity, build_timeline
     global get_incident_status, list_incidents, generate_report
-    global capture_volatile_data, reopen_incident
+    global capture_volatile_data, reopen_incident, analyze_logs
 
     try:
         # Import primary functions from module scripts
@@ -230,6 +231,15 @@ def import_core_functions():
         logger.warning(f"Failed to import volatile_data_capture module: {e}")
         def capture_volatile_data(*args, **kwargs):
             raise NotImplementedError("Volatile data capture module not available")
+
+    # Import log analyzer function if available
+    try:
+        from .log_analyzer import collect_evidence as analyze_logs
+        logger.debug("Loaded log_analyzer function")
+    except ImportError as e:
+        logger.warning(f"Failed to import log_analyzer module: {e}")
+        def analyze_logs(*args, **kwargs):
+            raise NotImplementedError("Log analyzer module not available")
 
     # Conditionally import coordination functions if available
     if COORDINATION_AVAILABLE:
@@ -291,7 +301,6 @@ def import_core_functions():
                 except Exception as e:
                     logger.error(f"Error reopening incident {incident_id}: {e}", exc_info=True)
                     return False
-
             logger.debug("Created reopen_incident function")
 
         except ImportError as e:
@@ -403,36 +412,44 @@ def get_available_components() -> Dict[str, bool]:
     """Return a dictionary indicating which components of the toolkit are available."""
     return {
         "coordination": COORDINATION_AVAILABLE,
-        "volatile_data_capture": VOLATILE_DATA_CAPTURE_AVAILABLE,
         "documentation": DOCUMENTATION_AVAILABLE,
-        "playbooks": PLAYBOOKS_AVAILABLE,
         "forensic_tools": FORENSIC_TOOLS_AVAILABLE,
+        "playbooks": PLAYBOOKS_AVAILABLE,
         "recovery": RECOVERY_AVAILABLE,
-        "file_integrity": hasattr(verify_file_integrity, "__call__") and not isinstance(verify_file_integrity.__call__, type(NotImplementedError)),
-        "timeline_building": hasattr(build_timeline, "__call__") and not isinstance(build_timeline.__call__, type(NotImplementedError)),
-        "configuration": CONFIG_LOADED,
-        "templates": DOCUMENTATION_AVAILABLE,
-        "references": REFERENCES_AVAILABLE
+        "references": REFERENCES_AVAILABLE,
+        "config": CONFIG_LOADED,
+        "volatile_data_capture": VOLATILE_DATA_CAPTURE_AVAILABLE,
+        "log_analyzer": LOG_ANALYZER_AVAILABLE
     }
 
 # Create evidence directory safely if it doesn't exist
 def create_evidence_directory(incident_id: str) -> Path:
     """Create a directory for evidence collection based on incident ID."""
-    incident_id = sanitize_incident_id(incident_id)
-    evidence_dir = Path(DEFAULT_EVIDENCE_DIR) / incident_id
+    # Sanitize incident ID for safe file operations
+    safe_id = sanitize_incident_id(incident_id)
 
+    # Create the base directory
+    base_dir = Path(DEFAULT_EVIDENCE_DIR)
     try:
-        evidence_dir.mkdir(parents=True, exist_ok=True)
+        base_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        logger.error(f"Failed to create base evidence directory: {e}")
+        raise EvidenceCollectionError(f"Cannot create evidence directory: {e}")
+
+    # Create incident-specific directory
+    evidence_dir = base_dir / safe_id
+    try:
+        evidence_dir.mkdir(exist_ok=True)
+        logger.debug(f"Created evidence directory: {evidence_dir}")
         return evidence_dir
-    except (OSError, PermissionError) as e:
-        logger.error(f"Failed to create evidence directory for incident {incident_id}: {e}")
-        raise EvidenceCollectionError(f"Failed to create evidence directory: {e}")
+    except OSError as e:
+        logger.error(f"Failed to create incident evidence directory: {e}")
+        raise EvidenceCollectionError(f"Cannot create evidence directory for incident {incident_id}: {e}")
 
 # Sanitize incident ID to ensure it's safe for file operations
 def sanitize_incident_id(incident_id: str) -> str:
     """Sanitize incident ID to ensure it's safe for file operations."""
-    # Replace any characters that are not alphanumeric, dash, or underscore
-    import re
+    # Replace any potentially unsafe characters with underscores
     return re.sub(r'[^a-zA-Z0-9_\-]', '_', incident_id)
 
 # Check file integrity
@@ -443,78 +460,64 @@ def check_file_integrity(
     verify_permissions: bool = True
 ) -> Dict[str, Any]:
     """
-    Check the integrity of a file by verifying its hash and permissions.
+    Check integrity of a file using hash verification and permission checks.
 
     Args:
-        file_path: Path to the file
-        expected_hash: Expected hash value to compare against
-        hash_algorithm: Hash algorithm to use (sha256, sha512, etc.)
-        verify_permissions: Whether to verify file permissions
+        file_path: Path to file to check
+        expected_hash: Expected hash value (if None, only calculate current hash)
+        hash_algorithm: Algorithm to use for hashing
+        verify_permissions: Whether to verify file permissions are secure
 
     Returns:
-        Dict containing integrity check results
+        Dictionary with integrity check results
     """
+    file_path = Path(file_path)
+    result = {
+        "file_exists": False,
+        "hash_verified": False if expected_hash else None,
+        "current_hash": None,
+        "permissions_secure": None,
+        "errors": []
+    }
+
     try:
-        import hashlib
-        import os
+        if file_path.exists():
+            result["file_exists"] = True
 
-        result = {
-            'file_exists': False,
-            'hash_match': False,
-            'permissions_ok': False,
-            'file_hash': None,
-            'errors': []
-        }
-
-        file_path = Path(file_path)
-
-        # Check if file exists
-        if not file_path.exists():
-            result['errors'].append("File does not exist")
-            return result
-
-        result['file_exists'] = True
-
-        # Calculate hash
-        hash_func = getattr(hashlib, hash_algorithm, None)
-        if not hash_func:
-            result['errors'].append(f"Invalid hash algorithm: {hash_algorithm}")
-            return result
-
-        try:
-            with open(file_path, 'rb') as f:
-                file_hash = hash_func(f.read()).hexdigest()
-                result['file_hash'] = file_hash
-
-            if expected_hash:
-                result['hash_match'] = file_hash == expected_hash
-                if not result['hash_match']:
-                    result['errors'].append("Hash mismatch")
-        except (IOError, PermissionError) as e:
-            result['errors'].append(f"Error reading file: {e}")
-
-        # Check permissions if requested
-        if verify_permissions:
+            # Calculate hash
             try:
-                # Check if file is world-writable
-                mode = os.stat(file_path).st_mode
-                is_world_writable = bool(mode & 0o002)
-                result['permissions_ok'] = not is_world_writable
-                if is_world_writable:
-                    result['errors'].append("File is world-writable")
-            except OSError as e:
-                result['errors'].append(f"Error checking permissions: {e}")
+                from hashlib import new as new_hash
+                hash_obj = new_hash(hash_algorithm)
+                with open(file_path, 'rb') as f:
+                    for chunk in iter(lambda: f.read(4096), b''):
+                        hash_obj.update(chunk)
+                current_hash = hash_obj.hexdigest()
+                result["current_hash"] = current_hash
 
-        return result
+                # Verify if expected hash provided
+                if expected_hash:
+                    result["hash_verified"] = current_hash == expected_hash
+            except Exception as e:
+                result["errors"].append(f"Hash calculation failed: {str(e)}")
+
+            # Check permissions if requested
+            if verify_permissions:
+                try:
+                    import stat
+                    permissions = file_path.stat().st_mode
+                    # Check if file is world-writable or group-writable
+                    if permissions & stat.S_IWOTH or permissions & stat.S_IWGRP:
+                        result["permissions_secure"] = False
+                    else:
+                        result["permissions_secure"] = True
+                except Exception as e:
+                    result["errors"].append(f"Permission check failed: {str(e)}")
+        else:
+            result["errors"].append("File does not exist")
     except Exception as e:
-        logger.error(f"Error checking file integrity: {e}")
-        return {
-            'file_exists': False,
-            'hash_match': False,
-            'permissions_ok': False,
-            'file_hash': None,
-            'errors': [f"Unexpected error: {str(e)}"]
-        }
+        result["errors"].append(f"Integrity check failed: {str(e)}")
+
+    return result
 
 # Log initialization status
 logger.info(f"Incident Response Toolkit initialized, version {__version__}")
@@ -570,6 +573,9 @@ __all__ = [
     'verify_file_integrity',
     'build_timeline',
     'generate_report',
+    'analyze_logs',
+
+    # Utility functions
     'get_available_components',
     'create_evidence_directory',
     'sanitize_incident_id',

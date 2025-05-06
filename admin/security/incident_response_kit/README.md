@@ -15,6 +15,7 @@
 - [API Reference](#api-reference)
 - [Directory Structure](#directory-structure)
 - [Usage Examples](#usage-examples)
+- [Reopening Incidents](#reopening-incidents)
 - [Related Documentation](#related-documentation)
 
 ## Overview
@@ -277,11 +278,44 @@ admin/security/incident_response_kit/
 ### Component Availability Check
 
 ```python
-# Check which components are available in the toolkit
 from admin.security.incident_response_kit import get_available_components
 
+# Check which components are available
 components = get_available_components()
-print(f"Available components: {components}")
+
+# Components returned as dictionary with availability status
+print(f"Coordination tools available: {components['coordination']}")
+print(f"Documentation templates available: {components['documentation']}")
+print(f"Forensic tools available: {components['forensic_tools']}")
+print(f"Recovery tools available: {components['recovery']}")
+```
+
+## Reopening Incidents
+
+The incident response kit provides functionality to reopen incidents that were previously closed when new evidence or related activity is discovered:
+
+- **`reopen_incident`** - Reopens a previously closed incident
+  - Returns the incident to `INVESTIGATING` status
+  - Resets the phase to `IDENTIFICATION`
+  - Creates an audit trail entry documenting the reason
+  - Notifies stakeholders about the reopened incident
+
+### Example Usage
+
+```python
+from admin.security.incident_response_kit import reopen_incident
+
+# Reopen a previously closed incident when related activity is detected
+success = reopen_incident(
+    incident_id="IR-2023-042",
+    reason="Similar attack pattern detected from new IP range",
+    user="security-analyst@example.com"
+)
+
+if success:
+    print("Incident successfully reopened")
+else:
+    print("Failed to reopen incident")
 ```
 
 ## Related Documentation
