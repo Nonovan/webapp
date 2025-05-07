@@ -4,7 +4,7 @@ This directory contains development tools for the Cloud Infrastructure Platform.
 
 ## Overview
 
-The development tools in this directory provide essential utilities for documentation generation, code quality management, and development environment setup. These tools are primarily used during development and CI/CD processes to maintain code quality and ensure proper documentation.
+The development tools in this directory provide essential utilities for documentation generation, code quality management, development environment setup, and template processing. These tools are primarily used during development and CI/CD processes to maintain code quality and ensure proper documentation.
 
 ## Key Scripts
 
@@ -13,17 +13,25 @@ The development tools in this directory provide essential utilities for document
 - **`setup_dev_environment.sh`**: Sets up a development environment for the platform
 
 ## Directory Structure
-```bash
+
+```plaintext
 scripts/utils/dev_tools/
+├── README.md                  # This documentation
+├── __init__.py                # Package initialization and exports
 ├── generate_docs.sh           # Documentation generation script
 ├── lint.sh                    # Code linting and formatting utility
-├── README.md                  # This documentation
 ├── setup_dev_environment.sh   # Development environment setup
+├── import_utils/              # Import statement and data import utilities
+│   ├── README.md              # Import utilities documentation
+│   ├── __init__.py            # Package initialization
+│   ├── import_statement_updater.py  # Import statement updating tool
+│   └── migration_transition_module.py  # Backward compatibility module
 └── python/                    # Python helper scripts
+    ├── README.md              # Python utilities documentation
+    ├── __init__.py            # Package initialization
     ├── convert_format.py      # Converts documents between formats
     ├── generate_cli_docs.py   # Generates CLI documentation
     └── process_template.py    # Processes template files with variable substitution
-
 ```
 
 ## Usage
@@ -73,6 +81,24 @@ scripts/utils/dev_tools/
 ./scripts/utils/dev_tools/setup_dev_environment.sh --debug
 ```
 
+### Template Processing
+
+```python
+from scripts.utils.dev_tools import process_template
+
+# Process a template with variable substitution
+process_template(
+    template_path="template.md.tmpl",
+    output_path="output.md",
+    format_type="markdown",
+    variables={
+        "title": "Project Documentation",
+        "version": "1.0.0",
+        "author": "Development Team"
+    }
+)
+```
+
 ## Configuration
 
 The development tools read configuration from the following default locations:
@@ -117,3 +143,4 @@ The `python/` subdirectory contains Python scripts that support the main shell s
 - Development Guide
 - Documentation Standards
 - Code Style Guide
+- Template Development Guide

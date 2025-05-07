@@ -62,7 +62,7 @@ Both sets of utilities are designed with security, flexibility, and validation a
   - Type checking and coercion
   - Error reporting
 
-- **`transition_module_for_migration.py`**: Backward compatibility module
+- **`migration_transition_module.py`**: Backward compatibility module
   - Re-exports functions from their new locations
   - Provides deprecation warnings
   - Ensures smooth migration path
@@ -71,16 +71,16 @@ Both sets of utilities are designed with security, flexibility, and validation a
 
 ```plaintext
 scripts/utils/dev_tools/import_utils/
-├── README.md                     # This documentation
-├── __init__.py                   # Package initialization and exports
-├── import_statement_updater.py   # Import statement updating tool
-├── transition_module_for_migration.py # Backward compatibility layer
-├── csv_utils.py                  # CSV file import and processing
-├── json_utils.py                 # JSON file import and processing
-├── yaml_utils.py                 # YAML file import and processing
-├── xml_utils.py                  # XML file import and processing
-├── format_detection.py           # Format auto-detection utilities
-└── validation.py                 # Data validation utilities
+├── README.md                      # This documentation
+├── __init__.py                    # Package initialization and exports
+├── import_statement_updater.py    # Import statement updating tool
+├── migration_transition_module.py # Backward compatibility layer
+├── csv_utils.py                   # CSV file import and processing
+├── json_utils.py                  # JSON file import and processing
+├── yaml_utils.py                  # YAML file import and processing
+├── xml_utils.py                   # XML file import and processing
+├── format_detection.py            # Format auto-detection utilities
+└── validation.py                  # Data validation utilities
 ```
 
 ## Usage Examples
@@ -158,7 +158,7 @@ xml_data = xml_to_dict(xml_doc)
 
 ```python
 # Old code that needs to be gradually migrated
-from scripts.utils.dev_tools.import_utils.transition_module_for_migration import (
+from scripts.utils.dev_tools.import_utils.migration_transition_module import (
     compute_file_hash, sanitize_path, detect_file_changes
 )
 

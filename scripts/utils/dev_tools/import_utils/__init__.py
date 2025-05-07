@@ -117,7 +117,7 @@ except ImportError as e:
 
 # Import transition module for backward compatibility
 try:
-    from . import transition_module_for_migration
+    from . import migration_transition_module
     TRANSITION_MODULE_AVAILABLE = True
 except ImportError as e:
     logger.debug(f"Transition module not available: {e}")
@@ -332,7 +332,7 @@ if TRANSITION_MODULE_AVAILABLE:
     # but don't expose them directly - they're accessed through
     # transition_module_for_migration
     __all__.extend([
-        "transition_module_for_migration"
+        "migration_transition_module"
     ])
 
 # Log initialization status
