@@ -193,6 +193,8 @@ from .system import (
 from .logging_utils import (
     # Logger setup
     setup_app_logging,
+    setup_logging,
+    setup_cli_logging,
     get_logger,
     get_security_logger,
     get_audit_logger,
@@ -439,6 +441,8 @@ __all__ = [
 
     # Logging utilities
     'setup_app_logging',
+    'setup_logging',
+    'setup_cli_logging',
     'get_logger',
     'get_security_logger',
     'get_audit_logger',

@@ -1,9 +1,13 @@
 """
-Logging configuration module for myproject.
+Logging utilities for the Cloud Infrastructure Platform.
 
-This module provides a comprehensive logging system for the application with
-features such as structured JSON logging, log rotation, security event tracking,
-and integration with error monitoring services like Sentry.
+This module provides consistent logging configuration and utility functions
+for application components, focusing on security, auditability, and proper
+log handling across development and production environments.
+
+This module provides a comprehensive logging system with features such as
+structured JSON logging, log rotation, security event tracking, and integration with
+error monitoring services like Sentry.
 
 The logging system is designed to facilitate application monitoring, debugging,
 and auditing by capturing detailed contextual information with each log entry,
@@ -30,6 +34,7 @@ import sys
 import socket
 import traceback
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional, Dict, Any, Union, List
 from flask import Flask, request, g, has_request_context, current_app, has_app_context
 import sentry_sdk
@@ -40,6 +45,24 @@ from sentry_sdk.integrations.redis import RedisIntegration
 # Create a module-level logger
 logger = logging.getLogger(__name__)
 
+# Constants for log levels
+LOG_LEVEL_DEBUG = logging.DEBUG
+LOG_LEVEL_INFO = logging.INFO
+LOG_LEVEL_WARNING = logging.WARNING
+LOG_LEVEL_ERROR = logging.ERROR
+LOG_LEVEL_CRITICAL = logging.CRITICAL
+
+# Default log format strings
+DEFAULT_LOG_FORMAT = '[%(asctime)s] %(levelname)s in %(module)s: %(message)s'
+DEFAULT_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
+DEFAULT_CONSOLE_FORMAT = '%(levelname)s: %(message)s'
+CLI_LOG_FORMAT = '[%(asctime)s] %(levelname)s: %(message)s'
+
+__all__ = [
+    'setup_app_logging',
+    'setup_logging',
+    'setup_cli_logging',
+]
 
 class SecurityAwareJsonFormatter(logging.Formatter):
     """
@@ -196,161 +219,110 @@ class FileIntegrityAwareHandler(logging.Handler):
         return self.integrity_events[-limit:] if self.integrity_events else []
 
 
-def setup_app_logging(app: Flask) -> None:
+def setup_app_logging(app: Any = None,
+                     level: Union[str, int] = logging.INFO,
+                     log_file: Optional[str] = None) -> None:
     """
-    Configure centralized application logging.
-
-    This function sets up a comprehensive logging system for the Flask application,
-    including file handlers with rotation, console output, structured JSON formatting,
-    and Sentry integration for error tracking.
+    Configure logging for Flask application.
 
     Args:
-        app (Flask): The Flask application instance to configure logging for
+        app: Flask application instance
+        level: Log level to use (name or number)
+        log_file: Optional path to log file
+    """
+    # Convert string level name to numeric value if needed
+    if isinstance(level, str):
+        level = getattr(logging, level.upper(), logging.INFO)
 
-    Returns:
-        None: This function configures the application's logging system in-place
+    # Configure Flask app logger if provided
+    if app:
+        # Use Flask's logger configuration mechanism
+        app.logger.setLevel(level)
+
+        # Remove default handler if adding a custom one
+        if log_file and app.logger.handlers:
+            for handler in app.logger.handlers:
+                app.logger.removeHandler(handler)
+
+        formatter = logging.Formatter(DEFAULT_LOG_FORMAT)
+
+        # Add file handler if specified
+        if log_file:
+            file_handler = logging.FileHandler(log_file)
+            file_handler.setFormatter(formatter)
+            app.logger.addHandler(file_handler)
+
+        # Make sure we have at least one handler
+        if not app.logger.handlers:
+            stream_handler = logging.StreamHandler()
+            stream_handler.setFormatter(formatter)
+            app.logger.addHandler(stream_handler)
+
+    # Also configure the root logger
+    logging.basicConfig(
+        level=level,
+        format=DEFAULT_LOG_FORMAT,
+        handlers=[logging.StreamHandler(sys.stdout)]
+    )
+
+
+def setup_cli_logging(log_file: Optional[str] = None,
+                     level: Union[str, int] = logging.INFO,
+                     include_timestamp: bool = True,
+                     json_format: bool = False) -> None:
+    """
+    Set up logging specifically for CLI applications.
+
+    Configures logging for command-line interface tools with appropriate
+    formatting and output options. This creates a more user-friendly output
+    focused on readability while still maintaining proper structured logging
+    when needed.
+
+    Args:
+        log_file: Optional path to log file. If None, logs only to console.
+        level: Log level as string (DEBUG, INFO, WARNING, ERROR, CRITICAL) or
+               as a logging constant.
+        include_timestamp: Whether to include timestamps in console output
+        json_format: Whether to use JSON formatting for log file output
 
     Example:
-        app = Flask(__name__)
-        setup_app_logging(app)
-        app.logger.info("Application logging initialized")
+        ```python
+        from core.utils.logging_utils import setup_cli_logging
+
+        # Basic setup with console output only
+        setup_cli_logging()
+
+        # Setup with file output and custom level
+        setup_cli_logging('/var/log/myapp/cli.log', level='DEBUG')
+        ```
     """
-    # Create logs directory with secure permissions
-    log_dir = os.path.join(app.root_path, 'logs')
-    os.makedirs(log_dir, exist_ok=True)
-
-    # Set secure permissions on log directory (0o750 = rwxr-x---)
-    try:
-        os.chmod(log_dir, 0o750)
-    except (IOError, OSError, PermissionError):
-        pass  # Continue even if chmod fails (might be running without permissions)
-
-    # Configure root logger
+    # Get root logger
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
 
-    # Clear existing handlers to avoid duplicates when reloading in development
+    # Clear existing handlers to avoid duplicates when reloading
     if root_logger.handlers:
         for handler in root_logger.handlers[:]:
             root_logger.removeHandler(handler)
 
-    # Determine if this is a development environment
-    is_dev = app.config.get('ENV', 'production').lower() == 'development'
-    log_level = app.config.get('LOG_LEVEL', 'INFO').upper()
-
     # Set numeric log level
-    numeric_level = getattr(logging, log_level, logging.INFO)
-    root_logger.setLevel(numeric_level)
-
-    # Create console handler
-    console_handler = logging.StreamHandler(sys.stdout)
-    if is_dev:
-        # Use a more readable format for development
-        console_handler.setFormatter(logging.Formatter(
-            '[%(asctime)s] %(levelname)s in %(module)s: %(message)s'
-        ))
+    if isinstance(level, str):
+        log_level = getattr(logging, level.upper(), logging.INFO)
     else:
-        # Use structured JSON in production for better parsing
-        console_handler.setFormatter(SecurityAwareJsonFormatter())
+        log_level = level
 
-    # Set appropriate level
-    console_handler.setLevel(logging.DEBUG if is_dev else numeric_level)
-    root_logger.addHandler(console_handler)
-
-    # Create file handlers with rotation
-    # Main application log - 10MB files, keep 10 backups
-    app_log_path = os.path.join(log_dir, 'application.log')
-    app_handler = logging.handlers.RotatingFileHandler(
-        app_log_path, maxBytes=10*1024*1024, backupCount=10
-    )
-    app_handler.setFormatter(SecurityAwareJsonFormatter())
-    app_handler.setLevel(numeric_level)
-    root_logger.addHandler(app_handler)
-
-    # Error log - separate for critical errors, 5MB files, keep 20 backups
-    error_log_path = os.path.join(log_dir, 'error.log')
-    error_handler = logging.handlers.RotatingFileHandler(
-        error_log_path, maxBytes=5*1024*1024, backupCount=20
-    )
-    error_handler.setFormatter(SecurityAwareJsonFormatter())
-    error_handler.setLevel(logging.ERROR)
-    root_logger.addHandler(error_handler)
-
-    # Security log - for security-specific events, 10MB files, keep 30 backups
-    security_log_path = os.path.join(log_dir, 'security.log')
-    security_handler = logging.handlers.RotatingFileHandler(
-        security_log_path, maxBytes=10*1024*1024, backupCount=30
-    )
-    security_handler.setFormatter(SecurityAwareJsonFormatter())
-    security_logger = logging.getLogger('security')
-    security_logger.setLevel(logging.INFO)
-    security_logger.addHandler(security_handler)
-
-    # Add file integrity tracking handler
-    integrity_handler = FileIntegrityAwareHandler(level=logging.INFO)
-    security_logger.addHandler(integrity_handler)
-
-    # Store handler in app for accessing file integrity events
-    app.file_integrity_handler = integrity_handler
-
-    # Make security logger propagate to root logger
-    security_logger.propagate = True
-
-    # Set Flask app logger level
-    app.logger.setLevel(logging.DEBUG if is_dev else numeric_level)
-
-    # Configure Sentry for error reporting in production
-    if not is_dev and app.config.get('SENTRY_DSN'):
-        sentry_sdk.init(
-            dsn=app.config.get('SENTRY_DSN'),
-            integrations=[
-                FlaskIntegration(),
-                SqlalchemyIntegration(),
-                RedisIntegration()
-            ],
-            environment=app.config.get('ENV'),
-            release=app.config.get('VERSION', 'unknown'),
-            send_default_pii=False,  # Don't send PII by default
-            traces_sample_rate=app.config.get('SENTRY_TRACES_SAMPLE_RATE', 0.1)
-        )
-        app.logger.info("Sentry error reporting initialized")
-
-    # Log the configuration
-    app.logger.info("Application logging initialized", extra={
-        "log_dir": log_dir,
-        "environment": app.config.get('ENV'),
-        "level": log_level,
-        "file_integrity_monitoring": app.config.get('ENABLE_FILE_INTEGRITY_MONITORING', True)
-    })
-
-
-def setup_logging(log_file: Optional[str] = None, level: str = 'INFO') -> None:
-    """
-    Set up application logging to a specified file with a given log level.
-
-    Args:
-        log_file: Path to the log file (if None, logs to console only)
-        level: Logging level (e.g., 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')
-    """
-    log_level = getattr(logging, level.upper(), logging.INFO)
-
-    # Create a formatter
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-
-    # Configure the root logger
-    root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
 
-    # Clear any existing handlers to avoid duplicate logging
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
+    # Create console handler with appropriate formatting
+    console_handler = logging.StreamHandler(sys.stdout)
 
-    # Add console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
+    # Use a more readable format for CLI
+    if include_timestamp:
+        console_format = CLI_LOG_FORMAT
+    else:
+        console_format = DEFAULT_CONSOLE_FORMAT
+
+    console_formatter = logging.Formatter(console_format)
+    console_handler.setFormatter(console_formatter)
     console_handler.setLevel(log_level)
     root_logger.addHandler(console_handler)
 
@@ -369,8 +341,26 @@ def setup_logging(log_file: Optional[str] = None, level: str = 'INFO') -> None:
                 except (OSError, PermissionError):
                     pass
 
-            file_handler = logging.FileHandler(log_file)
-            file_handler.setFormatter(formatter)
+            # Create the file handler with rotation
+            from logging.handlers import RotatingFileHandler
+            file_handler = RotatingFileHandler(
+                log_file, maxBytes=5*1024*1024, backupCount=5
+            )
+
+            # Use JSON formatting or standard formatting
+            if json_format:
+                try:
+                    # Try to use the platform's JSON formatter if available
+                    from core.utils.json_log_formatter import JsonFormatter
+                    file_handler.setFormatter(JsonFormatter())
+                except ImportError:
+                    # Fall back to standard formatter
+                    file_formatter = logging.Formatter(DEFAULT_LOG_FORMAT)
+                    file_handler.setFormatter(file_formatter)
+            else:
+                file_formatter = logging.Formatter(DEFAULT_LOG_FORMAT)
+                file_handler.setFormatter(file_formatter)
+
             file_handler.setLevel(log_level)
             root_logger.addHandler(file_handler)
 
@@ -381,7 +371,172 @@ def setup_logging(log_file: Optional[str] = None, level: str = 'INFO') -> None:
                 pass
 
         except (IOError, OSError) as e:
-            logger.error(f"Failed to set up file logging: {e}")
+            # Log to console if file setup fails
+            root_logger.error(f"Failed to set up file logging for CLI: {e}")
+
+    # Set up CLI module logger
+    cli_logger = logging.getLogger('cli')
+    cli_logger.setLevel(log_level)
+
+    # Report setup completion if debug level
+    if log_level <= logging.DEBUG:
+        root_logger.debug(f"CLI logging initialized (level: {logging.getLevelName(log_level)}, file: {log_file or 'none'})")
+
+
+def get_logger(module_name: str, level: Union[str, int] = None) -> logging.Logger:
+    """
+    Get a logger instance with proper configuration for a module.
+
+    Creates or retrieves a logger for a specific module with appropriate
+    configuration to ensure consistent logging behavior.
+
+    Args:
+        module_name: Name of the module requesting a logger
+        level: Optional specific log level for this logger
+
+    Returns:
+        Configured logger instance
+    """
+    logger = logging.getLogger(module_name)
+
+    # Set level if specified
+    if level is not None:
+        if isinstance(level, str):
+            level = getattr(logging, level.upper(), logging.INFO)
+        logger.setLevel(level)
+
+    return logger
+
+
+def log_to_file(message: str,
+               level: Union[str, int] = logging.INFO,
+               log_file: str = None,
+               include_timestamp: bool = True) -> bool:
+    """
+    Log a message to a specific file.
+
+    Directly writes a log message to a specified file without going through
+    the logging system. Useful for dedicated logs like audit logs.
+
+    Args:
+        message: The message to log
+        level: The log level (name or numeric constant)
+        log_file: Path to the log file
+        include_timestamp: Whether to include timestamp in the message
+
+    Returns:
+        True if successful, False otherwise
+    """
+    if not log_file:
+        return False
+
+    try:
+        # Create directory if it doesn't exist
+        log_dir = os.path.dirname(log_file)
+        if log_dir and not os.path.exists(log_dir):
+            os.makedirs(log_dir, exist_ok=True)
+
+        # Format the level if it's a number
+        if isinstance(level, int):
+            level_name = logging.getLevelName(level)
+        else:
+            level_name = level.upper()
+
+        # Format the message with timestamp if requested
+        if include_timestamp:
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            formatted_message = f"[{timestamp}] {level_name}: {message}\n"
+        else:
+            formatted_message = f"{level_name}: {message}\n"
+
+        # Write to file
+        with open(log_file, 'a') as f:
+            f.write(formatted_message)
+
+        return True
+    except Exception as e:
+        # Log to standard logger if file logging fails
+        logger.error(f"Failed to log to file {log_file}: {e}")
+        return False
+
+
+def sanitize_log_message(message: str) -> str:
+    """
+    Sanitize a message before logging to prevent log injection.
+
+    Removes potentially dangerous characters from log messages that could be used
+    for log injection attacks.
+
+    Args:
+        message: The message to sanitize
+
+    Returns:
+        Sanitized message string
+    """
+    # Replace newlines and carriage returns with spaces
+    sanitized = message.replace("\n", " ").replace("\r", " ")
+
+    # Filter out control characters
+    sanitized = "".join(ch for ch in sanitized if ch >= ' ' or ch in ['\t'])
+
+    # Truncate very long messages
+    if len(sanitized) > 8192:
+        sanitized = sanitized[:8189] + "..."
+
+    return sanitized
+
+
+def obfuscate_sensitive_data(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Mask sensitive data in dictionary for safe logging.
+
+    Args:
+        data: Dictionary potentially containing sensitive data
+
+    Returns:
+        Dictionary with sensitive values masked
+    """
+    if not isinstance(data, dict):
+        return data
+
+    sensitive_patterns = [
+        "password", "secret", "token", "key", "credential",
+        "api_key", "private", "access_key", "secret_key"
+    ]
+
+    masked_data = {}
+    for key, value in data.items():
+        if any(pattern in key.lower() for pattern in sensitive_patterns):
+            masked_data[key] = "******" if value else value
+        elif isinstance(value, dict):
+            masked_data[key] = obfuscate_sensitive_data(value)
+        elif isinstance(value, list) and all(isinstance(item, dict) for item in value):
+            masked_data[key] = [obfuscate_sensitive_data(item) for item in value]
+        else:
+            masked_data[key] = value
+
+    return masked_data
+
+
+# Export all public functions and constants
+__all__ = [
+    'setup_app_logging',
+    'setup_cli_logging',
+    'get_logger',
+    'log_to_file',
+    'sanitize_log_message',
+    'obfuscate_sensitive_data',
+
+    'LOG_LEVEL_DEBUG',
+    'LOG_LEVEL_INFO',
+    'LOG_LEVEL_WARNING',
+    'LOG_LEVEL_ERROR',
+    'LOG_LEVEL_CRITICAL',
+
+    'DEFAULT_LOG_FORMAT',
+    'DEFAULT_CONSOLE_FORMAT',
+    'CLI_LOG_FORMAT'
+]
 
 
 def log_critical(message: str) -> None:

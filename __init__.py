@@ -26,7 +26,7 @@ from typing import Optional
 
 from flask import Flask, g, request
 from core.factory import create_app as core_create_app
-from core.utils import generate_request_id
+from core import generate_request_id
 from views import register_blueprints
 from services import check_integrity, SECURITY_SERVICE_AVAILABLE
 
