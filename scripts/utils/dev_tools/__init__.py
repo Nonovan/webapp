@@ -22,6 +22,7 @@ __author__ = 'Cloud Infrastructure Platform Team'
 CONVERT_FORMAT_AVAILABLE = False
 CLI_DOCS_AVAILABLE = False
 PROCESS_TEMPLATE_AVAILABLE = False
+IMPORT_UPDATER_AVAILABLE = False
 
 # Try importing convert_format components
 try:
@@ -66,12 +67,30 @@ try:
 except ImportError as e:
     logger.debug(f"Template processing utilities not available: {e}")
 
+# Try importing import_statement_updater components
+try:
+    from .import_utils import (
+        update_file_imports,
+        analyze_file_imports,
+        find_python_files,
+        parse_args,
+        update_imports_main,
+        IMPORT_MAPPINGS,
+        FUNCTION_MERGES,
+        MODULE_DEPENDENCIES
+    )
+    IMPORT_UPDATER_AVAILABLE = True
+except ImportError as e:
+    logger.debug(f"Import statement updater not available: {e}")
+    IMPORT_UPDATER_AVAILABLE = False
+
 def get_available_utilities() -> Dict[str, bool]:
     """Get a dictionary of available utilities in this package."""
     return {
         "convert_format": CONVERT_FORMAT_AVAILABLE,
         "cli_docs": CLI_DOCS_AVAILABLE,
-        "process_template": PROCESS_TEMPLATE_AVAILABLE
+        "process_template": PROCESS_TEMPLATE_AVAILABLE,
+        "import_updater": IMPORT_UPDATER_AVAILABLE
     }
 
 # Define public exports
@@ -112,7 +131,19 @@ __all__ = [
         "validate_template",
         "load_variables",
         "SUPPORTED_FORMATS"
-    ] if PROCESS_TEMPLATE_AVAILABLE else [])
+    ] if PROCESS_TEMPLATE_AVAILABLE else []),
+
+    # Import statement updater components (conditionally added)
+    *([
+        "update_file_imports",
+        "analyze_file_imports",
+        "find_python_files",
+        "parse_args",
+        "update_imports_main",
+        "IMPORT_MAPPINGS",
+        "FUNCTION_MERGES",
+        "MODULE_DEPENDENCIES"
+    ] if IMPORT_UPDATER_AVAILABLE else [])
 ]
 
 # Log initialization status

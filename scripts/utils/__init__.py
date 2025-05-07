@@ -47,31 +47,37 @@ except ImportError as e:
 # Try importing Python utilities
 try:
     from .python import (
-        # Sample data generator
+        # Sample data generator components
         generate_sample_data,
         save_data,
+        parse_args,
+        generate_sample_data_main,
 
-        # File utilities (if available)
-        safe_read_file,
-        safe_write_file,
-        ensure_directory,
-        get_file_checksum,
-        find_files_by_pattern,
+        # Sample data generator constants
+        DEFAULT_NUM_RECORDS,
+        DEFAULT_OUTPUT_FILE,
+        VALID_FORMATS,
+        DEFAULT_FORMAT,
+        FIRST_NAMES,
+        LAST_NAMES,
+        DOMAINS,
+        DEPARTMENTS,
+        STATUSES,
 
-        # Configuration utilities
-        load_config,
-        save_config,
-        merge_configs,
-        validate_config,
-        get_config_value,
-        set_config_value,
+        # JSON/YAML converter components
+        JSONYAMLConverter,
+        parse_arguments,
+        configure_logging,
+        get_output_format,
+        json_yaml_converter_main,
 
-        # Get package info
+        # Package info
         get_available_utilities as get_python_utilities
     )
     PYTHON_UTILS_AVAILABLE = True
 except ImportError as e:
-    logger.debug(f"Python utilities not available: {e}")
+    logger.debug(f"Common utilities not available: {e}")
+
 
 # Try importing development tools
 try:
@@ -181,27 +187,32 @@ if COMMON_UTILS_AVAILABLE:
 
 if PYTHON_UTILS_AVAILABLE:
     __all__.extend([
-        # Sample data generator
+        # Sample data generator components
         "generate_sample_data",
         "save_data",
+        "parse_args",
+        "generate_sample_data_main",
 
-        # File utilities
-        "safe_read_file",
-        "safe_write_file",
-        "ensure_directory",
-        "get_file_checksum",
-        "find_files_by_pattern",
+        # Sample data generator constants
+        "DEFAULT_NUM_RECORDS",
+        "DEFAULT_OUTPUT_FILE",
+        "VALID_FORMATS",
+        "DEFAULT_FORMAT",
+        "FIRST_NAMES",
+        "LAST_NAMES",
+        "DOMAINS",
+        "DEPARTMENTS",
+        "STATUSES",
 
-        # Configuration utilities
-        "load_config",
-        "save_config",
-        "merge_configs",
-        "validate_config",
-        "get_config_value",
-        "set_config_value",
+        # JSON/YAML converter components
+        "JSONYAMLConverter",
+        "parse_arguments",
+        "configure_logging",
+        "get_output_format",
+        "json_yaml_converter_main",
 
         # Package info
-        "get_python_utilities"
+        "get_python_utilities",
     ])
 
 if DEV_TOOLS_AVAILABLE:
