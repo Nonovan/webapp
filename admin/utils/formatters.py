@@ -11,10 +11,6 @@ from typing import Any, Dict, List, Union
 
 logger = logging.getLogger(__name__)
 
-__all__ = [
-
-]
-
 def format_output(data: Any, output_format: str = "text") -> str:
     """
     Format command output in the requested format.

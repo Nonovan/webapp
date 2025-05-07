@@ -20,7 +20,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Callable, Tuple, Union
+from typing import Dict, List, Any, Optional, Callable, Tuple, Union, Set
 
 # Add project root to path to allow imports from core packages
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -38,6 +38,7 @@ from core.security.cs_authorization import verify_permission
 
 # Core utilities
 from core.utils.logging_utils import logger as core_logger
+from admin.utils.formatters import format_output, mask_sensitive_data
 
 # Create a module-level logger
 logger = logging.getLogger(__name__)
@@ -50,28 +51,39 @@ EXIT_PERMISSION_ERROR = 2
 EXIT_RESOURCE_ERROR = 3
 EXIT_VALIDATION_ERROR = 4
 EXIT_AUTHENTICATION_ERROR = 5
+EXIT_DEPENDENCY_ERROR = 6
 EXIT_OPERATION_CANCELLED = 7
+EXIT_TEST_MODE = 100  # Special exit code for test mode
 
 # Command registry
 COMMAND_REGISTRY = {}
-
+# Track command dependencies
+COMMAND_DEPENDENCIES = {}
+# Test mode settings
+TEST_MODE = False
+TEST_RESULTS = {}
 
 __all__ = [
     "register_command",
     "execute_command",
+    "add_command_dependency",
+    "validate_dependencies",
+    "enable_test_mode",
+    "disable_test_mode",
+    "get_test_results",
+    "clear_test_results",
 
     "CommandError",
     "ValidationError",
     "PermissionError",
     "AuthenticationError",
+    "DependencyError",
 
     "list_commands",
     "get_command_help",
     "format_output",
     "mask_sensitive_data",
     "authenticate",
-    "help_command",
-    "list_categories_command",
 ]
 
 
@@ -95,13 +107,61 @@ class AuthenticationError(CommandError):
     pass
 
 
+class DependencyError(CommandError):
+    """Raised when a command dependency cannot be satisfied."""
+    pass
+
+
+def enable_test_mode() -> None:
+    """
+    Enable test mode for commands.
+
+    In test mode, commands are registered but not actually executed.
+    Instead, their arguments and context are recorded for inspection.
+    """
+    global TEST_MODE
+    TEST_MODE = True
+    clear_test_results()
+    logger.info("Test mode enabled for admin commands")
+
+
+def disable_test_mode() -> None:
+    """
+    Disable test mode for commands.
+    """
+    global TEST_MODE
+    TEST_MODE = False
+    logger.info("Test mode disabled for admin commands")
+
+
+def get_test_results() -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Get the recorded command execution attempts from test mode.
+
+    Returns:
+        Dictionary of command names to lists of execution attempts,
+        each containing the arguments and context of the execution.
+    """
+    return TEST_RESULTS
+
+
+def clear_test_results() -> None:
+    """
+    Clear all recorded test results.
+    """
+    global TEST_RESULTS
+    TEST_RESULTS = {}
+    logger.debug("Test results cleared")
+
+
 def register_command(
     name: str,
     handler: Callable,
     description: str,
     permissions: List[str] = None,
     requires_mfa: bool = False,
-    category: str = "general"
+    category: str = "general",
+    dependencies: List[str] = None
 ) -> None:
     """
     Register a command in the global command registry.
@@ -113,6 +173,7 @@ def register_command(
         permissions: List of permissions required to execute the command
         requires_mfa: Whether MFA verification is required for this command
         category: Command category for organization in help/docs
+        dependencies: List of command names this command depends on
     """
     if name in COMMAND_REGISTRY:
         logger.warning("Command '%s' is already registered, overwriting", name)
@@ -125,7 +186,96 @@ def register_command(
         "category": category
     }
 
+    # Register dependencies if provided
+    if dependencies:
+        COMMAND_DEPENDENCIES[name] = set(dependencies)
+
     logger.debug("Registered command '%s' in category '%s'", name, category)
+
+
+def add_command_dependency(from_command: str, to_command: str) -> None:
+    """
+    Add a dependency between commands.
+
+    Args:
+        from_command: The command that depends on another
+        to_command: The command that is depended upon
+
+    Raises:
+        ValidationError: If a circular dependency would be created
+    """
+    # Check if this would create a circular dependency
+    if _has_circular_dependency(to_command, from_command):
+        raise ValidationError(
+            f"Cannot add dependency from '{from_command}' to '{to_command}': "
+            f"would create circular dependency"
+        )
+
+    if from_command not in COMMAND_DEPENDENCIES:
+        COMMAND_DEPENDENCIES[from_command] = set()
+
+    COMMAND_DEPENDENCIES[from_command].add(to_command)
+    logger.debug("Added dependency from '%s' to '%s'", from_command, to_command)
+
+
+def _has_circular_dependency(from_cmd: str, to_cmd: str, visited: Set[str] = None) -> bool:
+    """
+    Check if adding a dependency would create a circular reference.
+
+    Args:
+        from_cmd: Command being checked
+        to_cmd: Target command that would depend on from_cmd
+        visited: Set of already visited commands (for recursion)
+
+    Returns:
+        True if a circular dependency would be created, False otherwise
+    """
+    if visited is None:
+        visited = set()
+
+    # If we've found the target command in the dependency chain, we have a cycle
+    if from_cmd == to_cmd:
+        return True
+
+    # Avoid revisiting nodes
+    if from_cmd in visited:
+        return False
+
+    # Add current command to visited set
+    visited.add(from_cmd)
+
+    # Check dependencies of the current command
+    dependencies = COMMAND_DEPENDENCIES.get(from_cmd, set())
+    for dependency in dependencies:
+        if _has_circular_dependency(dependency, to_cmd, visited):
+            return True
+
+    return False
+
+
+def validate_dependencies(command_name: str) -> bool:
+    """
+    Validate that all dependencies for a command are available.
+
+    Args:
+        command_name: Name of the command to check
+
+    Returns:
+        True if all dependencies are satisfied, False otherwise
+
+    Raises:
+        ValidationError: If a dependency is not registered
+    """
+    dependencies = COMMAND_DEPENDENCIES.get(command_name, set())
+
+    for dependency in dependencies:
+        if dependency not in COMMAND_REGISTRY:
+            raise ValidationError(
+                f"Command '{command_name}' depends on '{dependency}', "
+                f"which is not registered"
+            )
+
+    return True
 
 
 def execute_command(
@@ -153,8 +303,33 @@ def execute_command(
         ValidationError: If command arguments are invalid
         PermissionError: If permission verification fails
         AuthenticationError: If authentication fails
+        DependencyError: If command dependencies are not satisfied
     """
     start_time = time.time()
+
+    # Handle test mode
+    if TEST_MODE:
+        # Record this execution attempt
+        if command_name not in TEST_RESULTS:
+            TEST_RESULTS[command_name] = []
+
+        execution_record = {
+            "args": args.copy(),
+            "auth_token": auth_token is not None,
+            "mfa_token": mfa_token is not None,
+            "session_id": session_id,
+            "timestamp": datetime.datetime.now().isoformat(),
+        }
+        TEST_RESULTS[command_name].append(execution_record)
+
+        # In test mode, just return success with a test indicator
+        return EXIT_TEST_MODE, {
+            "test_mode": True,
+            "command": command_name,
+            "args": args,
+            "message": "Command execution simulated in test mode"
+        }
+
     command = COMMAND_REGISTRY.get(command_name)
 
     if not command:
@@ -162,6 +337,13 @@ def execute_command(
         return EXIT_ERROR, {"error": f"Unknown command: {command_name}"}
 
     try:
+        # Validate command dependencies
+        try:
+            validate_dependencies(command_name)
+        except ValidationError as e:
+            logger.error("Dependency validation failed: %s", e)
+            return EXIT_DEPENDENCY_ERROR, {"error": str(e)}
+
         # Authenticate if token provided
         user_info = None
         if auth_token:
@@ -235,6 +417,10 @@ def execute_command(
         logger.error("Authentication error: %s", e)
         return EXIT_AUTHENTICATION_ERROR, {"error": str(e)}
 
+    except DependencyError as e:
+        logger.error("Dependency error: %s", e)
+        return EXIT_DEPENDENCY_ERROR, {"error": str(e)}
+
     except CommandError as e:
         logger.error("Command error: %s", e)
         return EXIT_ERROR, {"error": str(e)}
@@ -242,103 +428,6 @@ def execute_command(
     except Exception as e:
         logger.exception("Unhandled exception in command execution")
         return EXIT_ERROR, {"error": f"Internal error: {str(e)}"}
-
-
-def format_output(data: Any, output_format: str = "text") -> str:
-    """
-    Format command output in the requested format.
-
-    Args:
-        data: Output data to format
-        output_format: Format to use (text, json, csv, table)
-
-    Returns:
-        Formatted output string
-    """
-    if output_format == "json":
-        return json.dumps(data, indent=2, default=str)
-
-    elif output_format == "csv":
-        if not isinstance(data, list) or not data:
-            return "No data or invalid format for CSV output"
-
-        import csv
-        import io
-
-        output = io.StringIO()
-        writer = csv.DictWriter(output, fieldnames=data[0].keys())
-        writer.writeheader()
-        writer.writerows(data)
-
-        return output.getvalue()
-
-    elif output_format == "table":
-        if not isinstance(data, list) or not data:
-            return "No data or invalid format for table output"
-
-        # Simple ASCII table implementation
-        columns = list(data[0].keys())
-        col_widths = {col: len(col) for col in columns}
-
-        # Find maximum width for each column
-        for row in data:
-            for col in columns:
-                width = len(str(row.get(col, "")))
-                col_widths[col] = max(col_widths[col], width)
-
-        # Generate header
-        header = " | ".join(col.ljust(col_widths[col]) for col in columns)
-        separator = "-+-".join("-" * col_widths[col] for col in columns)
-
-        # Generate rows
-        rows = []
-        for row in data:
-            formatted_row = " | ".join(
-                str(row.get(col, "")).ljust(col_widths[col]) for col in columns
-            )
-            rows.append(formatted_row)
-
-        return "\n".join([header, separator] + rows)
-
-    else:  # Default text format
-        if isinstance(data, dict):
-            return "\n".join(f"{k}: {v}" for k, v in data.items())
-        elif isinstance(data, list):
-            return "\n".join(str(item) for item in data)
-        else:
-            return str(data)
-
-
-def mask_sensitive_data(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Mask sensitive data in command arguments for logging.
-
-    Args:
-        data: Command arguments dictionary
-
-    Returns:
-        Dictionary with sensitive values masked
-    """
-    if not isinstance(data, dict):
-        return data
-
-    sensitive_fields = [
-        "password", "secret", "token", "key", "auth", "credential",
-        "api_key", "private", "access_key", "secret_key"
-    ]
-
-    masked_data = {}
-    for key, value in data.items():
-        if any(sensitive in key.lower() for sensitive in sensitive_fields):
-            masked_data[key] = "******" if value else value
-        elif isinstance(value, dict):
-            masked_data[key] = mask_sensitive_data(value)
-        elif isinstance(value, list) and all(isinstance(item, dict) for item in value):
-            masked_data[key] = [mask_sensitive_data(item) for item in value]
-        else:
-            masked_data[key] = value
-
-    return masked_data
 
 
 def list_commands(category: str = None) -> List[Dict[str, Any]]:
@@ -357,12 +446,16 @@ def list_commands(category: str = None) -> List[Dict[str, Any]]:
         if category and info["category"] != category:
             continue
 
+        # Include dependency information for each command
+        dependencies = list(COMMAND_DEPENDENCIES.get(name, set()))
+
         commands.append({
             "name": name,
             "description": info["description"],
             "category": info["category"],
             "requires_permissions": bool(info["permissions"]),
-            "requires_mfa": info["requires_mfa"]
+            "requires_mfa": info["requires_mfa"],
+            "dependencies": dependencies
         })
 
     # Sort by category then name
@@ -411,6 +504,9 @@ def get_command_help(command_name: str) -> Dict[str, Any]:
         if in_examples and line.strip():
             examples.append(line.strip())
 
+    # Include dependency information
+    dependencies = list(COMMAND_DEPENDENCIES.get(command_name, set()))
+
     return {
         "name": command_name,
         "description": command["description"],
@@ -419,7 +515,8 @@ def get_command_help(command_name: str) -> Dict[str, Any]:
         "parameters": parameters,
         "examples": examples,
         "permissions": command["permissions"],
-        "requires_mfa": command["requires_mfa"]
+        "requires_mfa": command["requires_mfa"],
+        "dependencies": dependencies
     }
 
 
@@ -479,79 +576,6 @@ def authenticate(username: str, password: str) -> Dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
-# Built-in commands
-@require_permission("admin:read")
-def help_command(command: str = None, category: str = None) -> Dict[str, Any]:
-    """
-    Get help information for commands.
-
-    If a command name is specified, returns detailed help for that command.
-    Otherwise, lists all available commands, optionally filtered by category.
-
-    Args:
-        command: Optional command name for detailed help
-        category: Optional category filter
-
-    Returns:
-        Help information dictionary
-    """
-    if command:
-        return get_command_help(command)
-    else:
-        return {"commands": list_commands(category)}
-
-
-@require_permission("admin:read")
-def list_categories_command() -> Dict[str, Any]:
-    """
-    List all available command categories.
-
-    Returns:
-        Dictionary with list of categories
-    """
-    categories = set()
-    for cmd_info in COMMAND_REGISTRY.values():
-        categories.add(cmd_info["category"])
-
-    return {"categories": sorted(list(categories))}
-
-
-@require_permission("admin:read")
-def version_command() -> Dict[str, Any]:
-    """
-    Get admin CLI version information.
-
-    Returns:
-        Version information dictionary
-    """
-    return {
-        "version": VERSION,
-        "python_version": sys.version,
-        "platform": sys.platform
-    }
-
-
-@require_permission("admin:user:read")
-def check_permissions_command(permissions: List[str]) -> Dict[str, Any]:
-    """
-    Check if current user has specified permissions.
-
-    Args:
-        permissions: List of permission strings to check
-
-    Returns:
-        Permission check results
-    """
-    results = {}
-    for permission in permissions:
-        results[permission] = check_permission(None, permission)
-
-    return {
-        "permissions": results,
-        "has_all": all(results.values())
-    }
-
-
 def setup_cli_parser() -> argparse.ArgumentParser:
     """
     Set up command line argument parser.
@@ -575,6 +599,12 @@ def setup_cli_parser() -> argparse.ArgumentParser:
     parser.add_argument("--command", help="Command to execute")
     parser.add_argument("--args", help="Command arguments in JSON format")
     parser.add_argument("--auth", action="store_true", help="Authenticate and print token")
+    parser.add_argument("--check-dependencies", action="store_true", help="Check command dependencies only")
+
+    # Testing options
+    test_group = parser.add_argument_group("Testing")
+    test_group.add_argument("--test-mode", action="store_true", help="Enable test mode (no actual execution)")
+    test_group.add_argument("--dump-test-results", help="Dump test results to specified file")
 
     # Output options
     parser.add_argument("--format", choices=["text", "json", "csv", "table"], default="text",
@@ -636,6 +666,11 @@ def main() -> int:
 
     logging.basicConfig(level=log_level)
 
+    # Handle test mode
+    if args.test_mode:
+        enable_test_mode()
+        logger.info("Running in test mode - commands will not actually execute")
+
     try:
         # Handle authentication
         auth_token = None
@@ -665,6 +700,16 @@ def main() -> int:
                 return EXIT_SUCCESS
         elif args.token:
             auth_token = args.token
+
+        # Check dependencies if requested
+        if args.check_dependencies and args.command:
+            try:
+                validate_dependencies(args.command)
+                print(f"All dependencies for command '{args.command}' are satisfied")
+                return EXIT_SUCCESS
+            except ValidationError as e:
+                print(f"Dependency check failed: {e}")
+                return EXIT_DEPENDENCY_ERROR
 
         # Handle built-in command shortcuts
         if args.list_commands:
@@ -711,6 +756,14 @@ def main() -> int:
                     print(f"Output written to {args.output}")
         else:
             print(output_str)
+
+        # Handle test mode results
+        if args.test_mode and args.dump_test_results:
+            test_results = get_test_results()
+            with open(args.dump_test_results, 'w') as f:
+                json.dump(test_results, f, indent=2)
+                if not args.silent:
+                    print(f"Test results written to {args.dump_test_results}")
 
         return exit_code
 

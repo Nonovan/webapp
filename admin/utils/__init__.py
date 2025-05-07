@@ -15,6 +15,7 @@ Key functionality includes:
 - Performance metrics collection
 - Password generation and validation
 - File integrity baseline management
+- Output formatting for various formats
 
 The utilities are designed to be imported and used by CLI tools, scripts,
 and other administrative components of the platform.
@@ -23,9 +24,9 @@ and other administrative components of the platform.
 import logging
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Union, Callable, Tuple
-import sys
 
 # Setup package logging
 logger = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ SECURE_CREDENTIALS_AVAILABLE = False
 PASSWORD_UTILS_AVAILABLE = False
 FILE_INTEGRITY_AVAILABLE = False
 SECURITY_UTILS_AVAILABLE = False
+FORMATTERS_AVAILABLE = False
 
 # Try importing admin constants
 try:
@@ -110,6 +112,7 @@ try:
         STATUS_FAILURE,
         STATUS_ATTEMPTED,
         STATUS_CANCELLED,
+        STATUS_WARNING,
 
         # Action types
         ACTION_USER_CREATE,
@@ -127,7 +130,8 @@ try:
         ACTION_DATA_EXPORT,
         ACTION_AUDIT_ACCESS,
         ACTION_API_KEY_CREATE,
-        ACTION_API_KEY_REVOKE
+        ACTION_API_KEY_REVOKE,
+        ACTION_REPORT_GENERATION
     )
     AUDIT_CONSTANTS_AVAILABLE = True
 except ImportError as e:
@@ -252,6 +256,16 @@ try:
 except ImportError as e:
     logger.debug(f"Security utilities not available: {e}")
 
+# Try importing formatters from the newly created module
+try:
+    from .formatters import (
+        format_output,
+        mask_sensitive_data
+    )
+    FORMATTERS_AVAILABLE = True
+except ImportError as e:
+    logger.debug(f"Formatters not available: {e}")
+
 # Try importing file integrity utilities - first check for local implementation
 try:
     from .file_integrity import (
@@ -322,10 +336,10 @@ except ImportError as e:
 
 def get_available_utilities() -> Dict[str, bool]:
     """
-    Returns a dictionary of available utility modules in this package.
+    Get a dictionary of available utility modules.
 
     Returns:
-        Dict[str, bool]: Dictionary with utility names and availability flags
+        Dictionary mapping utility module names to availability flags
     """
     return {
         "admin_constants": ADMIN_CONSTANTS_AVAILABLE,
@@ -339,7 +353,8 @@ def get_available_utilities() -> Dict[str, bool]:
         "secure_credentials": SECURE_CREDENTIALS_AVAILABLE,
         "password_utils": PASSWORD_UTILS_AVAILABLE,
         "file_integrity": FILE_INTEGRITY_AVAILABLE,
-        "security_utils": SECURITY_UTILS_AVAILABLE
+        "security_utils": SECURITY_UTILS_AVAILABLE,
+        "formatters": FORMATTERS_AVAILABLE
     }
 
 # Define public exports - only include symbols from available modules
@@ -408,6 +423,7 @@ if AUDIT_CONSTANTS_AVAILABLE:
         "STATUS_FAILURE",
         "STATUS_ATTEMPTED",
         "STATUS_CANCELLED",
+        "STATUS_WARNING",
 
         # Action types
         "ACTION_USER_CREATE",
@@ -425,7 +441,8 @@ if AUDIT_CONSTANTS_AVAILABLE:
         "ACTION_DATA_EXPORT",
         "ACTION_AUDIT_ACCESS",
         "ACTION_API_KEY_CREATE",
-        "ACTION_API_KEY_REVOKE"
+        "ACTION_API_KEY_REVOKE",
+        "ACTION_REPORT_GENERATION"
     ])
 
 if ADMIN_AUTH_AVAILABLE:
@@ -509,6 +526,12 @@ if SECURITY_UTILS_AVAILABLE:
     __all__.extend([
         "generate_api_token",
         "compute_hash"
+    ])
+
+if FORMATTERS_AVAILABLE:
+    __all__.extend([
+        "format_output",
+        "mask_sensitive_data"
     ])
 
 if FILE_INTEGRITY_AVAILABLE:

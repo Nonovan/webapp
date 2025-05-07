@@ -3,12 +3,15 @@ System-related command handlers for the administrative CLI.
 """
 
 from typing import Dict, List, Any, Optional
+import sys
 from admin.cli.base_command import BaseCommand
 from admin.utils.admin_auth import require_permission
-import sys
 
 __all__ = [
-
+    "HelpCommand",
+    "ListCategoriesCommand",
+    "VersionCommand",
+    "CheckPermissionsCommand"
 ]
 
 class HelpCommand(BaseCommand):

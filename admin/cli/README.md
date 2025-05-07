@@ -14,6 +14,8 @@ This directory contains command-line interface tools for administrative tasks in
   - [Permission Management](#permission-management)
   - [System Configuration](#system-configuration)
   - [Security Administration](#security-administration)
+  - [Commands Testing](#commands-testing)
+  - [Command Dependencies](#command-dependencies)
 - [Best Practices & Security](#best-practices--security)
 - [Common Features](#common-features)
 - [Related Documentation](#related-documentation)
@@ -30,6 +32,22 @@ The Admin CLI tools provide command-line interfaces for performing administrativ
   - Input validation framework
   - Output formatting options
   - Execution logging capabilities
+  - Command dependency management
+  - Test mode for command validation
+
+- **`base_command.py`**: Base class for command handlers
+  - Consistent command structure
+  - Standardized registration mechanism
+  - Built-in permission integration
+  - Simplified audit logging
+  - Category organization
+
+- **`command_tester.py`**: Command testing utilities
+  - Mock command creation
+  - Command execution verification
+  - Argument validation
+  - Test-only execution mode
+  - Dependency validation
 
 - **`grant_permissions.py`**: Permission management utility
   - Role-based access control management
@@ -67,13 +85,19 @@ The Admin CLI tools provide command-line interfaces for performing administrativ
 
 ```plaintext
 admin/cli/
-├── README.md              # This documentation
-├── __init__.py            # Package initialization and shared utilities
-├── admin_commands.py      # Core command registry and framework
-├── grant_permissions.py   # Permission management utility
-├── security_admin.py      # Security administration commands
-├── system_configuration.py # System configuration management
-└── user_admin.py          # User account management
+├── README.md                # This documentation
+├── __init__.py              # Package initialization and shared utilities
+├── admin_commands.py        # Core command registry and framework
+├── auth.py                  # Authentication utilities
+├── base_command.py          # Base class for command handlers
+├── command_tester.py        # Testing utilities for commands
+├── commands/                # Command implementations
+│   ├── __init__.py          # Command package initialization
+│   └── system_commands.py   # System command implementations
+├── grant_permissions.py     # Permission management utility
+├── security_admin.py        # Security administration commands
+├── system_configuration.py  # System configuration management
+└── user_admin.py            # User account management
 ```
 
 ## Usage
@@ -89,6 +113,9 @@ python admin_commands.py --command system-status --verbose
 
 # Export command output to JSON
 python admin_commands.py --command list-users --output json > users.json
+
+# Check command dependencies
+python admin_commands.py --command system-status --check-dependencies
 ```
 
 ### User Administration
@@ -132,23 +159,14 @@ python user_admin.py import --file users.txt --format csv --reason "Custom forma
 # Grant a permission to a user
 python grant_permissions.py grant --user jsmith --permission "api:read" --reason "Project access requirement"
 
-# Grant a permission to a role
-python grant_permissions.py grant --role developer --permission "api:write"
-
 # Grant temporary permissions with expiration
-python grant_permissions.py grant --user jsmith --permission "system:write" --expires "2d" --reason "Deployment window"
-
-# List permissions for a specific user
-python grant_permissions.py list --user jsmith
+python grant_permissions.py grant --user jsmith --permission "system:write" --expires "2023-07-15T18:00:00" --reason "Deployment window"
 
 # Revoke a permission
 python grant_permissions.py revoke --user jsmith --permission "api:write" --reason "No longer required"
 
-# Check if user has a specific permission
-python grant_permissions.py check --user jsmith --permission "system:read"
-
-# Delegate a permission between users
-python grant_permissions.py delegate --from admin.user --to jsmith --permission "system:backup" --expires "4h" --reason "Weekend maintenance"
+# List all permissions for a user
+python grant_permissions.py list --user jsmith --output-format json
 ```
 
 ### System Configuration
@@ -192,6 +210,29 @@ python security_admin.py generate-report --format pdf --output security_report.p
 python security_admin.py audit --event login_failed --days 7
 ```
 
+### Commands Testing
+
+```bash
+# Run in test mode without executing actual commands
+python admin_commands.py --command user-status --test-mode
+
+# Dump test results to a file for verification
+python admin_commands.py --command user-status --test-mode --dump-test-results test_output.json
+
+# Use the command tester in Python scripts
+python -c "from admin.cli import CommandTester; tester = CommandTester(); tester.execute('user-status'); print(tester.verify_command_called('user-status'))"
+```
+
+### Command Dependencies
+
+```bash
+# Check if all command dependencies are satisfied
+python admin_commands.py --command deploy-system --check-dependencies
+
+# Execute a command with all its dependencies
+python admin_commands.py --command full-backup --verbose
+```
+
 ## Best Practices & Security
 
 - **Authentication**: Always authenticate with appropriate credentials before executing commands
@@ -208,6 +249,8 @@ python security_admin.py audit --event login_failed --days 7
 - **Reason Documentation**: Always provide meaningful reasons for security-relevant operations
 - **Emergency Access**: Follow proper procedures for emergency access scenarios
 - **Dry Runs**: Use dry-run options for bulk operations to verify expected changes
+- **Testing**: Use command testing facilities to validate command behavior before production use
+- **Dependency Management**: Be aware of command dependencies and their implications
 
 ## Common Features
 
@@ -228,6 +271,8 @@ All CLI tools share these common features:
 - **MFA Integration**: Support for multi-factor authentication on sensitive operations
 - **Audit Integration**: Detailed audit logging for accountability
 - **Reason Tracking**: Required documentation of reasons for security-relevant changes
+- **Command Testing**: Built-in testing facilities for command validation
+- **Dependency Management**: Support for command dependencies and validation
 
 ## Related Documentation
 
@@ -243,3 +288,6 @@ All CLI tools share these common features:
 - Emergency Access Procedures
 - Data Import Format Specifications
 - Batch Processing Guidelines
+- Command Testing Guide
+- Command Dependencies Documentation
+- Base Command Development Guide

@@ -13,10 +13,6 @@ from admin.utils.audit_utils import log_admin_action
 
 logger = logging.getLogger(__name__)
 
-__all__ = [
-
-]
-
 class BaseCommand:
     """Base class for all admin command handlers."""
 

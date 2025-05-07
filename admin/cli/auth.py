@@ -15,10 +15,6 @@ from core.security.cs_authorization import verify_permission
 
 logger = logging.getLogger(__name__)
 
-__all__ = [
-
-]
-
 def authenticate(username: str, password: str) -> Dict[str, Any]:
     """
     Authenticate user and generate session token.

@@ -24,10 +24,6 @@ from admin.cli.admin_commands import (
 # Setup logging
 logger = logging.getLogger(__name__)
 
-__all__ = [
-
-]
-
 # Define security-specific commands
 @require_permission("admin:security:read")
 def compliance_check_command(standard: str = None, include_evidence: bool = False) -> dict:

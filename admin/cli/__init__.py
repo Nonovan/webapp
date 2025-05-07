@@ -38,6 +38,28 @@ __email__ = 'admin-team@example.com'
 # Try importing admin CLI components
 # These are imported conditionally to allow selective loading based on availability
 
+# Base command class
+try:
+    from .base_command import BaseCommand
+    BASE_COMMAND_AVAILABLE = True
+except ImportError as e:
+    logger.debug(f"Base command class not available: {e}")
+    BASE_COMMAND_AVAILABLE = False
+
+# Command tester
+try:
+    from .command_tester import (
+        CommandTester,
+        mock_command,
+        verify_command_called,
+        verify_command_args,
+        verify_command_permissions
+    )
+    COMMAND_TESTER_AVAILABLE = True
+except ImportError as e:
+    logger.debug(f"Command tester not available: {e}")
+    COMMAND_TESTER_AVAILABLE = False
+
 # User administration
 try:
     from .user_admin import (
@@ -93,10 +115,10 @@ except ImportError as e:
 # Security administration
 try:
     from .security_admin import (
-        execute_command,
-        register_command,
-        list_commands,
-        authenticate
+        execute_command as execute_security_command,
+        register_command as register_security_command,
+        list_commands as list_security_commands,
+        authenticate as security_authenticate
     )
     SECURITY_ADMIN_AVAILABLE = True
 except ImportError as e:
@@ -108,14 +130,40 @@ try:
     from .admin_commands import (
         execute_command as execute_admin_command,
         register_command as register_admin_command,
+        add_command_dependency,
+        validate_dependencies,
         format_output,
         mask_sensitive_data,
-        get_command_help
+        get_command_help,
+        list_commands,
+        enable_test_mode,
+        disable_test_mode,
+        get_test_results,
+        clear_test_results,
+        authenticate,
+        CommandError,
+        ValidationError,
+        PermissionError,
+        AuthenticationError,
+        DependencyError
     )
     ADMIN_COMMANDS_AVAILABLE = True
 except ImportError as e:
     logger.debug(f"Admin command framework not available: {e}")
     ADMIN_COMMANDS_AVAILABLE = False
+
+# System commands
+try:
+    from .commands.system_commands import (
+        HelpCommand,
+        ListCategoriesCommand,
+        VersionCommand,
+        CheckPermissionsCommand
+    )
+    SYSTEM_COMMANDS_AVAILABLE = True
+except ImportError as e:
+    logger.debug(f"System commands not available: {e}")
+    SYSTEM_COMMANDS_AVAILABLE = False
 
 # Common command exit codes (used across CLI tools)
 EXIT_SUCCESS = 0
@@ -125,6 +173,10 @@ EXIT_RESOURCE_ERROR = 3
 EXIT_VALIDATION_ERROR = 4
 EXIT_AUTHENTICATION_ERROR = 5
 EXIT_NOT_FOUND = 6
+EXIT_DEPENDENCY_ERROR = 7
+EXIT_OPERATION_CANCELLED = 8
+EXIT_TEST_MODE = 100  # Special exit code for test mode
+
 
 def get_available_commands() -> Dict[str, bool]:
     """Returns a dictionary of available command modules within this package."""
@@ -133,8 +185,12 @@ def get_available_commands() -> Dict[str, bool]:
         "user_admin": USER_ADMIN_AVAILABLE,
         "grant_permissions": PERMISSION_MANAGEMENT_AVAILABLE,
         "system_configuration": SYSTEM_CONFIG_AVAILABLE,
-        "security_admin": SECURITY_ADMIN_AVAILABLE
+        "security_admin": SECURITY_ADMIN_AVAILABLE,
+        "system_commands": SYSTEM_COMMANDS_AVAILABLE,
+        "base_command": BASE_COMMAND_AVAILABLE,
+        "command_tester": COMMAND_TESTER_AVAILABLE
     }
+
 
 def initialize_user_import(
     file_path: str,
@@ -142,143 +198,115 @@ def initialize_user_import(
     required_fields: List[str] = None
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
-    Initialize user import by loading and validating data from a file.
-
-    Processes the specified file (CSV or JSON) and performs basic validation
-    to ensure that all required fields are present.
+    Initialize user import from a file.
 
     Args:
         file_path: Path to the import file
-        file_format: Format of the file ('csv' or 'json'), can be auto-detected
-        required_fields: List of required fields for valid user data
+        file_format: Format of the import file (json or csv, auto-detected if None)
+        required_fields: List of fields that must be present in the import data
 
     Returns:
-        Tuple containing:
-        - List of user data dictionaries from the file
-        - Dictionary with stats (total records, invalid records, etc.)
-
-    Raises:
-        ValueError: If file has invalid format or missing required fields
-        FileNotFoundError: If the specified file does not exist
-        IOError: If there's an error reading the file
+        Tuple of (user_data, stats)
     """
     if required_fields is None:
-        # Default required fields for user data
-        required_fields = ['username', 'email']
+        required_fields = ["username", "email"]
 
     stats = {
-        'total': 0,
-        'invalid_format': 0,
-        'missing_fields': 0,
-        'valid': 0
+        "total": 0,
+        "valid": 0,
+        "invalid": 0,
+        "errors": []
     }
 
-    # Check file existence
     if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Import file not found: {file_path}")
+        stats["errors"].append(f"File not found: {file_path}")
+        return [], stats
 
     # Auto-detect format if not specified
-    if not file_format:
-        if file_path.lower().endswith('.json'):
+    if file_format is None:
+        if file_path.endswith('.json'):
             file_format = 'json'
-        elif file_path.lower().endswith('.csv'):
+        elif file_path.endswith('.csv'):
             file_format = 'csv'
         else:
-            raise ValueError("Could not determine file format from extension. Please specify format.")
+            stats["errors"].append("Could not determine file format. Please specify --format")
+            return [], stats
 
-    # Load the file based on format
+    # Read data based on format
+    user_data = []
     try:
-        users_data = []
-
-        if file_format.lower() == 'json':
+        if file_format == 'json':
             with open(file_path, 'r') as f:
-                json_data = json.load(f)
-
-                # Handle both array and object formats
-                if isinstance(json_data, list):
-                    users_data = json_data
-                elif isinstance(json_data, dict) and 'users' in json_data:
-                    users_data = json_data['users']
-                else:
-                    users_data = [json_data]  # Single user
-
-        elif file_format.lower() == 'csv':
+                user_data = json.load(f)
+                # Handle both list and dict formats
+                if isinstance(user_data, dict):
+                    if "users" in user_data:
+                        user_data = user_data["users"]
+                    else:
+                        user_data = [user_data]
+        elif file_format == 'csv':
             with open(file_path, 'r', newline='') as f:
                 reader = csv.DictReader(f)
-                users_data = list(reader)
-
-                # Convert boolean fields
-                for user in users_data:
-                    for field in ['require_mfa', 'require_password_change']:
-                        if field in user and isinstance(user[field], str):
-                            user[field] = user[field].lower() in ('true', 'yes', '1', 'y')
+                user_data = list(reader)
         else:
-            raise ValueError(f"Unsupported file format: {file_format}. Supported formats are CSV and JSON.")
+            stats["errors"].append(f"Unsupported file format: {file_format}")
+            return [], stats
 
-        # Basic validation
-        stats['total'] = len(users_data)
-        valid_users = []
+        # Validate data
+        stats["total"] = len(user_data)
+        for i, user in enumerate(user_data):
+            user_errors = []
+            for field in required_fields:
+                if field not in user or not user[field]:
+                    user_errors.append(f"Missing required field: {field}")
 
-        for i, user in enumerate(users_data):
-            # Check for required fields
-            missing_fields = [field for field in required_fields if field not in user or not user[field]]
+            if user_errors:
+                stats["invalid"] += 1
+                stats["errors"].append(f"User at index {i}: {', '.join(user_errors)}")
+            else:
+                stats["valid"] += 1
 
-            if missing_fields:
-                stats['missing_fields'] += 1
-                logger.warning(f"Record {i+1}: Missing required fields: {', '.join(missing_fields)}")
-                continue
+        return user_data, stats
 
-            # Add validated user to result
-            valid_users.append(user)
-            stats['valid'] += 1
-
-        return valid_users, stats
-
-    except json.JSONDecodeError:
-        raise ValueError(f"Invalid JSON format in file: {file_path}")
-    except csv.Error as e:
-        raise ValueError(f"CSV parsing error: {e}")
+    except (json.JSONDecodeError, csv.Error) as e:
+        stats["errors"].append(f"Error parsing file: {str(e)}")
+        return [], stats
     except Exception as e:
-        raise IOError(f"Error reading import file: {e}")
+        stats["errors"].append(f"Unexpected error: {str(e)}")
+        return [], stats
+
 
 def run_command(command_module: str, args: Optional[List[str]] = None) -> int:
     """
-    Run a specific admin CLI command with the given arguments.
+    Run a CLI command module with the specified arguments.
 
     Args:
-        command_module: Name of the command module to run
-        args: List of command-line arguments (default: sys.argv[1:])
+        command_module: Name of the command module
+        args: Command line arguments (None uses sys.argv)
 
     Returns:
-        Exit code from the command execution
+        Exit code
     """
     if args is None:
         args = sys.argv[1:]
 
-    # Import the appropriate module's main function dynamically
     try:
-        if command_module == "user_admin":
-            from .user_admin import main
-        elif command_module == "grant_permissions":
-            from .grant_permissions import main
-        elif command_module == "system_configuration":
-            from .system_configuration import main
-        elif command_module == "security_admin":
-            from .security_admin import main
-        elif command_module == "admin_commands":
-            from .admin_commands import main
-        else:
-            logger.error(f"Unknown command module: {command_module}")
+        # Import the module
+        module = __import__(f"admin.cli.{command_module}", fromlist=["main"])
+
+        if not hasattr(module, "main"):
+            logger.error(f"Module {command_module} does not have a main function")
             return EXIT_ERROR
 
-        # Execute the main function and return its result
-        return main(args)
+        # Run the command
+        return module.main(args)
     except ImportError as e:
         logger.error(f"Failed to import {command_module}: {e}")
         return EXIT_ERROR
     except Exception as e:
         logger.exception(f"Error executing {command_module}: {e}")
         return EXIT_ERROR
+
 
 # Define public exports for this package
 __all__ = [
@@ -299,8 +327,27 @@ __all__ = [
     'EXIT_RESOURCE_ERROR',
     'EXIT_VALIDATION_ERROR',
     'EXIT_AUTHENTICATION_ERROR',
-    'EXIT_NOT_FOUND'
+    'EXIT_NOT_FOUND',
+    'EXIT_DEPENDENCY_ERROR',
+    'EXIT_OPERATION_CANCELLED',
+    'EXIT_TEST_MODE'
 ]
+
+# Add base classes for command structure
+if BASE_COMMAND_AVAILABLE:
+    __all__.extend([
+        'BaseCommand'
+    ])
+
+# Add command testing utilities
+if COMMAND_TESTER_AVAILABLE:
+    __all__.extend([
+        'CommandTester',
+        'mock_command',
+        'verify_command_called',
+        'verify_command_args',
+        'verify_command_permissions'
+    ])
 
 # Add available functionality to exports
 if USER_ADMIN_AVAILABLE:
@@ -342,19 +389,40 @@ if SYSTEM_CONFIG_AVAILABLE:
 
 if SECURITY_ADMIN_AVAILABLE:
     __all__.extend([
-        'execute_command',
-        'register_command',
-        'list_commands',
-        'authenticate'
+        'execute_security_command',
+        'register_security_command',
+        'list_security_commands',
+        'security_authenticate'
     ])
 
 if ADMIN_COMMANDS_AVAILABLE:
     __all__.extend([
         'execute_admin_command',
         'register_admin_command',
+        'add_command_dependency',
+        'validate_dependencies',
         'format_output',
         'mask_sensitive_data',
-        'get_command_help'
+        'get_command_help',
+        'list_commands',
+        'enable_test_mode',
+        'disable_test_mode',
+        'get_test_results',
+        'clear_test_results',
+        'authenticate',
+        'CommandError',
+        'ValidationError',
+        'PermissionError',
+        'AuthenticationError',
+        'DependencyError'
+    ])
+
+if SYSTEM_COMMANDS_AVAILABLE:
+    __all__.extend([
+        'HelpCommand',
+        'ListCategoriesCommand',
+        'VersionCommand',
+        'CheckPermissionsCommand'
     ])
 
 # Log initialization status
