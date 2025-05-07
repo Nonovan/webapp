@@ -32,7 +32,8 @@ This incident response kit follows the NIST SP 800-61 incident handling framewor
 ## Core Response Tools
 
 - **`collect_evidence.py`** - Tool for systematic collection of evidence across systems
-- **`initialize.sh`** - Script to set up an incident response environment and create initial documentation
+- **`initialize.py`** - Python module with incident initialization functions
+- **`initialize.sh`** - Command-line script to set up an incident response environment and create initial documentation
 - **`log_analyzer.py`** - Helps parse and analyze logs for signs of compromise
 - **`malware_containment.py`** - Tools for containing and analyzing potential malware
 - **`network_isolation.py`** - Tool for quickly isolating affected systems during an incident
@@ -138,6 +139,10 @@ This incident response kit follows the NIST SP 800-61 incident handling framewor
 - **`PlaybookSubsection`** - Subsection within a playbook section
 - **`PlaybookExecutionContext`** - Context for playbook execution
 - **`VolatileDataCapture`** - Utility for capturing volatile data from systems
+- **`TaskPriority`** - Task priority levels for incident response tasks
+- **`TaskStatus`** - Status values for task management
+- **`TaskManagementError`** - Base exception for task management errors
+- **`TaskNotFoundError`** - Exception raised when task cannot be found
 
 ### Constants
 
@@ -154,6 +159,7 @@ This incident response kit follows the NIST SP 800-61 incident handling framewor
 - **`PHASE_REQUIRED_ACTIONS`** - Required actions for each phase
 - **`INCIDENT_TYPE_RECOMMENDED_EVIDENCE`** - Recommended evidence by incident type
 - **`SEVERITY_REQUIRED_NOTIFICATIONS`** - Required notifications by incident severity
+- **`REPORT_FORMATS`** - Available formats for report generation
 
 ### Functions
 
@@ -186,6 +192,21 @@ The coordination module provides these additional functions:
 
 - **`initialize_incident_status`** - Set up tracking for a new incident
 - **`update_incident_status`** - Update an incident's phase, status, or add notes
+- **`create_task`** - Create a task for an incident
+- **`assign_task`** - Assign a task to one or more users
+- **`update_task_status`** - Update the status of a task
+- **`get_task_list`** - Get list of tasks for an incident
+- **`get_task`** - Get details of a specific task
+- **`add_task_comment`** - Add a comment to a task
+- **`delete_task`** - Delete a task
+- **`create_subtask`** - Create a subtask under a parent task
+- **`generate_tasks_report`** - Generate a report of tasks
+- **`setup_war_room`** - Set up a virtual war room for incident response coordination
+- **`add_participants`** - Add participants to an existing war room
+- **`add_resource`** - Add a resource to a war room
+- **`archive_war_room`** - Archive a war room and its contents
+- **`list_war_rooms`** - List war rooms for an incident
+- **`get_war_room_details`** - Get detailed information about a war room
 - **`generate_status_report`** - Generate status reports in various formats
 - **`generate_timeline_report`** - Create timeline reports from incident history
 - **`generate_full_report`** - Create comprehensive incident documentation
@@ -300,6 +321,17 @@ admin/security/incident_response_kit/
     --lead-responder "security-analyst@example.com"
 ```
 
+### Reopening an Incident
+
+```bash
+# Reopen a previously closed incident
+./initialize.sh --incident-id IR-2023-042 \
+    --reopen \
+    --reason "Similar attack patterns detected" \
+    --user "security-analyst@example.com" \
+    --phase identification
+```
+
 ### Evidence Collection
 
 ```bash
@@ -339,6 +371,17 @@ admin/security/incident_response_kit/
     --notes "Network isolation complete, evidence collection in progress"
 ```
 
+### War Room Setup
+
+```bash
+# Set up a virtual war room for incident coordination
+./coordination/war_room.py --incident-id IR-2023-042 \
+    --setup \
+    --name "Ransomware Response" \
+    --participants "security-team,executive-sponsor,legal" \
+    --resources "network-diagram,incident-playbook"
+```
+
 ### Component Availability Check
 
 ```python
@@ -364,7 +407,7 @@ The incident response kit provides functionality to reopen incidents that were p
   - Creates an audit trail entry documenting the reason
   - Notifies stakeholders about the reopened incident
 
-### Example Usage
+### Using Python API
 
 ```python
 from admin.security.incident_response_kit import reopen_incident
@@ -380,6 +423,16 @@ if success:
     print("Incident successfully reopened")
 else:
     print("Failed to reopen incident")
+```
+
+### Using Command-Line Tool
+
+```bash
+# Reopen a previously closed incident
+./initialize.sh --incident-id IR-2023-042 \
+    --reopen \
+    --reason "Similar attack patterns detected on backup systems" \
+    --user "security-analyst@example.com"
 ```
 
 ## Related Documentation

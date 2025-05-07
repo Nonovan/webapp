@@ -18,6 +18,7 @@ import os
 import sys
 import logging
 import json
+import requests
 import time
 from datetime import datetime, timezone, timedelta
 from enum import Enum
@@ -591,8 +592,6 @@ def _send_webhook_notification(
         return result
 
     try:
-        import requests
-
         # Get timeout from config
         timeout = int(config.get("timeout", 10))
 
@@ -673,8 +672,6 @@ def _send_chat_notification(
         return result
 
     try:
-        import requests
-
         # Send the request
         response = requests.post(
             webhook_url,

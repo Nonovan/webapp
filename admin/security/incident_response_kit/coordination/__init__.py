@@ -84,12 +84,13 @@ MODULE_PATH = Path(os.path.dirname(os.path.abspath(__file__)))
 try:
     from .status_tracker import (
         initialize_incident_status,
+        update_incident_status,
         update_incident_status as update_status,
         get_incident_status,
         list_incidents,
         generate_report as generate_status_report,
         add_related_incident,
-        reopen_incident
+        reopen_incident,
     )
     STATUS_TRACKER_AVAILABLE = True
     logger.debug("Status tracker module loaded successfully")
@@ -284,6 +285,7 @@ def get_available_components():
 __all__ = [
     # Status tracking
     'initialize_incident_status',
+    'update_incident_status',
     'update_status',
     'get_incident_status',
     'list_incidents',

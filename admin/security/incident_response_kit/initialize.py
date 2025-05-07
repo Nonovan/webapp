@@ -26,8 +26,9 @@ from . import (
     MODULE_PATH, CONFIG_AVAILABLE, response_config, tool_paths,
     DEFAULT_EVIDENCE_DIR, create_evidence_directory, sanitize_incident_id,
     track_incident_status, notify_stakeholders, EvidenceCollectionError,
-    get_incident_status, update_incident_status, IncidentStatusError
+    get_incident_status, IncidentStatusError
 )
+from .coordination import update_incident_status
 
 # Configure module logging
 logger = logging.getLogger(__name__)
