@@ -201,6 +201,7 @@ from .logging_utils import (
 
     # Logging actions
     log_security_event,
+    log_critical,
     log_error,
     log_warning,
     log_info,
@@ -208,8 +209,15 @@ from .logging_utils import (
     log_file_integrity_event,
 
     # Logging utilities
+    log_to_file,
+    sanitize_log_message,
+    obfuscate_sensitive_data,
+    get_file_integrity_events,
     initialize_module_logging,
-    SecurityAwareJsonFormatter
+
+    # Formatter classes
+    SecurityAwareJsonFormatter,
+    FileIntegrityAwareHandler
 )
 
 # Import file integrity functions from security module
@@ -447,13 +455,19 @@ __all__ = [
     'get_security_logger',
     'get_audit_logger',
     'log_security_event',
+    'log_critical',
     'log_error',
     'log_warning',
     'log_info',
     'log_debug',
     'log_file_integrity_event',
+    'log_to_file',
+    'sanitize_log_message',
+    'obfuscate_sensitive_data',
+    'get_file_integrity_events',
     'initialize_module_logging',
     'SecurityAwareJsonFormatter',
+    'FileIntegrityAwareHandler',
 
     # File integrity functions (from core.security.cs_file_integrity)
     'calculate_file_hash',

@@ -1,29 +1,22 @@
 """
 Logging utilities for the Cloud Infrastructure Platform.
 
-This module provides consistent logging configuration and utility functions
-for application components, focusing on security, auditability, and proper
-log handling across development and production environments.
-
-This module provides a comprehensive logging system with features such as
-structured JSON logging, log rotation, security event tracking, and integration with
-error monitoring services like Sentry.
-
-The logging system is designed to facilitate application monitoring, debugging,
-and auditing by capturing detailed contextual information with each log entry,
-including request IDs, user IDs, IP addresses, and timestamps with proper timezone
-information.
+This module provides a comprehensive logging system with features for security,
+auditability, and proper log handling across development and production environments.
+The system captures detailed contextual information with each log entry to facilitate
+monitoring, debugging, and compliance requirements.
 
 Key features include:
 - Structured JSON logs for machine parsing and analysis
-- Console output for development environments
-- File-based logging with size-based rotation
+- Console output with configurable formatting for development
+- File-based logging with size-based rotation and secure permissions
 - Separate error and security event logs
-- Integration with Sentry for error tracking
-- Request context enrichment
-- File integrity monitoring events
-- Security audit logging
-- Integration with metrics system
+- Integration with Sentry for error tracking and monitoring
+- Request context enrichment with request IDs, user IDs, and IP addresses
+- File integrity monitoring events and tracking
+- Security audit logging with database integration
+- Metrics system integration for monitoring and alerting
+- Fallback mechanisms for logging during database outages
 """
 
 import logging
@@ -58,11 +51,50 @@ DEFAULT_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
 DEFAULT_CONSOLE_FORMAT = '%(levelname)s: %(message)s'
 CLI_LOG_FORMAT = '[%(asctime)s] %(levelname)s: %(message)s'
 
+
+# Export all public functions and constants
 __all__ = [
+    # Core logging setup functions
     'setup_app_logging',
     'setup_logging',
     'setup_cli_logging',
+
+    # Logger retrieval functions
+    'get_logger',
+    'get_security_logger',
+    'get_audit_logger',
+
+    # Logging action functions
+    'log_security_event',
+    'log_critical',
+    'log_error',
+    'log_warning',
+    'log_info',
+    'log_debug',
+    'log_file_integrity_event',
+
+    # Utility functions
+    'log_to_file',
+    'sanitize_log_message',
+    'obfuscate_sensitive_data',
+    'get_file_integrity_events',
+    'initialize_module_logging',
+
+    # Formatter classes
+    'SecurityAwareJsonFormatter',
+    'FileIntegrityAwareHandler',
+
+    # Constants
+    'LOG_LEVEL_DEBUG',
+    'LOG_LEVEL_INFO',
+    'LOG_LEVEL_WARNING',
+    'LOG_LEVEL_ERROR',
+    'LOG_LEVEL_CRITICAL',
+    'DEFAULT_LOG_FORMAT',
+    'DEFAULT_CONSOLE_FORMAT',
+    'CLI_LOG_FORMAT'
 ]
+
 
 class SecurityAwareJsonFormatter(logging.Formatter):
     """
@@ -207,7 +239,7 @@ class FileIntegrityAwareHandler(logging.Handler):
                 try:
                     severity = getattr(record, 'severity', 'info').lower()
                     current_app.metrics.increment('security.file_integrity.events',
-                                                labels={'severity': severity})
+                                               labels={'severity': severity})
                 except Exception:
                     pass
 
@@ -264,6 +296,136 @@ def setup_app_logging(app: Any = None,
         format=DEFAULT_LOG_FORMAT,
         handlers=[logging.StreamHandler(sys.stdout)]
     )
+
+
+def setup_logging(level: Union[str, int] = logging.INFO,
+                 log_file: Optional[str] = None,
+                 log_format: Optional[str] = None,
+                 include_timestamp: bool = True,
+                 json_format: bool = False,
+                 max_bytes: int = 10*1024*1024,
+                 backup_count: int = 5) -> None:
+    """
+    Set up general-purpose logging configuration.
+
+    This function configures logging for general use cases, providing a middle ground
+    between the application-specific setup_app_logging and CLI-oriented setup_cli_logging.
+    It configures both console and file logging with appropriate formatting.
+
+    Args:
+        level: Log level as string (DEBUG, INFO, WARNING, ERROR, CRITICAL) or
+               as a logging constant
+        log_file: Optional path to log file. If None, logs only to console
+        log_format: Optional custom log format. If None, uses DEFAULT_LOG_FORMAT
+        include_timestamp: Whether to include timestamps in log output
+        json_format: Whether to use JSON formatting for log file output
+        max_bytes: Maximum size in bytes before log rotation
+        backup_count: Number of rotated log files to keep
+
+    Example:
+        ```python
+        from core.utils.logging_utils import setup_logging
+
+        # Basic setup with console output
+        setup_logging()
+
+        # Setup with file output and JSON formatting
+        setup_logging(level='INFO', log_file='/var/log/myapp.log', json_format=True)
+        ```
+    """
+    # Get root logger
+    root_logger = logging.getLogger()
+
+    # Clear existing handlers to avoid duplicates when reloading
+    if root_logger.handlers:
+        for handler in root_logger.handlers[:]:
+            root_logger.removeHandler(handler)
+
+    # Set log level
+    if isinstance(level, str):
+        log_level = getattr(logging, level.upper(), logging.INFO)
+    else:
+        log_level = level
+
+    root_logger.setLevel(log_level)
+
+    # Determine log format
+    if not log_format:
+        log_format = DEFAULT_LOG_FORMAT if include_timestamp else DEFAULT_CONSOLE_FORMAT
+
+    # Create console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_formatter = logging.Formatter(log_format)
+    console_handler.setFormatter(console_formatter)
+    console_handler.setLevel(log_level)
+    root_logger.addHandler(console_handler)
+
+    # Add file handler if specified
+    if log_file:
+        try:
+            # Create directory if it doesn't exist
+            log_dir = os.path.dirname(log_file)
+            if log_dir and not os.path.exists(log_dir):
+                os.makedirs(log_dir, exist_ok=True)
+
+            # Set secure permissions on log directory
+            if log_dir:
+                try:
+                    os.chmod(log_dir, 0o750)
+                except (OSError, PermissionError):
+                    pass
+
+            # Create rotating file handler
+            file_handler = logging.handlers.RotatingFileHandler(
+                log_file,
+                maxBytes=max_bytes,
+                backupCount=backup_count
+            )
+
+            # Use JSON formatting or standard formatting
+            if json_format:
+                try:
+                    # Try to use SecurityAwareJsonFormatter
+                    if hasattr(logging.getLogger(), 'handlers') and isinstance(logging.getLogger().handlers[0], SecurityAwareJsonFormatter):
+                        file_handler.setFormatter(SecurityAwareJsonFormatter())
+                    else:
+                        # Fall back to standard formatter
+                        file_formatter = logging.Formatter(log_format)
+                        file_handler.setFormatter(file_formatter)
+                except Exception:
+                    # Fall back to standard formatter
+                    file_formatter = logging.Formatter(log_format)
+                    file_handler.setFormatter(file_formatter)
+            else:
+                file_formatter = logging.Formatter(log_format)
+                file_handler.setFormatter(file_formatter)
+
+            file_handler.setLevel(log_level)
+            root_logger.addHandler(file_handler)
+
+            # Secure the log file with appropriate permissions
+            try:
+                os.chmod(log_file, 0o640)
+            except (OSError, PermissionError):
+                pass
+
+        except (IOError, OSError) as e:
+            # Log to console if file setup fails
+            root_logger.error(f"Failed to set up file logging: {e}")
+
+    # Set up security logger with the same configuration
+    security_logger = logging.getLogger('security')
+    security_logger.setLevel(log_level)
+    security_logger.propagate = False  # Prevent duplication
+
+    # Add current log configuration to the security logger if it has no handlers
+    if not security_logger.handlers:
+        for handler in root_logger.handlers:
+            security_logger.addHandler(handler)
+
+    # Log initialization at debug level
+    if log_level <= logging.DEBUG:
+        root_logger.debug(f"Logging initialized (level: {logging.getLevelName(log_level)}, file: {log_file or 'none'})")
 
 
 def setup_cli_logging(log_file: Optional[str] = None,
@@ -516,27 +678,6 @@ def obfuscate_sensitive_data(data: Dict[str, Any]) -> Dict[str, Any]:
             masked_data[key] = value
 
     return masked_data
-
-
-# Export all public functions and constants
-__all__ = [
-    'setup_app_logging',
-    'setup_cli_logging',
-    'get_logger',
-    'log_to_file',
-    'sanitize_log_message',
-    'obfuscate_sensitive_data',
-
-    'LOG_LEVEL_DEBUG',
-    'LOG_LEVEL_INFO',
-    'LOG_LEVEL_WARNING',
-    'LOG_LEVEL_ERROR',
-    'LOG_LEVEL_CRITICAL',
-
-    'DEFAULT_LOG_FORMAT',
-    'DEFAULT_CONSOLE_FORMAT',
-    'CLI_LOG_FORMAT'
-]
 
 
 def log_critical(message: str) -> None:
