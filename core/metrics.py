@@ -27,9 +27,15 @@ from flask import request, current_app, has_app_context
 from sqlalchemy import text
 from extensions import metrics, db, cache
 from models.security import LoginAttempt
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Type alias for callable functions
 F = TypeVar('F', bound=Callable[..., Any])
+
+# Store component status information
+_component_registry: Dict[str, Dict[str, Any]] = {}
 
 
 def record_request_metrics() -> None:
@@ -206,6 +212,103 @@ def measure_latency(func: F) -> F:
                     pass
 
     return cast(F, wrapped)
+
+
+def register_component_status(
+    component_name: str,
+    is_available: bool,
+    version: Optional[str] = None,
+    details: Optional[Dict[str, Any]] = None
+) -> None:
+    """
+    Register a component's status with the metrics system.
+
+    This function allows components to report their availability status and version
+    information to the central metrics system for monitoring and alerting purposes.
+
+    Args:
+        component_name: The name of the component being registered
+        is_available: Whether the component is available/functioning
+        version: Optional version string of the component
+        details: Optional dictionary with additional details about the component
+    """
+    global _component_registry
+
+    try:
+        _component_registry[component_name] = {
+            "available": bool(is_available),
+            "version": version,
+            "last_updated": datetime.utcnow().isoformat(),
+            "details": details or {}
+        }
+
+        logger.debug(f"Component status registered: {component_name}, available={is_available}, version={version}")
+
+        # Update component availability metric for real-time monitoring
+        try:
+            from extensions import metrics
+            metrics.gauge(f"component.{component_name}.available", 1 if is_available else 0)
+            if version:
+                metrics.label(f"component.{component_name}.version", version)
+        except (ImportError, AttributeError):
+            # Metrics extension might not be available, which is acceptable
+            pass
+
+    except Exception as e:
+        logger.warning(f"Failed to register component status for {component_name}: {str(e)}")
+
+def get_component_status(component_name: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Retrieve component status information.
+
+    Args:
+        component_name: Optional specific component to get status for.
+                        If None, returns status for all components.
+
+    Returns:
+        Dictionary with component status information
+    """
+    if component_name is not None:
+        return _component_registry.get(component_name, {"available": False, "error": "Component not registered"})
+    return _component_registry
+
+def get_all_component_statuses() -> Dict[str, Dict[str, Any]]:
+    """
+    Get status information for all registered components.
+
+    Returns:
+        Dictionary mapping component names to their status information
+    """
+    return _component_registry.copy()
+
+def check_critical_components() -> Dict[str, Any]:
+    """
+    Check the status of all critical platform components.
+
+    Returns:
+        Dictionary with critical component status summary and details
+    """
+    critical_components = [
+        "core_security",
+        "database",
+        "cache",
+        "authentication",
+        "file_integrity",
+        "security_monitoring_utils"
+    ]
+
+    results = {
+        "all_available": True,
+        "components": {}
+    }
+
+    for component in critical_components:
+        status = get_component_status(component)
+        results["components"][component] = status
+        if component in _component_registry and not status.get("available", False):
+            results["all_available"] = False
+
+    return results
 
 
 class SystemMetrics:

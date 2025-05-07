@@ -13,6 +13,7 @@ a consistent, secure foundation for the entire system with these key features:
 - Logging with proper formatting and security event tracking
 - Health check mechanisms for system monitoring
 - Utility functions for common operations
+- Metrics collection for application performance and health monitoring
 """
 
 import os
@@ -37,7 +38,8 @@ from .factory import (
     create_app,
     configure_app,
     register_extensions,
-    register_error_handlers
+    register_error_handlers,
+    init_middleware
 )
 from .health import (
     healthcheck,
@@ -150,6 +152,26 @@ from .security import (
     init_security
 )
 
+# Import metrics collection utilities
+from .metrics import (
+    register_component_status,
+    get_component_status,
+    get_all_component_statuses,
+    check_critical_components,
+    record_request_metrics,
+    record_endpoint_metrics,
+    record_error_metrics,
+    track_metrics,
+    measure_latency,
+    get_all_metrics,
+    record_file_integrity_metrics,
+    SystemMetrics,
+    DatabaseMetrics,
+    ApplicationMetrics,
+    SecurityMetrics,
+    FileIntegrityMetrics
+)
+
 # Import seeder functions
 from .seeder import (
     seed_database,
@@ -258,6 +280,24 @@ __all__ = [
     '_consider_baseline_update',
     'init_security',
     'verify_baseline_update',
+
+    # Metrics functions and classes
+    'register_component_status',
+    'get_component_status',
+    'get_all_component_statuses',
+    'check_critical_components',
+    'record_request_metrics',
+    'record_endpoint_metrics',
+    'record_error_metrics',
+    'track_metrics',
+    'measure_latency',
+    'get_all_metrics',
+    'record_file_integrity_metrics',
+    'SystemMetrics',
+    'DatabaseMetrics',
+    'ApplicationMetrics',
+    'SecurityMetrics',
+    'FileIntegrityMetrics',
 
     # Database seeding functions
     'seed_database',

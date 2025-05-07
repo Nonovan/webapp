@@ -27,16 +27,24 @@ try:
     # Use core security functions for event fetching and logging
     from core.security.cs_audit import get_recent_security_events, log_security_event
     from core.security.cs_constants import SECURITY_CONFIG
-    from models.audit_log import AuditLog
+    from models.security import AuditLog
     from extensions import db, metrics, get_redis_client # If needed for direct access
+
+    # Import monitoring utils and constants
+    from admin.security.monitoring.monitoring_constants import (
+        SEVERITY, EVENT_TYPES, OUTPUT_FORMATS, DETECTION_SENSITIVITY,
+        LOG_DIR, REPORT_DIR, DETECTION_RULES_DIR, VERSION,
+        THREAT_INTEL, TIMESTAMP_FORMATS
+    )
     # Use admin utils if available
-    from admin.utils.audit_utils import SEVERITY_CRITICAL, SEVERITY_HIGH, SEVERITY_MEDIUM, SEVERITY_INFO
+    from admin.security.monitoring import SEVERITY_CRITICAL, SEVERITY_HIGH, SEVERITY_MEDIUM, SEVERITY_INFO
     # Import monitoring utils
-    from admin.security.monitoring.utils.event_normalizer import normalize_event, EVENT_NORMALIZER_AVAILABLE
-    from admin.security.monitoring.utils.indicator_matcher import match_indicators, INDICATOR_MATCHER_AVAILABLE
-    from admin.security.monitoring.utils.alert_formatter import format_security_alert, ALERT_FORMATTER_AVAILABLE, sanitize_alert_data
+    from admin.security.monitoring.utils import (
+        normalize_event, match_indicators, format_security_alert, sanitize_alert_data,
+        EVENT_NORMALIZER_AVAILABLE, INDICATOR_MATCHER_AVAILABLE, ALERT_FORMATTER_AVAILABLE
+    )
     # Import notification service if available
-    from services.notification import send_notification
+    from models.communication import send_notification
     CORE_AVAILABLE = True
     NOTIFICATION_AVAILABLE = True
 except ImportError as e:
@@ -44,6 +52,7 @@ except ImportError as e:
     print("Core application context or utils may not be available. Functionality might be limited.", file=sys.stderr)
     CORE_AVAILABLE = False
     NOTIFICATION_AVAILABLE = False
+
     # Define dummy functions/classes if needed
     def get_recent_security_events(*args, **kwargs) -> List[Dict[str, Any]]: return []
     def log_security_event(*args, **kwargs): pass
@@ -55,10 +64,25 @@ except ImportError as e:
     EVENT_NORMALIZER_AVAILABLE = False
     INDICATOR_MATCHER_AVAILABLE = False
     ALERT_FORMATTER_AVAILABLE = False
+
+    # Define fallback constants if monitoring_constants can't be imported
+    class SEVERITY:
+        INFO = "info"
+        LOW = "low"
+        MEDIUM = "medium"
+        HIGH = "high"
+        CRITICAL = "critical"
+
     SEVERITY_CRITICAL = "critical"
     SEVERITY_HIGH = "high"
     SEVERITY_MEDIUM = "medium"
     SEVERITY_INFO = "info"
+
+    VERSION = "0.1.1"
+    LOG_DIR = Path(os.environ.get("SECURITY_LOG_DIR", "/var/log/cloud-platform/security"))
+    REPORT_DIR = Path(os.environ.get("SECURITY_REPORT_DIR", "/var/www/reports/security"))
+    DETECTION_RULES_DIR = os.path.join(os.path.dirname(__file__), "config", "detection_rules")
+
     class AuditLog:
         SEVERITY_CRITICAL = "critical"
         SEVERITY_HIGH = "high"
@@ -68,13 +92,11 @@ except ImportError as e:
 
 # --- Configuration ---
 ADMIN_CONFIG_DIR = os.path.join(project_root, "admin", "security", "monitoring", "config")
-DEFAULT_RULES_DIR = os.path.join(ADMIN_CONFIG_DIR, "detection_rules")
-LOG_DIR = Path(os.environ.get("SECURITY_LOG_DIR", "/var/log/cloud-platform/security"))
+DEFAULT_RULES_DIR = DETECTION_RULES_DIR if 'DETECTION_RULES_DIR' in locals() else os.path.join(ADMIN_CONFIG_DIR, "detection_rules")
 DEFAULT_LOG_FILE = LOG_DIR / "security_event_correlator.log"
-DEFAULT_REPORT_DIR = Path(os.environ.get("SECURITY_REPORT_DIR", "/var/www/reports/security"))
+DEFAULT_REPORT_DIR = REPORT_DIR if 'REPORT_DIR' in locals() else Path(os.environ.get("SECURITY_REPORT_DIR", "/var/www/reports/security"))
 DEFAULT_CORRELATION_WINDOW = SECURITY_CONFIG.get('EVENT_CORRELATION_WINDOW', 300) if CORE_AVAILABLE else 300 # seconds
 DEFAULT_TEMPLATE_DIR = Path(os.path.join(os.path.dirname(__file__), "templates"))
-VERSION = "1.2.0"
 
 # Ensure directories exist
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -922,6 +944,62 @@ def trigger_alerts(findings: List[Dict[str, Any]], threshold: str = "medium"):
 
         except Exception as e:
             logger.error(f"Failed to trigger alert for rule '{finding['rule_id']}': {e}")
+
+
+def initialize_correlation(rules_dir: Optional[str] = None) -> bool:
+    """
+    Initialize the security event correlation engine.
+
+    This function prepares the correlation engine by loading detection rules,
+    setting up connections to data sources, and validating configurations.
+
+    Args:
+        rules_dir: Optional directory containing correlation rules.
+                  If not provided, uses the default rules directory.
+
+    Returns:
+        bool: True if initialization was successful, False otherwise
+    """
+    try:
+        logger.info(f"Initializing security event correlation engine")
+
+        # Use provided rules directory or fall back to default
+        target_rules_dir = rules_dir if rules_dir else DEFAULT_RULES_DIR
+
+        # Check if rules directory exists
+        if not os.path.exists(target_rules_dir):
+            logger.error(f"Rules directory not found: {target_rules_dir}")
+            return False
+
+        # Load detection rules to validate their structure
+        rules = load_detection_rules(target_rules_dir)
+        if not rules:
+            logger.warning(f"No valid correlation rules found in {target_rules_dir}")
+            return False
+
+        logger.info(f"Successfully loaded {len(rules)} correlation rules")
+
+        # Check core dependencies
+        if not CORE_AVAILABLE:
+            logger.warning("Core security module not available, correlation will use limited functionality")
+
+        # Validate output directories
+        DEFAULT_REPORT_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Check for utilities
+        utils_status = {
+            "event_normalizer": EVENT_NORMALIZER_AVAILABLE,
+            "alert_formatter": ALERT_FORMATTER_AVAILABLE,
+            "indicator_matcher": INDICATOR_MATCHER_AVAILABLE
+        }
+        logger.debug(f"Utility components status: {utils_status}")
+
+        logger.info("Security event correlation engine initialized successfully")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to initialize security event correlation: {e}", exc_info=True)
+        return False
 
 
 # --- Main Execution ---
