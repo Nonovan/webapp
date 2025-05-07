@@ -99,6 +99,44 @@ NOTIFIERS = ["email", "slack", "sms"]
 
 REQUEST_STORE.mkdir(parents=True, exist_ok=True)
 
+
+__all__ = [
+    # Core functions
+    "activate_emergency_access",
+    "approve_emergency_request",
+    "deactivate_emergency_access",
+    "list_emergency_requests",
+    "get_request_details",
+
+    # Helper functions
+    "format_output",
+    "setup_arg_parser",
+
+    # Classes
+    "EmergencyAccessManager",
+    "AccessStatus",
+    "EmergencyAccessError",
+    "ValidationError",
+    "AuthorizationError",
+    "ApprovalError",
+    "ResourceError",
+
+    # Constants
+    "EXIT_SUCCESS",
+    "EXIT_ERROR",
+    "EXIT_VALIDATION_ERROR",
+    "EXIT_AUTHENTICATION_ERROR",
+    "EXIT_AUTHORIZATION_ERROR",
+    "EXIT_RESOURCE_ERROR",
+    "EXIT_APPROVAL_ERROR",
+    "EXIT_ARGUMENT_ERROR",
+    "NOTIFIERS",
+
+    # Main entry point
+    "main"
+]
+
+
 # Ensure secure permissions on emergency request files
 try:
     REQUEST_STORE.chmod(0o700)

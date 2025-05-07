@@ -94,6 +94,25 @@ logger = logging.getLogger(__name__)
 SUPPORTED_FORMATS = ['json', 'csv', 'text']
 DEFAULT_LIMIT = 1000
 
+
+__all__ = [
+    # Core functions
+    "fetch_admin_logs",
+    "run_anomaly_detection",
+    "run_integrity_checks",
+
+    # Helper functions
+    "get_time_range",
+    "format_report_data",
+    "write_output",
+    "display_review",
+
+    # Constants
+    "SUPPORTED_FORMATS",
+    "DEFAULT_LIMIT"
+]
+
+
 def parse_arguments() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Administrative Action Auditing Utility.")

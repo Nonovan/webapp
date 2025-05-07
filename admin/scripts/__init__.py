@@ -27,7 +27,7 @@ from typing import Dict, List, Any, Optional
 logger = logging.getLogger(__name__)
 
 # Version information
-__version__ = '1.0.0'
+__version__ = '0.1.1'
 __author__ = 'Cloud Infrastructure Platform Team'
 __email__ = 'admin-team@example.com'
 
@@ -47,13 +47,20 @@ BACKUP_VERIFICATION_AVAILABLE = False
 # Try importing admin_audit functionality
 try:
     from .admin_audit import (
-        display_review,
+        # Core functions
         fetch_admin_logs,
-        format_report_data,
-        get_time_range,
         run_anomaly_detection,
         run_integrity_checks,
-        write_output
+
+        # Helper functions
+        get_time_range,
+        format_report_data,
+        write_output,
+        display_review,
+
+        # Constants
+        SUPPORTED_FORMATS,
+        DEFAULT_LIMIT
     )
     ADMIN_AUDIT_AVAILABLE = True
 except ImportError as e:
@@ -65,7 +72,32 @@ try:
         activate_emergency_access,
         approve_emergency_request,
         deactivate_emergency_access,
-        list_emergency_requests
+        list_emergency_requests,
+        get_request_details,
+
+        # Helper functions
+        format_output,
+        setup_arg_parser,
+
+        # Classes
+        EmergencyAccessManager,
+        AccessStatus,
+        EmergencyAccessError,
+        ValidationError,
+        AuthorizationError,
+        ApprovalError,
+        ResourceError,
+
+        # Constants
+        EXIT_SUCCESS,
+        EXIT_ERROR,
+        EXIT_VALIDATION_ERROR,
+        EXIT_AUTHENTICATION_ERROR,
+        EXIT_AUTHORIZATION_ERROR,
+        EXIT_RESOURCE_ERROR,
+        EXIT_APPROVAL_ERROR,
+        EXIT_ARGUMENT_ERROR,
+        NOTIFIERS
     )
     EMERGENCY_ACCESS_AVAILABLE = True
 except ImportError as e:
@@ -74,9 +106,20 @@ except ImportError as e:
 # Try importing privilege_management functionality
 try:
     from .privilege_management import (
-        grant_privileges,
-        revoke_privileges,
-        list_privileges
+        grant_permission,
+        revoke_permission,
+        list_permissions,
+        check_permission,
+        delegate_permission,
+        list_delegations,
+        revoke_delegation,
+        export_permissions,
+
+        # Exception classes
+        PrivilegeManagementError,
+        ValidationError,
+        ResourceNotFoundError,
+        AuthenticationError
     )
     PRIVILEGE_MANAGEMENT_AVAILABLE = True
 except ImportError as e:
@@ -85,8 +128,18 @@ except ImportError as e:
 # Try importing system_lockdown functionality
 try:
     from .system_lockdown import (
+        # Core functions
         apply_security_controls,
-        verify_security_controls
+        verify_security_controls,
+
+        # Classes
+        SystemLockdown,
+        ValidationResult,
+        Severity,
+
+        # Constants
+        DEFAULT_ENVIRONMENT,
+        DEFAULT_SECURITY_LEVEL
     )
     SYSTEM_LOCKDOWN_AVAILABLE = True
 except ImportError as e:
@@ -99,7 +152,23 @@ try:
         generate_health_report,
         check_system_resources,
         verify_services_status,
-        check_security_compliance
+        check_security_compliance,
+
+        # Helper functions
+        check_tcp_connection,
+        check_endpoint,
+        check_dns_resolution,
+
+        # Classes
+        HealthChecker,
+        Status,
+
+        # Constants
+        DEFAULT_TIMEOUT,
+        DEFAULT_DISK_THRESHOLD,
+        DEFAULT_MEMORY_THRESHOLD,
+        DEFAULT_CPU_THRESHOLD,
+        DEFAULT_REPORT_FORMAT,
     )
     HEALTH_CHECK_AVAILABLE = True
 except ImportError as e:
@@ -112,7 +181,23 @@ try:
         validate_compliance,
         get_compliance_status,
         export_compliance_evidence,
-        check_regulatory_requirements
+        check_regulatory_requirements,
+
+        # Helper functions
+        parse_arguments,
+        generate_report_filename,
+        ensure_output_directory,
+        load_compliance_mapping,
+        generate_pdf_from_html,
+        enhance_report_with_remediation,
+        append_evidence_to_report,
+        log_compliance_report_generation,
+
+        # Constants
+        DEFAULT_OUTPUT_DIR,
+        SUPPORTED_FRAMEWORKS,
+        SUPPORTED_FORMATS as COMPLIANCE_SUPPORTED_FORMATS,
+        REGULATORY_AUTHORITIES
     )
     COMPLIANCE_REPORTING_AVAILABLE = True
 except ImportError as e:
@@ -121,11 +206,30 @@ except ImportError as e:
 # Try importing backup_verification functionality
 try:
     from .backup_verification import (
+        # Core verification functions
         verify_backup_integrity,
         test_backup_restore,
         verify_backup_encryption,
         generate_verification_report,
-        check_backup_completeness
+        check_backup_completeness,
+
+        # Helper functions
+        detect_backup_format,
+        verify_backup_checksum,
+        verify_backup_structure,
+
+        # Classes
+        VerificationStatus,
+        BackupFormat,
+
+        # Constants
+        BACKUP_DIR,
+        TEST_RESTORE_DIR,
+        DEFAULT_REPORT_DIR,
+        SUPPORTED_FORMATS as BACKUP_SUPPORTED_FORMATS,
+        DEFAULT_TEST_DB_NAME,
+        DEFAULT_VERIFICATION_TIMEOUT,
+        main
     )
     BACKUP_VERIFICATION_AVAILABLE = True
 except ImportError as e:
@@ -158,59 +262,168 @@ __all__ = [
 # Conditionally add exports based on available script modules
 if ADMIN_AUDIT_AVAILABLE:
     __all__.extend([
+        # Core functions
         "fetch_admin_logs",
-        "format_report_data",
-        "display_review",
         "run_anomaly_detection",
-        "run_integrity_checks"
+        "run_integrity_checks",
+
+        # Helper functions
+        "get_time_range",
+        "format_report_data",
+        "write_output",
+        "display_review",
+
+        # Constants
+        "SUPPORTED_FORMATS",
+        "DEFAULT_LIMIT"
     ])
 
 if EMERGENCY_ACCESS_AVAILABLE:
     __all__.extend([
+        # Core functions
         "activate_emergency_access",
         "approve_emergency_request",
         "deactivate_emergency_access",
-        "list_emergency_requests"
+        "list_emergency_requests",
+        "get_request_details",
+
+        # Helper functions
+        "format_output",
+        "setup_arg_parser",
+
+        # Classes
+        "EmergencyAccessManager",
+        "AccessStatus",
+        "EmergencyAccessError",
+        "ValidationError",
+        "AuthorizationError",
+        "ApprovalError",
+        "ResourceError",
+
+        # Constants
+        "EXIT_SUCCESS",
+        "EXIT_ERROR",
+        "EXIT_VALIDATION_ERROR",
+        "EXIT_AUTHENTICATION_ERROR",
+        "EXIT_AUTHORIZATION_ERROR",
+        "EXIT_RESOURCE_ERROR",
+        "EXIT_APPROVAL_ERROR",
+        "EXIT_ARGUMENT_ERROR",
+        "NOTIFIERS"
     ])
 
 if PRIVILEGE_MANAGEMENT_AVAILABLE:
     __all__.extend([
-        "grant_privileges",
-        "revoke_privileges",
-        "list_privileges"
+        # Core functions from privilege_management.py
+        "grant_permission",
+        "revoke_permission",
+        "list_permissions",
+        "check_permission",
+        "delegate_permission",
+        "list_delegations",
+        "revoke_delegation",
+        "export_permissions",
+
+        # Exception classes from privilege_management.py
+        "PrivilegeManagementError",
+        "ValidationError",
+        "ResourceNotFoundError",
+        "AuthenticationError"
     ])
 
 if SYSTEM_LOCKDOWN_AVAILABLE:
     __all__.extend([
+        # Core functions
         "apply_security_controls",
-        "verify_security_controls"
+        "verify_security_controls",
+
+        # Classes
+        "SystemLockdown",
+        "ValidationResult",
+        "Severity",
+
+        # Constants
+        "DEFAULT_ENVIRONMENT",
+        "DEFAULT_SECURITY_LEVEL"
     ])
 
 if HEALTH_CHECK_AVAILABLE:
     __all__.extend([
+        # Core functions
         "run_health_check",
         "generate_health_report",
         "check_system_resources",
         "verify_services_status",
-        "check_security_compliance"
+        "check_security_compliance",
+
+        # Helper functions
+        "check_tcp_connection",
+        "check_endpoint",
+        "check_dns_resolution",
+
+        # Classes
+        "HealthChecker",
+        "Status",
+
+        # Constants
+        "DEFAULT_TIMEOUT",
+        "DEFAULT_DISK_THRESHOLD",
+        "DEFAULT_MEMORY_THRESHOLD",
+        "DEFAULT_CPU_THRESHOLD",
+        "DEFAULT_REPORT_FORMAT",
     ])
 
 if COMPLIANCE_REPORTING_AVAILABLE:
     __all__.extend([
+        # Core verification functions
         "generate_compliance_report",
         "validate_compliance",
         "get_compliance_status",
         "export_compliance_evidence",
-        "check_regulatory_requirements"
+        "check_regulatory_requirements",
+
+        # Helper functions
+        "parse_arguments",
+        "generate_report_filename",
+        "ensure_output_directory",
+        "load_compliance_mapping",
+        "generate_pdf_from_html",
+        "enhance_report_with_remediation",
+        "append_evidence_to_report",
+        "log_compliance_report_generation",
+
+        # Constants
+        "DEFAULT_OUTPUT_DIR",
+        "SUPPORTED_FRAMEWORKS",
+        "COMPLIANCE_SUPPORTED_FORMATS",
+        "REGULATORY_AUTHORITIES"
     ])
 
 if BACKUP_VERIFICATION_AVAILABLE:
     __all__.extend([
+        # Core verification functions
         "verify_backup_integrity",
         "test_backup_restore",
         "verify_backup_encryption",
         "generate_verification_report",
-        "check_backup_completeness"
+        "check_backup_completeness",
+
+        # Helper functions
+        "detect_backup_format",
+        "verify_backup_checksum",
+        "verify_backup_structure",
+
+        # Classes
+        "VerificationStatus",
+        "BackupFormat",
+
+        # Constants
+        "BACKUP_DIR",
+        "TEST_RESTORE_DIR",
+        "DEFAULT_REPORT_DIR",
+        "BACKUP_SUPPORTED_FORMATS",
+        "DEFAULT_TEST_DB_NAME",
+        "DEFAULT_VERIFICATION_TIMEOUT"
     ])
 
 # Log initialization status

@@ -83,6 +83,25 @@ else:
     logger = logging.getLogger(__name__)
 
 
+__all__ = [
+    # Core functions
+    "apply_security_controls",
+    "verify_security_controls",
+
+    # Classes
+    "SystemLockdown",
+    "ValidationResult",
+    "Severity",
+
+    # Constants
+    "DEFAULT_ENVIRONMENT",
+    "DEFAULT_SECURITY_LEVEL"
+
+    # Main entry point
+    "main",
+]
+
+
 class Severity(Enum):
     """Severity levels for validation results."""
     INFO = "info"
@@ -1182,6 +1201,170 @@ class SystemLockdown:
             logger.info(f"Run 'python {os.path.basename(__file__)} --verify --security-level {self.security_level}' (or relevant policy) to confirm the applied settings.")
 
             return 0
+
+
+def apply_security_controls(
+    security_level: Optional[str] = None,
+    component: Optional[str] = None,
+    apply_policy: Optional[str] = None,
+    policy_file: Optional[str] = None,
+    environment: str = DEFAULT_ENVIRONMENT,
+    force: bool = False
+) -> bool:
+    """
+    Apply security controls to the system based on specified parameters.
+
+    This is the main public API function for applying system security lockdown.
+
+    Args:
+        security_level: Security level to apply (baseline, medium, high, critical)
+        component: Specific system component to harden
+        apply_policy: Named policy to apply (when component is specified)
+        policy_file: Path to a policy file to apply
+        environment: Target environment (e.g., production, development)
+        force: Whether to apply changes without confirmation
+
+    Returns:
+        bool: True if all controls were applied successfully, False otherwise
+    """
+    lockdown = SystemLockdown()
+
+    # Set parameters
+    if security_level:
+        lockdown.security_level = security_level
+    if component:
+        lockdown.component = component
+    if apply_policy:
+        lockdown.apply_policy = apply_policy
+    if policy_file:
+        lockdown.policy_file = policy_file
+
+    lockdown.environment = environment
+    lockdown.force_mode = force
+
+    # Determine policy source
+    if lockdown.policy_file:
+        policy_path = Path(lockdown.policy_file)
+        if not policy_path.exists() or not policy_path.is_file():
+            logger.error(f"Policy file not found: {lockdown.policy_file}")
+            return False
+
+        try:
+            with open(policy_path, 'r') as f:
+                json.load(f)  # Validate JSON format
+        except json.JSONDecodeError:
+            logger.error(f"Invalid JSON format in policy file: {lockdown.policy_file}")
+            return False
+
+        lockdown.policy_source = f"Policy File: {lockdown.policy_file}"
+    elif lockdown.component and lockdown.apply_policy:
+        lockdown.policy_source = f"Component: {lockdown.component}, Policy: {lockdown.apply_policy}"
+    elif lockdown.security_level:
+        if lockdown.security_level not in ["baseline", "medium", "high", "critical"]:
+            logger.error(f"Unsupported security level: {lockdown.security_level}. Choose from baseline, medium, high, critical.")
+            return False
+        lockdown.policy_source = f"Security Level: {lockdown.security_level}"
+    else:
+        logger.error("No security level, component/policy, or policy file specified.")
+        return False
+
+    # Run the lockdown application
+    logger.info("--- Starting Security Lockdown Application ---")
+
+    # Apply settings based on policy source
+    result = True
+    if lockdown.policy_file:
+        logger.error("Custom policy files are not yet implemented. Use security level or component-specific options.")
+        return False
+    elif lockdown.component and lockdown.apply_policy:
+        # Apply component-specific hardening
+        if lockdown.component == "kernel":
+            result = lockdown.apply_kernel_hardening()
+        elif lockdown.component == "ssh":
+            result = lockdown.apply_ssh_hardening()
+        elif lockdown.component == "filesystem":
+            result = lockdown.apply_filesystem_hardening()
+        elif lockdown.component == "network":
+            result = lockdown.apply_network_hardening()
+        elif lockdown.component == "authentication":
+            result = lockdown.apply_authentication_hardening()
+        elif lockdown.component == "services":
+            result = lockdown.disable_non_essential_services()
+        else:
+            logger.error(f"Unsupported component: {lockdown.component}")
+            return False
+    elif lockdown.security_level:
+        # Apply functions based on level - order can matter
+        # Baseline applies minimal set
+        if lockdown.security_level in ["baseline", "medium", "high", "critical"]:
+            result = lockdown.apply_kernel_hardening() and result
+            result = lockdown.apply_ssh_hardening() and result
+            result = lockdown.apply_filesystem_hardening() and result
+            result = lockdown.apply_authentication_hardening() and result
+            result = lockdown.apply_network_hardening() and result
+
+        # High/Critical disables more services
+        if lockdown.security_level in ["high", "critical"]:
+            result = lockdown.disable_non_essential_services() and result
+
+    if result:
+        logger.info("--- Security Lockdown Application Completed Successfully ---")
+        logger.info("It is recommended to reboot the system or restart relevant services for all changes to take effect.")
+    else:
+        logger.error("--- Security Lockdown Application Completed with Errors ---")
+
+    return result
+
+
+def verify_security_controls(
+    security_level: Optional[str] = None,
+    component: Optional[str] = None,
+    policy_file: Optional[str] = None
+) -> bool:
+    """
+    Verify that security controls are properly applied to the system.
+
+    This is the main public API function for verifying system security lockdown.
+
+    Args:
+        security_level: Security level to verify against
+        component: Specific system component to verify
+        policy_file: Path to a policy file to verify against
+
+    Returns:
+        bool: True if all controls are compliant, False if non-compliant
+    """
+    lockdown = SystemLockdown()
+
+    # Set parameters
+    if security_level:
+        lockdown.security_level = security_level
+    if component:
+        lockdown.component = component
+    if policy_file:
+        lockdown.policy_file = policy_file
+
+    # Determine policy source
+    if lockdown.policy_file:
+        policy_path = Path(lockdown.policy_file)
+        if not policy_path.exists() or not policy_path.is_file():
+            logger.error(f"Policy file not found: {lockdown.policy_file}")
+            return False
+        lockdown.policy_source = f"Policy File: {lockdown.policy_file}"
+    elif lockdown.component:
+        lockdown.policy_source = f"Component: {lockdown.component}"
+    elif lockdown.security_level:
+        if lockdown.security_level not in ["baseline", "medium", "high", "critical"]:
+            logger.error(f"Unsupported security level: {lockdown.security_level}. Choose from baseline, medium, high, critical.")
+            return False
+        lockdown.policy_source = f"Security Level: {lockdown.security_level}"
+    else:
+        logger.error("No security level, component, or policy file specified.")
+        return False
+
+    # Run the verification
+    logger.info("--- Starting Configuration Verification ---")
+    return lockdown.verify_configuration(lockdown.policy_source)
 
 
 def main() -> int:

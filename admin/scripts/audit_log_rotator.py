@@ -54,6 +54,25 @@ logger = logging.getLogger(__name__)
 # Define available export formats
 SUPPORTED_FORMATS = ['json', 'csv']
 
+
+__all__ = [
+    # Core functions
+
+
+    # Helper functions
+
+
+    # Classes
+
+
+    # Constants
+
+
+    # Main entry point
+    "main"
+]
+
+
 def parse_arguments() -> argparse.Namespace:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Rotate and archive old audit logs.")

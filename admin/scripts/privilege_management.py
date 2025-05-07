@@ -78,6 +78,34 @@ EXIT_VALIDATION_ERROR = 4
 EXIT_NOT_FOUND = 5
 EXIT_AUTHENTICATION_ERROR = 6
 
+__all__ = [
+    # Core functions
+    "grant_permission",
+    "revoke_permission",
+    "list_permissions",
+    "check_permission",
+    "delegate_permission",
+    "list_delegations",
+    "revoke_delegation",
+    "export_permissions",
+
+    # Helper functions
+    "format_output",
+    "authenticate_user",
+    "find_user",
+    "find_role",
+    "find_permission",
+
+    # Exception classes
+    "PrivilegeManagementError",
+    "ValidationError",
+    "ResourceNotFoundError",
+    "AuthenticationError",
+
+    # Main entry point
+    "main"
+]
+
 class PrivilegeManagementError(Exception):
     """Base exception for privilege management errors."""
     pass

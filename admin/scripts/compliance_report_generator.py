@@ -35,7 +35,7 @@ if project_root not in sys.path:
 
 try:
     from flask import Flask
-    from models.security.compliance_check import ComplianceValidator, ComplianceStatus
+    from models.security.system.compliance_check import ComplianceValidator, ComplianceStatus
     from core.factory import create_app
     from core.security.cs_audit import log_security_event
 except ImportError as e:
@@ -51,6 +51,44 @@ logger = logging.getLogger(__name__)
 DEFAULT_OUTPUT_DIR = os.path.join(project_root, "reports", "compliance")
 SUPPORTED_FRAMEWORKS = ["pci-dss", "hipaa", "gdpr", "iso27001", "soc2", "fedramp", "nist-csf"]
 SUPPORTED_FORMATS = ["json", "html", "text", "pdf"]
+REGULATORY_AUTHORITIES = {
+    "pci-dss": "Payment Card Industry Security Standards Council",
+    "hipaa": "U.S. Department of Health & Human Services",
+    "gdpr": "European Data Protection Board",
+    "iso27001": "International Organization for Standardization",
+    "soc2": "American Institute of CPAs",
+    "fedramp": "U.S. General Services Administration",
+    "nist-csf": "National Institute of Standards and Technology"
+}
+
+__all__ = [
+    # Core functions
+    "generate_compliance_report",
+    "validate_compliance",
+    "get_compliance_status",
+    "export_compliance_evidence",
+    "check_regulatory_requirements",
+
+    # Helper functions
+    "parse_arguments",
+    "generate_report_filename",
+    "ensure_output_directory",
+    "load_compliance_mapping",
+    "generate_pdf_from_html",
+    "enhance_report_with_remediation",
+    "append_evidence_to_report",
+    "log_compliance_report_generation",
+
+    # Constants
+    "DEFAULT_OUTPUT_DIR",
+    "SUPPORTED_FRAMEWORKS",
+    "SUPPORTED_FORMATS",
+    "REGULATORY_AUTHORITIES",
+
+    # Main entry point
+    "main"
+]
+
 
 def parse_arguments() -> argparse.Namespace:
     """Parse command line arguments."""
@@ -139,6 +177,7 @@ def parse_arguments() -> argparse.Namespace:
 
     return parser.parse_args()
 
+
 def generate_report_filename(args: argparse.Namespace) -> str:
     """Generate a default report filename based on arguments."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -147,11 +186,13 @@ def generate_report_filename(args: argparse.Namespace) -> str:
 
     return f"{args.standard}{env_suffix}_compliance_report_{timestamp}.{extension}"
 
+
 def ensure_output_directory(output_path: str) -> None:
     """Ensure the output directory exists."""
     output_dir = os.path.dirname(output_path)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
+
 
 def load_compliance_mapping(mapping_file: str) -> Dict:
     """Load compliance mapping from a JSON file."""
@@ -161,6 +202,7 @@ def load_compliance_mapping(mapping_file: str) -> Dict:
     except (IOError, json.JSONDecodeError) as e:
         logger.error(f"Failed to load compliance mapping file: {e}")
         return {}
+
 
 def generate_pdf_from_html(html_content: str, output_path: str) -> bool:
     """Generate a PDF file from HTML content."""
@@ -187,6 +229,7 @@ def generate_pdf_from_html(html_content: str, output_path: str) -> bool:
     except Exception as e:
         logger.error(f"Failed to generate PDF: {e}")
         return False
+
 
 def enhance_report_with_remediation(report: Dict[str, Any], mapping_file: Optional[str]) -> Dict[str, Any]:
     """Enhance the report with remediation information."""
@@ -219,6 +262,7 @@ def enhance_report_with_remediation(report: Dict[str, Any], mapping_file: Option
                     }
 
     return report
+
 
 def append_evidence_to_report(report: Union[str, Dict], evidence_dir: str, format_type: str) -> Union[str, Dict]:
     """Append evidence data to the report."""
@@ -298,6 +342,7 @@ def append_evidence_to_report(report: Union[str, Dict], evidence_dir: str, forma
         logger.warning(f"Evidence appendage not implemented for format: {format_type}")
         return report
 
+
 def log_compliance_report_generation(app: Flask, standard: str, environment: Optional[str],
                                     categories: List[str], format_type: str, results: Dict[str, Any]) -> None:
     """Log the compliance report generation in the security audit log."""
@@ -328,9 +373,14 @@ def log_compliance_report_generation(app: Flask, standard: str, environment: Opt
             category="compliance"
         )
 
+
 def generate_compliance_report(app: Flask, args: argparse.Namespace) -> Optional[str]:
     """
     Generate compliance report based on provided arguments.
+
+    Args:
+        app: Flask application instance
+        args: Command line arguments
 
     Returns:
         Path to the generated report file if successful, None otherwise
@@ -423,6 +473,285 @@ def generate_compliance_report(app: Flask, args: argparse.Namespace) -> Optional
             logger.error(f"Failed to generate compliance report: {e}", exc_info=True)
             return None
 
+
+def validate_compliance(framework: str, categories: Optional[List[str]] = None,
+                        environment: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Validate compliance against specified framework without generating a report.
+
+    Args:
+        framework: The compliance framework to validate against
+        categories: Optional list of specific categories to validate
+        environment: Optional environment to validate against
+
+    Returns:
+        Validation results as a dictionary
+    """
+    if framework not in SUPPORTED_FRAMEWORKS:
+        raise ValueError(f"Unsupported framework: {framework}. Supported frameworks: {', '.join(SUPPORTED_FRAMEWORKS)}")
+
+    # Create a Flask application for context
+    app = create_app(env=environment or "production")
+
+    with app.app_context():
+        validator = ComplianceValidator(
+            framework=framework,
+            categories=categories,
+            environment=environment
+        )
+
+        # Run validation
+        validation_results = validator.validate()
+
+        # Calculate summary statistics
+        total_checks = len(validator.results)
+        passed = sum(1 for r in validator.results if r.get('status') == ComplianceStatus.PASSED.value)
+        failed = sum(1 for r in validator.results if r.get('status') == ComplianceStatus.FAILED.value)
+        errors = sum(1 for r in validator.results if r.get('status') == ComplianceStatus.ERROR.value)
+        skipped = sum(1 for r in validator.results if r.get('status') == ComplianceStatus.SKIPPED.value)
+
+        # Determine overall status
+        overall_status = ComplianceStatus.PASSED.value if failed == 0 else ComplianceStatus.FAILED.value
+
+        # Return the results
+        return {
+            "metadata": {
+                "framework": framework,
+                "categories": categories or [],
+                "environment": environment or "production",
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            },
+            "summary": {
+                "total_checks": total_checks,
+                "passed": passed,
+                "failed": failed,
+                "errors": errors,
+                "skipped": skipped,
+                "compliance_percentage": round((passed / total_checks * 100), 1) if total_checks > 0 else 0,
+                "overall_status": overall_status
+            },
+            "results": validator.results
+        }
+
+
+def get_compliance_status(framework: str, environment: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Get the current compliance status for a specific framework.
+
+    Args:
+        framework: The compliance framework to check
+        environment: Optional environment to check
+
+    Returns:
+        Dictionary with compliance status information
+    """
+    if framework not in SUPPORTED_FRAMEWORKS:
+        raise ValueError(f"Unsupported framework: {framework}. Supported frameworks: {', '.join(SUPPORTED_FRAMEWORKS)}")
+
+    # Get validation results for high-level summary
+    validation_results = validate_compliance(framework, environment=environment)
+    summary = validation_results["summary"]
+
+    # Get additional metadata
+    authority = REGULATORY_AUTHORITIES.get(framework, "Unknown Regulatory Authority")
+    current_date = datetime.now()
+
+    # Create a status summary (simplified for the status call)
+    return {
+        "standard": framework,
+        "environment": environment or "production",
+        "authority": authority,
+        "last_assessment": current_date.strftime("%Y-%m-%d"),
+        "status": "Compliant" if summary["overall_status"] == ComplianceStatus.PASSED.value else "Non-Compliant",
+        "compliance_percentage": summary["compliance_percentage"],
+        "total_controls": summary["total_checks"],
+        "passed_controls": summary["passed"],
+        "failed_controls": summary["failed"],
+        "timestamp": current_date.isoformat()
+    }
+
+
+def export_compliance_evidence(framework: str, control_id: Optional[str] = None,
+                              output_dir: Optional[str] = None, format_type: str = "json") -> str:
+    """
+    Export compliance evidence for a specific framework or control.
+
+    Args:
+        framework: The compliance framework
+        control_id: Optional specific control ID to export evidence for
+        output_dir: Directory to save evidence files
+        format_type: Output format (json, csv, pdf)
+
+    Returns:
+        Path to the evidence file or directory
+    """
+    if framework not in SUPPORTED_FRAMEWORKS:
+        raise ValueError(f"Unsupported framework: {framework}. Supported frameworks: {', '.join(SUPPORTED_FRAMEWORKS)}")
+
+    if format_type not in ["json", "csv", "pdf"]:
+        raise ValueError(f"Unsupported format: {format_type}. Supported formats: json, csv, pdf")
+
+    # Determine output directory
+    if not output_dir:
+        output_dir = os.path.join(DEFAULT_OUTPUT_DIR, "evidence", framework)
+
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Generate filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if control_id:
+        filename = f"{framework}_{control_id}_{timestamp}.{format_type}"
+    else:
+        filename = f"{framework}_evidence_{timestamp}.{format_type}"
+
+    output_path = os.path.join(output_dir, filename)
+
+    # Generate sample evidence (in a real implementation, this would fetch actual evidence)
+    evidence_data = {
+        "metadata": {
+            "framework": framework,
+            "control_id": control_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "exported_by": os.environ.get("USER", "unknown")
+        },
+        "evidence_items": []
+    }
+
+    if control_id:
+        # Add evidence specific to this control
+        evidence_data["evidence_items"].append({
+            "id": f"evidence-{control_id}-001",
+            "type": "documentation",
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "description": f"Documentation for control {control_id}",
+            "location": f"/evidence/{framework}/{control_id}/documentation.pdf"
+        })
+    else:
+        # Add general evidence for the framework
+        evidence_data["evidence_items"].append({
+            "id": f"evidence-{framework}-001",
+            "type": "certification",
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "description": f"{framework.upper()} Certification Document",
+            "location": f"/evidence/{framework}/certification.pdf"
+        })
+
+    # Write the evidence file
+    with open(output_path, 'w', encoding='utf-8') as f:
+        if format_type == "json":
+            json.dump(evidence_data, f, indent=4)
+        elif format_type == "csv":
+            # Simple CSV format
+            f.write("id,type,date,description,location\n")
+            for item in evidence_data["evidence_items"]:
+                f.write(f"{item['id']},{item['type']},{item['date']},{item['description']},{item['location']}\n")
+        else:  # pdf
+            # For PDF, we create a simple HTML that will be converted
+            html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>Compliance Evidence - {framework}</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 40px; }}
+        h1 {{ color: #2c3e50; }}
+        table {{ width: 100%; border-collapse: collapse; }}
+        th, td {{ text-align: left; padding: 8px; border-bottom: 1px solid #ddd; }}
+        th {{ background-color: #f2f2f2; }}
+    </style>
+</head>
+<body>
+    <h1>Compliance Evidence: {framework.upper()}</h1>
+    <p><strong>Generated:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+    <p><strong>Control ID:</strong> {control_id or 'All Controls'}</p>
+
+    <h2>Evidence Items</h2>
+    <table>
+        <tr>
+            <th>ID</th>
+            <th>Type</th>
+            <th>Date</th>
+            <th>Description</th>
+            <th>Location</th>
+        </tr>
+"""
+
+            for item in evidence_data["evidence_items"]:
+                html_content += f"""
+        <tr>
+            <td>{item['id']}</td>
+            <td>{item['type']}</td>
+            <td>{item['date']}</td>
+            <td>{item['description']}</td>
+            <td>{item['location']}</td>
+        </tr>"""
+
+            html_content += """
+    </table>
+</body>
+</html>"""
+
+            # Convert HTML to PDF
+            generate_pdf_from_html(html_content, output_path)
+
+    logger.info(f"Exported evidence to {output_path}")
+    return output_path
+
+
+def check_regulatory_requirements(framework: str, region: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Check regulatory requirements for a specific framework and region.
+
+    Args:
+        framework: The compliance framework to check
+        region: Optional region for region-specific requirements
+
+    Returns:
+        Dictionary with regulatory requirement information
+    """
+    if framework not in SUPPORTED_FRAMEWORKS:
+        raise ValueError(f"Unsupported framework: {framework}. Supported frameworks: {', '.join(SUPPORTED_FRAMEWORKS)}")
+
+    # Create response structure
+    requirements = {
+        "framework": framework,
+        "region": region or "global",
+        "authority": REGULATORY_AUTHORITIES.get(framework, "Unknown"),
+        "last_updated": datetime.now().strftime("%Y-%m-%d"),
+        "requirements": []
+    }
+
+    # Add framework-specific requirements
+    if framework == "gdpr" and region in ["EU", "EEA", None]:
+        requirements["requirements"].extend([
+            {"id": "gdpr-art-5", "name": "Principles relating to processing", "type": "mandatory"},
+            {"id": "gdpr-art-6", "name": "Lawfulness of processing", "type": "mandatory"},
+            {"id": "gdpr-art-12", "name": "Transparent information", "type": "mandatory"},
+            {"id": "gdpr-art-25", "name": "Data protection by design and default", "type": "mandatory"}
+        ])
+    elif framework == "hipaa":
+        requirements["requirements"].extend([
+            {"id": "hipaa-privacy", "name": "Privacy Rule", "type": "mandatory"},
+            {"id": "hipaa-security", "name": "Security Rule", "type": "mandatory"},
+            {"id": "hipaa-breach", "name": "Breach Notification Rule", "type": "mandatory"}
+        ])
+    elif framework == "pci-dss":
+        requirements["requirements"].extend([
+            {"id": "pci-req-1", "name": "Install and maintain a firewall configuration", "type": "mandatory"},
+            {"id": "pci-req-3", "name": "Protect stored cardholder data", "type": "mandatory"},
+            {"id": "pci-req-7", "name": "Restrict access to cardholder data", "type": "mandatory"}
+        ])
+    else:
+        # Generic requirements for other frameworks
+        requirements["requirements"].extend([
+            {"id": f"{framework}-001", "name": "Security Policy", "type": "mandatory"},
+            {"id": f"{framework}-002", "name": "Risk Management", "type": "mandatory"},
+            {"id": f"{framework}-003", "name": "Access Controls", "type": "mandatory"}
+        ])
+
+    return requirements
+
+
 def main():
     """Main entry point for the script."""
     args = parse_arguments()
@@ -448,6 +777,7 @@ def main():
     else:
         print("Failed to generate compliance report")
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(main())
