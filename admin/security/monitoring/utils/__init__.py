@@ -23,7 +23,7 @@ from typing import Dict, Any, List, Optional, Set, Tuple, Union
 from pathlib import Path
 
 # Package version
-__version__ = '1.0.0'
+__version__ = '0.1.1'
 __author__ = 'Security Team'
 __email__ = 'security@example.com'
 __status__ = 'Production'
@@ -46,8 +46,10 @@ try:
         get_severity_color,
         get_severity_icon,
         sanitize_alert_data,
-        render_alert_template
+        render_alert_template,
+        ALERT_FORMATTER_AVAILABLE
     )
+    # Update the availability flag based on what the module reports
     ALERT_FORMATTER_AVAILABLE = True
 except ImportError as e:
     logger.debug(f"Alert formatter not available: {e}")
@@ -62,7 +64,8 @@ try:
         standardize_timestamp,
         enrich_event_data,
         validate_normalized_event,
-        extract_event_fields
+        extract_event_fields,
+        EVENT_NORMALIZER_AVAILABLE
     )
     EVENT_NORMALIZER_AVAILABLE = True
 except ImportError as e:
@@ -78,7 +81,8 @@ try:
         match_file_hash,
         match_regex_pattern,
         calculate_match_confidence,
-        update_indicator_cache
+        update_indicator_cache,
+        INDICATOR_MATCHER_AVAILABLE
     )
     INDICATOR_MATCHER_AVAILABLE = True
 except ImportError as e:
@@ -94,8 +98,11 @@ try:
         parse_json_format,
         parse_cef_format,
         parse_leef_format,
+        parse_apache_format,
+        parse_fallback_format,
         extract_log_fields,
-        get_log_parser_for_format
+        get_log_parser_for_format,
+        LOG_PARSER_AVAILABLE
     )
     LOG_PARSER_AVAILABLE = True
 except ImportError as e:
@@ -115,15 +122,26 @@ def get_capabilities() -> Dict[str, bool]:
         "log_parser": LOG_PARSER_AVAILABLE
     }
 
+def get_utility_version() -> str:
+    """
+    Get the version string of the security monitoring utilities.
+
+    Returns:
+        String containing version information
+    """
+    return __version__
+
 # Export public API - core functionality that's always available
 __all__ = [
     # Version and package information
     '__version__',
     '__author__',
     '__email__',
+    '__status__',
 
     # Core functionality
-    'get_capabilities'
+    'get_capabilities',
+    'get_utility_version'
 ]
 
 # Conditionally add components to public API based on availability
@@ -171,9 +189,20 @@ if LOG_PARSER_AVAILABLE:
         'parse_json_format',
         'parse_cef_format',
         'parse_leef_format',
+        'parse_apache_format',
+        'parse_fallback_format',
         'extract_log_fields',
         'get_log_parser_for_format'
     ])
 
-# Log package initialization
-logger.debug(f"Security monitoring utilities initialized: {', '.join([k for k, v in get_capabilities().items() if v])}")
+# Log package initialization with more detailed information
+available_components = [k for k, v in get_capabilities().items() if v]
+logger.debug(f"Security monitoring utilities initialized (v{__version__}): " +
+             (", ".join(available_components) if available_components else "No components available"))
+
+# Register initialization status for monitoring if metrics are available
+try:
+    from core.metrics import register_component_status
+    register_component_status("security_monitoring_utils", bool(available_components), version=__version__)
+except ImportError:
+    pass  # Optional dependency, not critical if unavailable

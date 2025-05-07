@@ -4,14 +4,14 @@ This directory contains utility functions and helper modules that support the se
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- Usage
-- Integration
-- Best Practices & Security
-- Common Features
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Usage](#usage)
+- [Integration](#integration)
+- [Best Practices & Security](#best-practices--security)
+- [Common Features](#common-features)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
@@ -56,6 +56,7 @@ The security monitoring utilities implement reusable functionality for handling 
 ```plaintext
 admin/security/monitoring/utils/
 ├── README.md             # This documentation
+├── __init__.py           # Package initialization
 ├── alert_formatter.py    # Security alert formatting functions
 ├── event_normalizer.py   # Event normalization functions
 ├── indicator_matcher.py  # IOC matching functions
@@ -79,7 +80,10 @@ from utils.indicator_matcher import match_indicators
 from utils.alert_formatter import format_security_alert
 
 # Parse a security log file
-log_entries = parse_security_log('/var/log/secure', format='syslog')
+log_entries = parse_security_log(
+    log_file='/var/log/secure',
+    format='syslog'
+)
 
 # Process each log entry
 for entry in log_entries:
@@ -156,22 +160,29 @@ normalized_events = normalize_batch(
 ```python
 from utils.indicator_matcher import match_indicators, load_indicator_set
 
-# Load an indicator set
-indicators = load_indicator_set('threat_intel_feed.json')
+# Load a set of indicators from a file or database
+indicators = load_indicator_set('active_threats')
 
-# Match an event against indicators
+# Match event data against indicators
 matches = match_indicators(
     event=normalized_event,
     indicators=indicators,
     match_types=['ip', 'domain', 'hash'],
     threshold=0.75
 )
+
+# Check if an IP address matches any known threats
+ip_matches = match_ip_address(
+    ip='192.168.1.100',
+    indicators=indicators,
+    threshold=0.9
+)
 ```
 
 ### Log Parser
 
 ```python
-from utils.log_parser import parse_security_log, parse_log_line
+from utils.log_parser import parse_security_log, parse_log_line, detect_log_format
 
 # Parse an entire log file
 log_entries = parse_security_log(
@@ -183,9 +194,12 @@ log_entries = parse_security_log(
 
 # Parse a single log line
 parsed_entry = parse_log_line(
-    log_line='Jul 15 15:23:01 server sshd[12345]: Failed password for invalid user admin from 192.168.1.100 port 59812 ssh2',
+    line='Jul 15 15:23:01 server sshd[12345]: Failed password for invalid user admin from 192.168.1.100 port 59812 ssh2',
     format='syslog'
 )
+
+# Auto-detect the format of a log file
+log_format = detect_log_format('/var/log/messages')
 ```
 
 ## Best Practices & Security

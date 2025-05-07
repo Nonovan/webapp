@@ -50,20 +50,20 @@ class SEVERITY:
 
     # Display colors for reports
     COLORS = {
-        INFO: "#0099CC",       # Blue
-        LOW: "#FFCC00",        # Yellow
-        MEDIUM: "#FF9900",     # Orange
-        HIGH: "#CC3300",       # Red
-        CRITICAL: "#990000"    # Dark Red
+        INFO: "#377eb8",       # Blue
+        LOW: "#4daf4a",        # Green
+        MEDIUM: "#ffcc00",     # Yellow
+        HIGH: "#ff7f00",       # Orange
+        CRITICAL: "#e41a1c"    # Red
     }
 
     # Icons for HTML reports
     ICONS = {
-        INFO: "info-circle",
-        LOW: "exclamation-circle",
-        MEDIUM: "exclamation-triangle",
-        HIGH: "fire",
-        CRITICAL: "skull-crossbones"
+        INFO: "info",
+        LOW: "info-circle",
+        MEDIUM: "exclamation",
+        HIGH: "exclamation-triangle",
+        CRITICAL: "exclamation-triangle-fill"
     }
 
 # --- Event Categorization ---
@@ -119,6 +119,12 @@ class EVENT_TYPES:
     RESOURCE_DELETED = "resource_deleted"
     RESOURCE_ACCESS = "resource_access"
 
+    # Alert events
+    ALERT_GENERATED = "alert_generated"
+    ALERT_ESCALATED = "alert_escalated"
+    ALERT_RESOLVED = "alert_resolved"
+    ALERT_DISMISSED = "alert_dismissed"
+
 # --- Log Sources ---
 class LOG_SOURCES:
     """Log source types for event normalization."""
@@ -131,6 +137,16 @@ class LOG_SOURCES:
     DATABASE = "database"
     APPLICATION = "application"
     CUSTOM = "custom"
+    CONTAINER = "container"
+    KUBERNETES = "kubernetes"
+    AUTHENTICATION_SERVICE = "auth_service"
+    API_GATEWAY = "api_gateway"
+    LOAD_BALANCER = "load_balancer"
+
+    # List of all sources for validation
+    ALL_SOURCES = [SYSLOG, WINDOWS_EVENT, CLOUD_TRAIL, FIREWALL, IDS, WEB_SERVER,
+                  DATABASE, APPLICATION, CUSTOM, CONTAINER, KUBERNETES,
+                  AUTHENTICATION_SERVICE, API_GATEWAY, LOAD_BALANCER]
 
 # --- Output Formats ---
 class OUTPUT_FORMATS:
@@ -141,7 +157,10 @@ class OUTPUT_FORMATS:
     MARKDOWN = "markdown"
     TEXT = "text"
     XML = "xml"
-    ALL = [JSON, CSV, HTML, MARKDOWN, TEXT, XML]
+    PDF = "pdf"
+    EXCEL = "excel"
+
+    ALL = [JSON, CSV, HTML, MARKDOWN, TEXT, XML, PDF, EXCEL]
 
 # --- Detection Rule Types ---
 class RULE_TYPES:
@@ -153,6 +172,14 @@ class RULE_TYPES:
     PATTERN = "pattern"
     WHITELIST = "whitelist"
     BLACKLIST = "blacklist"
+    BEHAVIOR = "behavior"
+    STATISTICAL = "statistical"
+    MACHINE_LEARNING = "ml"
+
+    # Group rule types by complexity
+    SIMPLE_RULES = [SIGNATURE, WHITELIST, BLACKLIST]
+    INTERMEDIATE_RULES = [THRESHOLD, PATTERN, CORRELATION]
+    ADVANCED_RULES = [ANOMALY, BEHAVIOR, STATISTICAL, MACHINE_LEARNING]
 
 # --- Detection Thresholds ---
 DEFAULT_DETECTION_THRESHOLDS = {
@@ -178,6 +205,18 @@ DEFAULT_DETECTION_THRESHOLDS = {
     "resource_creation_rate": {
         "per_hour": 10,
         "alert_threshold": 25
+    },
+
+    # File system thresholds
+    "file_changes_per_hour": {
+        "normal_range": [0, 30],
+        "alert_threshold": 50
+    },
+
+    # Network thresholds
+    "connection_error_rate": {
+        "normal_range": [0.0, 0.05],
+        "alert_threshold": 0.15
     }
 }
 
@@ -200,6 +239,13 @@ class DETECTION_SENSITIVITY:
         LOW: 3.0,        # 3 standard deviations (99.7%)
         MEDIUM: 2.5,     # 2.5 standard deviations (98.8%)
         HIGH: 2.0        # 2 standard deviations (95.4%)
+    }
+
+    # Values for comparative monitoring approaches
+    MULTIPLIERS = {
+        LOW: 2.0,        # Threshold multiplier for low sensitivity
+        MEDIUM: 1.5,     # Threshold multiplier for medium sensitivity
+        HIGH: 1.2        # Threshold multiplier for high sensitivity
     }
 
 # --- File Integrity Monitoring ---
@@ -269,6 +315,19 @@ class INTEGRITY_MONITORING:
     DEFAULT_HASH_ALGORITHM = "sha256"
     SUPPORTED_HASH_ALGORITHMS = ["md5", "sha1", "sha256", "sha512"]
 
+    # Check frequencies
+    CHECK_INTERVALS = {
+        "critical": 3600,        # 1 hour
+        "high": 86400,           # 24 hours
+        "medium": 604800,        # 7 days
+        "low": 2592000           # 30 days
+    }
+
+    # Override flags
+    AUTO_UPDATE_BASELINE = False
+    VERIFY_SIGNATURES = True
+    ALERT_ON_CHANGE = True
+
 # --- Event Normalization ---
 class FIELD_MAPPINGS:
     """Field mappings for event normalization by source type."""
@@ -314,6 +373,24 @@ class FIELD_MAPPINGS:
         "severity": "severity"
     }
 
+    KUBERNETES = {
+        "timestamp": "ts",
+        "namespace": "kubernetes.namespace",
+        "pod": "kubernetes.pod.name",
+        "container": "kubernetes.container.name",
+        "message": "log"
+    }
+
+    API_GATEWAY = {
+        "timestamp": "timestamp",
+        "request_id": "requestId",
+        "method": "httpMethod",
+        "path": "resource",
+        "client_ip": "identity.sourceIp",
+        "status": "status",
+        "latency": "responseLatency"
+    }
+
 # --- Timestamp Formats ---
 TIMESTAMP_FORMATS = [
     "%Y-%m-%dT%H:%M:%S.%fZ",           # ISO8601 with microseconds
@@ -348,9 +425,54 @@ class THREAT_INTEL:
     MATCH_THRESHOLD = 0.8          # Default threshold for considering a match
     MIN_MATCH_THRESHOLD = 0.5      # Minimum threshold for fuzzy matches
 
+    # Cache settings
+    CACHE_TTL = 3600              # Cache expiry in seconds (1 hour)
+    MAX_CACHE_ENTRIES = 10000     # Maximum entries in indicator cache
+
     # Feed update settings
     UPDATE_INTERVAL = 86400        # Default update interval in seconds (24 hours)
     RETENTION_DAYS = 90            # Number of days to retain threat intel data
+
+    # IOC validation rules
+    MIN_DOMAIN_LENGTH = 4          # Minimum length for valid domain
+    MIN_IP_MATCHES = 3             # Minimum number of octets to match for partial IP match
+    MIN_HASH_LENGTH = 32           # Minimum length for file hash (MD5)
+
+# --- Alert Formatting ---
+class ALERT_FORMAT:
+    """Alert formatting constants."""
+    # Severity to color mapping
+    SEVERITY_COLORS = {
+        SEVERITY.INFO: "#377eb8",      # Blue
+        SEVERITY.LOW: "#4daf4a",       # Green
+        SEVERITY.MEDIUM: "#ffcc00",    # Yellow
+        SEVERITY.HIGH: "#ff7f00",      # Orange
+        SEVERITY.CRITICAL: "#e41a1c",  # Red
+        "unknown": "#999999"           # Gray
+    }
+
+    # Severity to icon mapping
+    SEVERITY_ICONS = {
+        SEVERITY.INFO: "info",
+        SEVERITY.LOW: "info-circle",
+        SEVERITY.MEDIUM: "exclamation",
+        SEVERITY.HIGH: "exclamation-triangle",
+        SEVERITY.CRITICAL: "exclamation-triangle-fill",
+        "unknown": "question-circle"
+    }
+
+    # Redaction settings
+    REDACT_FIELDS = [
+        "password", "token", "api_key", "secret", "credential", "private",
+        "auth", "access_key", "key", "cert", "signature"
+    ]
+
+    PARTIAL_REDACT_FIELDS = [
+        "ip", "email", "address", "phone", "user", "account"
+    ]
+
+    # Default date format
+    DATE_FORMAT = "%Y-%m-%d %H:%M:%S %Z"  # 2023-06-15 14:30:45 UTC
 
 # --- Dashboard Configuration ---
 class DASHBOARD_CONFIG:
@@ -361,6 +483,8 @@ class DASHBOARD_CONFIG:
     INCLUDE_RAW_DATA = False                   # Whether to include raw data in dashboard
     DATE_FORMAT = "%Y-%m-%d %H:%M:%S"          # Date format for display
     DEFAULT_TEMPLATE = "dashboard.html"        # Default dashboard template
+    DEFAULT_THEME = "light"                    # Default theme (light or dark)
+    AUTO_REFRESH = True                        # Enable auto-refresh by default
 
     # Chart colors
     CHART_COLORS = [
@@ -368,6 +492,40 @@ class DASHBOARD_CONFIG:
         "#3498DB", "#E74C3C", "#2ECC71", "#F39C12",  # Flat UI colors
         "#9C27B0", "#673AB7", "#3F51B5", "#00BCD4"   # Material colors
     ]
+
+    # Default widgets
+    DEFAULT_WIDGETS = [
+        "severity_summary",
+        "recent_alerts",
+        "category_distribution",
+        "timeline_chart",
+        "top_sources",
+        "system_health"
+    ]
+
+# --- Log Parser Configuration ---
+class LOG_PARSER_CONFIG:
+    """Log parser configuration constants."""
+    # Maximum log file size to process in one go
+    MAX_LOG_SIZE = 50 * 1024 * 1024  # 50MB
+
+    # Chunk size for processing large logs
+    CHUNK_SIZE = 10000  # process 10k lines at a time
+
+    # Maximum number of parsing errors before failing
+    MAX_PARSE_ERRORS = 100
+
+    # Log formats known to the parser
+    FORMATS = {
+        "syslog": r'<(\d+)>(\w+ \d+ \d+:\d+:\d+) (\S+) (\S+)(|\[\d+\]): (.*)',
+        "json": None,  # No regex pattern for JSON
+        "cef": r'CEF:\d+\|([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|([^|]+)\|(.+)',
+        "leef": r'LEEF:(\d+\.\d+)\|([^|]+)\|([^|]+)\|([^|]+)\|(.+)',
+        "apache": r'(\S+) (\S+) (\S+) \[(.*?)\] "(\S+) (\S+) (\S+)" (\d+) (\d+|-)'
+    }
+
+    # Default fields for logs that can't be parsed
+    DEFAULT_FIELDS = ["timestamp", "source", "level", "message"]
 
 # --- System Components ---
 MONITORING_COMPONENTS = {
@@ -394,7 +552,7 @@ __all__ = [
     "SEVERITY", "EVENT_CATEGORIES", "EVENT_TYPES", "LOG_SOURCES",
     "OUTPUT_FORMATS", "RULE_TYPES", "DETECTION_SENSITIVITY",
     "INTEGRITY_MONITORING", "FIELD_MAPPINGS", "THREAT_INTEL",
-    "DASHBOARD_CONFIG",
+    "DASHBOARD_CONFIG", "ALERT_FORMAT", "LOG_PARSER_CONFIG",
 
     # Global constants
     "DEFAULT_DETECTION_THRESHOLDS", "TIMESTAMP_FORMATS",

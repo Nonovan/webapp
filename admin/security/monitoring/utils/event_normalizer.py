@@ -15,6 +15,17 @@ import ipaddress
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional, Union, Set, Tuple
 
+# Import monitoring constants
+from ..monitoring_constants import (
+    SEVERITY,
+    EVENT_TYPES,
+    EVENT_CATEGORIES,
+    LOG_SOURCES,
+    FIELD_MAPPINGS,
+    TIMESTAMP_FORMATS,
+    OUTPUT_FORMATS
+)
+
 # Module-level constants
 DEFAULT_SCHEMA_VERSION = "1.0"
 EVENT_NORMALIZER_AVAILABLE = True
@@ -22,57 +33,14 @@ EVENT_NORMALIZER_AVAILABLE = True
 # Configure logger
 logger = logging.getLogger(__name__)
 
-# Standard field mapping for common security event sources
-FIELD_MAPPINGS = {
-    "syslog": {
-        "timestamp": "timestamp",
-        "hostname": "host",
-        "severity": "priority",
-        "facility": "facility",
-        "message": "content"
-    },
-    "windows_event": {
-        "timestamp": "TimeCreated",
-        "hostname": "Computer",
-        "severity": "Level",
-        "event_id": "EventID",
-        "message": "Message"
-    },
-    "cloud_trail": {
-        "timestamp": "eventTime",
-        "user": "userIdentity.userName",
-        "source_ip": "sourceIPAddress",
-        "event_name": "eventName",
-        "event_type": "eventType"
-    },
-    "firewall": {
-        "timestamp": "time",
-        "source_ip": "src_ip",
-        "destination_ip": "dst_ip",
-        "source_port": "src_port",
-        "destination_port": "dst_port",
-        "action": "action"
-    },
-    "ids": {
-        "timestamp": "timestamp",
-        "source_ip": "src_ip",
-        "destination_ip": "dst_ip",
-        "signature_id": "sig_id",
-        "signature_name": "sig_name",
-        "severity": "severity"
-    }
+# Map field mappings from monitoring_constants
+FIELD_MAPPINGS_DICT = {
+    LOG_SOURCES.SYSLOG: FIELD_MAPPINGS.SYSLOG,
+    LOG_SOURCES.WINDOWS_EVENT: FIELD_MAPPINGS.WINDOWS_EVENT,
+    LOG_SOURCES.CLOUD_TRAIL: FIELD_MAPPINGS.CLOUD_TRAIL,
+    LOG_SOURCES.FIREWALL: FIELD_MAPPINGS.FIREWALL,
+    LOG_SOURCES.IDS: FIELD_MAPPINGS.IDS
 }
-
-# Standard timestamp formats to try when normalizing
-TIMESTAMP_FORMATS = [
-    "%Y-%m-%dT%H:%M:%S.%fZ",           # ISO8601 with microseconds
-    "%Y-%m-%dT%H:%M:%SZ",              # ISO8601
-    "%Y-%m-%d %H:%M:%S.%f",            # Database timestamp with microseconds
-    "%Y-%m-%d %H:%M:%S",               # Standard datetime
-    "%b %d %H:%M:%S",                  # Syslog (without year)
-    "%Y/%m/%d %H:%M:%S",               # Date with slashes
-    "%d/%b/%Y:%H:%M:%S %z"             # Apache/Nginx log format
-]
 
 def normalize_event(
     raw_event: Dict[str, Any],
@@ -111,7 +79,7 @@ def normalize_event(
         }
 
         # Apply field mappings based on source type
-        field_mapping = FIELD_MAPPINGS.get(source_type, {})
+        field_mapping = FIELD_MAPPINGS_DICT.get(source_type, {})
 
         # Extract and map fields
         for target_field, source_field in field_mapping.items():
@@ -130,11 +98,11 @@ def normalize_event(
             normalized_event["normalized_timestamp"] = find_timestamp_in_event(raw_event)
 
         # Handle source-specific normalizations
-        if source_type == "syslog":
+        if source_type == LOG_SOURCES.SYSLOG:
             _normalize_syslog_event(raw_event, normalized_event)
-        elif source_type == "windows_event":
+        elif source_type == LOG_SOURCES.WINDOWS_EVENT:
             _normalize_windows_event(raw_event, normalized_event)
-        elif source_type == "cloud_trail":
+        elif source_type == LOG_SOURCES.CLOUD_TRAIL:
             _normalize_cloud_trail_event(raw_event, normalized_event)
 
         # Add additional context if requested
@@ -277,7 +245,7 @@ def standardize_timestamp(timestamp_value: Union[str, int, float, datetime]) -> 
         except ValueError:
             pass  # Try other formats
 
-        # Try various formats
+        # Try various formats from our constants
         for fmt in TIMESTAMP_FORMATS:
             try:
                 # Special case for syslog timestamp without year
@@ -319,8 +287,15 @@ def map_vendor_fields(event: Dict[str, Any], vendor: str, mapping: Optional[Dict
     """
     result = {}
 
+    # Use mapping from constants module when possible
+    default_mapping = None
+    if hasattr(FIELD_MAPPINGS, vendor.upper()):
+        default_mapping = getattr(FIELD_MAPPINGS, vendor.upper())
+    else:
+        default_mapping = FIELD_MAPPINGS_DICT.get(vendor, {})
+
     # Determine which mapping to use
-    field_mapping = mapping or FIELD_MAPPINGS.get(vendor, {})
+    field_mapping = mapping or default_mapping
 
     # Apply the mapping
     for target_field, source_field in field_mapping.items():
@@ -577,11 +552,11 @@ def _normalize_windows_event(raw_event: Dict[str, Any], normalized_event: Dict[s
     """Apply special handling for Windows events."""
     # Map Windows event level to severity
     level_map = {
-        "1": "critical",
-        "2": "error",
-        "3": "warning",
-        "4": "information",
-        "5": "verbose"
+        "1": SEVERITY.CRITICAL,
+        "2": SEVERITY.HIGH,
+        "3": SEVERITY.MEDIUM,
+        "4": SEVERITY.INFO,
+        "5": SEVERITY.INFO  # Verbose as info
     }
 
     if "Level" in raw_event:
@@ -612,12 +587,12 @@ def _normalize_cloud_trail_event(raw_event: Dict[str, Any], normalized_event: Di
             if "userName" in session_issuer:
                 normalized_event["user"] = session_issuer["userName"]
 
-    # Categorize event type
+    # Categorize event type using constants
     if "eventType" in raw_event:
         if raw_event["eventType"] == "AwsApiCall":
-            normalized_event["event_type"] = "api_call"
+            normalized_event["event_type"] = EVENT_CATEGORIES.RESOURCE
         elif raw_event["eventType"] == "AwsConsoleSignIn":
-            normalized_event["event_type"] = "authentication"
+            normalized_event["event_type"] = EVENT_CATEGORIES.AUTHENTICATION
 
 def _add_geo_data(event: Dict[str, Any]) -> Dict[str, Any]:
     """Add geographic data for IP addresses in the event."""
@@ -657,41 +632,43 @@ def _classify_event(event: Dict[str, Any]) -> str:
     event_type = event.get("event_type", "").lower()
     message = event.get("message", "").lower()
 
+    # Map to categories using our constants
+
     # Authentication-related classification
     if (event_type and ("login" in event_type or "auth" in event_type)) or \
        (message and any(x in message for x in ["login", "authentication", "password", "credential"])):
         if message and any(x in message for x in ["fail", "invalid", "incorrect", "bad"]):
-            return "authentication_failure"
-        return "authentication"
+            return EVENT_TYPES.LOGIN_FAILURE
+        return EVENT_CATEGORIES.AUTHENTICATION
 
     # Access control classification
     if (event_type and any(x in event_type for x in ["access", "permission"])) or \
        (message and any(x in message for x in ["permission", "denied", "access", "forbidden"])):
         if message and any(x in message for x in ["denied", "forbidden", "unauthorized"]):
-            return "access_denied"
-        return "access_control"
+            return EVENT_TYPES.ACCESS_DENIED
+        return EVENT_CATEGORIES.AUTHORIZATION
 
     # Security-related classification
     if (event_type and any(x in event_type for x in ["security", "attack", "threat", "vuln"])) or \
        (message and any(x in message for x in ["security", "attack", "threat", "vulnerability"])):
-        return "security"
+        return EVENT_CATEGORIES.SECURITY
 
     # Configuration changes
     if (event_type and "config" in event_type) or \
        (message and any(x in message for x in ["config", "setting", "parameter"])):
-        return "configuration"
+        return EVENT_CATEGORIES.CONFIGURATION
 
     # System events
     if (event_type and any(x in event_type for x in ["system", "service", "daemon"])) or \
        (message and any(x in message for x in ["system", "service", "daemon", "process"])):
-        return "system"
+        return EVENT_CATEGORIES.SYSTEM
 
     # Network events
     if (event_type and any(x in event_type for x in ["network", "connection", "packet"])) or \
        (message and any(x in message for x in ["network", "connection", "packet", "protocol"])):
-        return "network"
+        return EVENT_CATEGORIES.NETWORK
 
-    return "other"
+    return EVENT_CATEGORIES.UNKNOWN
 
 def _normalize_severity(severity: Any) -> str:
     """Normalize different severity formats to standard levels."""
@@ -701,31 +678,31 @@ def _normalize_severity(severity: Any) -> str:
     # Convert to string for comparison
     severity_str = str(severity).lower()
 
-    # Common severity mappings
+    # Use our standard severity levels
     if severity_str in ("critical", "fatal", "emergency", "1", "crit", "emerg"):
-        return "critical"
+        return SEVERITY.CRITICAL
     elif severity_str in ("error", "err", "severe", "2", "3"):
-        return "error"
+        return SEVERITY.HIGH
     elif severity_str in ("warning", "warn", "4"):
-        return "warning"
+        return SEVERITY.MEDIUM
     elif severity_str in ("notice", "info", "information", "5", "6"):
-        return "info"
+        return SEVERITY.INFO
     elif severity_str in ("debug", "verbose", "trace", "7"):
-        return "debug"
+        return SEVERITY.INFO  # Map debug to info for consistency
 
     # Try to map numeric values
     try:
         severity_value = int(severity_str)
         if severity_value <= 1:
-            return "critical"
+            return SEVERITY.CRITICAL
         elif severity_value <= 3:
-            return "error"
+            return SEVERITY.HIGH
         elif severity_value <= 4:
-            return "warning"
+            return SEVERITY.MEDIUM
         elif severity_value <= 6:
-            return "info"
+            return SEVERITY.INFO
         else:
-            return "debug"
+            return SEVERITY.INFO  # Map debug to info for consistency
     except (ValueError, TypeError):
         pass
 
