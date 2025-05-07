@@ -131,15 +131,27 @@ python timeline_builder.py --input /secure/evidence/incident-42/timeline.json --
 
 ```bash
 # Collect user activity data for a specific user
-./user_activity_monitor.py collect --user-id john.doe --timeframe 48h --output /secure/evidence/IR-2023-042/user_activity
+python user_activity_monitor.py collect --user-id john.doe --timeframe 48h --output /secure/evidence/IR-2023-042/user_activity
 
 # Generate user activity timeline
-./user_activity_monitor.py timeline --user-id john.doe --timeframe 72h --format json \
+python user_activity_monitor.py timeline --user-id john.doe --timeframe 72h --format json \
     --output /secure/evidence/IR-2023-042/user_timeline.json
 
 # Detect anomalies in user behavior
-./user_activity_monitor.py analyze --user-id john.doe --baseline 30d --detection-window 48h \
+python user_activity_monitor.py analyze --user-id john.doe --baseline 30d --detection-window 48h \
     --sensitivity high --output /secure/evidence/IR-2023-042/anomaly_report.json
+
+# Detect unusual resource access patterns
+python user_activity_monitor.py detect-access --user-id john.doe --baseline-days 30 --detection-hours 24 \
+    --output /secure/evidence/IR-2023-042/access_anomalies.json
+
+# Detect authorization anomalies
+python user_activity_monitor.py detect-auth --user-id john.doe --detection-hours 24 \
+    --sensitivity high --output /secure/evidence/IR-2023-042/auth_anomalies.json
+
+# Extract login patterns
+python user_activity_monitor.py login-patterns --user-id john.doe --days 30 \
+    --output /secure/evidence/IR-2023-042/login_patterns.json
 ```
 
 ## Directory Structure
@@ -147,6 +159,7 @@ python timeline_builder.py --input /secure/evidence/incident-42/timeline.json --
 ```plaintext
 admin/security/incident_response_kit/forensic_tools/
 ├── README.md                 # This documentation
+├── __init__.py               # Package initialization and exports
 ├── disk_imaging.sh           # Disk imaging utilities
 ├── file_integrity.py         # File integrity validation tool
 ├── memory_acquisition.sh     # Memory dump acquisition script
@@ -196,7 +209,7 @@ BULK_EXTRACTOR_PATH=$(jq -r '.forensic_tools.bulk_extractor' "$TOOL_PATHS_CONFIG
 
 The `timeline_builder.py` module exposes the following key classes and functions:
 
-### Timeline Classes
+### Classes
 
 - **`Timeline`**: Container for timeline events
   - **`add_event(timestamp, event_type, description, source, metadata=None)`**: Add an event to the timeline
@@ -217,19 +230,32 @@ The `timeline_builder.py` module exposes the following key classes and functions
   - **`to_dict()`**: Convert event to dictionary format
   - **`validate()`**: Validate event data completeness and integrity
 
+- **`TimelineSource`**: Source of timeline events
+  - **`extract_events()`**: Extract events from source
+  - **`get_source_info()`**: Get source metadata
+  - **`validate()`**: Validate source configuration
+
+- **`CorrelationCluster`**: Group of related events
+  - **`add_event(event)`**: Add event to cluster
+  - **`calculate_score()`**: Calculate correlation score
+  - **`get_events()`**: Get all events in cluster
+  - **`to_dict()`**: Convert cluster to dictionary format
+
 ### Functions
 
 - **`analyze_timeline(timeline, analysis_type)`**: Run analysis on a timeline
 - **`build_timeline(sources, start_time=None, end_time=None)`**: Build a timeline from multiple sources
+- **`correlate_timelines(timelines, correlation_method, threshold)`**: Correlate events across multiple timelines
 - **`detect_anomalies(timeline)`**: Detect anomalous events in a timeline
 - **`export_timeline(timeline, format, output_path)`**: Export a timeline to specified format
+- **`extract_timeline_from_logs(log_path, source_type, start_time=None, end_time=None)`**: Extract timeline from log files
 - **`merge_timelines(timeline_files)`**: Merge multiple timeline files
 - **`normalize_timestamps(timeline, timezone='UTC')`**: Normalize all timestamps to given timezone
 - **`parse_log_file(log_path, source_type)`**: Parse a log file into timeline events
 
 ## User Activity Monitoring API
 
-The user_activity_monitor.py module provides the following functionality:
+The `user_activity_monitor.py` module provides the following functionality:
 
 ### Core Functions
 
@@ -241,17 +267,39 @@ The user_activity_monitor.py module provides the following functionality:
 
 ### Helper Functions
 
-- **`correlate_activities(user_id, related_indicator=None, time_window=None)`**: Correlates user activities with other events
-- **`export_activity_evidence(user_id, time_period, format='json', evidence_dir=None, chain_of_custody=True)`**: Exports user activity data in forensic format
+- **`correlate_activities(user_id, related_indicator=None, time_window=None, related_systems=None, event_types=None)`**: Correlates user activities with other events
+- **`export_activity_evidence(user_id, time_period, format='json', evidence_dir=None, chain_of_custody=True, analyst=None, incident_id=None)`**: Exports user activity data in forensic format
 - **`extract_login_patterns(user_id, days=30)`**: Extracts authentication patterns for the user
 - **`find_concurrent_sessions(user_id, detection_hours=24)`**: Identifies potentially concurrent user sessions
 - **`get_resource_access_summary(user_id, days=30)`**: Summarizes resource access by type
 
-### Classes
+### User Activity Classes
 
 - **`ActivityTimeline`**: Timeline representation of user activities
+  - **`add_event(timestamp, activity_type, description, resource=None, metadata=None)`**: Add event to timeline
+  - **`export(format, output_path)`**: Export timeline to specified format
+  - **`filter_by_resource(resource_type=None, resource_id=None)`**: Filter events by resource
+  - **`filter_by_time(start_time, end_time)`**: Filter events by time range
+  - **`filter_by_type(activity_types)`**: Filter events by activity type
+  - **`merge(other_timeline)`**: Merge with another timeline
+  - **`sort()`**: Sort events chronologically
+
 - **`UserActivityCollection`**: Container for collected user activity data with integrity verification
+  - **`add_activities(activities)`**: Add activities to collection
+  - **`export(format, output_path)`**: Export collection to specified format
+  - **`filter_by_resource(resource_type=None, resource_id=None)`**: Filter by resource
+  - **`filter_by_time(start_time, end_time)`**: Filter by time range
+  - **`filter_by_type(activity_types)`**: Filter by activity type
+  - **`get_activities()`**: Get all activities in collection
+  - **`verify_integrity()`**: Verify integrity of collection
+
 - **`UserBehaviorAnalysis`**: Analysis engine for user behavior patterns
+  - **`analyze()`**: Run analysis and detect anomalies
+  - **`detect_access_anomalies()`**: Detect resource access anomalies
+  - **`detect_time_anomalies()`**: Detect time-based anomalies
+  - **`detect_volume_anomalies()`**: Detect volume-based anomalies
+  - **`generate_report(output_path)`**: Generate analysis report
+  - **`get_anomalies()`**: Get detected anomalies
 
 ### Constants
 
@@ -267,6 +315,12 @@ The user_activity_monitor.py module provides the following functionality:
   - `HIGH`: Detect subtle anomalies (may have more false positives)
   - `LOW`: Detect only significant anomalies (fewer false positives)
   - `MEDIUM`: Balanced detection threshold
+
+- **`ANALYSIS_FEATURES`**: Features used in behavioral analysis
+  - `LOCATION_PATTERN`: Geographic access patterns
+  - `RESOURCE_PATTERN`: Resource access patterns
+  - `TIME_PATTERN`: Timing patterns of activities
+  - `VOLUME_PATTERN`: Activity volume patterns
 
 - **`EVIDENCE_FORMATS`**: Supported evidence export formats
   - `CSV`: Comma-separated values

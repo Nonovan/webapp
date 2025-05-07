@@ -35,6 +35,7 @@ TIMELINE_BUILDER_AVAILABLE = (MODULE_PATH / "timeline_builder.py").exists()
 MEMORY_ACQUISITION_AVAILABLE = (MODULE_PATH / "memory_acquisition.sh").exists()
 DISK_IMAGING_AVAILABLE = (MODULE_PATH / "disk_imaging.sh").exists()
 NETWORK_CAPTURE_AVAILABLE = (MODULE_PATH / "network_capture.sh").exists()
+USER_ACTIVITY_MONITOR_AVAILABLE = (MODULE_PATH / "user_activity_monitor.py").exists()
 
 # Try to import parent package components
 try:
@@ -57,29 +58,27 @@ except ImportError as e:
 
     def sanitize_incident_id(incident_id: str) -> str:
         """Fallback sanitize function."""
-        import re
-        return re.sub(r'[^a-zA-Z0-9_\-]', '_', incident_id)
+        return incident_id.replace('/', '-').replace('\\', '-')
 
     # Define minimal enums for standalone operation
     class EvidenceType:
         """Evidence type constants."""
-        LOG_FILE = "log_file"
         MEMORY_DUMP = "memory_dump"
         DISK_IMAGE = "disk_image"
         NETWORK_CAPTURE = "network_capture"
-        CONFIGURATION = "configuration"
-        TIMELINE = "timeline"
-        FILE_SYSTEM = "file_system"
-        HASH_LIST = "hash_list"
+        LOG_FILES = "log_files"
+        REGISTRY_HIVE = "registry_hive"
+        USER_ACTIVITY = "user_activity"
 
     class IncidentType:
         """Incident type constants."""
         MALWARE = "malware"
+        COMPROMISE = "compromise"
         DATA_BREACH = "data_breach"
-        UNAUTHORIZED_ACCESS = "unauthorized_access"
-        DENIAL_OF_SERVICE = "denial_of_service"
+        DDOS = "ddos"
         INSIDER_THREAT = "insider_threat"
         PHISHING = "phishing"
+        RANSOMWARE = "ransomware"
 
 # Try to import core security utilities if available
 try:
@@ -98,7 +97,8 @@ except ImportError as e:
 try:
     from admin.utils.file_integrity import (
         calculate_file_hash as admin_calculate_hash,
-        verify_file_integrity as admin_verify_integrity
+        verify_file_integrity as admin_verify_integrity,
+        detect_file_changes as admin_detect_changes
     )
     ADMIN_UTILS_AVAILABLE = True
     logger.debug("Admin utilities available")
@@ -123,10 +123,14 @@ except ImportError as e:
     # Define fallback for forensic logging if package not available
     def log_forensic_operation(operation: str, success: bool, details: Optional[Dict] = None, level: int = logging.INFO):
         """Fallback implementation of forensic logging."""
-        log_msg = f"Forensic Operation: {operation}, Success: {success}"
+        if details is None:
+            details = {}
+
+        log_message = f"Forensic operation: {operation} - {'Success' if success else 'Failed'}"
         if details:
-            log_msg += f", Details: {details}"
-        logger.log(level, log_msg)
+            log_message += f" - Details: {details}"
+
+        logger.log(level, log_message)
 
 # Import file integrity functions if available
 if FILE_INTEGRITY_AVAILABLE:
@@ -211,7 +215,7 @@ if TIMELINE_BUILDER_AVAILABLE:
             raise NotImplementedError("Timeline builder module not properly loaded")
 
         def extract_timeline_from_logs(*args, **kwargs):
-            """Fallback log extraction."""
+            """Fallback timeline extraction."""
             raise NotImplementedError("Timeline builder module not properly loaded")
 
         def merge_timelines(*args, **kwargs):
@@ -226,25 +230,26 @@ if TIMELINE_BUILDER_AVAILABLE:
             """Fallback timeline analysis."""
             raise NotImplementedError("Timeline builder module not properly loaded")
 
+        # Fallback classes
         class Timeline:
             """Fallback Timeline class."""
             def __init__(self, *args, **kwargs):
-                raise NotImplementedError("Timeline class not properly loaded")
+                raise NotImplementedError("Timeline builder module not properly loaded")
 
         class Event:
             """Fallback Event class."""
             def __init__(self, *args, **kwargs):
-                raise NotImplementedError("Event class not properly loaded")
+                raise NotImplementedError("Timeline builder module not properly loaded")
 
         class TimelineSource:
             """Fallback TimelineSource class."""
             def __init__(self, *args, **kwargs):
-                raise NotImplementedError("TimelineSource class not properly loaded")
+                raise NotImplementedError("Timeline builder module not properly loaded")
 
         class CorrelationCluster:
             """Fallback CorrelationCluster class."""
             def __init__(self, *args, **kwargs):
-                raise NotImplementedError("CorrelationCluster class not properly loaded")
+                raise NotImplementedError("Timeline builder module not properly loaded")
 else:
     # Define stubs if timeline_builder.py doesn't exist
     def build_timeline(*args, **kwargs):
@@ -262,64 +267,260 @@ else:
     def analyze_timeline(*args, **kwargs):
         raise NotImplementedError("Timeline builder module not available")
 
-# Define helpers for shell-based tools
-def get_shell_tool_path(tool_name: str, default_path: str) -> str:
-    """Get the path for a shell-based tool from configuration or use default."""
-    if CONFIG_AVAILABLE and tool_paths:
-        return tool_paths.get('forensic_tools', {}).get(tool_name, default_path)
-    return default_path
+    # Stub classes
+    class Timeline:
+        def __init__(self, *args, **kwargs):
+            raise NotImplementedError("Timeline builder module not available")
 
-# Define utility function to check tool availability
+    class Event:
+        def __init__(self, *args, **kwargs):
+            raise NotImplementedError("Timeline builder module not available")
+
+    class TimelineSource:
+        def __init__(self, *args, **kwargs):
+            raise NotImplementedError("Timeline builder module not available")
+
+    class CorrelationCluster:
+        def __init__(self, *args, **kwargs):
+            raise NotImplementedError("Timeline builder module not available")
+
+# Import user activity monitor functions if available
+if USER_ACTIVITY_MONITOR_AVAILABLE:
+    try:
+        from .user_activity_monitor import (
+            # Classes
+            UserActivityCollection,
+            UserBehaviorAnalysis,
+            ActivityTimeline,
+
+            # Constants
+            ACTIVITY_TYPES,
+            DETECTION_SENSITIVITY,
+            ANALYSIS_FEATURES,
+            EVIDENCE_FORMATS,
+
+            # Core functions
+            collect_user_activity,
+            generate_activity_timeline,
+            analyze_user_behavior,
+            detect_access_anomalies,
+            detect_authorization_anomalies,
+
+            # Helper functions
+            extract_login_patterns,
+            find_concurrent_sessions,
+            get_resource_access_summary,
+            correlate_activities,
+            export_activity_evidence
+        )
+        logger.debug("User activity monitor loaded successfully")
+    except ImportError as e:
+        logger.warning(f"Failed to import user activity monitor: {e}")
+
+        # Define fallback constants and classes
+        class ACTIVITY_TYPES:
+            LOGIN = 'login'
+            LOGOUT = 'logout'
+            RESOURCE_ACCESS = 'resource_access'
+            CONFIG_CHANGE = 'configuration_change'
+            ADMIN_ACTION = 'admin_action'
+            SECURITY_EVENT = 'security_event'
+            ALL = ['login', 'logout', 'resource_access', 'configuration_change',
+                'admin_action', 'security_event']
+
+        class DETECTION_SENSITIVITY:
+            LOW = 'low'
+            MEDIUM = 'medium'
+            HIGH = 'high'
+
+        class ANALYSIS_FEATURES:
+            TIME_PATTERN = 'time_pattern'
+            RESOURCE_PATTERN = 'resource_pattern'
+            VOLUME_PATTERN = 'volume_pattern'
+            LOCATION_PATTERN = 'location_pattern'
+            ALL = ['time_pattern', 'resource_pattern', 'volume_pattern', 'location_pattern']
+
+        class EVIDENCE_FORMATS:
+            JSON = 'json'
+            CSV = 'csv'
+            EVTX = 'evtx'
+            MARKDOWN = 'markdown'
+            ALL = ['json', 'csv', 'evtx', 'markdown']
+
+        # Fallback classes
+        class UserActivityCollection:
+            def __init__(self, *args, **kwargs):
+                raise NotImplementedError("User activity monitor module not properly loaded")
+
+        class UserBehaviorAnalysis:
+            def __init__(self, *args, **kwargs):
+                raise NotImplementedError("User activity monitor module not properly loaded")
+
+        class ActivityTimeline:
+            def __init__(self, *args, **kwargs):
+                raise NotImplementedError("User activity monitor module not properly loaded")
+
+        # Fallback functions
+        def collect_user_activity(*args, **kwargs):
+            raise NotImplementedError("User activity monitor module not properly loaded")
+
+        def generate_activity_timeline(*args, **kwargs):
+            raise NotImplementedError("User activity monitor module not properly loaded")
+
+        def analyze_user_behavior(*args, **kwargs):
+            raise NotImplementedError("User activity monitor module not properly loaded")
+
+        def detect_access_anomalies(*args, **kwargs):
+            raise NotImplementedError("User activity monitor module not properly loaded")
+
+        def detect_authorization_anomalies(*args, **kwargs):
+            raise NotImplementedError("User activity monitor module not properly loaded")
+
+        def extract_login_patterns(*args, **kwargs):
+            raise NotImplementedError("User activity monitor module not properly loaded")
+
+        def find_concurrent_sessions(*args, **kwargs):
+            raise NotImplementedError("User activity monitor module not properly loaded")
+
+        def get_resource_access_summary(*args, **kwargs):
+            raise NotImplementedError("User activity monitor module not properly loaded")
+
+        def correlate_activities(*args, **kwargs):
+            raise NotImplementedError("User activity monitor module not properly loaded")
+
+        def export_activity_evidence(*args, **kwargs):
+            raise NotImplementedError("User activity monitor module not properly loaded")
+else:
+    # Define stubs if user_activity_monitor.py doesn't exist
+    class ACTIVITY_TYPES:
+        LOGIN = 'login'
+        LOGOUT = 'logout'
+        RESOURCE_ACCESS = 'resource_access'
+        CONFIG_CHANGE = 'configuration_change'
+        ADMIN_ACTION = 'admin_action'
+        SECURITY_EVENT = 'security_event'
+        ALL = ['login', 'logout', 'resource_access', 'configuration_change',
+              'admin_action', 'security_event']
+
+    class DETECTION_SENSITIVITY:
+        LOW = 'low'
+        MEDIUM = 'medium'
+        HIGH = 'high'
+
+    class ANALYSIS_FEATURES:
+        TIME_PATTERN = 'time_pattern'
+        RESOURCE_PATTERN = 'resource_pattern'
+        VOLUME_PATTERN = 'volume_pattern'
+        LOCATION_PATTERN = 'location_pattern'
+        ALL = ['time_pattern', 'resource_pattern', 'volume_pattern', 'location_pattern']
+
+    class EVIDENCE_FORMATS:
+        JSON = 'json'
+        CSV = 'csv'
+        EVTX = 'evtx'
+        MARKDOWN = 'markdown'
+        ALL = ['json', 'csv', 'evtx', 'markdown']
+
+    class UserActivityCollection:
+        def __init__(self, *args, **kwargs):
+            raise NotImplementedError("User activity monitor module not available")
+
+    class UserBehaviorAnalysis:
+        def __init__(self, *args, **kwargs):
+            raise NotImplementedError("User activity monitor module not available")
+
+    class ActivityTimeline:
+        def __init__(self, *args, **kwargs):
+            raise NotImplementedError("User activity monitor module not available")
+
+    def collect_user_activity(*args, **kwargs):
+        raise NotImplementedError("User activity monitor module not available")
+
+    def generate_activity_timeline(*args, **kwargs):
+        raise NotImplementedError("User activity monitor module not available")
+
+    def analyze_user_behavior(*args, **kwargs):
+        raise NotImplementedError("User activity monitor module not available")
+
+    def detect_access_anomalies(*args, **kwargs):
+        raise NotImplementedError("User activity monitor module not available")
+
+    def detect_authorization_anomalies(*args, **kwargs):
+        raise NotImplementedError("User activity monitor module not available")
+
+    def extract_login_patterns(*args, **kwargs):
+        raise NotImplementedError("User activity monitor module not available")
+
+    def find_concurrent_sessions(*args, **kwargs):
+        raise NotImplementedError("User activity monitor module not available")
+
+    def get_resource_access_summary(*args, **kwargs):
+        raise NotImplementedError("User activity monitor module not available")
+
+    def correlate_activities(*args, **kwargs):
+        raise NotImplementedError("User activity monitor module not available")
+
+    def export_activity_evidence(*args, **kwargs):
+        raise NotImplementedError("User activity monitor module not available")
+
+# Helper function to check available tools
 def get_available_tools() -> Dict[str, bool]:
-    """Return a dictionary of available forensic tools."""
+    """
+    Get available forensic tools in the package.
+
+    Returns:
+        Dict[str, bool]: Dictionary with tool availability flags
+    """
     return {
-        'file_integrity': FILE_INTEGRITY_AVAILABLE,
-        'timeline_builder': TIMELINE_BUILDER_AVAILABLE,
-        'memory_acquisition': MEMORY_ACQUISITION_AVAILABLE,
-        'disk_imaging': DISK_IMAGING_AVAILABLE,
-        'network_capture': NETWORK_CAPTURE_AVAILABLE,
-        'core_security': CORE_SECURITY_AVAILABLE,
-        'admin_utils': ADMIN_UTILS_AVAILABLE,
-        'forensics_package': FORENSICS_PACKAGE_AVAILABLE
+        "file_integrity": FILE_INTEGRITY_AVAILABLE,
+        "timeline_builder": TIMELINE_BUILDER_AVAILABLE,
+        "memory_acquisition": MEMORY_ACQUISITION_AVAILABLE,
+        "disk_imaging": DISK_IMAGING_AVAILABLE,
+        "network_capture": NETWORK_CAPTURE_AVAILABLE,
+        "user_activity_monitor": USER_ACTIVITY_MONITOR_AVAILABLE
     }
 
-# Define public exports
+# Public exports
 __all__ = [
-    # Constants
+    # Version info and package information
     'DEFAULT_HASH_ALGORITHM',
     'SUPPORTED_HASH_ALGORITHMS',
-    'DEFAULT_OUTPUT_FORMAT',
     'SUPPORTED_FORMATS',
 
-    # File integrity functions
-    'calculate_file_hash',
-    'verify_file_integrity',
-    'create_file_hash_baseline',
-    'detect_file_changes',
-    'update_integrity_baseline',
-    'verify_chain_of_custody',
+    # Core utilities
+    'get_available_tools',
+    'log_forensic_operation',
 
-    # Timeline functions and classes
-    'build_timeline',
-    'extract_timeline_from_logs',
-    'merge_timelines',
-    'correlate_timelines',
-    'analyze_timeline',
+    # Availability flags
+    'FILE_INTEGRITY_AVAILABLE',
+    'TIMELINE_BUILDER_AVAILABLE',
+    'MEMORY_ACQUISITION_AVAILABLE',
+    'DISK_IMAGING_AVAILABLE',
+    'NETWORK_CAPTURE_AVAILABLE',
+    'USER_ACTIVITY_MONITOR_AVAILABLE',
+
+    # File integrity functions (if available)
+    *(['calculate_file_hash', 'verify_file_integrity', 'create_file_hash_baseline',
+       'detect_file_changes', 'update_integrity_baseline', 'verify_chain_of_custody']
+      if FILE_INTEGRITY_AVAILABLE else []),
+
+    # Timeline builder functions (if available)
+    *(['build_timeline', 'extract_timeline_from_logs', 'merge_timelines',
+       'correlate_timelines', 'analyze_timeline']
+      if TIMELINE_BUILDER_AVAILABLE else []),
 
     # Timeline classes (if timeline_builder is available)
     *(['Timeline', 'Event', 'TimelineSource', 'CorrelationCluster']
       if TIMELINE_BUILDER_AVAILABLE else []),
 
-    # Utility functions
-    'get_available_tools',
-    'log_forensic_operation',
-
-    # Feature flags
-    'FILE_INTEGRITY_AVAILABLE',
-    'TIMELINE_BUILDER_AVAILABLE',
-    'MEMORY_ACQUISITION_AVAILABLE',
-    'DISK_IMAGING_AVAILABLE',
-    'NETWORK_CAPTURE_AVAILABLE'
+    # User activity monitor exports (if available)
+    *(['UserActivityCollection', 'UserBehaviorAnalysis', 'ActivityTimeline',
+       'ACTIVITY_TYPES', 'DETECTION_SENSITIVITY', 'ANALYSIS_FEATURES', 'EVIDENCE_FORMATS',
+       'collect_user_activity', 'generate_activity_timeline', 'analyze_user_behavior',
+       'detect_access_anomalies', 'detect_authorization_anomalies', 'extract_login_patterns',
+       'find_concurrent_sessions', 'get_resource_access_summary', 'correlate_activities',
+       'export_activity_evidence']
+      if USER_ACTIVITY_MONITOR_AVAILABLE else [])
 ]
 
 # Log initialization status
