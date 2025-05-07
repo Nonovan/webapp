@@ -4,27 +4,22 @@ This directory contains tools for digital forensic acquisition, analysis, and in
 
 ## Contents
 
-- Overview
-- Key Components
-- Usage Examples
-- Directory Structure
-- Configuration
-- Best Practices & Security
-- Common Features
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Usage Examples](#usage-examples)
+- [Directory Structure](#directory-structure)
+- [Configuration](#configuration)
+- [Timeline Builder API](#timeline-builder-api)
+- [User Activity Monitoring API](#user-activity-monitoring-api)
+- [Best Practices & Security](#best-practices--security)
+- [Common Features](#common-features)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
 The forensic tools provide capabilities for collecting, preserving, and analyzing digital evidence during security incidents. These tools implement proper forensic procedures to ensure evidence is collected in a forensically sound manner that preserves its integrity and admissibility. Each tool follows established forensic standards and maintains detailed chain of custody documentation.
 
 ## Key Components
-
-- **`memory_acquisition.sh`**: Memory capture and analysis utilities
-  - Live memory acquisition from running systems
-  - Memory capture in various formats (raw, lime, aff4)
-  - Memory acquisition verification through hashing
-  - Support for multiple operating systems
-  - Minimal footprint to prevent evidence contamination
 
 - **`disk_imaging.sh`**: Disk imaging and storage tools
   - Forensic disk imaging with write-blocking capabilities
@@ -33,19 +28,26 @@ The forensic tools provide capabilities for collecting, preserving, and analyzin
   - Image verification with multiple hash algorithms
   - Partitioned disk support and filesystem awareness
 
-- **`network_capture.sh`**: Network traffic acquisition tools
-  - Full packet capture capabilities
-  - Protocol filtering options
-  - Traffic isolation mechanisms
-  - PCAP file management
-  - Capture integrity verification
-
 - **`file_integrity.py`**: File integrity verification tools
   - Multi-algorithm hash calculation (MD5, SHA-1, SHA-256)
   - Recursive directory hashing
   - File system timeline extraction
   - Modified file detection
   - Baseline comparison functionality
+
+- **`memory_acquisition.sh`**: Memory capture and analysis utilities
+  - Live memory acquisition from running systems
+  - Memory capture in various formats (raw, lime, aff4)
+  - Memory acquisition verification through hashing
+  - Support for multiple operating systems
+  - Minimal footprint to prevent evidence contamination
+
+- **`network_capture.sh`**: Network traffic acquisition tools
+  - Full packet capture capabilities
+  - Protocol filtering options
+  - Traffic isolation mechanisms
+  - PCAP file management
+  - Capture integrity verification
 
 - **`timeline_builder.py`**: Incident timeline construction
   - Event correlation across multiple log sources
@@ -57,45 +59,46 @@ The forensic tools provide capabilities for collecting, preserving, and analyzin
   - Timeline merging and correlation capabilities
   - Template-based timeline creation
 
+- **`user_activity_monitor.py`**: User activity analysis and monitoring
+  - User activity data collection and preservation
+  - Activity timeline construction and visualization
+  - Behavior pattern analysis and anomaly detection
+  - Cross-system activity correlation
+  - Authorization anomaly detection
+  - Session reconstruction and analysis
+  - User access pattern analysis
+  - Evidence export in forensic formats
+
 ## Usage Examples
 
 ### Memory Acquisition
 
 ```bash
-# Acquire memory from a live Linux system
-./memory_acquisition.sh --target 10.0.0.5 --format lime --compress --output /secure/evidence/incident-42/memory.lime
+# Acquire memory from a Linux system
+./memory_acquisition.sh --target 192.168.1.10 --auth-key /path/to/key --output /secure/evidence/incident-42/memory.lime
 
-# Acquire memory from a local system with verification
-./memory_acquisition.sh --local --format raw --verify sha256 --output /secure/evidence/incident-42/memory.raw
-
-# Memory acquisition with automatic chain of custody
-./memory_acquisition.sh --target 10.0.0.5 --format aff4 --chain-of-custody --output /secure/evidence/incident-42/memory.aff4
+# Analyze a memory dump
+python analyze_memory.py --memory-file /secure/evidence/incident-42/memory.lime --profile Linux4_15_0 --output /secure/evidence/incident-42/memory_analysis/
 ```
 
 ### Disk Imaging
 
 ```bash
 # Create a forensic disk image
-./disk_imaging.sh --device /dev/sda --format dd --verify --output /secure/evidence/incident-42/disk.dd
+./disk_imaging.sh --device /dev/sdb --format raw --compress --verify --output /secure/evidence/incident-42/disk.dd
 
-# Create a sparse image of only allocated blocks
-./disk_imaging.sh --device /dev/sda --sparse --format E01 --compression low --output /secure/evidence/incident-42/disk.E01
-
-# Remote disk imaging over SSH with write-blocking
-./disk_imaging.sh --remote 10.0.0.5 --device /dev/sda --write-block --format raw --output /secure/evidence/incident-42/disk.raw
+# Mount a disk image in read-only mode
+./disk_imaging.sh --mount /secure/evidence/incident-42/disk.dd --mountpoint /mnt/evidence --read-only
 ```
 
 ### Network Capture
 
 ```bash
-# Start full packet capture on a specific interface
-./network_capture.sh --interface eth0 --duration 3600 --output /secure/evidence/incident-42/network.pcap
+# Capture network traffic on a specific interface
+./network_capture.sh --interface eth0 --duration 30m --filter "port 80 or port 443" --output /secure/evidence/incident-42/network.pcap
 
-# Capture with specific protocol filtering
-./network_capture.sh --interface eth0 --filter "port 80 or port 443" --output /secure/evidence/incident-42/http-traffic.pcap
-
-# Remote network capture with automatic rotation
-./network_capture.sh --remote 10.0.0.5 --interface eth0 --rotate size=1G --output /secure/evidence/incident-42/network_capture
+# Extract indicators from network capture
+./network_capture.sh --analyze /secure/evidence/incident-42/network.pcap --extract-indicators --output /secure/evidence/incident-42/network_iocs.json
 ```
 
 ### File Integrity Verification
@@ -113,24 +116,30 @@ python file_integrity.py --directory /secure/evidence/incident-42/files --extrac
 
 ### Timeline Building
 
-```bash
-# Create a new timeline from source files
-python timeline_builder.py create --incident-id INC-2023-001 --sources /var/log/auth.log /var/log/apache2/access.log --output /secure/evidence/INC-2023-001/timeline.json
-
-# Extract timeline from log files
-python timeline_builder.py extract --logs /var/log/syslog /var/log/auth.log --incident-id INC-2023-001 --output /secure/evidence/INC-2023-001/logs-timeline.json
+```python
+# Create a timeline from multiple log sources
+python timeline_builder.py --sources syslog,auth,apache,database --start "2023-06-10 08:00:00" --end "2023-06-12 18:00:00" --output /secure/evidence/incident-42/timeline.json
 
 # Merge multiple timelines
-python timeline_builder.py merge --timelines /secure/evidence/INC-2023-001/timeline1.json /secure/evidence/INC-2023-001/timeline2.json --output /secure/evidence/INC-2023-001/merged-timeline.json
+python timeline_builder.py --merge /secure/evidence/incident-42/timeline1.json,/secure/evidence/incident-42/timeline2.json --output /secure/evidence/incident-42/merged-timeline.json
 
-# Correlate events across timelines
-python timeline_builder.py correlate --timelines /secure/evidence/INC-2023-001/network.json /secure/evidence/INC-2023-001/auth.json --window 300 --output /secure/evidence/INC-2023-001/correlated-events.json
+# Export timeline to different formats
+python timeline_builder.py --input /secure/evidence/incident-42/timeline.json --export html,csv,md --output-dir /secure/evidence/incident-42/
+```
 
-# Analyze timeline for anomalies and patterns
-python timeline_builder.py analyze --timeline /secure/evidence/INC-2023-001/timeline.json --output /secure/evidence/INC-2023-001/analysis-results.json
+### User Activity Monitoring
 
-# Create a timeline from a template
-python timeline_builder.py template --incident-id INC-2023-001 --vars LEAD_RESPONDER="John Smith" --output /secure/evidence/INC-2023-001/incident-timeline.md
+```bash
+# Collect user activity data for a specific user
+./user_activity_monitor.py collect --user-id john.doe --timeframe 48h --output /secure/evidence/IR-2023-042/user_activity
+
+# Generate user activity timeline
+./user_activity_monitor.py timeline --user-id john.doe --timeframe 72h --format json \
+    --output /secure/evidence/IR-2023-042/user_timeline.json
+
+# Detect anomalies in user behavior
+./user_activity_monitor.py analyze --user-id john.doe --baseline 30d --detection-window 48h \
+    --sensitivity high --output /secure/evidence/IR-2023-042/anomaly_report.json
 ```
 
 ## Directory Structure
@@ -138,11 +147,12 @@ python timeline_builder.py template --incident-id INC-2023-001 --vars LEAD_RESPO
 ```plaintext
 admin/security/incident_response_kit/forensic_tools/
 ├── README.md                 # This documentation
-├── memory_acquisition.sh     # Memory dump acquisition script
 ├── disk_imaging.sh           # Disk imaging utilities
-├── network_capture.sh        # Network traffic capture utilities
 ├── file_integrity.py         # File integrity validation tool
-└── timeline_builder.py       # Incident timeline construction tool
+├── memory_acquisition.sh     # Memory dump acquisition script
+├── network_capture.sh        # Network traffic capture utilities
+├── timeline_builder.py       # Incident timeline construction tool
+└── user_activity_monitor.py  # User activity monitoring and analysis tool
 ```
 
 ## Configuration
@@ -178,31 +188,91 @@ CONFIG_DIR="$BASE_DIR/config"
 
 # Load tool paths configuration
 TOOL_PATHS_CONFIG="$CONFIG_DIR/tool_paths.json"
-TCPDUMP_PATH=$(jq -r '.system_tools.tcpdump // "/usr/sbin/tcpdump"' "$TOOL_PATHS_CONFIG")
-DD_PATH=$(jq -r '.system_tools.dd // "/bin/dd"' "$TOOL_PATHS_CONFIG")
+VOLATILITY_PATH=$(jq -r '.forensic_tools.volatility' "$TOOL_PATHS_CONFIG")
+BULK_EXTRACTOR_PATH=$(jq -r '.forensic_tools.bulk_extractor' "$TOOL_PATHS_CONFIG")
 ```
 
 ## Timeline Builder API
 
-The timeline_builder.py module exposes the following key classes and functions:
+The `timeline_builder.py` module exposes the following key classes and functions:
 
-### Classes
+### Timeline Classes
 
-- **`Timeline`**: Class representing a chronological timeline of incident events
-- **`Event`**: Class representing a single timeline event with standardized attributes
-- **`TimelineSource`**: Class representing a source of timeline events
-- **`CorrelationCluster`**: Class representing a cluster of correlated events
-- **`TimelineBuilderError`**: Exception raised for errors in the timeline builder module
+- **`Timeline`**: Container for timeline events
+  - **`add_event(timestamp, event_type, description, source, metadata=None)`**: Add an event to the timeline
+  - **`export(format, output_path)`**: Export timeline to specified format
+  - **`filter_by_time(start_time, end_time)`**: Filter events by time range
+  - **`filter_by_type(event_types)`**: Filter events by specific types
+  - **`merge(other_timeline)`**: Merge with another timeline
+  - **`sort()`**: Sort timeline events chronologically
+
+- **`TimelineBuilder`**: Helper for constructing timelines
+  - **`add_log_source(path, source_type, parser=None)`**: Add a log file as event source
+  - **`analyze()`**: Run analysis on the timeline
+  - **`build()`**: Construct the timeline from all extracted events
+  - **`parse_sources()`**: Parse added sources and extract events
+
+- **`TimelineEvent`**: Individual timeline event
+  - **`from_dict(data)`**: Create event from dictionary
+  - **`to_dict()`**: Convert event to dictionary format
+  - **`validate()`**: Validate event data completeness and integrity
 
 ### Functions
 
-- **`build_timeline`**: Build a timeline from various sources of events
-- **`extract_timeline_from_logs`**: Extract a timeline from log files
-- **`merge_timelines`**: Merge multiple timelines into a single timeline
-- **`correlate_timelines`**: Correlate events across multiple timelines
-- **`analyze_timeline`**: Analyze a timeline to identify patterns, anomalies, and key events
-- **`identify_timeline_anomalies`**: Identify anomalies in a timeline
-- **`create_template_timeline`**: Create a timeline document from a template
+- **`analyze_timeline(timeline, analysis_type)`**: Run analysis on a timeline
+- **`build_timeline(sources, start_time=None, end_time=None)`**: Build a timeline from multiple sources
+- **`detect_anomalies(timeline)`**: Detect anomalous events in a timeline
+- **`export_timeline(timeline, format, output_path)`**: Export a timeline to specified format
+- **`merge_timelines(timeline_files)`**: Merge multiple timeline files
+- **`normalize_timestamps(timeline, timezone='UTC')`**: Normalize all timestamps to given timezone
+- **`parse_log_file(log_path, source_type)`**: Parse a log file into timeline events
+
+## User Activity Monitoring API
+
+The user_activity_monitor.py module provides the following functionality:
+
+### Core Functions
+
+- **`analyze_user_behavior(user_id, baseline_period, analysis_window, detection_sensitivity='medium')`**: Performs behavioral analysis to detect anomalies
+- **`collect_user_activity(user_id, time_period, activity_types=None, include_metadata=True, output_dir=None)`**: Collects and preserves user activity data
+- **`detect_access_anomalies(user_id, resource_type=None, resource_id=None, baseline_days=30, detection_hours=24)`**: Detects unusual resource access patterns
+- **`detect_authorization_anomalies(user_id, detection_hours=24, sensitivity='medium')`**: Identifies unusual permission usage patterns
+- **`generate_activity_timeline(user_id, time_period, include_related_events=False, add_context=True, output_format='json')`**: Creates chronological timeline of user activities
+
+### Helper Functions
+
+- **`correlate_activities(user_id, related_indicator=None, time_window=None)`**: Correlates user activities with other events
+- **`export_activity_evidence(user_id, time_period, format='json', evidence_dir=None, chain_of_custody=True)`**: Exports user activity data in forensic format
+- **`extract_login_patterns(user_id, days=30)`**: Extracts authentication patterns for the user
+- **`find_concurrent_sessions(user_id, detection_hours=24)`**: Identifies potentially concurrent user sessions
+- **`get_resource_access_summary(user_id, days=30)`**: Summarizes resource access by type
+
+### Classes
+
+- **`ActivityTimeline`**: Timeline representation of user activities
+- **`UserActivityCollection`**: Container for collected user activity data with integrity verification
+- **`UserBehaviorAnalysis`**: Analysis engine for user behavior patterns
+
+### Constants
+
+- **`ACTIVITY_TYPES`**: Activity type constants
+  - `ADMIN_ACTION`: Administrative actions
+  - `CONFIG_CHANGE`: Configuration changes
+  - `LOGIN`: Authentication events
+  - `LOGOUT`: Session termination events
+  - `RESOURCE_ACCESS`: Resource access events
+  - `SECURITY_EVENT`: Security-related events
+
+- **`DETECTION_SENSITIVITY`**: Sensitivity levels for anomaly detection
+  - `HIGH`: Detect subtle anomalies (may have more false positives)
+  - `LOW`: Detect only significant anomalies (fewer false positives)
+  - `MEDIUM`: Balanced detection threshold
+
+- **`EVIDENCE_FORMATS`**: Supported evidence export formats
+  - `CSV`: Comma-separated values
+  - `EVTX`: Windows Event Log XML format
+  - `JSON`: Structured JSON format
+  - `MARKDOWN`: Markdown documentation format
 
 ## Best Practices & Security
 
@@ -216,6 +286,10 @@ The timeline_builder.py module exposes the following key classes and functions:
 - **Logging**: Detailed logging of all forensic operations
 - **Validation**: Multiple validation methods to confirm tool accuracy
 - **Documentation**: Automated documentation of all forensic processes
+- **Data Privacy**: Filter out personal information not relevant to the investigation
+- **Legal Compliance**: Ensure monitoring complies with applicable privacy regulations
+- **Principle of Least Privilege**: Only collect data necessary for the investigation
+- **Time Synchronization**: Ensure consistent timestamps across all data sources
 
 ## Common Features
 
@@ -234,10 +308,11 @@ All forensic tools share these common features:
 
 ## Related Documentation
 
-- Incident Response Kit Overview
-- Configuration Files Documentation
 - Chain of Custody Procedures
-- Evidence Collection Guide
-- Incident Response Procedures
+- Configuration Files Documentation
 - Digital Forensics Procedures
+- Evidence Collection Guide
+- Incident Response Kit Overview
+- Incident Response Procedures
 - Security Incident Response Plan
+- User Activity Monitoring Guide
