@@ -205,6 +205,63 @@ def get_threshold_config(threshold_level: str) -> Dict[str, int]:
     logger.warning(f"Unknown threshold level: {level}. Using 'medium'.")
     return DEFAULT_THRESHOLDS["medium"]
 
+# Add this function near the module-level functions, before main()
+def initialize_audit(app=None) -> bool:
+    """
+    Initialize privilege audit functionality with optional Flask app context.
+
+    This function sets up the necessary environment for privilege auditing,
+    including loading configurations, validating paths, and checking dependencies.
+
+    Args:
+        app: Optional Flask application for context
+
+    Returns:
+        bool: True if initialization was successful
+    """
+    try:
+        logger.info("Initializing privilege audit functionality")
+
+        # Ensure log directory exists
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Check core dependencies
+        if CORE_AVAILABLE:
+            logger.debug("Core security module available")
+        else:
+            logger.warning("Core security module not available, some features will be limited")
+
+        # If app is provided, register any Flask extensions or routes
+        if app is not None:
+            try:
+                # Define a basic health endpoint to verify the module is working
+                @app.route('/admin/security/monitoring/privilege-audit/status', methods=['GET'])
+                def privilege_audit_status():
+                    if not hasattr(app, 'auth') or not app.auth.login_required:
+                        # If app doesn't have auth system
+                        return {"status": "active", "version": "1.1.0"}
+
+                    @app.auth.login_required
+                    def protected_status():
+                        return {"status": "active", "version": "1.1.0"}
+
+                    return protected_status()
+
+                logger.debug("Registered privilege audit routes with Flask app")
+            except Exception as e:
+                logger.warning(f"Failed to register privilege audit routes: {e}")
+
+        # Verify thresholds are properly configured
+        for level in ["low", "medium", "high"]:
+            get_threshold_config(level)
+
+        logger.info("Privilege audit initialization completed successfully")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to initialize privilege audit functionality: {e}")
+        return False
+
 def analyze_privilege_logs(logs: List[Dict[str, Any]], threshold_level: str = "medium") -> Dict[str, Any]:
     """Analyzes audit logs for privilege-related activities."""
     analysis = {
@@ -963,7 +1020,9 @@ if __name__ == "__main__":
 
     if flask_app:
         with flask_app.app_context():
+            initialize_audit(flask_app)
             main(app=flask_app)
     else:
         # Run without app context if core components are unavailable or app creation failed
+        initialize_audit()
         main()

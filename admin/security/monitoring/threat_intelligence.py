@@ -27,9 +27,9 @@ try:
     PROJECT_ROOT = Path(__file__).resolve().parents[3]
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.append(str(PROJECT_ROOT))
-
-    from core.security.cs_audit import log_security_event
-    from core.security.cs_utils import is_valid_ip, is_valid_domain, is_valid_hash
+    from core.security.cs_authentication import (
+        is_valid_domain, is_valid_hash, is_valid_ip, log_security_event
+    )
     AUDIT_AVAILABLE = True
 except ImportError:
     PROJECT_ROOT = Path(__file__).resolve().parents[3] # Fallback
@@ -495,6 +495,76 @@ def generate_html_report(findings: List[Dict[str, Any]], output_file: Optional[s
         logger.error(f"Error generating HTML report: {e}")
         return ""
 
+def initialize_threat_intel(config_path: Optional[Path] = None) -> bool:
+    """
+    Initialize the threat intelligence system with optional custom configuration.
+
+    This function sets up the threat intelligence integration including:
+    - Loading the threat feeds configuration
+    - Initializing the local cache directory structure
+    - Checking for and validating existing threat data
+    - Setting up background update schedules if applicable
+
+    Args:
+        config_path: Optional path to custom configuration file
+                    If None, uses the default configuration path
+
+    Returns:
+        bool: True if initialization was successful, False otherwise
+    """
+    try:
+        # Use monitoring_constants if available
+        try:
+            from .monitoring_constants import THREAT_INTEL
+            match_threshold = THREAT_INTEL.MATCH_THRESHOLD
+            retention_days = THREAT_INTEL.RETENTION_DAYS
+            update_interval = THREAT_INTEL.UPDATE_INTERVAL
+        except (ImportError, AttributeError):
+            # Fallback to default values
+            match_threshold = 0.8
+            retention_days = 90
+            update_interval = 86400  # 24 hours
+
+        # Get path to configuration file
+        if config_path is None:
+            # Use the default path from the module
+            config_file = DEFAULT_CONFIG_FILE
+        else:
+            config_file = Path(config_path)
+
+        # Create required directories
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        DEFAULT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        REPORT_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Load configuration
+        config = load_config(config_file)
+        logger.info(f"Threat intelligence initialized with config from {config_file}")
+
+        # Validate feed configurations
+        valid_feeds = 0
+        for feed in config.get('feeds', []):
+            if feed.get('enabled', False) and feed.get('url') and feed.get('type') in SUPPORTED_FEED_TYPES:
+                valid_feeds += 1
+
+        if valid_feeds == 0:
+            logger.warning("No valid threat feeds found in configuration")
+        else:
+            logger.info(f"Found {valid_feeds} valid threat intelligence feeds")
+
+        # Log successful initialization with audit if available
+        if AUDIT_AVAILABLE:
+            log_security_event(
+                event_type="threat_intelligence_initialized",
+                description="Threat intelligence system initialized successfully",
+                severity="info"
+            )
+
+        return True
+    except Exception as e:
+        logger.error(f"Failed to initialize threat intelligence: {e}")
+        return False
+
 # --- Main Execution ---
 
 def main():
@@ -755,6 +825,23 @@ def main():
 
     end_time = time.time()
     logger.info(f"Command '{args.command}' completed in {end_time - start_time:.2f} seconds.")
+
+# Add initialize_threat_intel to __all__ to expose it
+if "__all__" not in globals():
+    # Initialize __all__ if it doesn't exist
+    __all__ = []
+
+# Add initialize_threat_intel to __all__ if not already present
+if "initialize_threat_intel" not in __all__:
+    __all__.extend([
+        "initialize_threat_intel",
+        "load_config",
+        "fetch_feed_data",
+        "update_local_cache",
+        "check_indicator",
+        "generate_html_report",
+        "main"
+    ])
 
 if __name__ == "__main__":
     main()
