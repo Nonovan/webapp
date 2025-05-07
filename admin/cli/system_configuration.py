@@ -36,6 +36,7 @@ from admin.utils.audit_utils import log_admin_action
 from core.security import require_permission
 from models.security import SystemConfig
 from extensions import db
+from cli.common.utils import load_config, save_config
 
 # Core utilities
 from core.utils.logging_utils import logger as core_logger
@@ -69,12 +70,15 @@ __all__ = [
     "export_configs",
     "import_configs",
     "validate_configs",
+    "merge_configs",
     "initialize_defaults",
     "format_output",
     "parse_key_value",
     "get_system_settings",
     "setup_arg_parser",
     "execute_cli",
+    "load_config",
+    "save_config",
 
     "ConfigurationError",
     "ValidationError",
@@ -579,6 +583,30 @@ def validate_configs(schema_dir: Optional[str] = None) -> Tuple[bool, Dict[str, 
             "error": f"Error validating configurations: {str(e)}",
             "valid": False
         }
+
+
+def merge_configs(base_config: Dict[str, Any], override_config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Merge two configuration dictionaries, with override_config values taking precedence.
+
+    Args:
+        base_config: Base configuration dictionary
+        override_config: Override configuration dictionary
+
+    Returns:
+        Merged configuration dictionary
+    """
+    result = base_config.copy()
+    for key, value in override_config.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            # If both values are dictionaries, merge them recursively
+            result[key] = merge_configs(result[key], value)
+        else:
+            # Otherwise, override the value
+            result[key] = value
+    return result
+
+CONFIG_UTILS_AVAILABLE = True
 
 
 def initialize_defaults() -> Tuple[bool, str, int]:

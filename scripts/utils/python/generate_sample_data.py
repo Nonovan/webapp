@@ -49,6 +49,22 @@ DEPARTMENTS = ["Engineering", "Marketing", "Sales", "Finance", "HR", "Operations
 
 STATUSES = ["active", "inactive", "pending", "suspended", "archived"]
 
+__all__ = [
+    "generate_sample_data",
+    "save_data",
+    "parse_args",
+    "main",
+
+    "DEFAULT_NUM_RECORDS",
+    "DEFAULT_OUTPUT_FILE",
+    "VALID_FORMATS",
+    "DEFAULT_FORMAT",
+    "FIRST_NAMES",
+    "LAST_NAMES",
+    "DOMAINS",
+    "DEPARTMENTS",
+    "STATUSES"
+]
 
 def generate_sample_data(num_records: int = DEFAULT_NUM_RECORDS,
                          output_file: str = DEFAULT_OUTPUT_FILE,

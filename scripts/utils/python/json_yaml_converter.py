@@ -55,6 +55,13 @@ logger = logging.getLogger("json-yaml-converter")
 # Script version
 __version__ = "1.0.0"
 
+__all__ = [
+    "JSONYAMLConverter",
+    "parse_arguments",
+    "configure_logging",
+    "get_output_format",
+    "main",
+]
 
 class JSONYAMLConverter:
     """Main converter class for JSON and YAML conversion operations."""

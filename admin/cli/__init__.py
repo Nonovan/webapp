@@ -105,6 +105,7 @@ try:
         export_configs,
         import_configs,
         validate_configs,
+        merge_configs,
         initialize_defaults
     )
     SYSTEM_CONFIG_AVAILABLE = True
@@ -384,6 +385,7 @@ if SYSTEM_CONFIG_AVAILABLE:
         'export_configs',
         'import_configs',
         'validate_configs',
+        'merge_configs',
         'initialize_defaults'
     ])
 
