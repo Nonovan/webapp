@@ -260,6 +260,81 @@ def get_security_metrics(hours: int = 24) -> SecurityMetrics:
         return _generate_fallback_metrics(hours, e)
 
 
+def get_security_metrics_summary(hours: int = 24) -> Dict[str, Any]:
+    """
+    Get a summary of security metrics suitable for dashboard display.
+
+    This function provides a dashboard-friendly version of security metrics,
+    focusing on the most important indicators and removing sensitive details.
+    It's designed to be used in security dashboards and reports.
+
+    Args:
+        hours: Number of hours to look back for metrics
+
+    Returns:
+        Dict[str, Any]: Dictionary of summarized security metrics including:
+            - risk_score: Overall security risk score (1-10)
+            - failed_logins_24h: Count of failed login attempts
+            - account_lockouts_24h: Count of account lockouts
+            - incidents_active: Count of active security incidents
+            - file_integrity: Boolean indicating if critical files are unmodified
+            - config_integrity: Boolean indicating if configuration files are unmodified
+            - suspicious_ips_count: Number of suspicious IP addresses detected
+            - high_severity_events_count: Count of high severity security events
+            - status: Overall security status (ok, warning, critical, error)
+    """
+    try:
+        # Get the full security metrics first
+        metrics_data = get_security_metrics(hours=hours)
+
+        # Create a summarized version with only the data needed for dashboards
+        summary = {
+            'risk_score': metrics_data.get('risk_score', 5),
+            'failed_logins_24h': metrics_data.get('failed_logins_24h', 0),
+            'account_lockouts_24h': metrics_data.get('account_lockouts_24h', 0),
+            'incidents_active': metrics_data.get('incidents_active', 0),
+            'file_integrity': metrics_data.get('file_integrity', True),
+            'config_integrity': metrics_data.get('config_integrity', True),
+            'suspicious_ips_count': len(metrics_data.get('suspicious_ips', [])),
+            'high_severity_events_count': metrics_data.get('high_severity_events', 0),
+            'permission_issues': metrics_data.get('permission_issues', 0),
+            'timestamp': metrics_data.get('timestamp', int(time.time()))
+        }
+
+        # Add security recommendations but limit to top 3 high-priority ones
+        recommendations = metrics_data.get('security_recommendations', [])
+        high_priority_recs = [r for r in recommendations if r.get('priority') in ('high', 'critical')]
+        summary['priority_recommendations'] = high_priority_recs[:3]
+
+        # Determine overall security status
+        if not summary['file_integrity'] or not summary['config_integrity']:
+            summary['status'] = 'critical'
+        elif summary['risk_score'] >= 8:
+            summary['status'] = 'critical'
+        elif summary['risk_score'] >= 6:
+            summary['status'] = 'warning'
+        elif summary['risk_score'] >= 4:
+            summary['status'] = 'elevated'
+        else:
+            summary['status'] = 'ok'
+
+        # Add a trend if available
+        try:
+            trend_data = get_risk_trend(days=7)
+            summary['trend'] = trend_data.get('trend', 'stable')
+        except Exception:
+            summary['trend'] = 'stable'
+
+        return summary
+    except Exception as e:
+        log_error(f"Failed to get security metrics summary: {e}")
+        return {
+            'status': 'error',
+            'error': str(e),
+            'timestamp': int(time.time())
+        }
+
+
 def calculate_risk_score(metrics_data: SecurityMetrics) -> int:
     """
     Calculate a security risk score based on security metrics.

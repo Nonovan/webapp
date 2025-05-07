@@ -38,6 +38,12 @@ try:
     if str(PROJECT_ROOT) not in sys.path:
         sys.path.append(str(PROJECT_ROOT))
 
+    # Import monitoring constants
+    from admin.security.monitoring.monitoring_constants import (
+        VERSION, LOG_DIR, REPORT_DIR, TEMPLATES_DIR,
+        SEVERITY, DASHBOARD_CONFIG, DEFAULT_DETECTION_THRESHOLDS
+    )
+
     # --- Import Core & Admin Components ---
     from flask import Flask
     from core.factory import create_app # For app context if needed
@@ -62,6 +68,10 @@ except ImportError as e:
     CORE_AVAILABLE = False
     ADMIN_UTILS_AVAILABLE = False
     MONITORING_UTILS_AVAILABLE = False
+
+    # Define default constants if monitoring_constants.py can't be imported
+    VERSION = "1.0.0"
+
     # Define dummy functions/classes if needed for basic operation
     def get_recent_security_events(*args, **kwargs) -> List[Dict[str, Any]]: return []
     def log_security_event(*args, **kwargs): pass
@@ -71,22 +81,40 @@ except ImportError as e:
     def get_security_status_summary(*args, **kwargs) -> Dict[str, Any]: return {'status': 'unknown'}
     def log_admin_action(*args, **kwargs): pass
     def sanitize_alert_data(data, **kwargs): return data # Passthrough if util unavailable
+
     SEVERITY_INFO = "info"
     SEVERITY_ERROR = "error"
     STATUS_SUCCESS = "success"
     STATUS_FAILURE = "failure"
     ACTION_REPORT_GENERATION = "report.generate.security_dashboard"
 
+    # Define minimal class structures
+    class SEVERITY:
+        INFO = "info"
+        LOW = "low"
+        MEDIUM = "medium"
+        HIGH = "high"
+        CRITICAL = "critical"
+
+    class DASHBOARD_CONFIG:
+        DEFAULT_TIMEFRAME = 24
+        REFRESH_INTERVAL = 300
+        DEFAULT_TEMPLATE = "dashboard.html"
+        DEFAULT_THEME = "light"
+        AUTO_REFRESH = True
+
 # --- Configuration ---
 ADMIN_MONITORING_DIR = Path(__file__).parent.resolve()
-DEFAULT_TEMPLATE_DIR = ADMIN_MONITORING_DIR / "templates"
-DEFAULT_TEMPLATE_FILE = DEFAULT_TEMPLATE_DIR / "dashboard.html"
-DEFAULT_LOG_DIR = Path(os.environ.get("SECURITY_LOG_DIR", "/var/log/cloud-platform/security"))
+
+# Use constants from monitoring_constants.py if available, otherwise use fallbacks
+DEFAULT_TEMPLATE_DIR = TEMPLATES_DIR if 'TEMPLATES_DIR' in globals() else ADMIN_MONITORING_DIR / "templates"
+DEFAULT_TEMPLATE_FILE = DEFAULT_TEMPLATE_DIR / DASHBOARD_CONFIG.DEFAULT_TEMPLATE
+DEFAULT_LOG_DIR = LOG_DIR if 'LOG_DIR' in globals() else Path(os.environ.get("SECURITY_LOG_DIR", "/var/log/cloud-platform/security"))
 DEFAULT_LOG_FILE = DEFAULT_LOG_DIR / "security_dashboard.log"
-DEFAULT_OUTPUT_DIR = Path(os.environ.get("SECURITY_REPORT_DIR", "/var/www/reports/security"))
+DEFAULT_OUTPUT_DIR = REPORT_DIR if 'REPORT_DIR' in globals() else Path(os.environ.get("SECURITY_REPORT_DIR", "/var/www/reports/security"))
 DEFAULT_OUTPUT_FILE = DEFAULT_OUTPUT_DIR / "dashboard.html"
 DEFAULT_ENV = "production"
-DEFAULT_HOURS = 24
+DEFAULT_HOURS = DASHBOARD_CONFIG.DEFAULT_TIMEFRAME if hasattr(DASHBOARD_CONFIG, 'DEFAULT_TIMEFRAME') else 24
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -159,22 +187,22 @@ def fetch_dashboard_data(hours: int, environment: str, min_severity: str = "all"
         # Determine severity levels based on min_severity
         severity_levels = []
         if min_severity == "critical":
-            severity_levels = ["critical"]
+            severity_levels = [SEVERITY.CRITICAL]
         elif min_severity == "high":
-            severity_levels = ["critical", "high"]
+            severity_levels = [SEVERITY.CRITICAL, SEVERITY.HIGH]
         elif min_severity == "medium":
-            severity_levels = ["critical", "high", "medium"]
+            severity_levels = [SEVERITY.CRITICAL, SEVERITY.HIGH, SEVERITY.MEDIUM]
         elif min_severity == "low":
-            severity_levels = ["critical", "high", "medium", "low"]
+            severity_levels = [SEVERITY.CRITICAL, SEVERITY.HIGH, SEVERITY.MEDIUM, SEVERITY.LOW]
         elif min_severity == "info" or min_severity == "all":
-            severity_levels = ["critical", "high", "medium", "low", "info"]
+            severity_levels = [SEVERITY.CRITICAL, SEVERITY.HIGH, SEVERITY.MEDIUM, SEVERITY.LOW, SEVERITY.INFO]
 
         # Recent Alerts (Filtered by severity)
         critical_alerts = get_recent_security_events(
             start_time=start_time,
             end_time=end_time,
             severity_levels=severity_levels,
-            limit=20 # Limit the number of alerts shown
+            limit=getattr(DASHBOARD_CONFIG, 'MAX_EVENTS', 20) # Use constant if available
         )
         # Sanitize alert data before passing to template
         data['critical_alerts'] = [sanitize_alert_data(alert, format='html') for alert in critical_alerts] if MONITORING_UTILS_AVAILABLE else critical_alerts
@@ -229,6 +257,66 @@ def render_dashboard(data: Dict[str, Any], template_file: str, output_file: str)
         details=data
     )
 
+def initialize_dashboard(app=None, template_path: Optional[str] = None) -> bool:
+    """
+    Initialize the security dashboard functionality.
+
+    This function prepares the security dashboard module for use, setting up
+    any necessary configurations, templates, and integrations.
+
+    Args:
+        app: Optional Flask application for context integration
+        template_path: Optional custom template path for dashboard rendering
+
+    Returns:
+        bool: True if initialization was successful
+    """
+    try:
+        global DEFAULT_TEMPLATE_DIR
+
+        logger.info("Initializing security dashboard generator")
+
+        # Set custom template directory if provided
+        if template_path:
+            template_path = Path(template_path)
+            if template_path.exists() and template_path.is_dir():
+                DEFAULT_TEMPLATE_DIR = template_path
+                logger.info(f"Using custom template directory: {template_path}")
+            else:
+                logger.warning(f"Custom template directory not found: {template_path}. Using default.")
+
+        # Ensure output directories exist
+        DEFAULT_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        DEFAULT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Initialize Flask app context if provided
+        if app:
+            logger.debug("Initializing with Flask application context")
+            # Only import Flask-specific dependencies if we're using a Flask app
+            try:
+                # Register with metrics system if available
+                from extensions import metrics
+                if hasattr(metrics, 'register_component_status'):
+                    metrics.register_component_status(
+                        'security_dashboard',
+                        True,
+                        version=VERSION if 'VERSION' in globals() else '1.0.0'
+                    )
+            except ImportError:
+                logger.debug("Metrics extension not available")
+
+        # Verify template availability
+        dashboard_template = DEFAULT_TEMPLATE_DIR / DASHBOARD_CONFIG.DEFAULT_TEMPLATE
+        if not dashboard_template.exists():
+            logger.warning(f"Default dashboard template not found at {dashboard_template}")
+
+        logger.info("Security dashboard successfully initialized")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to initialize security dashboard: {e}", exc_info=True)
+        return False
+
 def main() -> int:
     """Main entry point for security dashboard generator."""
     parser = argparse.ArgumentParser(description="Security Dashboard Generator")
@@ -246,8 +334,8 @@ def main() -> int:
     parser.add_argument(
         "--template", "-t",
         type=str,
-        default="dashboard.html",
-        help="Template file name to use (from templates directory). Default: dashboard.html"
+        default=DASHBOARD_CONFIG.DEFAULT_TEMPLATE,
+        help=f"Template file name to use (from templates directory). Default: {DASHBOARD_CONFIG.DEFAULT_TEMPLATE}"
     )
     parser.add_argument(
         "--hours",
@@ -319,7 +407,7 @@ def main() -> int:
 
         if not dashboard_data:
             # Fetch security data
-            dashboard_data = fetch_dashboard_data(args.hours, args.environment)
+            dashboard_data = fetch_dashboard_data(args.hours, args.environment, args.severity)
 
             # Add metadata
             dashboard_data['metadata'] = {

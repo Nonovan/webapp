@@ -50,6 +50,13 @@ SEVERITY_WARNING = "warning"
 SEVERITY_ERROR = "error"
 SEVERITY_CRITICAL = "critical"
 
+# Common action statuses
+STATUS_SUCCESS = "success"
+STATUS_FAILURE = "failure"
+STATUS_ATTEMPTED = "attempted"
+STATUS_CANCELLED = "cancelled"
+STATUS_WARNING = "warning"
+
 # Common admin action types
 ACTION_USER_CREATE = "user.create"
 ACTION_USER_UPDATE = "user.update"
@@ -67,13 +74,7 @@ ACTION_DATA_EXPORT = "data.export"
 ACTION_AUDIT_ACCESS = "audit.access"
 ACTION_API_KEY_CREATE = "api_key.create"
 ACTION_API_KEY_REVOKE = "api_key.revoke"
-
-# Common admin action statuses
-STATUS_SUCCESS = "success"
-STATUS_FAILURE = "failure"
-STATUS_ATTEMPTED = "attempted"
-STATUS_CANCELLED = "cancelled"
-
+ACTION_REPORT_GENERATION = "report.generation"
 
 def log_admin_action(
     action: str,
@@ -85,35 +86,31 @@ def log_admin_action(
     related_resource_id: Optional[str] = None,
     related_resource_type: Optional[str] = None,
     source_ip: Optional[str] = None,
-    session_id: Optional[str] = None
+    session_id: Optional[str] = None,
+    message: Optional[str] = None
 ) -> bool:
     """
-    Logs an administrative action for audit purposes.
+    Log an administrative action to the audit log.
 
-    Creates a comprehensive audit log entry for an administrative action,
-    ensuring proper categorization and attribution. Takes care of integrating
-    with the core audit logging system when available.
+    This function logs administrative actions to both the core audit log system
+    (if available) and a local log file as a fallback.
 
     Args:
-        action: The specific admin action being performed (e.g., "user.create")
-        details: Dictionary containing additional details about the action
+        action: The action being performed (e.g., "user.create")
+        details: Additional details about the action
         user_id: ID of the user performing the action
-        username: Username of the user performing the action (as alternative to user_id)
-        status: Outcome of the action (success, failure, etc.)
-        severity: Importance level of the action (info, warning, error, critical)
+        username: Username of the user performing the action
+        status: Status of the action (success, failure, etc.)
+        severity: Severity level of the action
         related_resource_id: ID of the resource being acted upon
-        related_resource_type: Type of resource being acted upon
+        related_resource_type: Type of the resource being acted upon
         source_ip: IP address where the action originated
-        session_id: Session identifier for the admin session
+        session_id: Session ID associated with the action
+        message: Optional message to override the default one
 
     Returns:
-        True if log entry was successfully created, False otherwise
+        bool: True if logging was successful, False otherwise
     """
-    if not action:
-        logger.error("Cannot log admin action with empty action type")
-        return False
-
-    # Normalize details dictionary
     if details is None:
         details = {}
 
@@ -122,9 +119,13 @@ def log_admin_action(
         "action": action,
         "status": status,
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "hostname": socket.gethostname(),
-        **details
+        "hostname": socket.gethostname()
     }
+
+    # Merge with provided details
+    if details:
+        for key, value in details.items():
+            log_details[key] = value
 
     # Add source information if available
     if source_ip:
@@ -146,10 +147,11 @@ def log_admin_action(
     if related_resource_id:
         log_details["resource_id"] = related_resource_id
 
-    # Construct a descriptive message
-    message = f"Admin action: {action}"
-    if status != STATUS_SUCCESS:
-        message += f" ({status})"
+    # Construct a descriptive message if not provided
+    if message is None:
+        message = f"Admin action: {action}"
+        if status != STATUS_SUCCESS:
+            message += f" ({status})"
 
     # Prefix with appropriate admin namespace if not already present
     if not action.startswith(ADMIN_EVENT_PREFIX):
@@ -204,7 +206,6 @@ def log_admin_action(
         logger.error(f"Failed to log admin action: {e}")
         return False
 
-
 def get_admin_audit_logs(
     start_time: Optional[datetime] = None,
     end_time: Optional[datetime] = None,
@@ -219,33 +220,30 @@ def get_admin_audit_logs(
     offset: int = 0
 ) -> List[Dict[str, Any]]:
     """
-    Retrieves administrative audit logs based on filtering criteria.
+    Retrieve admin audit logs based on filter criteria.
 
     Args:
-        start_time: Start time for log filtering
-        end_time: End time for log filtering
-        user_id: Filter by specific user ID
-        username: Filter by specific username
-        action_types: List of action types to include
+        start_time: Filter logs after this time
+        end_time: Filter logs before this time
+        user_id: Filter by user ID
+        username: Filter by username
+        action_types: Filter by action types
         severity: Filter by severity level
-        status: Filter by action status
+        status: Filter by status
         resource_type: Filter by resource type
         resource_id: Filter by resource ID
         limit: Maximum number of logs to return
-        offset: Number of logs to skip for pagination
+        offset: Number of logs to skip
 
     Returns:
         List of audit log entries as dictionaries
     """
-    # Default to last 24 hours if no time range specified
+    # Set default time range if not specified
     if start_time is None:
-        start_time = datetime.now(timezone.utc).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        start_time = datetime.now(timezone.utc) - timedelta(days=7)
     if end_time is None:
         end_time = datetime.now(timezone.utc)
 
-    # Helper function to filter by admin category/prefix
     def is_admin_log(log_entry):
         if isinstance(log_entry, dict):
             event_type = log_entry.get('event_type', '')
@@ -302,7 +300,7 @@ def get_admin_audit_logs(
             for log in logs:
                 log_dict = log.to_dict() if hasattr(log, 'to_dict') else log
 
-                # Check if it's an admin log
+                # Only include admin logs
                 if not is_admin_log(log_dict):
                     continue
 
@@ -418,7 +416,6 @@ def get_admin_audit_logs(
         logger.error(f"Failed to retrieve admin audit logs from file: {e}")
         return []
 
-
 def export_admin_audit_logs(
     start_time: datetime,
     end_time: datetime,
@@ -427,23 +424,22 @@ def export_admin_audit_logs(
     filters: Optional[Dict[str, Any]] = None
 ) -> Union[str, bool]:
     """
-    Exports administrative audit logs to a file or returns them as a string.
+    Export admin audit logs to a file or as a string.
 
     Args:
-        start_time: Start time for logs to export
-        end_time: End time for logs to export
-        output_format: Format for export ('json', 'csv', or 'text')
-        output_file: File path to write output to (if None, returns as string)
-        filters: Additional filters to apply (user_id, action_types, etc.)
+        start_time: Start of time period to export
+        end_time: End of time period to export
+        output_format: Format of the export ('json', 'csv', 'text')
+        output_file: If provided, write to this file
+        filters: Additional filters to apply
 
     Returns:
-        If output_file is specified, returns True on success or False on failure
-        If output_file is None, returns the formatted logs as a string
+        String output if no output_file is provided, or bool indicating success
     """
     if filters is None:
         filters = {}
 
-    # Get logs with filters
+    # Retrieve logs with the specified filters
     logs = get_admin_audit_logs(
         start_time=start_time,
         end_time=end_time,
@@ -590,7 +586,6 @@ def export_admin_audit_logs(
 
         return output
 
-
 def detect_admin_anomalies(
     start_time: datetime,
     end_time: datetime,
@@ -598,33 +593,36 @@ def detect_admin_anomalies(
     output_file: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
-    Detects anomalies in administrative actions.
+    Detect potential anomalies in administrative actions.
 
-    Identifies patterns that may indicate suspicious or unusual administrative
-    behavior such as unusual timing, high frequencies of certain actions,
-    rare actions, or actions from unusual sources.
+    This function analyzes admin audit logs to detect patterns that might
+    indicate suspicious activity, such as:
+    - High frequency of actions by a single user
+    - Multiple failed attempts
+    - Actions performed outside business hours
+    - Suspicious sequences (e.g., create-delete pairs in quick succession)
 
     Args:
         start_time: Start of time period to analyze
         end_time: End of time period to analyze
         threshold: Sensitivity threshold ('low', 'medium', 'high')
-        output_file: Optional file to write results to
+        output_file: If provided, write results to this file
 
     Returns:
-        List of detected anomalies with details
+        List of detected anomalies
     """
     # Get all admin logs for the period
     logs = get_admin_audit_logs(
         start_time=start_time,
         end_time=end_time,
-        limit=10000  # Large limit to get comprehensive data for analysis
+        limit=10000  # Large limit to get comprehensive data
     )
 
     if not logs:
         logger.warning("No logs found for anomaly detection")
         return []
 
-    # Set thresholds based on sensitivity
+    # Define thresholds for different sensitivity levels
     thresholds = {
         'low': {
             'action_frequency': 30,  # Actions per hour by same user
@@ -699,7 +697,7 @@ def detect_admin_anomalies(
     for user, user_log_entries in user_logs.items():
         # Sort by timestamp
         sorted_logs = sorted(user_log_entries,
-                            key=lambda x: x.get('timestamp', ''))
+                           key=lambda x: x.get('timestamp', ''))
 
         # Check for sequences of failures
         failure_count = 0
@@ -723,7 +721,6 @@ def detect_admin_anomalies(
                         'timestamps': [log.get('timestamp') for log in failure_sequence],
                         'severity': 'high'
                     })
-
                 failure_count = 0
                 failure_sequence = []
 
@@ -862,7 +859,6 @@ def detect_admin_anomalies(
     # Return the anomalies
     return anomalies
 
-
 def verify_audit_log_integrity(
     start_time: datetime,
     end_time: datetime
@@ -974,7 +970,6 @@ def verify_audit_log_integrity(
         },
         'issues': issues
     }
-
 
 if __name__ == "__main__":
     # Example/testing code

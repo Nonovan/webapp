@@ -157,6 +157,7 @@ from .cs_utils import (
 # Import risk assessment and security metrics functions
 from .cs_metrics import (
     get_security_metrics,
+    get_security_metrics_summary,
     calculate_risk_score,
     generate_security_recommendations,
     get_risk_trend,
@@ -334,6 +335,7 @@ __all__ = [
 
     # Metrics functions
     'get_security_metrics',
+    'get_security_metrics_summary',
     'calculate_risk_score',
     'generate_security_recommendations',
     'get_risk_trend',
