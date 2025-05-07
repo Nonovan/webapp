@@ -70,6 +70,31 @@ EXIT_VALIDATION_ERROR = 4
 EXIT_NOT_FOUND = 5
 
 
+__all__ = [
+    "grant_permission",
+    "revoke_permission",
+    "check_permission",
+    "list_permissions",
+    "list_user_permissions",
+    "list_role_permissions",
+    "list_all_permissions",
+    "find_user",
+    "find_role",
+    "find_permission",
+    "parse_expiration_datetime",
+    "get_user_id_from_token",
+    "grant_permission_to_user",
+    "grant_permission_to_role",
+    "revoke_permission_from_user",
+    "revoke_permission_from_role",
+    "check_user_permission",
+
+    "PermissionError",
+    "ValidationError",
+    "ResourceNotFoundError"
+]
+
+
 class PermissionError(Exception):
     """Base exception for permission management errors."""
     pass

@@ -13,6 +13,7 @@ actions across development, staging, and production environments.
 
 import argparse
 import datetime
+import importlib
 import json
 import logging
 import os
@@ -36,7 +37,7 @@ from core.security.cs_authentication import authenticate_user, is_ip_in_whitelis
 from core.security.cs_authorization import verify_permission
 
 # Core utilities
-from core.loggings import logger as core_logger
+from core.utils.logging_utils import logger as core_logger
 
 # Create a module-level logger
 logger = logging.getLogger(__name__)
@@ -49,9 +50,29 @@ EXIT_PERMISSION_ERROR = 2
 EXIT_RESOURCE_ERROR = 3
 EXIT_VALIDATION_ERROR = 4
 EXIT_AUTHENTICATION_ERROR = 5
+EXIT_OPERATION_CANCELLED = 7
 
 # Command registry
 COMMAND_REGISTRY = {}
+
+
+__all__ = [
+    "register_command",
+    "execute_command",
+
+    "CommandError",
+    "ValidationError",
+    "PermissionError",
+    "AuthenticationError",
+
+    "list_commands",
+    "get_command_help",
+    "format_output",
+    "mask_sensitive_data",
+    "authenticate",
+    "help_command",
+    "list_categories_command",
+]
 
 
 class CommandError(Exception):
@@ -571,6 +592,27 @@ def setup_cli_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def load_command_modules():
+    """
+    Dynamically load all command modules to register commands.
+    """
+    commands_dir = Path(__file__).parent / "commands"
+    if not commands_dir.exists():
+        logger.warning(f"Commands directory not found: {commands_dir}")
+        return
+
+    for file_path in commands_dir.glob("*.py"):
+        if file_path.name.startswith("_"):
+            continue
+
+        module_name = f"admin.cli.commands.{file_path.stem}"
+        try:
+            importlib.import_module(module_name)
+            logger.debug(f"Loaded command module: {module_name}")
+        except ImportError as e:
+            logger.error(f"Failed to import command module {module_name}: {e}")
+
+
 def main() -> int:
     """
     Main CLI entry point.
@@ -578,34 +620,8 @@ def main() -> int:
     Returns:
         Exit code
     """
-    # Register built-in commands
-    register_command(
-        "help", help_command,
-        "Get help information for commands",
-        permissions=["admin:read"],
-        category="system"
-    )
-
-    register_command(
-        "list-categories", list_categories_command,
-        "List all available command categories",
-        permissions=["admin:read"],
-        category="system"
-    )
-
-    register_command(
-        "version", version_command,
-        "Get admin CLI version information",
-        permissions=["admin:read"],
-        category="system"
-    )
-
-    register_command(
-        "check-permissions", check_permissions_command,
-        "Check if current user has specified permissions",
-        permissions=["admin:user:read"],
-        category="security"
-    )
+    # Load command modules which will register their commands
+    load_command_modules()
 
     # Set up parser and parse arguments
     parser = setup_cli_parser()
@@ -700,7 +716,7 @@ def main() -> int:
 
     except KeyboardInterrupt:
         print("\nOperation cancelled by user")
-        return 130  # Standard exit code for SIGINT
+        return EXIT_OPERATION_CANCELLED
 
     except Exception as e:
         logger.exception("Unhandled exception in main")

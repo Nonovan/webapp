@@ -33,7 +33,7 @@ from admin.utils.admin_auth import (
     verify_mfa_token
 )
 from admin.utils.audit_utils import log_admin_action
-from admin.utils.security_utils import generate_password
+from admin.utils import generate_password
 from core.security.cs_audit import log_security_event
 from models.auth import User, Role
 from models.auth.permission import Permission
@@ -63,6 +63,27 @@ AUTH_STATUS = {
     True: "Authenticated",
     False: "Authentication Required"
 }
+
+
+__all__ = [
+    "create_user",
+    "get_user",
+    "update_user",
+    "reset_password",
+    "list_users",
+    "delete_user",
+    "lock_unlock_user",
+    "manage_mfa",
+    "bulk_import_users",
+    "validate_email",
+    "validate_username",
+    "format_output",
+
+    "UserAdminError",
+    "UserValidationError",
+    "UserExistsError",
+    "UserNotFoundError"
+]
 
 
 class UserAdminError(Exception):
