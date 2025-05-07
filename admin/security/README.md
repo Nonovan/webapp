@@ -38,19 +38,21 @@ The security administration directory provides specialized tools and resources f
 
 ### Incident Response Kit
 
-- **Coordination Tools**: Manage incident response activities and team collaboration
-- **Documentation Templates**: Standardize incident documentation and reporting
-- **Forensic Collection Tools**: Acquire evidence in a forensically sound manner
-- **Playbooks**: Step-by-step procedures for handling different incident types
-- **Recovery Tools**: Safely restore systems following security incidents
+- **Containment Tools**: Isolate compromised systems to prevent lateral movement
+- **Evidence Preservation**: Securely collect and preserve forensic evidence
+- **Playbooks**: Step-by-step procedures for common incident types
+- **Remediation Scripts**: Automate common remediation tasks
+- **Security Communications**: Templates and tools for incident communications
+- **Triage Tools**: Quickly assess and categorize security incidents
 
 ### Monitoring Tools
 
-- **Anomaly Detection**: Identify unusual patterns that may indicate threats
-- **Configuration Files**: Define monitoring parameters and detection rules
-- **Security Dashboard**: Visualize security posture and active incidents
-- **Security Event Correlation**: Connect disparate events to identify attack patterns
-- **Threat Intelligence Integration**: Incorporate external threat data
+- **Anomaly Detector**: Behavioral anomaly detection system for identifying unusual patterns
+- **File Integrity Monitoring**: Detect unauthorized changes to critical system files
+- **Privilege Audit**: Administrative privilege monitoring tools
+- **Security Dashboard**: Generate security status dashboards
+- **Security Event Correlation**: Correlate security events across multiple sources
+- **Threat Intelligence**: Integration with threat intelligence feeds
 
 ## Directory Structure
 
@@ -71,21 +73,16 @@ admin/security/
 │   ├── chain_of_custody.py        # Evidence handling documentation
 │   ├── collect_evidence.py        # Evidence collection script
 │   ├── config/                    # Forensics configuration
-│   ├── disk_forensics.py          # Disk analysis toolkit
-│   ├── live_response/             # Live system investigation tools
-│   ├── malware_analysis.sh        # Isolated malware analysis environment
-│   ├── network_capture.py         # Network traffic analysis tools
-│   ├── static_analysis/           # Static analysis tools
-│   ├── templates/                 # Forensic analysis templates
-│   ├── timeline_builder.py        # Evidence timeline construction
-│   └── utils/                     # Forensic utilities
+│   ├── forensic_analyzer.py       # Artifact analysis tool
+│   ├── log_analyzer.py            # Log analysis tool
+│   ├── templates/                 # Report templates
+│   └── utils/                     # Forensics utilities
 ├── incident_response_kit/         # Incident response toolkit
 │   ├── README.md                  # Incident response documentation
-│   ├── collect_evidence.py        # Evidence collection tool
-│   ├── config/                    # Response configuration files
-│   ├── coordination/              # Response coordination tools
-│   ├── forensic_tools/            # Forensic analysis tools
-│   ├── initialize.sh              # Response environment setup
+│   ├── artifact_collector.py      # Forensic artifact collection
+│   ├── config/                    # Response configuration
+│   ├── incident_commander.py      # Incident coordination tool
+│   ├── initialize.sh              # Incident response environment setup
 │   ├── log_analyzer.py            # Log analysis tool
 │   ├── malware_containment.py     # Malware containment utility
 │   ├── network_isolation.py       # System isolation utility
@@ -99,7 +96,8 @@ admin/security/
     ├── README.md                  # Monitoring documentation
     ├── anomaly_detector.sh        # Behavioral anomaly detection system
     ├── config/                    # Monitoring configuration files
-    ├── integrity_monitor.sh       # File integrity monitoring system
+    ├── integrity_monitor.py       # File integrity monitoring system
+    ├── monitoring_constants.py    # Shared constants and configuration
     ├── privilege_audit.py         # Administrative privilege monitoring
     ├── security_dashboard.py      # Security dashboard generator
     ├── security_event_correlator.py # Security event correlation engine
@@ -127,35 +125,34 @@ This security toolset implements controls and follows methodologies aligned with
 ### Security Assessment
 
 ```bash
-# Run a vulnerability scan against a production system
-./assessment_tools/core_assessment_tools/vulnerability_scanner.py \
-    --target web-server-01 \
-    --profile production \
-    --output-format detailed
+# Run a comprehensive security assessment
+./assessment_tools/run_assessment.py \
+    --scope production \
+    --output-format pdf \
+    --compliance-frameworks pci-dss,nist \
+    --notify security-team@example.com
 
-# Generate an executive summary report
-./assessment_tools/supporting_scripts/report_generator.py \
-    --assessment-id SEC-2024-07-15 \
-    --format pdf \
-    --template executive-summary \
-    --output executive-summary.pdf
+# Verify system configuration against security baselines
+./assessment_tools/core_assessment_tools/config_analyzer.py \
+    --baseline enterprise-standard \
+    --target-host app-server-01 \
+    --format json
 ```
 
 ### Digital Forensics
 
 ```bash
-# Collect evidence from a compromised system
+# Collect forensic artifacts from a system
 ./forensics/collect_evidence.py \
     --target compromised-host-01 \
-    --acquisition-type full \
-    --output /secure/evidence/case-42
+    --artifacts memory,filesystem,logs,registry \
+    --chain-of-custody --sign-collection
 
-# Analyze memory dump for signs of compromise
-./forensics/analyze_memory.py \
-    --memory-image /secure/evidence/case-42/memory.raw \
-    --profile Linux5_15_0 \
-    --plugins process,network,malware \
-    --output /secure/evidence/case-42/memory-analysis.txt
+# Analyze collected evidence
+./forensics/forensic_analyzer.py \
+    --evidence-path /cases/IR-2024-042/evidence/ \
+    --output-format html \
+    --ioc-check --include-timelines
 ```
 
 ### Incident Response
@@ -179,15 +176,14 @@ This security toolset implements controls and follows methodologies aligned with
 ### Security Monitoring
 
 ```bash
-# Check for anomalies in user behavior
-./monitoring/anomaly_detector.sh \
-    --scope user-activity \
-    --timeframe 24h \
-    --sensitivity high \
-    --output anomalies.json
+# Initialize all security monitoring tools
+python3 -c "from admin.security.monitoring import init_all_tools; init_all_tools()"
 
-# Generate a security posture dashboard
-./monitoring/security_dashboard.py \
+# Check for file integrity violations
+python3 -c "from admin.security.monitoring import init_file_integrity_monitoring; init_file_integrity_monitoring()"
+
+# Generate a security dashboard
+python3 -m admin.security.monitoring.security_dashboard \
     --environment production \
     --output /var/www/security/dashboard.html \
     --refresh-interval 300
@@ -225,42 +221,42 @@ Security tools in this directory implement and enforce hardening guidelines base
 
 ### System Hardening
 
-- **Linux System Hardening**
-  - Secure kernel parameter configuration
-  - Service restrictions and secure defaults
-  - File system access controls and secure mount options
-  - User and group security settings
-  - Network protocol hardening
+- **Account Management**
+  - Automated account inventory and management
+  - Default account remediation procedures
+  - Strong password requirements enforcement
+  - User rights assignment verification
+  - Privileged account separation
 
-- **Container Security**
-  - Minimal base images with security patches
-  - Image scanning and vulnerability management
-  - Runtime security controls
-  - Resource limitation and isolation
-  - Network policy enforcement
+- **Audit Policy**
+  - Comprehensive audit configuration
+  - Secure audit log management
+  - Automated log analysis
+  - Tamper protection for audit files
+  - Log integrity verification
 
-- **Database Hardening**
-  - Authentication security measures
-  - Access control implementation
-  - Audit configuration
-  - Encryption settings
-  - Data protection measures
+- **File System Security**
+  - Secure file permissions enforcement
+  - Critical file integrity monitoring
+  - Filesystem ownership verification
+  - SUID/SGID bit checks
+  - World-writable file remediation
 
 ### Application Security Hardening
 
 - **Web Application Security**
-  - Content Security Policy implementation
-  - HTTP Security Headers configuration
+  - Content Security Policy templates
+  - HTTP security header enforcement
   - Input validation requirements
-  - Session security management
-  - Authentication and authorization controls
+  - Output encoding verification
+  - CSRF protection implementation
 
-- **API Security**
-  - Authentication enforcement
-  - Rate limiting implementation
-  - Input validation requirements
-  - Error handling security
-  - Output encoding enforcement
+- **Database Security**
+  - Default credential verification
+  - Database configuration hardening
+  - Authentication control implementation
+  - Privilege limitation enforcement
+  - Sensitive data identification
 
 ### Network Security
 
