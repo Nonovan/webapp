@@ -40,6 +40,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    'write_file',
+    'get_module_info',
+    'format_docstring',
+    'generate_markdown_doc',
+    'generate_cli_docs',
+    'generate_cli_reference'
+]
 
 def write_file(content: str, filename: str) -> bool:
     """

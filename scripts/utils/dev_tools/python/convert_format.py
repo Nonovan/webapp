@@ -33,6 +33,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    'convert_files',
+    'check_pandoc',
+    'find_files',
+    'secure_backup',
+    'convert_file',
+    'restore_from_backup'
+]
 
 def convert_files(directory, input_format, output_format, recursive=True):
     """
