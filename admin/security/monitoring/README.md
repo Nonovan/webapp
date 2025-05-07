@@ -18,6 +18,15 @@ This directory contains specialized security monitoring tools for administrative
 
 The monitoring directory contains specialized security monitoring tools for administrative use. These tools provide enhanced visibility into security events, support incident investigation, and enable proactive threat detection beyond what's available in the standard monitoring system. They are designed for security operations personnel and incident responders.
 
+The tools implement a comprehensive security monitoring framework focused on:
+
+- Detection of unauthorized changes to critical files
+- Identification of suspicious administrative activities
+- Correlation of security events to identify attack patterns
+- Visualization and reporting of security metrics
+- Integration with external threat intelligence sources
+- Analysis of behavioral patterns for anomaly detection
+
 ## Key Components
 
 - **`anomaly_detector.sh`**: Behavioral anomaly detection system
@@ -48,34 +57,32 @@ The monitoring directory contains specialized security monitoring tools for admi
   - Anomaly detection visualization
   - Incident tracking and management
   - Real-time security posture visualization
-  - Security metrics tracking
+  - Risk scoring and trending
+  - Security alert summaries
   - Threat intelligence integration
-  - Environment-aware display options
-  - Multiple output formats (HTML, JSON)
 
 - **`security_event_correlator.py`**: Security event correlation engine
-  - Advanced persistent threat detection
-  - Attack pattern recognition
-  - Baseline deviation alerting
-  - Cross-system event analysis
-  - Sequential attack detection
-  - Rule-based correlation capabilities
-  - HTML report generation for findings
+  - Attack chain reconstruction
+  - Cross-source event correlation
+  - Detection rule management
+  - Pattern-based threat detection
+  - Security alert generation
+  - SIEM integration capabilities
 
 - **`threat_intelligence.py`**: Threat intelligence integration tool
-  - Automated blocklist updates
-  - IOC (Indicators of Compromise) matching
-  - IP reputation analysis and alerting
-  - Known malicious pattern detection
-  - Threat feed integration and management
-  - Detailed HTML reporting on threat matches
-  - Batch indicator processing
+  - Indicator of compromise management
+  - Malicious IP/domain tracking
+  - Threat data aggregation
+  - Threat feed integration
+  - Threat scoring and prioritization
+  - TAXII/STIX support for structured threat information
 
 ## Directory Structure
 
 ```plaintext
 admin/security/monitoring/
 ├── README.md                     # This documentation
+├── __init__.py                   # Package initialization and exports
 ├── anomaly_detector.sh           # Behavioral anomaly detection system
 ├── config/                       # Configuration files
 │   ├── README.md                 # Configuration documentation
@@ -94,6 +101,7 @@ admin/security/monitoring/
 │   │   └── suspicious_auth.yml   # Suspicious authentication patterns
 │   └── threat_feeds.json         # Threat intelligence feed configuration
 ├── integrity_monitor.sh          # Enhanced file integrity monitoring system
+├── monitoring_constants.py       # Shared constants and configuration
 ├── privilege_audit.py            # Administrative privilege monitoring
 ├── security_dashboard.py         # Administrative security dashboard generator
 ├── security_event_correlator.py  # Security event correlation engine
@@ -103,7 +111,7 @@ admin/security/monitoring/
 │   ├── dashboard.html            # Security dashboard template
 │   └── incident_summary.html     # Incident summary template
 ├── threat_intelligence.py        # Threat intelligence integration tool
-└── utils/                        # Utility functions
+└── utils/                        # Monitoring utilities
     ├── README.md                 # Utilities documentation
     ├── __init__.py               # Package initialization
     ├── alert_formatter.py        # Security alert formatting functions
@@ -118,29 +126,23 @@ The security monitoring tools use configuration files in the config directory to
 
 ### Threat Intelligence Configuration
 
+The `threat_feeds.json` file defines external threat intelligence sources:
+
 ```json
-// threat_feeds.json
 {
   "feeds": [
     {
-      "name": "EmergingThreats",
-      "url": "https://rules.emergingthreats.net/blockrules/compromised-ips.txt",
-      "type": "ip_list",
-      "update_interval": 86400,
-      "enabled": true
-    },
-    {
-      "name": "AlienVaultOTX",
-      "api_key": "${OTX_API_KEY}",
-      "url": "https://otx.alienvault.com/api/v1/indicators/export",
-      "type": "structured",
-      "update_interval": 43200,
-      "enabled": true
+      "name": "malicious_ips",
+      "url": "https://threatfeed.example.com/api/v1/ips",
+      "type": "ip",
+      "update_interval": 3600,
+      "enabled": true,
+      "auth_required": true,
+      "auth_header": "X-API-Key",
+      "auth_env_var": "THREAT_API_KEY",
+      "expiration": 86400
     }
-  ],
-  "local_cache_dir": "/var/cache/cloud-platform/threat_intel",
-  "retention_days": 90,
-  "match_threshold": 0.75
+  ]
 }
 ```
 
@@ -165,6 +167,34 @@ Each environment has specific baseline files that define normal behavior pattern
     }
   }
 }
+```
+
+### Detection Rules
+
+YAML-formatted detection rules for different attack patterns:
+
+```yaml
+# Example from privilege_esc.yml
+rules:
+  - id: PRIV-ESC-001
+    name: "Unexpected Privilege Elevation"
+    description: "Detects when a user gains elevated privileges through unexpected means"
+    severity: high
+    condition:
+      event_type: "permission_change"
+      new_permissions:
+        - "admin:*"
+        - "system:write"
+      not:
+        approver_role: "security_admin"
+    tags:
+      - "MITRE_T1078"
+      - "privilege_escalation"
+      - "compliance_violation"
+    actions:
+      - alert: "security_team"
+      - log: "security_audit"
+      - notify: "security_admin"
 ```
 
 ## Security Features
@@ -211,27 +241,27 @@ Each environment has specific baseline files that define normal behavior pattern
 ### Security Event Correlation
 
 ```bash
-# Analyze events from the past 24 hours
-./security_event_correlator.py --hours 24 --correlation-window 300
+# Run correlation against recent security events
+./security_event_correlator.py --timeframe 24h --sensitivity high
 
-# Analyze events related to a specific user
-./security_event_correlator.py --user-id 42 --detection-mode aggressive
+# Use custom detection rules
+./security_event_correlator.py --rules-dir /path/to/custom_rules --output correlated_events.json
 
 # Generate HTML report of correlated events
-./security_event_correlator.py --hours 48 --output-format html
+./security_event_correlator.py --format html --output-file /tmp/correlation_report.html
 ```
 
 ### Threat Intelligence Integration
 
 ```bash
-# Update threat intelligence from all feeds
+# Update threat intelligence from all configured feeds
 ./threat_intelligence.py --update-all
 
 # Check specific indicators against threat intelligence
-./threat_intelligence.py --check-ioc "185.159.128.243" --type ip
+./threat_intelligence.py --check-ip 203.0.113.100 --check-domain suspicious-domain.example.com
 
-# Process multiple indicators from a file
-./threat_intelligence.py --report --indicators-file /tmp/suspicious_ips.txt
+# Generate threat intelligence report
+./threat_intelligence.py --report --output /tmp/threat_report.html --days 7
 ```
 
 ### Anomaly Detection
@@ -247,39 +277,36 @@ Each environment has specific baseline files that define normal behavior pattern
 ./anomaly_detector.sh --output-format html --report-file /tmp/anomalies.html
 ```
 
+### Usage from Python
+
+```python
+from admin.security.monitoring import (
+    init_file_integrity_monitoring,
+    init_threat_intelligence,
+    init_security_dashboard,
+    init_event_correlation,
+    init_privilege_audit,
+    init_all_tools
+)
+
+# Initialize individual components
+integrity_status = init_file_integrity_monitoring()
+threat_intel_status = init_threat_intelligence()
+
+# Or initialize all available tools at once
+results = init_all_tools(app)
+```
+
 ## Report Generation
 
-All tools can generate reports in various formats. The main output formats include:
+Security monitoring tools can generate reports in multiple formats:
 
-### HTML Reports
+- **HTML**: Interactive dashboards and reports with visualizations
+- **JSON**: Structured data for programmatic processing and integration
+- **Text**: Plain text reports for command-line review and logging
+- **CSV**: Tabular data for spreadsheet analysis and record keeping
 
-HTML reports feature rich visualizations with:
-
-- Severity color-coding (critical, high, medium, low)
-- Interactive elements for exploring details
-- Print-friendly formatting
-- Responsive design for different screen sizes
-- Consistent styling across all monitoring tools
-
-### JSON Reports
-
-JSON format provides structured data for:
-
-- Integration with other security tools
-- Custom dashboard construction
-- Automated analysis and response
-- Historical data analysis
-- Audit record maintenance
-
-### Text Reports
-
-Plain text reports offer:
-
-- Console-friendly output
-- Email compatibility
-- Quick review of findings
-- Low bandwidth requirements
-- Simplified archiving
+Report customization is available through the templates directory, where you can modify the HTML templates used for report generation to meet specific requirements.
 
 ## Common Workflows
 
@@ -309,9 +336,9 @@ Plain text reports offer:
 
 ## Related Documentation
 
-- Anomaly Detection Configuration
+- Security Architecture Overview
+- Threat Intelligence Framework
 - Event Correlation Guide
 - Incident Response Procedures
-- Security Architecture
 - Security Monitoring Strategy
-- Threat Intelligence Framework
+- File Integrity Monitoring Guide
