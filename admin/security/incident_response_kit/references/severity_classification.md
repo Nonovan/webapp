@@ -407,7 +407,7 @@ from admin.security.incident_response_kit.incident_constants import (
 
 ---
 
-**Document Information**
+## Document Information
 
 - Version: 1.1
 - Last Updated: 2023-09-25
