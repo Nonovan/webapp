@@ -64,6 +64,7 @@ from .config_constants import (
     DEV_OVERRIDES,
     TEST_OVERRIDES,
     DR_OVERRIDES,
+    CI_OVERRIDES,
 
     # File integrity constants
     FILE_INTEGRITY_MONITORED_PATTERNS,
@@ -97,7 +98,7 @@ def get_config(env_name: str = None) -> type:
     Get the configuration class for the specified environment.
 
     Args:
-        env_name: Environment name (development, testing, staging, production, ci, dr_recovery)
+        env_name: Environment name (development, testing, staging, production, ci, dr-recovery)
 
     Returns:
         Configuration class
@@ -110,7 +111,7 @@ def get_config(env_name: str = None) -> type:
 
     env_name = env_name.lower()
     if env_name not in CONFIG_REGISTRY:
-        valid_envs = ", ".join(CONFIG_REGISTRY.keys())
+        valid_envs = ", ".join(sorted(CONFIG_REGISTRY.keys()))
         raise ValueError(f"Invalid environment: '{env_name}'. Must be one of: {valid_envs}")
 
     return CONFIG_REGISTRY[env_name]
@@ -120,7 +121,7 @@ def get_config_instance(env_name: str = None) -> Config:
     Get a configuration class instance for the specified environment.
 
     Args:
-        env_name: Environment name (development, testing, staging, production, ci, dr_recovery)
+        env_name: Environment name (development, testing, staging, production, ci, dr-recovery)
 
     Returns:
         Configuration class instance
@@ -136,7 +137,7 @@ def detect_environment() -> str:
     in that order. If none are found, it defaults to development.
 
     Returns:
-        Environment name (development, testing, staging, production, ci, dr_recovery)
+        Environment name (development, testing, staging, production, ci, dr-recovery)
     """
     # Check various environment variables
     for env_var in ['FLASK_ENV', 'ENVIRONMENT', 'APP_ENV']:
@@ -316,6 +317,78 @@ def initialize_file_monitoring(app: Flask) -> bool:
             logger.error(f"Failed to initialize file integrity monitoring: {e}")
             return False
 
+def is_dr_mode_active(app=None) -> bool:
+    """
+    Check if the application is running in Disaster Recovery mode.
+
+    Args:
+        app: Flask application instance (uses current_app if None)
+
+    Returns:
+        bool: True if DR mode is active
+    """
+    if app is None:
+        try:
+            app = current_app
+        except RuntimeError:
+            # Outside of app context, check environment
+            return detect_environment() == ENVIRONMENT_DR_RECOVERY
+
+    # Check if DR_MODE is explicitly set to True
+    return app.config.get('DR_MODE', False) is True
+
+def verify_dr_recovery_setup(app=None) -> Tuple[bool, List[str]]:
+    """
+    Verify disaster recovery configuration is properly set up.
+
+    Checks critical DR settings and ensures necessary components are
+    configured correctly for disaster recovery.
+
+    Args:
+        app: Flask application instance (uses current_app if None)
+
+    Returns:
+        Tuple[bool, List[str]]: (is_valid, list_of_issues)
+    """
+    issues = []
+
+    if app is None:
+        try:
+            app = current_app
+        except RuntimeError:
+            return False, ["No application context available for verification"]
+
+    # Verify essential DR settings
+    if not app.config.get('DR_MODE', False):
+        issues.append("DR_MODE not enabled")
+
+    if not app.config.get('DR_COORDINATOR_EMAIL'):
+        issues.append("DR_COORDINATOR_EMAIL not configured")
+
+    if not app.config.get('DR_LOG_PATH'):
+        issues.append("DR_LOG_PATH not configured")
+
+    if app.config.get('AUTO_UPDATE_BASELINE', False):
+        issues.append("AUTO_UPDATE_BASELINE should be disabled in DR mode")
+
+    # Verify DR log directory exists and is writable
+    dr_log_path = app.config.get('DR_LOG_PATH')
+    if dr_log_path:
+        try:
+            log_dir = os.path.dirname(dr_log_path)
+            if not os.path.exists(log_dir):
+                issues.append(f"DR log directory does not exist: {log_dir}")
+            elif not os.access(log_dir, os.W_OK):
+                issues.append(f"DR log directory is not writable: {log_dir}")
+        except Exception as e:
+            issues.append(f"Error checking DR log path: {str(e)}")
+
+    # Verify file integrity monitoring is active
+    if not app.config.get('ENABLE_FILE_INTEGRITY_MONITORING', True):
+        issues.append("File integrity monitoring should be enabled in DR mode")
+
+    return len(issues) == 0, issues
+
 # Version information
 __version__ = '0.1.1'
 
@@ -338,6 +411,8 @@ __all__ = [
     'update_file_integrity_baseline',
     'validate_baseline_integrity',
     'initialize_file_monitoring',
+    'is_dr_mode_active',
+    'verify_dr_recovery_setup',
     'CONFIG_REGISTRY',
 
     # Environment constants
@@ -377,6 +452,8 @@ __all__ = [
     'DEV_OVERRIDES',
     'TEST_OVERRIDES',
     'DR_OVERRIDES',
+    'CI_OVERRIDES',
+    'PROD_SECURITY_REQUIREMENTS',
 
     # File integrity monitoring
     'FILE_INTEGRITY_MONITORED_PATTERNS',

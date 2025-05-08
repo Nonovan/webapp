@@ -13,6 +13,10 @@ and makes configuration management more maintainable by avoiding duplication.
 from datetime import timedelta
 from typing import Dict, Any, List, Set, FrozenSet
 
+#=====================================================================
+# Environment Constants
+#=====================================================================
+
 # Environment names
 ENVIRONMENT_DEVELOPMENT = 'development'
 ENVIRONMENT_TESTING = 'testing'
@@ -38,6 +42,10 @@ SECURE_ENVIRONMENTS: FrozenSet[str] = frozenset([
     ENVIRONMENT_DR_RECOVERY
 ])
 
+#=====================================================================
+# Required Configuration Variables
+#=====================================================================
+
 # Required environment variables for all environments
 REQUIRED_ENV_VARS: List[str] = [
     'SECRET_KEY',
@@ -52,6 +60,10 @@ REQUIRED_PROD_ENV_VARS: List[str] = [
     'REDIS_URL',
     'SENTRY_DSN'
 ]
+
+#=====================================================================
+# Default Configuration Values
+#=====================================================================
 
 # Default values for optional environment settings
 DEFAULT_ENV_VALUES: Dict[str, Any] = {
@@ -159,6 +171,10 @@ DEFAULT_FILE_SECURITY_CONFIG: Dict[str, Any] = {
     'MAX_CONTENT_LENGTH': 16 * 1024 * 1024,  # 16 MB
 }
 
+#=====================================================================
+# File Integrity Monitoring Configuration
+#=====================================================================
+
 # File integrity monitoring configuration
 DEFAULT_FILE_INTEGRITY_CONFIG: Dict[str, Any] = {
     'ENABLE_FILE_INTEGRITY_MONITORING': True,
@@ -212,6 +228,10 @@ FILE_INTEGRITY_SEVERITY_MAPPING: Dict[str, str] = {
     'timestamp': 'low',       # Timestamp changed
 }
 
+#=====================================================================
+# Content Security Policy Configuration
+#=====================================================================
+
 # CSP (Content Security Policy) configuration
 DEFAULT_CSP_CONFIG: Dict[str, Any] = {
     'CSP_DEFAULT_SRC': ["'self'"],
@@ -229,12 +249,20 @@ DEFAULT_CSP_CONFIG: Dict[str, Any] = {
     'CSP_REPORT_TO': "default",
 }
 
+#=====================================================================
+# Audit Configuration
+#=====================================================================
+
 # Audit logging configuration
 DEFAULT_AUDIT_CONFIG: Dict[str, Any] = {
     'AUDIT_LOG_ENABLED': True,
     'AUDIT_LOG_EVENTS': ['authentication', 'authorization', 'data_access', 'configuration_change'],
     'AUDIT_LOG_RETENTION_DAYS': 90,
 }
+
+#=====================================================================
+# Feature Flag Configuration
+#=====================================================================
 
 # Feature flag configuration
 DEFAULT_FEATURE_FLAGS: Dict[str, bool] = {
@@ -243,6 +271,10 @@ DEFAULT_FEATURE_FLAGS: Dict[str, bool] = {
     'FEATURE_CLOUD_MANAGEMENT': True,
     'FEATURE_MFA': True,
 }
+
+#=====================================================================
+# Disaster Recovery Configuration
+#=====================================================================
 
 # Disaster recovery configuration
 DEFAULT_DR_CONFIG: Dict[str, Any] = {
@@ -255,7 +287,17 @@ DEFAULT_DR_CONFIG: Dict[str, Any] = {
     'RECOVERY_MODE': True,
     'SENTRY_ENVIRONMENT': 'dr-recovery',
     'SENTRY_TRACES_SAMPLE_RATE': 0.5,  # Higher sampling rate during DR
+    'DR_RECOVERY_PRIORITIES': {
+        'critical': ['authentication', 'authorization', 'core_services'],
+        'high': ['data_access', 'api_endpoints', 'monitoring'],
+        'medium': ['reporting', 'notifications', 'batch_jobs'],
+        'low': ['ui_customization', 'analytics', 'non_critical_features']
+    }
 }
+
+#=====================================================================
+# Environment-Specific Overrides
+#=====================================================================
 
 # Development environment overrides
 DEV_OVERRIDES: Dict[str, Any] = {
@@ -267,8 +309,15 @@ DEV_OVERRIDES: Dict[str, Any] = {
     'SECURITY_HEADERS_ENABLED': True,
     'METRICS_ENABLED': True,
     'LOG_LEVEL': 'DEBUG',
+    'SECURITY_LOG_LEVEL': 'DEBUG',
     'API_REQUIRE_HTTPS': False,  # Allow HTTP in dev for easier testing
     'AUTO_UPDATE_BASELINE': True,  # Auto-update baseline in dev
+    'BASELINE_UPDATE_APPROVAL_REQUIRED': False,
+    'DEBUG_TB_ENABLED': True,
+    'DEBUG_TB_INTERCEPT_REDIRECTS': False,
+    'ICS_ENABLED': True,
+    'ICS_RESTRICTED_IPS': ['127.0.0.1'],
+    'EXPLAIN_TEMPLATE_LOADING': True,
 }
 
 # Test environment overrides
@@ -281,6 +330,9 @@ TEST_OVERRIDES: Dict[str, Any] = {
     'SECURITY_CHECK_FILE_INTEGRITY': False,
     'ENABLE_FILE_INTEGRITY_MONITORING': False,
     'AUDIT_LOG_ENABLED': False,  # Disable audit logging in tests
+    'PRESERVE_CONTEXT_ON_EXCEPTION': False,
+    'TRAP_HTTP_EXCEPTIONS': False,
+    'SQLALCHEMY_DATABASE_URI': 'sqlite:///:memory:',
 }
 
 # DR recovery environment overrides
@@ -294,7 +346,36 @@ DR_OVERRIDES: Dict[str, Any] = {
     'METRICS_DR_MODE': True,
     'SENTRY_ENVIRONMENT': 'dr-recovery',
     'SENTRY_TRACES_SAMPLE_RATE': 0.5,
+    'SESSION_COOKIE_SECURE': True,
+    'SESSION_COOKIE_HTTPONLY': True,
+    'SESSION_COOKIE_SAMESITE': 'Lax',
+    'REMEMBER_COOKIE_SECURE': True,
+    'REMEMBER_COOKIE_HTTPONLY': True,
+    'API_REQUIRE_HTTPS': True,
+    'SECURITY_CHECK_FILE_INTEGRITY': True,
+    'ENABLE_FILE_INTEGRITY_MONITORING': True,
+    'SECURITY_LOG_LEVEL': 'WARNING',
 }
+
+# CI environment overrides
+CI_OVERRIDES: Dict[str, Any] = {
+    'TESTING': True,
+    'DEBUG': False,
+    'WTF_CSRF_ENABLED': False,
+    'METRICS_ENABLED': False,
+    'LOG_LEVEL': 'ERROR',
+    'SECURITY_CHECK_FILE_INTEGRITY': False,
+    'ENABLE_FILE_INTEGRITY_MONITORING': False,
+    'BASELINE_BACKUP_ENABLED': False,
+    'BASELINE_UPDATE_APPROVAL_REQUIRED': False,
+    'CI_SKIP_INTEGRITY_CHECK': True,
+    'SCHEDULER_ENABLED': False,
+    'CHECK_FILE_SIGNATURES': False,
+}
+
+#=====================================================================
+# Security Requirements
+#=====================================================================
 
 # Production security requirements (these must be enabled in production)
 PROD_SECURITY_REQUIREMENTS: List[str] = [
@@ -308,6 +389,10 @@ PROD_SECURITY_REQUIREMENTS: List[str] = [
     'JWT_BLACKLIST_ENABLED',
     'AUDIT_LOG_ENABLED',
 ]
+
+#=====================================================================
+# File Integrity Monitoring Patterns
+#=====================================================================
 
 # File integrity monitoring patterns by priority level
 FILE_INTEGRITY_MONITORED_PATTERNS: Dict[str, List[str]] = {
@@ -347,9 +432,17 @@ SENSITIVE_FIELDS: Set[str] = {
     'cookie', 'session', 'hash', 'sign', 'certificate', 'salt'
 }
 
+#=====================================================================
+# Miscellaneous Constants
+#=====================================================================
+
 # Constants for file hash calculation
 SMALL_FILE_THRESHOLD = 10240  # 10KB
 DEFAULT_HASH_ALGORITHM = 'sha256'
+
+#=====================================================================
+# Module Exports
+#=====================================================================
 
 # Define a mapping for providing a single-import solution for common settings
 __all__ = [
@@ -390,10 +483,13 @@ __all__ = [
     'DEV_OVERRIDES',
     'TEST_OVERRIDES',
     'DR_OVERRIDES',
+    'CI_OVERRIDES',
     'PROD_SECURITY_REQUIREMENTS',
 
     # File integrity monitoring
     'FILE_INTEGRITY_MONITORED_PATTERNS',
+    'FILE_INTEGRITY_BASELINE_CONFIG',
+    'FILE_INTEGRITY_SEVERITY_MAPPING',
     'SENSITIVE_FIELDS',
     'SMALL_FILE_THRESHOLD',
     'DEFAULT_HASH_ALGORITHM',

@@ -9,7 +9,7 @@ that facilitate comprehensive test coverage.
 
 import os
 from .base import Config
-from .config_constants import ENVIRONMENT_CI
+from .config_constants import ENVIRONMENT_CI, DEV_OVERRIDES, TEST_OVERRIDES
 
 class CIConfig(Config):
     """Configuration for continuous integration environment.
@@ -72,6 +72,27 @@ class CIConfig(Config):
     ENABLE_FILE_INTEGRITY_MONITORING = False
     AUTO_UPDATE_BASELINE = False
 
+    # Disaster recovery - disabled in CI
+    DR_MODE = False
+    RECOVERY_MODE = False
+    DR_ENHANCED_LOGGING = False
+
+    # CI environment doesn't need baseline backups
+    BASELINE_BACKUP_ENABLED = False
+
+    # Skip approval requirements for baseline updates in CI
+    BASELINE_UPDATE_APPROVAL_REQUIRED = False
+
+    # Use minimal set of file integrity patterns in CI for better performance
+    CRITICAL_FILES_PATTERN = [
+        "app.py",
+        "core/security/*.py",
+        "config/*.py"
+    ]
+
+    # Skip file signature verification in CI
+    CHECK_FILE_SIGNATURES = False
+
     @classmethod
     def init_app(cls, app):
         """
@@ -89,3 +110,17 @@ class CIConfig(Config):
         # Disable certain security features that might interfere with testing
         app.config['SECURITY_HEADERS_ENABLED'] = False
         app.config['AUDIT_LOG_ENABLED'] = False
+
+        # Disable file integrity monitoring to prevent test failures
+        app.config['ENABLE_FILE_INTEGRITY_MONITORING'] = False
+
+        # Ensure dependency integrity checks can be bypassed in CI
+        app.config['CI_SKIP_INTEGRITY_CHECK'] = os.environ.get('CI_SKIP_INTEGRITY_CHECK', 'false').lower() == 'true'
+
+        # Configure temporary paths for CI environment
+        if 'CI_TEMP_DIR' in os.environ:
+            app.config['UPLOAD_FOLDER'] = os.path.join(os.environ['CI_TEMP_DIR'], 'uploads')
+            app.config['FILE_BASELINE_PATH'] = os.path.join(os.environ['CI_TEMP_DIR'], 'baseline.json')
+
+        # Disable scheduled tasks in CI to prevent background operations during tests
+        app.config['SCHEDULER_ENABLED'] = False
