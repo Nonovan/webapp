@@ -22,6 +22,7 @@ The configuration system provides a unified approach to managing application set
 - **Schema Validation**: Configuration files are validated against schemas for consistency
 - **Security by Design**: Sensitive information is managed separately from code
 - **File Integrity Monitoring**: Automated detection of unauthorized file modifications
+- **Disaster Recovery Support**: Specialized configuration for DR environments
 
 ## Architecture
 
@@ -140,67 +141,55 @@ config/
 
 ### Python Configuration
 
-The Python configuration classes define a hierarchy where environment-specific classes inherit from the base Config class:
-
 ```python
-from config import get_config, get_config_instance
+from flask import Flask
+from config import get_config
 
-# Method 1: Get configuration class (not instantiated)
-config_class = get_config('production')
-app.config.from_object(config_class)
+# Create a Flask application with the appropriate environment configuration
+app = Flask(__name__)
+config = get_config('production')  # Or 'development', 'staging', etc.
+config.init_app(app)
 
-# Method 2: Get instantiated configuration
-config = get_config_instance('production')
-app.config.update(config.__dict__)
-
-# Method 3: Auto-detect environment
-config = get_config_instance()  # Detects from APP_ENV environment variable
+# Access configuration settings
+debug_mode = app.config['DEBUG']
+database_url = app.config['SQLALCHEMY_DATABASE_URI']
 ```
 
 ### Component Configuration
 
-Component configurations can be loaded through the utilities in the `components` module:
-
 ```python
-from config.components import load_component_config
+from config import load_component_config
 
-# Load security configuration for production environment
-security_config = load_component_config('security', environment='production')
+# Load database configuration for the current environment
+db_config = load_component_config('database')
 
-# Access configuration values
-password_min_length = security_config['authentication']['password_min_length']
-mfa_enabled = security_config['authentication']['mfa_enabled']
+# Access component configuration
+host = db_config['postgres']['host']
+port = db_config['postgres']['port']
 
-# Load API endpoints configuration (JSON)
-endpoints_config = load_component_config('api_endpoints', extension='json')
+# Load for a specific environment
+api_config = load_component_config('api', 'production')
 ```
 
 ### Environment Variable Overrides
 
-Configuration values can be overridden by environment variables:
-
-- Environment variables take precedence over configuration files
-- Variable names follow the pattern: `CLOUDPLATFORM_SECTION_KEY`
-- For component configs, use: `CLOUDPLATFORM_COMPONENT_SECTION_KEY`
-
-Examples:
-
-- `CLOUDPLATFORM_DATABASE_HOST` overrides the database host
-- `CLOUDPLATFORM_SECURITY_AUTHENTICATION_MFA_ENABLED=false` disables MFA
+```bash
+# Override configuration with environment variables
+export DATABASE_URL="postgresql://user:password@localhost:5432/db"
+export LOG_LEVEL="DEBUG"
+export SECURITY_HEADERS_ENABLED="true"
+export FILE_INTEGRITY_CHECK_INTERVAL="3600"
+```
 
 ### Validation
 
-Configuration validation ensures correctness:
-
 ```python
-from config.components import validate_component_config
-from config.schemas import validate_config
+from config.schemas import validate_component_config
 
-# Validate a component configuration
-is_valid = validate_component_config('security', environment='production')
-
-# Validate a Python configuration class against its schema
-is_valid = validate_config(production_config)
+# Validate component configuration against schema
+is_valid, errors = validate_component_config('security.ini')
+if not is_valid:
+    print(f"Configuration validation failed: {errors}")
 ```
 
 ### File Integrity Monitoring
@@ -208,17 +197,45 @@ is_valid = validate_config(production_config)
 The configuration package supports file integrity monitoring to detect unauthorized changes:
 
 ```python
-from config import update_file_integrity_baseline, detect_environment
+from config import update_file_integrity_baseline, validate_baseline_integrity, initialize_file_monitoring
+
+# Initialize file integrity monitoring for the application
+initialize_file_monitoring(app)
+
+# Validate file integrity against baseline
+is_valid, violations = validate_baseline_integrity(app)
+if not is_valid:
+    print(f"Found {len(violations)} integrity violations")
+    for violation in violations:
+        print(f"File: {violation['file']}, Expected: {violation['expected']}, Actual: {violation['actual']}")
 
 # Update the file integrity baseline for the current environment
-app_env = detect_environment()
-success = update_file_integrity_baseline(
+success, message = update_file_integrity_baseline(
     app=app,
     baseline_path=None,  # Uses default path based on environment
     updates=changes,     # List of file changes to incorporate
     remove_missing=True, # Remove entries for files that no longer exist
     auto_update_limit=10 # Maximum number of files to auto-update (safety limit)
 )
+```
+
+### Disaster Recovery Configuration
+
+For accessing disaster recovery configuration and checking DR mode:
+
+```python
+from config import is_dr_mode_active, verify_dr_recovery_setup
+
+# Check if the application is running in DR mode
+if is_dr_mode_active(app):
+    print("Application is running in disaster recovery mode")
+
+# Verify that DR setup is properly configured
+is_valid, issues = verify_dr_recovery_setup(app)
+if not is_valid:
+    print(f"DR recovery setup has issues:")
+    for issue in issues:
+        print(f"- {issue}")
 ```
 
 ## Best Practices & Security
@@ -230,6 +247,7 @@ success = update_file_integrity_baseline(
 - **Principle of Least Privilege**: Configure minimum necessary permissions
 - **Environment Isolation**: Use the strictest security settings in production
 - **File Integrity**: Enable file integrity monitoring for critical configuration files
+- **Baseline Management**: Freeze integrity baselines during disaster recovery procedures
 
 ### Configuration Management
 
@@ -239,6 +257,8 @@ success = update_file_integrity_baseline(
 - **Validation Before Deployment**: Use validation tools before applying configurations
 - **Audit Trail**: Track configuration changes in version control
 - **Baseline Management**: Regularly update file integrity baselines after approved changes
+- **DR Preparation**: Ensure DR environment configurations are regularly updated and tested
+- **Recovery Prioritization**: Maintain accurate recovery priority configurations
 
 ## Related Documentation
 
@@ -248,3 +268,4 @@ success = update_file_integrity_baseline(
 - Monitoring Configuration
 - Component Configuration Guide
 - File Integrity Monitoring Guide
+- Disaster Recovery Guide

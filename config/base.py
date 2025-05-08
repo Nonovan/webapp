@@ -144,6 +144,13 @@ class Config:
         'DR_COORDINATOR_EMAIL': None,
         'DR_NOTIFICATION_ENABLED': False,
         'RECOVERY_MODE': False,
+        'DR_BASELINE_FROZEN': True,  # Prevent baseline changes during DR
+        'DR_RECOVERY_PRIORITIES': {
+            'critical': ['authentication', 'authorization', 'core_services'],
+            'high': ['data_access', 'api_endpoints', 'monitoring'],
+            'medium': ['reporting', 'notifications', 'batch_jobs'],
+            'low': ['ui_customization', 'analytics', 'non_critical_features']
+        },
 
         # File Integrity Baseline settings
         'BASELINE_UPDATE_MAX_FILES': 50,
@@ -162,7 +169,10 @@ class Config:
             "app.py",
             "wsgi.py",
             "config/*.py"
-        ]
+        ],
+        # Templates for baseline and backup paths
+        'BASELINE_PATH_TEMPLATE': 'instance/security/baseline_{environment}.json',
+        'BASELINE_BACKUP_PATH_TEMPLATE': 'instance/security/baseline_backups/{timestamp}_{environment}.json'
     }
 
     # Development-specific overrides
@@ -175,8 +185,10 @@ class Config:
         'SECURITY_HEADERS_ENABLED': True,
         'METRICS_ENABLED': True,
         'LOG_LEVEL': 'DEBUG',
+        'SECURITY_LOG_LEVEL': 'DEBUG',
         'API_REQUIRE_HTTPS': False,  # Allow HTTP in dev for easier testing
         'AUTO_UPDATE_BASELINE': True,  # Auto-update baseline in dev
+        'BASELINE_UPDATE_APPROVAL_REQUIRED': False,  # No approval needed in dev
     }
 
     # Test-specific overrides
@@ -189,6 +201,8 @@ class Config:
         'SECURITY_CHECK_FILE_INTEGRITY': False,
         'ENABLE_FILE_INTEGRITY_MONITORING': False,
         'AUDIT_LOG_ENABLED': False,  # Disable audit logging in tests
+        'PRESERVE_CONTEXT_ON_EXCEPTION': False,
+        'TRAP_HTTP_EXCEPTIONS': False,
     }
 
     # DR recovery-specific overrides
@@ -198,10 +212,20 @@ class Config:
         'AUTO_UPDATE_BASELINE': False,
         'DR_MODE': True,
         'DR_ENHANCED_LOGGING': True,
+        'DR_BASELINE_FROZEN': True,
         'RECOVERY_MODE': True,
         'METRICS_DR_MODE': True,
         'SENTRY_ENVIRONMENT': 'dr-recovery',
         'SENTRY_TRACES_SAMPLE_RATE': 0.5,  # Higher sampling rate during DR
+        'SESSION_COOKIE_SECURE': True,
+        'SESSION_COOKIE_HTTPONLY': True,
+        'SESSION_COOKIE_SAMESITE': 'Lax',
+        'REMEMBER_COOKIE_SECURE': True,
+        'REMEMBER_COOKIE_HTTPONLY': True,
+        'API_REQUIRE_HTTPS': True,
+        'SECURITY_CHECK_FILE_INTEGRITY': True,
+        'ENABLE_FILE_INTEGRITY_MONITORING': True,
+        'SECURITY_LOG_LEVEL': 'WARNING',
     }
 
     # Production-specific security requirements
@@ -435,6 +459,24 @@ class Config:
                 os.environ['BASELINE_BACKUP_ENABLED']
             )
 
+        # Custom baseline paths
+        if 'BASELINE_PATH_TEMPLATE' in os.environ:
+            app.config['BASELINE_PATH_TEMPLATE'] = os.environ['BASELINE_PATH_TEMPLATE']
+
+        if 'BASELINE_BACKUP_PATH_TEMPLATE' in os.environ:
+            app.config['BASELINE_BACKUP_PATH_TEMPLATE'] = os.environ['BASELINE_BACKUP_PATH_TEMPLATE']
+
+        # File hash algorithm
+        if 'FILE_HASH_ALGORITHM' in os.environ:
+            algorithm = os.environ['FILE_HASH_ALGORITHM'].lower()
+            # Validate that it's a supported algorithm
+            if algorithm in ('sha256', 'sha384', 'sha512', 'sha1', 'md5'):
+                app.config['FILE_HASH_ALGORITHM'] = algorithm
+                if algorithm in ('sha1', 'md5'):
+                    logger.warning(f"Using weak hash algorithm {algorithm} - consider using SHA-256 or stronger")
+            else:
+                logger.warning(f"Unsupported hash algorithm {algorithm}, defaulting to SHA-256")
+
     @classmethod
     def _load_dr_config_from_environment(cls, app) -> None:
         """
@@ -470,6 +512,21 @@ class Config:
         # Metrics DR mode
         if 'METRICS_DR_MODE' in os.environ:
             app.config['METRICS_DR_MODE'] = cls._convert_env_value(os.environ['METRICS_DR_MODE'])
+
+        # DR baseline frozen status - controls whether baseline updates are prohibited in DR mode
+        if 'DR_BASELINE_FROZEN' in os.environ:
+            app.config['DR_BASELINE_FROZEN'] = cls._convert_env_value(os.environ['DR_BASELINE_FROZEN'])
+
+        # DR recovery priorities
+        if 'DR_RECOVERY_PRIORITIES' in os.environ:
+            try:
+                priorities = json.loads(os.environ['DR_RECOVERY_PRIORITIES'])
+                if isinstance(priorities, dict):
+                    app.config['DR_RECOVERY_PRIORITIES'] = priorities
+                else:
+                    logger.warning("DR_RECOVERY_PRIORITIES should be a JSON object, using default")
+            except json.JSONDecodeError:
+                logger.warning("Invalid DR_RECOVERY_PRIORITIES value, using default")
 
     @staticmethod
     def _convert_env_value(value: str) -> Any:
@@ -562,6 +619,14 @@ class Config:
             if app.config.get('AUTO_UPDATE_BASELINE', False):
                 logger.error("AUTO_UPDATE_BASELINE must be disabled in dr-recovery environment")
 
+            # Check if baseline is appropriately frozen in DR mode
+            if not app.config.get('DR_BASELINE_FROZEN', True):
+                logger.warning("DR_BASELINE_FROZEN should be enabled in dr-recovery environment")
+
+            # Check DR recovery priorities are defined
+            if not app.config.get('DR_RECOVERY_PRIORITIES'):
+                logger.warning("DR_RECOVERY_PRIORITIES should be configured in dr-recovery environment")
+
     @classmethod
     def _setup_derived_values(cls, app) -> None:
         """
@@ -627,7 +692,7 @@ class Config:
             # Set environment-specific baseline path
             if 'FILE_BASELINE_PATH' not in app.config or not app.config['FILE_BASELINE_PATH']:
                 baseline_path_template = app.config.get('BASELINE_PATH_TEMPLATE',
-                                                       'instance/security/baseline_{environment}.json')
+                                                      'instance/security/baseline_{environment}.json')
                 baseline_path = baseline_path_template.format(environment=env)
                 app.config['FILE_BASELINE_PATH'] = os.path.join(app.root_path, baseline_path)
 
@@ -640,9 +705,9 @@ class Config:
             # Set up baseline backup directory if backup enabled
             if app.config.get('BASELINE_BACKUP_ENABLED', True):
                 backup_path_template = app.config.get('BASELINE_BACKUP_PATH_TEMPLATE',
-                                                     'instance/security/baseline_backups/{timestamp}_{environment}.json')
+                                                    'instance/security/baseline_backups/{timestamp}_{environment}.json')
                 backup_dir = os.path.dirname(os.path.join(app.root_path,
-                                                         backup_path_template.format(timestamp='', environment=env)))
+                                                        backup_path_template.format(timestamp='', environment=env)))
 
                 try:
                     if not os.path.exists(backup_dir):
@@ -650,6 +715,10 @@ class Config:
                         logger.info(f"Created baseline backup directory: {backup_dir}")
                 except OSError as e:
                     logger.error(f"Failed to create baseline backup directory: {str(e)}")
+
+            # Set up the default hash algorithm from config
+            if 'FILE_HASH_ALGORITHM' not in app.config:
+                app.config['FILE_HASH_ALGORITHM'] = 'sha256'
 
         # Set up DR log directory if in DR mode
         if app.config.get('DR_MODE', False) and app.config.get('DR_ENHANCED_LOGGING', False):
@@ -693,6 +762,7 @@ class Config:
                 'SESSION_COOKIE_SECURE': False,
                 'SESSION_COOKIE_HTTPONLY': True,
                 'AUTO_UPDATE_BASELINE': True,
+                'BASELINE_UPDATE_APPROVAL_REQUIRED': False,
             },
             'production': {
                 'DEBUG': False,
@@ -702,6 +772,7 @@ class Config:
                 'SESSION_COOKIE_HTTPONLY': True,
                 'SESSION_COOKIE_SAMESITE': 'Lax',
                 'AUTO_UPDATE_BASELINE': False,
+                'BASELINE_UPDATE_APPROVAL_REQUIRED': True,
             },
             'testing': {
                 'DEBUG': False,
@@ -710,6 +781,7 @@ class Config:
                 'WTF_CSRF_ENABLED': False,
                 'SESSION_COOKIE_SECURE': False,
                 'ENABLE_FILE_INTEGRITY_MONITORING': False,
+                'BASELINE_BACKUP_ENABLED': False,
             },
             'dr-recovery': {
                 'DEBUG': False,
@@ -720,8 +792,19 @@ class Config:
                 'SESSION_COOKIE_SECURE': True,
                 'SESSION_COOKIE_HTTPONLY': True,
                 'AUTO_UPDATE_BASELINE': False,
+                'DR_BASELINE_FROZEN': True,
                 'LOG_LEVEL': 'WARNING',
                 'METRICS_DR_MODE': True,
+                'BASELINE_UPDATE_APPROVAL_REQUIRED': True,
+            },
+            'ci': {
+                'TESTING': True,
+                'DEBUG': False,
+                'METRICS_ENABLED': False,
+                'ENABLE_FILE_INTEGRITY_MONITORING': False,
+                'BASELINE_BACKUP_ENABLED': False,
+                'BASELINE_UPDATE_APPROVAL_REQUIRED': False,
+                'CI_SKIP_INTEGRITY_CHECK': True,
             }
         }
 
@@ -837,7 +920,8 @@ class Config:
             os.path.join(app_root, 'models'),
             os.path.join(app_root, 'models', 'security'),
             os.path.join(app_root, 'blueprints', 'auth'),
-            os.path.join(app_root, 'blueprints', 'monitoring')
+            os.path.join(app_root, 'blueprints', 'monitoring'),
+            os.path.join(app_root, 'config'),  # Monitor configuration directory
         ]
 
         # Add DR-specific directories if in DR mode
@@ -887,7 +971,7 @@ class Config:
             tuple: (success_bool, message_string)
         """
         # Check for DR mode restrictions
-        if app and app.config.get('DR_MODE', False) and not app.config.get('AUTO_UPDATE_BASELINE', False):
+        if app and app.config.get('DR_MODE', False) and app.config.get('DR_BASELINE_FROZEN', True):
             if not baseline_path:
                 baseline_path = app.config.get('FILE_BASELINE_PATH', 'instance/file_baseline.json')
             logger.warning(f"Baseline update attempted in DR mode: {baseline_path}")
@@ -936,6 +1020,7 @@ class Config:
         """
         import json
         import os
+        from datetime import datetime
 
         if not updates:
             return True, "No updates provided"
@@ -981,15 +1066,31 @@ class Config:
             if not path or not current_hash:
                 continue
 
-            baseline[path] = current_hash
-            changes_applied += 1
+            # Handle absolute vs relative paths
+            if app and not os.path.isabs(path):
+                abs_path = os.path.normpath(os.path.join(os.path.dirname(app.root_path), path))
+            else:
+                abs_path = path
+
+            # Only update if file exists (prevents poisoning baseline with non-existent files)
+            if os.path.exists(abs_path):
+                baseline[path] = current_hash
+                changes_applied += 1
+            else:
+                logger.warning(f"Skipping non-existent file in baseline update: {path}")
 
         # Remove missing files if requested
         removed = 0
         if remove_missing:
             to_remove = []
             for path in baseline:
-                if not os.path.exists(path):
+                # Handle absolute vs relative paths for checking existence
+                if app and not os.path.isabs(path):
+                    abs_path = os.path.normpath(os.path.join(os.path.dirname(app.root_path), path))
+                else:
+                    abs_path = path
+
+                if not os.path.exists(abs_path):
                     to_remove.append(path)
 
             for path in to_remove:
@@ -1004,4 +1105,72 @@ class Config:
         except (IOError, OSError) as e:
             return False, f"Failed to write baseline file: {e}"
 
+        # Also update app config if provided
+        if app:
+            app.config['CRITICAL_FILE_HASHES'] = baseline
+            app.config['FILE_HASH_TIMESTAMP'] = cls.format_timestamp()
+
         return True, f"Updated baseline: {changes_applied} changes applied, {removed} entries removed"
+
+    @classmethod
+    def baseline_status(cls, app=None, baseline_path=None) -> Dict[str, Any]:
+        """
+        Get the status of the file integrity baseline.
+
+        Returns information about the baseline including last modification time,
+        number of files monitored, and configuration details.
+
+        Args:
+            app: Flask application instance
+            baseline_path: Path to baseline file (uses app config if None)
+
+        Returns:
+            Dict containing baseline status information
+        """
+        import os
+        import time
+
+        status = {
+            'exists': False,
+            'timestamp': None,
+            'file_count': 0,
+            'last_modified': None,
+            'algorithm': 'sha256',
+            'monitoring_enabled': False,
+        }
+
+        # Set baseline path
+        if app and not baseline_path:
+            baseline_path = app.config.get('FILE_BASELINE_PATH')
+            if not baseline_path:
+                status['error'] = "Baseline path not configured"
+                return status
+
+        # Update status from app config if available
+        if app:
+            status['monitoring_enabled'] = app.config.get('ENABLE_FILE_INTEGRITY_MONITORING', False)
+            status['algorithm'] = app.config.get('FILE_HASH_ALGORITHM', 'sha256')
+            status['timestamp'] = app.config.get('FILE_HASH_TIMESTAMP')
+
+            # If hashes are available in config, count them
+            file_hashes = app.config.get('CRITICAL_FILE_HASHES', {})
+            if file_hashes:
+                status['file_count'] = len(file_hashes)
+                status['exists'] = True
+
+        # Check file system status
+        if baseline_path and os.path.exists(baseline_path):
+            status['exists'] = True
+            status['last_modified'] = time.ctime(os.path.getmtime(baseline_path))
+
+            # Try to get file count if not already set from config
+            if status['file_count'] == 0:
+                try:
+                    import json
+                    with open(baseline_path, 'r') as f:
+                        baseline = json.load(f)
+                    status['file_count'] = len(baseline)
+                except (IOError, json.JSONDecodeError):
+                    pass
+
+        return status

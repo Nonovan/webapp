@@ -12,9 +12,13 @@ file integrity monitoring, and schema validation.
 import os
 import logging
 import redis
-from typing import Dict, Any, Optional, List, Tuple, Union
+import yaml
+from typing import Dict, Any, Optional, List, Tuple, Union, Type
 from functools import lru_cache
 from flask import Flask, current_app
+from datetime import datetime, timezone
+import sys
+import importlib
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -93,38 +97,46 @@ CONFIG_REGISTRY = {
 }
 
 @lru_cache(maxsize=8)
-def get_config(env_name: str = None) -> type:
+def get_config(env_name: str = None) -> Type[Config]:
     """
     Get the configuration class for the specified environment.
 
+    This function retrieves the appropriate configuration class based on
+    the environment name. It caches results for better performance.
+
     Args:
-        env_name: Environment name (development, testing, staging, production, ci, dr-recovery)
+        env_name: Environment name (development, testing, production, etc.)
+                 If None, uses the environment variable ENVIRONMENT or
+                 defaults to 'development'
 
     Returns:
-        Configuration class
-
-    Raises:
-        ValueError: If the environment name is invalid
+        Config class appropriate for the specified environment
     """
-    if env_name is None:
-        env_name = detect_environment()
+    env_name = env_name or detect_environment()
 
-    env_name = env_name.lower()
-    if env_name not in CONFIG_REGISTRY:
-        valid_envs = ", ".join(sorted(CONFIG_REGISTRY.keys()))
-        raise ValueError(f"Invalid environment: '{env_name}'. Must be one of: {valid_envs}")
+    # Normalize the name to handle various formats
+    if isinstance(env_name, str):
+        env_name = env_name.lower().replace('-', '_')
 
-    return CONFIG_REGISTRY[env_name]
+    # Match the normalized name to the registry
+    config_class = CONFIG_REGISTRY.get(env_name)
+    if not config_class:
+        # Fallback to development config if an unknown environment is specified
+        logger.warning(f"Unknown environment name: {env_name}, using development config")
+        config_class = DevelopmentConfig
+
+    return config_class
 
 def get_config_instance(env_name: str = None) -> Config:
     """
-    Get a configuration class instance for the specified environment.
+    Create a configuration instance for the specified environment.
 
     Args:
-        env_name: Environment name (development, testing, staging, production, ci, dr-recovery)
+        env_name: Environment name (development, testing, production, etc.)
+                 If None, uses the environment variable ENVIRONMENT
 
     Returns:
-        Configuration class instance
+        Config instance appropriate for the specified environment
     """
     config_class = get_config(env_name)
     return config_class()
@@ -133,74 +145,102 @@ def detect_environment() -> str:
     """
     Detect the current environment from environment variables.
 
-    The function checks for FLASK_ENV, ENVIRONMENT, or APP_ENV environment variables
-    in that order. If none are found, it defaults to development.
-
     Returns:
-        Environment name (development, testing, staging, production, ci, dr-recovery)
+        String containing the environment name (e.g., 'development', 'production')
     """
-    # Check various environment variables
-    for env_var in ['FLASK_ENV', 'ENVIRONMENT', 'APP_ENV']:
-        env = os.environ.get(env_var)
-        if env:
-            if env.lower() in ALLOWED_ENVIRONMENTS:
-                return env.lower()
-            logger.warning(f"Unknown environment '{env}' specified in {env_var}")
+    # Check the most specific environment variable first
+    environment = os.environ.get('ENVIRONMENT')
 
-    # Default to development if no environment is specified
-    return ENVIRONMENT_DEVELOPMENT
+    # Alternative environment variables for compatibility
+    if environment is None:
+        environment = os.environ.get('FLASK_ENV') or os.environ.get('ENV')
+
+    # Default to development if not specified
+    if environment not in ALLOWED_ENVIRONMENTS:
+        environment = ENVIRONMENT_DEVELOPMENT
+        if os.environ.get('ENVIRONMENT') not in (None, ENVIRONMENT_DEVELOPMENT):
+            logger.warning(
+                f"Unknown environment '{os.environ.get('ENVIRONMENT')}', "
+                f"falling back to {environment}"
+            )
+
+    return environment
 
 def load_component_config(component_name: str, environment: Optional[str] = None) -> Dict[str, Any]:
     """
-    Load configuration for a specific component.
+    Load component-specific configuration based on the environment.
+
+    This function loads configuration settings for a specific component
+    (e.g., 'database', 'api', 'cache') from the components directory.
+    It supports JSON, YAML, and INI formats.
 
     Args:
-        component_name: Name of the component (e.g. 'database', 'api', 'security')
-        environment: Environment name (defaults to the current environment)
+        component_name: Name of the component (e.g., 'database', 'api')
+        environment: Optional environment name (defaults to detected environment)
 
     Returns:
-        Component configuration dictionary
+        Dictionary containing component configuration settings
+
+    Raises:
+        ValueError: If the component name is invalid or the component configuration
+                   cannot be loaded
     """
-    if environment is None:
-        environment = detect_environment()
+    from pathlib import Path
+    import json
+    import configparser
 
-    # First try environment-specific component config
-    config_path = os.path.join(
-        os.path.dirname(__file__),
-        'components',
-        'environments',
-        environment,
-        f'{component_name}.ini'
-    )
+    if not component_name or not isinstance(component_name, str):
+        raise ValueError("Component name must be a non-empty string")
 
-    if not os.path.exists(config_path):
-        # Fall back to default component config
-        config_path = os.path.join(
-            os.path.dirname(__file__),
-            'components',
-            f'{component_name}.ini'
-        )
+    # Sanitize component name to prevent directory traversal
+    component_name = os.path.basename(component_name)
+    if not component_name:
+        raise ValueError("Invalid component name")
 
-    if not os.path.exists(config_path):
-        logger.warning(f"No configuration file found for component '{component_name}'")
-        return {}
+    # Determine environment if not provided
+    environment = environment or detect_environment()
 
-    try:
-        import configparser
-        config = configparser.ConfigParser()
-        config.read(config_path)
+    # Define search paths in order of precedence
+    base_paths = [
+        Path(__file__).parent / 'components',
+        Path(__file__).parent / 'environments' / environment.lower()
+    ]
 
-        # Convert to dictionary
-        result = {}
-        for section in config.sections():
-            result[section] = {}
-            for key, value in config.items(section):
-                result[section][key] = value
+    # Check supported file formats in order of precedence
+    extensions = ['.json', '.ini', '.yaml', '.yml']
+    component_config = {}
 
-        return result
-    except Exception as e:
-        logger.error(f"Error loading component configuration '{component_name}': {e}")
-        return {}
+    # Try to load component configuration
+    for base_path in base_paths:
+        for ext in extensions:
+            config_path = base_path / f"{component_name}{ext}"
+
+            if config_path.exists():
+                try:
+                    if ext == '.json':
+                        with open(config_path, 'r') as f:
+                            config_data = json.load(f)
+                            component_config.update(config_data)
+                    elif ext == '.ini':
+                        config = configparser.ConfigParser()
+                        config.read(config_path)
+                        # Convert ConfigParser object to dictionary
+                        config_data = {
+                            section: dict(config.items(section))
+                            for section in config.sections()
+                        }
+                        component_config.update(config_data)
+                    elif ext in ('.yaml', '.yml'):
+                        try:
+                            with open(config_path, 'r') as f:
+                                config_data = yaml.safe_load(f)
+                                component_config.update(config_data)
+                        except ImportError:
+                            logger.warning("YAML support requires PyYAML package")
+                except Exception as e:
+                    logger.error(f"Error loading {config_path}: {str(e)}")
+
+    return component_config
 
 def update_file_integrity_baseline(
         app=None,
@@ -225,6 +265,15 @@ def update_file_integrity_baseline(
     Returns:
         tuple: (success_bool, message_string)
     """
+    # Get the app instance if not provided
+    if app is None:
+        app = current_app
+
+    # Check for DR mode restrictions
+    if app.config.get('DR_MODE', False) and app.config.get('DR_BASELINE_FROZEN', True):
+        logger.warning("Baseline update attempted in DR mode - operation restricted")
+        return False, "Baseline updates are restricted in DR recovery mode"
+
     # First try the implementation from core security module
     try:
         from core.security.cs_file_integrity import update_file_integrity_baseline as core_update
@@ -260,10 +309,14 @@ def validate_baseline_integrity(app=None) -> Tuple[bool, List[Dict[str, Any]]]:
     Returns:
         Tuple[bool, List[Dict]]: (integrity_status, violation_list)
     """
+    # Get the app instance if not provided
+    if app is None:
+        app = current_app
+
     # Try the implementation from core security module
     try:
         from core.security.cs_file_integrity import check_critical_file_integrity
-        return check_critical_file_integrity(app or current_app)
+        return check_critical_file_integrity(app)
     except ImportError:
         logger.warning("Could not import check_critical_file_integrity from core.security.cs_file_integrity")
 
@@ -319,30 +372,29 @@ def initialize_file_monitoring(app: Flask) -> bool:
 
 def is_dr_mode_active(app=None) -> bool:
     """
-    Check if the application is running in Disaster Recovery mode.
+    Check if the application is running in disaster recovery mode.
 
     Args:
         app: Flask application instance (uses current_app if None)
 
     Returns:
-        bool: True if DR mode is active
+        bool: True if DR mode is active, False otherwise
     """
     if app is None:
         try:
             app = current_app
         except RuntimeError:
-            # Outside of app context, check environment
-            return detect_environment() == ENVIRONMENT_DR_RECOVERY
+            # Handle case when there's no application context
+            return os.environ.get('ENVIRONMENT') == ENVIRONMENT_DR_RECOVERY
 
-    # Check if DR_MODE is explicitly set to True
-    return app.config.get('DR_MODE', False) is True
+    # Check explicit DR mode setting
+    return (app.config.get('DR_MODE', False) or
+            app.config.get('ENV') == ENVIRONMENT_DR_RECOVERY or
+            app.config.get('ENVIRONMENT') == ENVIRONMENT_DR_RECOVERY)
 
 def verify_dr_recovery_setup(app=None) -> Tuple[bool, List[str]]:
     """
-    Verify disaster recovery configuration is properly set up.
-
-    Checks critical DR settings and ensures necessary components are
-    configured correctly for disaster recovery.
+    Verify that the DR recovery environment is properly configured.
 
     Args:
         app: Flask application instance (uses current_app if None)
@@ -350,28 +402,24 @@ def verify_dr_recovery_setup(app=None) -> Tuple[bool, List[str]]:
     Returns:
         Tuple[bool, List[str]]: (is_valid, list_of_issues)
     """
+    if app is None:
+        app = current_app
+
     issues = []
 
-    if app is None:
-        try:
-            app = current_app
-        except RuntimeError:
-            return False, ["No application context available for verification"]
-
-    # Verify essential DR settings
+    # Check required DR settings
     if not app.config.get('DR_MODE', False):
-        issues.append("DR_MODE not enabled")
+        issues.append("DR_MODE should be enabled")
 
+    # Check if recovery mode is set
+    if not app.config.get('RECOVERY_MODE', False):
+        issues.append("RECOVERY_MODE should be enabled")
+
+    # Check if DR coordinator email is configured
     if not app.config.get('DR_COORDINATOR_EMAIL'):
-        issues.append("DR_COORDINATOR_EMAIL not configured")
+        issues.append("DR_COORDINATOR_EMAIL is not configured")
 
-    if not app.config.get('DR_LOG_PATH'):
-        issues.append("DR_LOG_PATH not configured")
-
-    if app.config.get('AUTO_UPDATE_BASELINE', False):
-        issues.append("AUTO_UPDATE_BASELINE should be disabled in DR mode")
-
-    # Verify DR log directory exists and is writable
+    # Check DR log path
     dr_log_path = app.config.get('DR_LOG_PATH')
     if dr_log_path:
         try:
@@ -424,6 +472,16 @@ __all__ = [
     'ENVIRONMENT_CI',
     'ALLOWED_ENVIRONMENTS',
     'SECURE_ENVIRONMENTS',
+
+    # Security configuration constants
+    'DEFAULT_SECURITY_CONFIG',
+    'DEFAULT_SECURITY_HEADERS',
+    'DEFAULT_CSRF_CONFIG',
+    'DEFAULT_JWT_CONFIG',
+    'DEFAULT_FILE_SECURITY_CONFIG',
+    'DEFAULT_FILE_INTEGRITY_CONFIG',
+    'FILE_INTEGRITY_SEVERITY_MAPPING',
+    'SENSITIVE_FIELDS',
 
     # Required variables
     'REQUIRED_ENV_VARS',
