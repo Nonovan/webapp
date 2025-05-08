@@ -24,6 +24,7 @@ from flask import Blueprint, g, request, session, Response, current_app
 from extensions import metrics, db
 from .errors import init_error_handlers
 
+# Create the blueprint with proper configuration
 main_bp = Blueprint(
     'main',
     __name__,
@@ -57,6 +58,7 @@ def before_request() -> None:
         'user_id': session.get('user_id', 'anonymous')
     })
 
+
 @main_bp.after_request
 def after_request(response: Response) -> Response:
     """
@@ -85,20 +87,23 @@ def after_request(response: Response) -> Response:
         # Add security headers one by one instead of using update
         response.headers['X-Request-ID'] = g.request_id
         response.headers['X-Response-Time'] = f'{duration:.3f}s'
-        response.headers['X-Content-Type-Options'] = 'nosniff'
-        response.headers['X-Frame-Options'] = 'DENY'
-        response.headers['X-XSS-Protection'] = '1; mode=block'
-        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
-        response.headers['Content-Security-Policy'] = "default-src 'self'"
 
-        # Compress large responses
-        if (response.content_length is not None and
-            response.content_length > 1024 and
-            'gzip' in request.headers.get('Accept-Encoding', '')):
-            response.data = gzip.compress(response.data)
-            response.headers['Content-Encoding'] = 'gzip'
+    # Add security headers
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    response.headers['Content-Security-Policy'] = "default-src 'self'"
+
+    # Compress large responses
+    if (response.content_length is not None and
+        response.content_length > 1024 and
+        'gzip' in request.headers.get('Accept-Encoding', '')):
+        response.data = gzip.compress(response.data)
+        response.headers['Content-Encoding'] = 'gzip'
 
     return response
+
 
 @main_bp.teardown_request
 def teardown_request(exc) -> None:
@@ -147,8 +152,10 @@ def teardown_request(exc) -> None:
     except Exception as remove_error:
         current_app.logger.error(f"Error during session cleanup: {remove_error}")
 
+
 # Initialize error handlers
 init_error_handlers(main_bp)
+
 
 # For improved debugging in development
 if current_app and current_app.debug:
@@ -169,3 +176,10 @@ if current_app and current_app.debug:
             'debug': current_app.debug,
             'config': safe_config
         })
+
+
+# Import routes at the bottom to avoid circular imports
+from . import routes
+
+# Export module members
+__all__ = ['main_bp']

@@ -2,7 +2,7 @@
 Python utilities for the Cloud Infrastructure Platform.
 
 This package contains various Python utilities used across the platform
-for data generation, file manipulation, configuration management, and more.
+for data generation and file manipulation.
 """
 
 import logging

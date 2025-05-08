@@ -11,10 +11,10 @@
                 <h1 class="display-4 mb-4">Cloud Services Platform</h1>
                 <p class="lead mb-4">Secure and reliable cloud infrastructure for your business needs</p>
                 {% if not current_user.is_authenticated %}
-                    <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
-                        <a href="{{ url_for('auth.login') }}" class="btn btn-light btn-lg px-4 gap-3">Login</a>
-                        <a href="{{ url_for('auth.register') }}" class="btn btn-outline-light btn-lg px-4">Register</a>
-                    </div>
+                <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
+                    <a href="{{ url_for('auth.login') }}" class="btn btn-light btn-lg px-4 gap-3">Login</a>
+                    <a href="{{ url_for('auth.register') }}" class="btn btn-outline-light btn-lg px-4">Register</a>
+                </div>
                 {% endif %}
             </div>
         </div>
@@ -27,7 +27,7 @@
         <div class="col-md-4">
             <div class="card h-100 shadow-sm">
                 <div class="card-body text-center">
-                    <i class="bi bi-cloud display-4 text-primary mb-3"></i>
+                    <i class="bi bi-cloud display-4 text-primary mb-3" aria-hidden="true"></i>
                     <h5 class="card-title">Cloud Platform</h5>
                     <p class="card-text">Enterprise-grade infrastructure with 99.9% uptime guarantee.</p>
                     <a href="{{ url_for('main.cloud') }}" class="btn btn-primary">Learn More</a>
@@ -37,7 +37,7 @@
         <div class="col-md-4">
             <div class="card h-100 shadow-sm">
                 <div class="card-body text-center">
-                    <i class="bi bi-gear display-4 text-primary mb-3"></i>
+                    <i class="bi bi-gear display-4 text-primary mb-3" aria-hidden="true"></i>
                     <h5 class="card-title">ICS Application</h5>
                     <p class="card-text">Industrial control systems with real-time monitoring.</p>
                     <a href="{{ url_for('main.ics') }}" class="btn btn-primary">Learn More</a>
@@ -47,7 +47,7 @@
         <div class="col-md-4">
             <div class="card h-100 shadow-sm">
                 <div class="card-body text-center">
-                    <i class="bi bi-graph-up display-4 text-primary mb-3"></i>
+                    <i class="bi bi-graph-up display-4 text-primary mb-3" aria-hidden="true"></i>
                     <h5 class="card-title">System Status</h5>
                     <p class="card-text">Real-time performance metrics and health monitoring.</p>
                     <a href="{{ url_for('monitoring.status') }}" class="btn btn-primary">View Status</a>
@@ -67,11 +67,13 @@
                             <div class="d-flex justify-content-between align-items-center p-3 border rounded">
                                 <div>
                                     <h6 class="mb-0">System Security</h6>
-                                    <small class="text-muted">Last scan: {{ last_security_scan }}</small>
+                                    <small class="text-muted">Last scan: {{ last_security_scan|default('N/A') }}</small>
                                 </div>
-                                <div class="security-status security-status-{{ security_status }}">
-                                    <i class="bi bi-shield-{{ security_status == 'secure' ? 'check' : 'exclamation' }} me-1"></i>
-                                    <span>{{ security_status|capitalize }}</span>
+                                <div class="security-status security-status-{{ security_status|default('unknown') }}"
+                                    role="status">
+                                    <i class="bi bi-shield-{{ security_status == 'secure' ? 'check' : 'exclamation' }} me-1"
+                                        aria-hidden="true"></i>
+                                    <span>{{ security_status|default('Unknown')|capitalize }}</span>
                                 </div>
                             </div>
                         </div>
@@ -81,8 +83,9 @@
                                     <h6 class="mb-0">Active Incidents</h6>
                                     <small class="text-muted">Requiring attention</small>
                                 </div>
-                                <span class="badge bg-{{ active_incidents > 0 ? 'warning' : 'success' }} rounded-pill">
-                                    {{ active_incidents }}
+                                <span
+                                    class="badge bg-{{ active_incidents|default(0) > 0 ? 'warning' : 'success' }} rounded-pill">
+                                    {{ active_incidents|default(0) }}
                                 </span>
                             </div>
                         </div>
@@ -92,9 +95,35 @@
                                     <h6 class="mb-0">ICS Systems</h6>
                                     <small class="text-muted">Operational status</small>
                                 </div>
-                                <div class="security-status security-status-{{ ics_status }}">
-                                    <i class="bi bi-{{ ics_status == 'secure' ? 'check-circle' : 'exclamation-circle' }} me-1"></i>
-                                    <span>{{ ics_status|capitalize }}</span>
+                                <div class="security-status security-status-{{ ics_status|default('unknown') }}"
+                                    role="status">
+                                    <i class="bi bi-{{ ics_status == 'secure' ? 'check-circle' : 'exclamation-circle' }} me-1"
+                                        aria-hidden="true"></i>
+                                    <span>{{ ics_status|default('Unknown')|capitalize }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- File Integrity Status -->
+                    <div class="row mt-4">
+                        <div class="col-12">
+                            <h6 class="border-bottom pb-2">File Integrity Status</h6>
+                            <div class="d-flex justify-content-between align-items-center mt-2">
+                                <div>
+                                    <span>Critical Files</span>
+                                    <small class="text-muted d-block">Last checked: {{ integrity_last_check|default('Not
+                                        checked yet') }}</small>
+                                </div>
+                                <div class="text-end">
+                                    <div class="d-flex align-items-center">
+                                        <span class="badge bg-{{ integrity_status|default('secondary') }} me-2">
+                                            {{ integrity_violations|default(0) }} {{ integrity_violations|default(0) ==
+                                            1 ? 'violation' : 'violations' }}
+                                        </span>
+                                        <i class="bi bi-{{ integrity_status == 'success' ? 'check-circle text-success' : 'exclamation-circle text-warning' }}"
+                                            aria-hidden="true"></i>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -110,7 +139,14 @@
             <h2 class="mb-4">Live System Status</h2>
             <div class="card shadow-sm">
                 <div class="card-body">
-                    <div id="statusDashboard" class="chart-container"></div>
+                    <div id="statusDashboard" class="chart-container" role="img"
+                        aria-label="System status dashboard visualization"></div>
+                    <div id="loadingIndicator" class="text-center py-4 d-none">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="text-muted mt-2">Loading system metrics...</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -123,10 +159,10 @@
             <p class="lead">Join industry leaders using our cloud management platform</p>
             <div class="d-grid gap-2 d-md-block">
                 <a href="{{ url_for('auth.register') }}" class="btn btn-lg btn-primary me-md-2">
-                    <i class="bi bi-shield-lock me-2"></i>Start Free Trial
+                    <i class="bi bi-shield-lock me-2" aria-hidden="true"></i>Start Free Trial
                 </a>
                 <a href="{{ url_for('main.contact') }}" class="btn btn-lg btn-outline-primary">
-                    <i class="bi bi-headset me-2"></i>Talk to Sales
+                    <i class="bi bi-headset me-2" aria-hidden="true"></i>Talk to Sales
                 </a>
             </div>
         </div>
@@ -135,26 +171,40 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="https://cdn.plot.ly/plotly-latest.min.js" 
-        integrity="sha384-z2YmZA5+3T9NzVQJ1xYj6hKvUM+BhbfHKu9p3RMEIcLbTHG4T0zYg0ZO5NWDg1TP4" 
-        crossorigin="anonymous"></script>
-        
+<script src="https://cdn.plot.ly/plotly-latest.min.js"
+    integrity="sha384-z2YmZA5+3T9NzVQJ1xYj6hKvUM+BhbfHKu9p3RMEIcLbTHG4T0zYg0ZO5NWDg1TP4"
+    crossorigin="anonymous"></script>
+
 <script src="{{ url_for('static', filename='js/status-preview.js') }}"
-        integrity="{{ sri_hash('js/status-preview.js') }}"
-        crossorigin="anonymous"></script>
-        
+    integrity="{{ sri_hash('js/status-preview.js') }}" crossorigin="anonymous"></script>
+
 <script nonce="{{ csp_nonce }}">
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', function () {
+        // Show loading indicator
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        if (loadingIndicator) {
+            loadingIndicator.classList.remove('d-none');
+        }
+
         // Initialize status dashboard with real-time data
         initializeStatusDashboard({
             updateInterval: 30000, // 30 seconds
-            endpoint: "{{ url_for('api.system_metrics') }}"
+            endpoint: "{{ url_for('api.system_metrics') }}",
+            onLoad: function () {
+                // Hide loading indicator once data is loaded
+                if (loadingIndicator) {
+                    loadingIndicator.classList.add('d-none');
+                }
+            }
         });
-        
+
         // Check for security alerts that need immediate attention
         checkSecurityAlerts();
+
+        // Check file integrity status
+        checkFileIntegrityStatus();
     });
-    
+
     async function checkSecurityAlerts() {
         try {
             const response = await secureFetch("{{ url_for('api.security_alerts') }}");
@@ -162,14 +212,35 @@
                 const data = await response.json();
                 if (data.critical_alerts > 0) {
                     showToastIfAvailable(
-                        "Security Alert", 
+                        "Security Alert",
                         `${data.critical_alerts} critical security alerts require attention`,
-                        "danger"
+                        "danger",
+                        false // Don't auto-dismiss critical security alerts
                     );
                 }
             }
         } catch (error) {
             console.error("Failed to check security alerts:", error);
+        }
+    }
+
+    async function checkFileIntegrityStatus() {
+        try {
+            const response = await secureFetch("{{ url_for('api.file_integrity_status') }}");
+            if (response.ok) {
+                const data = await response.json();
+
+                if (data.violations > 0 && data.critical_violations > 0) {
+                    showToastIfAvailable(
+                        "File Integrity Alert",
+                        `Critical file integrity violations detected. Security team has been notified.`,
+                        "danger",
+                        false // Don't auto-dismiss file integrity alerts
+                    );
+                }
+            }
+        } catch (error) {
+            console.error("Failed to check file integrity status:", error);
         }
     }
 </script>
