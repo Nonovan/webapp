@@ -67,6 +67,9 @@ def init_app(app: Flask) -> None:
     # Register metrics collectors
     _register_custom_metrics(app)
 
+    # Example: Register blueprint with app
+    # app.register_blueprint(metrics_bp) # Ensure this is done if not handled elsewhere
+
     # Log initialization
     logger.info("Metrics API initialized successfully")
     _initialized = True
@@ -79,11 +82,15 @@ def _register_custom_metrics(app: Flask) -> None:
         app: Flask application instance
     """
     try:
+        # Example: Get a configuration value
+        default_latency_buckets = (0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0)
+        latency_buckets = app.config.get('METRICS_API_LATENCY_BUCKETS', default_latency_buckets)
+
         # Request counters by endpoint
         metrics_registry.counter(
             'metrics_api_requests_total',
             'Total number of Metrics API requests',
-            labels=['endpoint', 'status']
+            labels=['endpoint', 'status', 'method'] # Added 'method' label
         )
 
         # Response time histogram
@@ -91,7 +98,7 @@ def _register_custom_metrics(app: Flask) -> None:
             'metrics_api_latency_seconds',
             'Metrics API request latency in seconds',
             labels=['endpoint'],
-            buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0)
+            buckets=latency_buckets # Use configured or default buckets
         )
 
         # Export metrics counter
@@ -117,7 +124,7 @@ def _register_custom_metrics(app: Flask) -> None:
 
         logger.debug("Custom metrics registered successfully")
     except Exception as e:
-        logger.error(f"Failed to register custom metrics: {e}")
+        logger.error("Failed to register custom metrics: %s", e)
 
 # Import exporters for direct access
 from .exporters import (
@@ -134,8 +141,12 @@ from .exporters import (
 __all__ = [
     'metrics_bp',
     'init_app',
+
     'export_metrics_prometheus',
     'export_metrics_csv',
     'export_metrics_json',
+    'format_help_text',
+    'flatten_metrics',
+    'sanitize_metric_name',
     'filter_sensitive_metrics'
 ]

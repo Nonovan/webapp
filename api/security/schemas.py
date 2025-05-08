@@ -20,6 +20,29 @@ from marshmallow import (
 # Initialize module logger
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    'BaseSchema',
+    'PaginationSchema',
+    'DateRangeSchema',
+    'SanitizedString',
+    'IPAddressField',
+    'CVEField',
+    'SecurityEventSchema',
+    'SecurityConfigSchema',
+    'FileIntegrityBaselineSchema',
+    'BaselineUpdateSchema',
+    'ScanFilterSchema',
+    'ScanCreateSchema',
+    'ScanUpdateSchema',
+    'ScanResultSchema',
+    'FindingSchema',
+    'VulnerabilitySchema',
+    'VulnerabilityCreateSchema',
+    'VulnerabilityUpdateSchema',
+    'VulnerabilityFilterSchema',
+]
+
+
 # --- Base Schema Classes ---
 
 class BaseSchema(Schema):
@@ -1254,8 +1277,63 @@ class IncidentMetricsSchema(BaseSchema):
             if data['start_date'] > data['end_date']:
                 raise ValidationError("start_date must be before end_date")
 
+# Empty schemas replaced with proper ones
+scan_schema = ScanResultSchema()  # For single scan serialization
+scans_schema = ScanResultSchema(many=True)  # For multiple scans serialization
+scan_findings_schema = FindingSchema(many=True)  # For multiple findings serialization
 
-# Create schema instances for direct use in routes
+# Add a new schema for baseline retrieval
+class BaselineSchema(BaseSchema):
+    """Schema for retrieving file integrity baseline information."""
+
+    id = fields.Integer(dump_only=True)
+    name = fields.String(required=True)
+    path = fields.String(required=True)
+    hash_algorithm = fields.String(dump_only=True)
+    last_updated = fields.DateTime(dump_only=True)
+    file_count = fields.Integer(dump_only=True)
+    status = fields.String(dump_only=True)
+
+# Create and export all schema instances organized by domain
+# ------------------------------------------------------
+# Security configuration schemas
+security_event_schema = SecurityEventSchema()
+security_config_schema = SecurityConfigSchema()
+pagination_schema = PaginationSchema()
+
+# File integrity schemas
+file_integrity_schema = FileIntegrityBaselineSchema()
+baseline_update_schema = BaselineUpdateSchema()
+baseline_schema = BaselineSchema()
+file_integrity_check_schema = FileIntegrityBaselineSchema(many=True)
+
+# Security scan schemas
+scan_filter_schema = ScanFilterSchema()
+scan_create_schema = ScanCreateSchema()
+scan_update_schema = ScanUpdateSchema()
+scan_result_schema = ScanResultSchema()
+scan_findings_schema = FindingSchema(many=True)
+scan_finding_schema = FindingSchema()
+scan_schema = ScanResultSchema()
+scans_schema = ScanResultSchema(many=True)
+
+# Vulnerability schemas
+vulnerability_schema = VulnerabilitySchema()
+vulnerabilities_schema = VulnerabilitySchema(many=True)
+vulnerability_create_schema = VulnerabilityCreateSchema()
+vulnerability_update_schema = VulnerabilityUpdateSchema()
+vulnerability_filter_schema = VulnerabilityFilterSchema()
+vulnerability_bulk_update_schema = VulnerabilityBulkUpdateSchema()
+
+# Threat intelligence schemas
+threat_indicator_schema = ThreatIndicatorSchema()
+threat_indicators_schema = ThreatIndicatorSchema(many=True)
+threat_indicator_create_schema = ThreatIndicatorCreateSchema()
+threat_indicator_update_schema = ThreatIndicatorUpdateSchema()
+threat_indicator_filter_schema = ThreatIndicatorFilterSchema()
+threat_detection_filter_schema = ThreatDetectionFilterSchema()
+
+# Security incident schemas
 incident_schema = IncidentSchema()
 incidents_schema = IncidentSchema(many=True)
 incident_create_schema = IncidentCreateSchema()
@@ -1265,40 +1343,5 @@ incident_note_schema = IncidentNoteSchema()
 incident_status_change_schema = IncidentStatusChangeSchema()
 incident_phase_change_schema = IncidentPhaseChangeSchema()
 incident_metrics_schema = IncidentMetricsSchema()
-
-# Create schema instances for direct use in API routes
-threat_indicator_schema = ThreatIndicatorSchema()
-threat_indicators_schema = ThreatIndicatorSchema(many=True)
-threat_indicator_create_schema = ThreatIndicatorCreateSchema()
-threat_indicator_update_schema = ThreatIndicatorUpdateSchema()
-threat_indicator_filter_schema = ThreatIndicatorFilterSchema()
-threat_detection_filter_schema = ThreatDetectionFilterSchema()
-
-# Create schema instances for direct use
-vulnerability_schema = VulnerabilitySchema()
-vulnerabilities_schema = VulnerabilitySchema(many=True)
-vulnerability_create_schema = VulnerabilityCreateSchema()
-vulnerability_update_schema = VulnerabilityUpdateSchema()
-vulnerability_filter_schema = VulnerabilityFilterSchema()
-vulnerability_bulk_update_schema = VulnerabilityBulkUpdateSchema()
-
-# Create and export schema instances
-scan_filter_schema = ScanFilterSchema()
-scan_create_schema = ScanCreateSchema()
-scan_update_schema = ScanUpdateSchema()
-scan_result_schema = ScanResultSchema()
-scan_finding_schema = FindingSchema()
-
-# Create combined schemas for collections
-scan_schema = BaseSchema()  # For single scan serialization
-scans_schema = BaseSchema()  # For multiple scans serialization
-scan_findings_schema = BaseSchema()  # For multiple findings serialization
-
-# Export schema instances for direct use
-security_event_schema = SecurityEventSchema()
-security_config_schema = SecurityConfigSchema()
-pagination_schema = PaginationSchema()
-file_integrity_schema = FileIntegrityBaselineSchema()
-baseline_update_schema = BaselineUpdateSchema()
 
 logger.debug("Core schemas initialized")
