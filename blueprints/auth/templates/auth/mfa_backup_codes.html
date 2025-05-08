@@ -1,380 +1,567 @@
-backup_codes.html -->
-<!DOCTYPE html>
-<html lang="en" dir="ltr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% extends "base.html" %}
 
-    <!-- Security headers -->
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta http-equiv="X-Content-Type-Options" content="nosniff">
-    <meta http-equiv="X-Frame-Options" content="DENY">
-    <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
-    <meta http-equiv="Permissions-Policy" content="geolocation=(), camera=(), microphone=(), payment=()">
+{% block title %}MFA Backup Codes - {{ config.get('PLATFORM_NAME', 'Cloud Platform') }}{% endblock %}
 
-    <title>MFA Backup Codes - Cloud Infrastructure Platform</title>
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+            <div class="card shadow-sm">
+                <div class="card-body p-md-5" id="main-content">
+                    <div class="d-flex align-items-center mb-4">
+                        <i class="bi bi-shield-lock-fill text-primary me-3" style="font-size: 2rem;"
+                            aria-hidden="true"></i>
+                        <h1 class="card-title mb-0">MFA Backup Codes</h1>
+                    </div>
 
-    <!-- Bootstrap and custom styles with SRI -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}"
-          integrity="{{ sri_hash('css/bootstrap.min.css') }}" crossorigin="anonymous">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}"
-          integrity="{{ sri_hash('css/bootstrap-icons.css') }}" crossorigin="anonymous">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"
-          integrity="{{ sri_hash('css/style.css') }}" crossorigin="anonymous">
-
-    <style>
-        .backup-code {
-            font-family: monospace;
-            font-size: 1.2rem;
-            letter-spacing: 0.1rem;
-            background-color: #f8f9fa;
-            padding: 0.5rem 1rem;
-            border-radius: 0.25rem;
-            border: 1px solid #dee2e6;
-            margin-bottom: 0.5rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .backup-code.used {
-            text-decoration: line-through;
-            opacity: 0.6;
-        }
-        [data-bs-theme="dark"] .backup-code {
-            background-color: #343a40;
-            border-color: #495057;
-        }
-        .copy-btn {
-            background: none;
-            border: none;
-            cursor: pointer;
-            color: #6c757d;
-            padding: 0.25rem 0.5rem;
-            border-radius: 0.25rem;
-        }
-        .copy-btn:hover {
-            background-color: rgba(108, 117, 125, 0.1);
-        }
-        .copy-btn:focus {
-            outline: none;
-            box-shadow: 0 0 0 0.2rem rgba(108, 117, 125, 0.25);
-        }
-        .download-area {
-            border-top: 1px solid #dee2e6;
-            margin-top: 1.5rem;
-            padding-top: 1.5rem;
-        }
-        @media print {
-            .no-print {
-                display: none !important;
-            }
-            .page-break {
-                page-break-after: always;
-            }
-            body {
-                padding: 0;
-                margin: 2cm;
-            }
-        }
-    </style>
-</head>
-
-<body data-bs-theme="{{ theme|default('light') }}">
-    <!-- Skip link for accessibility -->
-    <a href="#main-content" class="skip-link visually-hidden-focusable">Skip to main content</a>
-
-    <div class="container py-5">
-        <div class="row justify-content-center">
-            <div class="col-lg-8">
-                <div class="card shadow-sm">
-                    <div class="card-body p-md-5" id="main-content">
-                        <div class="d-flex align-items-center mb-4">
-                            <i class="bi bi-shield-lock-fill text-primary me-3" style="font-size: 2rem;"></i>
-                            <h1 class="card-title mb-0">MFA Backup Codes</h1>
+                    <div class="alert alert-warning d-flex align-items-center" role="alert">
+                        <i class="bi bi-exclamation-triangle-fill me-2" aria-hidden="true"></i>
+                        <div>
+                            <strong>Important:</strong> These backup codes will only be shown once.
+                            Please save them in a secure location.
                         </div>
+                    </div>
 
-                        <div class="alert alert-warning d-flex align-items-center" role="alert">
-                            <i class="bi bi-exclamation-triangle-fill me-2"></i>
-                            <div>
-                                <strong>Important:</strong> These backup codes will only be shown once.
-                                Please save them in a secure location.
+                    <p class="mb-4">
+                        If you lose access to your authenticator app, you can use one of these backup codes to sign in.
+                        Each code can be used only once.
+                    </p>
+
+                    <div class="mb-4">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h2 class="h5 mb-0">Your Backup Codes</h2>
+                            <div class="btn-group no-print">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="copyAllBtn"
+                                    onclick="copyAllCodes()" aria-label="Copy all codes">
+                                    <i class="bi bi-clipboard me-1" aria-hidden="true"></i>Copy All
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="window.print()"
+                                    aria-label="Print backup codes">
+                                    <i class="bi bi-printer me-1" aria-hidden="true"></i>Print
+                                </button>
                             </div>
                         </div>
 
-                        <p class="mb-4">
-                            If you lose access to your authentication app, you can use one of these backup codes to sign in.
-                            Each code can be used only once.
-                        </p>
-
-                        <div class="mb-4">
-                            <div class="d-flex justify-content-between align-items-center mb-3">
-                                <h2 class="h5 mb-0">Your Backup Codes</h2>
-                                <div class="btn-group no-print">
-                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="copyAllBtn"
-                                            onclick="copyAllCodes()" aria-label="Copy all codes">
-                                        <i class="bi bi-clipboard me-1"></i> Copy All
-                                    </button>
-                                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="window.print()"
-                                            aria-label="Print backup codes">
-                                        <i class="bi bi-printer me-1"></i> Print
+                        <div class="row backup-codes-container">
+                            {% if backup_codes %}
+                            {% for code in backup_codes %}
+                            <div class="col-md-6 mb-2">
+                                <div class="backup-code" id="code-{{ loop.index }}">
+                                    <span class="code-text" aria-label="Backup code {{ loop.index }}"
+                                        id="code-text-{{ loop.index }}">{{ code }}</span>
+                                    <button type="button" class="copy-btn no-print"
+                                        onclick="copyCode('{{ code }}', {{ loop.index }})"
+                                        aria-label="Copy code {{ code }}" title="Copy to clipboard">
+                                        <i class="bi bi-clipboard" aria-hidden="true"></i>
+                                        <span class="visually-hidden">Copy code {{ loop.index }}</span>
                                     </button>
                                 </div>
                             </div>
-
-                            <div class="row">
-                                {% if backup_codes %}
-                                    {% for code in backup_codes %}
-                                        <div class="col-md-6">
-                                            <div class="backup-code" id="code-{{ loop.index }}">
-                                                <span>{{ code }}</span>
-                                                <button type="button" class="copy-btn no-print"
-                                                        onclick="copyCode('{{ code }}')"
-                                                        aria-label="Copy code {{ code }}"
-                                                        title="Copy to clipboard">
-                                                    <i class="bi bi-clipboard"></i>
-                                                </button>
-                                            </div>
-                                        </div>
-                                    {% endfor %}
-                                {% else %}
-                                    <div class="col-12">
-                                        <div class="alert alert-danger">
-                                            No backup codes available. Please contact support.
-                                        </div>
-                                    </div>
-                                {% endif %}
+                            {% endfor %}
+                            {% else %}
+                            <div class="col-12">
+                                <div class="alert alert-danger">
+                                    <i class="bi bi-exclamation-triangle-fill me-2" aria-hidden="true"></i>
+                                    No backup codes available. Please contact support.
+                                </div>
                             </div>
-                        </div>
-
-                        <div class="alert alert-info d-flex" role="alert">
-                            <i class="bi bi-info-circle-fill me-2 flex-shrink-0"></i>
-                            <div>
-                                Store these codes somewhere safe but accessible, such as a password manager.
-                                Each code can only be used once for authentication.
-                            </div>
-                        </div>
-
-                        <div class="download-area">
-                            <h3 class="h5 mb-3">Download Options</h3>
-                            <div class="d-flex flex-wrap gap-2 no-print">
-                                <button type="button" class="btn btn-outline-primary" id="downloadTxtBtn"
-                                        onclick="downloadCodes('txt')" aria-label="Download as text file">
-                                    <i class="bi bi-file-text me-2"></i>Download as Text
-                                </button>
-                                <button type="button" class="btn btn-outline-primary" id="downloadPdfBtn"
-                                        onclick="downloadCodes('pdf')" aria-label="Download as PDF">
-                                    <i class="bi bi-file-pdf me-2"></i>Download as PDF
-                                </button>
-                            </div>
-                        </div>
-
-                        <div class="mt-4 no-print">
-                            <div class="d-flex justify-content-between">
-                                <a href="{{ url_for('main.profile') }}" class="btn btn-outline-secondary">
-                                    <i class="bi bi-arrow-left me-2"></i>Back to Profile
-                                </a>
-                                <form action="{{ url_for('auth.regenerate_backup_codes') }}" method="post" class="d-inline">
-                                    {{ csrf_token() }}
-                                    <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal"
-                                            data-bs-target="#regenerateConfirmModal">
-                                        <i class="bi bi-arrow-repeat me-2"></i>Generate New Codes
-                                    </button>
-                                </form>
-                            </div>
+                            {% endif %}
                         </div>
                     </div>
-                </div>
 
-                <div class="card mt-4 shadow-sm no-print">
-                    <div class="card-body">
-                        <h3 class="h5"><i class="bi bi-question-circle me-2"></i>What are backup codes?</h3>
-                        <p class="mb-0">
-                            Backup codes are one-time use codes that allow you to sign in to your account when you don't
-                            have access to your authentication app. You should store these codes securely, as anyone with
-                            access to them could potentially access your account.
-                        </p>
+                    <div class="alert alert-info d-flex" role="alert">
+                        <i class="bi bi-info-circle-fill me-2 flex-shrink-0" aria-hidden="true"></i>
+                        <div>
+                            Store these codes somewhere safe but accessible, such as a password manager.
+                            Each code can only be used once for authentication.
+                        </div>
+                    </div>
+
+                    <div class="download-area">
+                        <h3 class="h5 mb-3">Download Options</h3>
+                        <div class="d-flex flex-wrap gap-2 no-print">
+                            <button type="button" class="btn btn-outline-primary" id="downloadTxtBtn"
+                                onclick="downloadCodes('txt')" aria-label="Download as text file">
+                                <i class="bi bi-file-text me-2" aria-hidden="true"></i>Download as Text
+                            </button>
+                            <button type="button" class="btn btn-outline-primary" id="downloadPdfBtn"
+                                onclick="downloadCodes('pdf')" aria-label="Download as PDF">
+                                <i class="bi bi-file-pdf me-2" aria-hidden="true"></i>Download as PDF
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 no-print">
+                        <div class="d-flex justify-content-between">
+                            <a href="{{ url_for('main.profile') }}" class="btn btn-outline-secondary">
+                                <i class="bi bi-arrow-left me-2" aria-hidden="true"></i>Back to Profile
+                            </a>
+                            <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal"
+                                data-bs-target="#regenerateConfirmModal">
+                                <i class="bi bi-arrow-repeat me-2" aria-hidden="true"></i>Generate New Codes
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
 
-    <!-- Regenerate Confirmation Modal -->
-    <div class="modal fade" id="regenerateConfirmModal" tabindex="-1" aria-labelledby="regenerateConfirmModalLabel" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="regenerateConfirmModalLabel">Confirm Regeneration</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="alert alert-warning">
-                        <i class="bi bi-exclamation-triangle-fill me-2"></i>
-                        <strong>Warning:</strong> This will invalidate all your existing backup codes.
-                    </div>
-                    <p>
-                        Are you sure you want to generate new backup codes? Your current backup codes will no longer work.
+            <div class="card mt-4 shadow-sm no-print">
+                <div class="card-body">
+                    <h3 class="h5"><i class="bi bi-question-circle me-2" aria-hidden="true"></i>What are backup codes?
+                    </h3>
+                    <p class="mb-0">
+                        Backup codes are one-time use codes that allow you to sign in to your account when you don't
+                        have access to your authenticator app. You should store these codes securely, as anyone with
+                        access to them could potentially access your account.
                     </p>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <form action="{{ url_for('auth.regenerate_backup_codes') }}" method="post">
-                        {{ csrf_token() }}
-                        <button type="submit" class="btn btn-danger">
-                            <i class="bi bi-arrow-repeat me-2"></i>Generate New Codes
-                        </button>
-                    </form>
-                </div>
             </div>
         </div>
     </div>
+</div>
 
-    <!-- Print template that only shows when printing -->
-    <div class="d-none d-print-block">
-        <div class="page-break">
-            <h1 class="mb-4">MFA Backup Codes - {{ g.user.username }}</h1>
-            <p>Generated on: {{ now().strftime('%Y-%m-%d %H:%M:%S') }}</p>
-            <p>For account: {{ g.user.email }}</p>
-
-            <div class="mt-4">
-                <h2>Your Backup Codes</h2>
-                <ul style="list-style-type: none; padding-left: 0;">
-                    {% if backup_codes %}
-                        {% for code in backup_codes %}
-                            <li style="font-family: monospace; font-size: 1.2rem; margin-bottom: 0.5rem;">{{ code }}</li>
-                        {% endfor %}
-                    {% endif %}
-                </ul>
+<!-- Regenerate Confirmation Modal -->
+<div class="modal fade" id="regenerateConfirmModal" tabindex="-1" aria-labelledby="regenerateConfirmModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="regenerateConfirmModalLabel">Confirm Regeneration</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-
-            <div style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #dee2e6;">
-                <h3>Instructions:</h3>
-                <ol>
-                    <li>Store these codes in a secure but accessible location.</li>
-                    <li>Each code can only be used once.</li>
-                    <li>If you lose access to your authentication app, use one of these codes to sign in.</li>
-                    <li>Once you've used all your backup codes, you'll need to generate new ones.</li>
-                    <li>If you lose your device and all backup codes, contact support for assistance.</li>
-                </ol>
-            </div>
-        </div>
-    </div>
-
-    <!-- Bootstrap JS with SRI -->
-    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"
-            integrity="{{ sri_hash('js/bootstrap.bundle.min.js') }}" crossorigin="anonymous"></script>
-
-    <!-- Inline scripts with nonce for CSP -->
-    <script nonce="{{ csp_nonce }}">
-        // Copy a single backup code
-        function copyCode(code) {
-            navigator.clipboard.writeText(code)
-                .then(() => {
-                    showToast('Code copied to clipboard', 'success');
-                })
-                .catch(err => {
-                    console.error('Failed to copy code: ', err);
-                    showToast('Failed to copy code', 'danger');
-                });
-        }
-
-        // Copy all backup codes as a formatted text
-        function copyAllCodes() {
-            {% if backup_codes %}
-                const allCodes = [{% for code in backup_codes %}"{{ code }}"{% if not loop.last %}, {% endif %}{% endfor %}];
-                const formattedCodes = "MFA Backup Codes - {{ g.user.username }}\n" +
-                                      "Generated: {{ now().strftime('%Y-%m-%d') }}\n\n" +
-                                      allCodes.join("\n");
-
-                navigator.clipboard.writeText(formattedCodes)
-                    .then(() => {
-                        showToast('All codes copied to clipboard', 'success');
-                    })
-                    .catch(err => {
-                        console.error('Failed to copy all codes: ', err);
-                        showToast('Failed to copy codes', 'danger');
-                    });
-            {% endif %}
-        }
-
-        // Download backup codes in different formats
-        function downloadCodes(format) {
-            {% if backup_codes %}
-                const allCodes = [{% for code in backup_codes %}"{{ code }}"{% if not loop.last %}, {% endif %}{% endfor %}];
-                const header = "MFA Backup Codes - {{ g.user.username }}\n" +
-                              "Generated: {{ now().strftime('%Y-%m-%d') }}\n\n";
-                const content = header + allCodes.join("\n");
-
-                if (format === 'txt') {
-                    const blob = new Blob([content], { type: 'text/plain' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = 'mfa_backup_codes.txt';
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                    showToast('Codes downloaded as text file', 'success');
-                } else if (format === 'pdf') {
-                    // For PDF, we'll use the print functionality
-                    window.print();
-                }
-            {% else %}
-                showToast('No backup codes available to download', 'danger');
-            {% endif %}
-        }
-
-        // Show toast notification
-        function showToast(message, type) {
-            const toastContainer = document.querySelector('.toast-container');
-            if (!toastContainer) {
-                // Create toast container if it doesn't exist
-                const container = document.createElement('div');
-                container.className = 'toast-container position-fixed top-0 end-0 p-3';
-                document.body.appendChild(container);
-            }
-
-            const toastElement = document.createElement('div');
-            toastElement.className = `toast align-items-center text-white bg-${type} border-0`;
-            toastElement.setAttribute('role', 'alert');
-            toastElement.setAttribute('aria-live', 'assertive');
-            toastElement.setAttribute('aria-atomic', 'true');
-
-            toastElement.innerHTML = `
-                <div class="d-flex">
-                    <div class="toast-body">
-                        ${message}
+            <div class="modal-body">
+                <div class="alert alert-warning d-flex align-items-center">
+                    <i class="bi bi-exclamation-triangle-fill me-2" aria-hidden="true"></i>
+                    <div>
+                        <strong>Warning:</strong> This will invalidate all your existing backup codes.
                     </div>
-                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
                 </div>
-            `;
+                <p>
+                    Are you sure you want to generate new backup codes? Your current backup codes will no longer work.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form action="{{ url_for('auth.regenerate_backup_codes') }}" method="post">
+                    {{ csrf_token() }}
+                    <button type="submit" class="btn btn-danger" id="confirmRegenerateBtn">
+                        <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                        <i class="bi bi-arrow-repeat me-2" aria-hidden="true"></i>Generate New Codes
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
 
-            document.querySelector('.toast-container').appendChild(toastElement);
-            const toast = new bootstrap.Toast(toastElement, { autohide: true, delay: 3000 });
-            toast.show();
+{% block print_template %}
+<!-- Print template that only shows when printing -->
+<div class="d-none d-print-block">
+    <div class="page-break">
+        <h1 class="mb-4">MFA Backup Codes - {{ g.user.username }}</h1>
+        <p>Generated on: {{ now().strftime('%Y-%m-%d %H:%M:%S') }}</p>
+        <p>For account: {{ g.user.email }}</p>
+        <p>For system: {{ config.get('PLATFORM_NAME', 'Cloud Platform') }}</p>
 
-            // Remove the toast from DOM after it's hidden
-            toastElement.addEventListener('hidden.bs.toast', function () {
-                this.remove();
+        <div class="mt-4">
+            <h2>Your Backup Codes</h2>
+            <ul style="list-style-type: none; padding-left: 0;">
+                {% if backup_codes %}
+                {% for code in backup_codes %}
+                <li style="font-family: monospace; font-size: 1.2rem; margin-bottom: 0.5rem; letter-spacing: 0.1rem;">{{
+                    code }}</li>
+                {% endfor %}
+                {% endif %}
+            </ul>
+        </div>
+
+        <div style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #dee2e6;">
+            <h3>Instructions:</h3>
+            <ol>
+                <li>Store these codes in a secure but accessible location.</li>
+                <li>Each code can only be used once.</li>
+                <li>If you lose access to your authenticator app, use one of these codes to sign in.</li>
+                <li>Once you've used all your backup codes, you'll need to generate new ones.</li>
+                <li>If you lose your device and all backup codes, contact support for assistance.</li>
+            </ol>
+        </div>
+
+        <div style="margin-top: 2rem;">
+            <p><strong>Security Notice:</strong> Anyone with access to these codes can access your account. Keep them
+                secure.</p>
+            <p>Document ID: {{ "MFA-BACKUP-" + now().strftime('%Y%m%d%H%M%S') }}</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block styles %}
+<style>
+    .backup-code {
+        font-family: monospace;
+        font-size: 1.2rem;
+        letter-spacing: 0.1rem;
+        background-color: #f8f9fa;
+        padding: 0.5rem 1rem;
+        border-radius: 0.25rem;
+        border: 1px solid #dee2e6;
+        margin-bottom: 0.5rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .backup-code.used {
+        text-decoration: line-through;
+        opacity: 0.6;
+    }
+
+    [data-bs-theme="dark"] .backup-code {
+        background-color: #343a40;
+        border-color: #495057;
+    }
+
+    .copy-btn {
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: #6c757d;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.25rem;
+    }
+
+    .copy-btn:hover {
+        background-color: rgba(108, 117, 125, 0.1);
+    }
+
+    .copy-btn:focus {
+        outline: none;
+        box-shadow: 0 0 0 0.2rem rgba(108, 117, 125, 0.25);
+    }
+
+    .download-area {
+        border-top: 1px solid #dee2e6;
+        margin-top: 1.5rem;
+        padding-top: 1.5rem;
+    }
+
+    .code-copied {
+        color: #198754;
+    }
+
+    @media print {
+        .no-print {
+            display: none !important;
+        }
+
+        .page-break {
+            page-break-after: always;
+        }
+
+        body {
+            padding: 0;
+            margin: 2cm;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+    document.addEventListener('DOMContentLoaded', function () {
+        // Initialize UI elements
+        setupUiFeatures();
+
+        // Setup form submission with loading state
+        setupFormSubmission();
+
+        // Setup security monitoring
+        setupSecurityMonitoring();
+    });
+
+    /**
+     * Copy a single backup code to clipboard
+     * @param {string} code - The backup code to copy
+     * @param {number} index - The index of the code
+     */
+    function copyCode(code, index) {
+        secureCopy(code)
+            .then(() => {
+                showToastIfAvailable('Success', 'Code copied to clipboard', 'success');
+                provideFeedback(`code-${index}`);
+            })
+            .catch(err => {
+                console.error('Failed to copy code:', err);
+                showToastIfAvailable('Error', 'Failed to copy code', 'danger');
+            });
+    }
+
+    /**
+     * Copy all backup codes as formatted text
+     */
+    function copyAllCodes() {
+        {% if backup_codes %}
+        const allCodes = [{% for code in backup_codes %} "{{ code }}"{% if not loop.last %}, {% endif %} {% endfor %}];
+    const formattedCodes = "MFA Backup Codes - {{ g.user.username }}\n" +
+        "Generated: {{ now().strftime('%Y-%m-%d') }}\n" +
+        "System: {{ config.get('PLATFORM_NAME', 'Cloud Platform') }}\n\n" +
+        allCodes.join("\n");
+
+    secureCopy(formattedCodes)
+        .then(() => {
+            showToastIfAvailable('Success', 'All codes copied to clipboard', 'success');
+            // Track security event if tracking is available
+            if (window.trackSecurityEvent) {
+                trackSecurityEvent('mfa_backup_codes_copied');
+            }
+        })
+        .catch(err => {
+            console.error('Failed to copy all codes:', err);
+            showToastIfAvailable('Error', 'Failed to copy codes', 'danger');
+        });
+    {% endif %}
+    }
+
+    /**
+     * Download backup codes in different formats
+     * @param {string} format - The format to download (txt or pdf)
+     */
+    function downloadCodes(format) {
+        {% if backup_codes %}
+        const allCodes = [{% for code in backup_codes %} "{{ code }}"{% if not loop.last %}, {% endif %} {% endfor %}];
+    const header = "MFA Backup Codes - {{ g.user.username }}\n" +
+        "Generated: {{ now().strftime('%Y-%m-%d') }}\n" +
+        "System: {{ config.get('PLATFORM_NAME', 'Cloud Platform') }}\n\n";
+    const content = header + allCodes.join("\n");
+
+    if (format === 'txt') {
+        const blob = new Blob([content], { type: 'text/plain' });
+        downloadFile(blob, 'mfa_backup_codes.txt');
+        showToastIfAvailable('Success', 'Codes downloaded as text file', 'success');
+    } else if (format === 'pdf') {
+        // For PDF, we'll use the print functionality
+        window.print();
+    }
+
+    // Track security event if tracking is available
+    if (window.trackSecurityEvent) {
+        trackSecurityEvent('mfa_backup_codes_downloaded', { format: format });
+    }
+    {% else %}
+    showToastIfAvailable('Error', 'No backup codes available to download', 'danger');
+    {% endif %}
+    }
+
+    /**
+     * Download a file using a Blob
+     * @param {Blob} blob - The blob to download
+     * @param {string} filename - The filename to use
+     */
+    function downloadFile(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+
+        // Use the more secure method of triggering a download
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        // Clean up the object URL
+        setTimeout(() => {
+            URL.revokeObjectURL(url);
+        }, 100);
+    }
+
+    /**
+     * Securely copy text to clipboard
+     * @param {string} text - The text to copy
+     * @returns {Promise} - A promise that resolves when the text is copied
+     */
+    function secureCopy(text) {
+        // First try the modern async clipboard API
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            return navigator.clipboard.writeText(text);
+        } else {
+            // Fallback to the older execCommand method
+            return new Promise((resolve, reject) => {
+                try {
+                    const textArea = document.createElement('textarea');
+                    textArea.value = text;
+                    textArea.style.position = 'fixed';
+                    textArea.style.left = '-999999px';
+                    textArea.style.top = '-999999px';
+                    document.body.appendChild(textArea);
+                    textArea.focus();
+                    textArea.select();
+                    const success = document.execCommand('copy');
+                    document.body.removeChild(textArea);
+
+                    if (success) {
+                        resolve();
+                    } else {
+                        reject(new Error("execCommand returned false"));
+                    }
+                } catch (err) {
+                    reject(err);
+                }
             });
         }
+    }
 
-        // Security: Add event listener only if clipboard API is available
-        document.addEventListener('DOMContentLoaded', function() {
-            if (!navigator.clipboard) {
-                document.querySelectorAll('.copy-btn').forEach(btn => {
-                    btn.disabled = true;
-                    btn.title = 'Clipboard not supported in your browser';
-                });
+    /**
+     * Provide visual feedback when a code is copied
+     * @param {string} id - The ID of the code element
+     */
+    function provideFeedback(id) {
+        const codeElement = document.getElementById(id);
+        const icon = codeElement.querySelector('i.bi-clipboard');
 
-                document.getElementById('copyAllBtn').disabled = true;
-                document.getElementById('copyAllBtn').title = 'Clipboard not supported in your browser';
+        if (icon) {
+            icon.classList.remove('bi-clipboard');
+            icon.classList.add('bi-check', 'code-copied');
+
+            // Reset after a delay
+            setTimeout(() => {
+                icon.classList.remove('bi-check', 'code-copied');
+                icon.classList.add('bi-clipboard');
+            }, 2000);
+        }
+    }
+
+    /**
+     * Set up form submission with loading state
+     */
+    function setupFormSubmission() {
+        const form = document.querySelector('#regenerateConfirmModal form');
+        const submitBtn = document.getElementById('confirmRegenerateBtn');
+
+        if (form && submitBtn) {
+            form.addEventListener('submit', function () {
+                const spinner = submitBtn.querySelector('.spinner-border');
+                if (spinner) {
+                    spinner.classList.remove('d-none');
+                }
+                submitBtn.setAttribute('disabled', 'disabled');
+            });
+        }
+    }
+
+    /**
+     * Set up UI features
+     */
+    function setupUiFeatures() {
+        // Check if clipboard API is available
+        if (!navigator.clipboard || !navigator.clipboard.writeText) {
+            document.querySelectorAll('.copy-btn').forEach(btn => {
+                btn.disabled = true;
+                btn.title = 'Clipboard not supported in your browser';
+            });
+
+            const copyAllBtn = document.getElementById('copyAllBtn');
+            if (copyAllBtn) {
+                copyAllBtn.disabled = true;
+                copyAllBtn.title = 'Clipboard not supported in your browser';
             }
-        });
-    </script>
+        }
+    }
 
-    <!-- Toast container -->
-    <div class="toast-container position-fixed top-0 end-0 p-3"></div>
-</body>
-</html>
+    /**
+     * Set up security monitoring
+     */
+    function setupSecurityMonitoring() {
+        // Track backup code view if tracking is available
+        if (window.trackSecurityEvent) {
+            trackSecurityEvent('mfa_backup_codes_viewed');
+        }
+
+        // Set up inactivity monitoring
+        if (window.setupInactivityMonitor) {
+            // This is a security-sensitive page, so reduce the timeout
+            setupInactivityMonitor(60); // 60 seconds
+        }
+
+        // Setup protection against leaving the page accidentally
+        window.addEventListener('beforeunload', function (e) {
+            // Cancel the event if codes are showing
+            {% if backup_codes %}
+            e.preventDefault();
+            // Chrome requires returnValue to be set
+            e.returnValue = '';
+            {% endif %}
+        });
+    }
+
+    /**
+     * Show a toast notification if the function is available
+     * @param {string} title - The toast title
+     * @param {string} message - The toast message
+     * @param {string} type - The toast type (success, warning, danger, info)
+     */
+    function showToastIfAvailable(title, message, type) {
+        if (window.showToast) {
+            showToast(title, message, type);
+        } else {
+            // Fallback to custom toast implementation
+            showToast(message, type);
+        }
+    }
+
+    /**
+     * Show a toast notification
+     * @param {string} message - The message to show
+     * @param {string} type - The toast type (success, warning, danger, info)
+     */
+    function showToast(message, type) {
+        const toastContainer = document.querySelector('.toast-container');
+        if (!toastContainer) {
+            // Create toast container if it doesn't exist
+            const container = document.createElement('div');
+            container.className = 'toast-container position-fixed top-0 end-0 p-3';
+            document.body.appendChild(container);
+        }
+
+        const toastElement = document.createElement('div');
+        toastElement.className = `toast align-items-center text-white bg-${type} border-0`;
+        toastElement.setAttribute('role', 'alert');
+        toastElement.setAttribute('aria-live', 'assertive');
+        toastElement.setAttribute('aria-atomic', 'true');
+
+        toastElement.innerHTML = `
+            <div class="d-flex">
+                <div class="toast-body">
+                    ${message}
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+        `;
+
+        document.querySelector('.toast-container').appendChild(toastElement);
+
+        // Use Bootstrap's Toast component if available
+        if (typeof bootstrap !== 'undefined' && bootstrap.Toast) {
+            const toast = new bootstrap.Toast(toastElement, { autohide: true, delay: 3000 });
+            toast.show();
+        } else {
+            // Manual implementation if Bootstrap is not available
+            toastElement.classList.add('show');
+            setTimeout(() => {
+                toastElement.classList.remove('show');
+                setTimeout(() => {
+                    if (toastElement.parentNode) {
+                        toastElement.parentNode.removeChild(toastElement);
+                    }
+                }, 300);
+            }, 3000);
+        }
+
+        // Remove the toast from DOM after it's hidden
+        toastElement.addEventListener('hidden.bs.toast', function () {
+            this.remove();
+        });
+    }
+</script>
+{% endblock %}

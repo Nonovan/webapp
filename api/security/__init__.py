@@ -24,6 +24,7 @@ from . import threats
 from . import vulnerabilities
 from . import baseline
 from . import schemas
+from .api_sec_constants import *
 
 # Initialize logger for the package
 logger = logging.getLogger(__name__)
@@ -53,18 +54,6 @@ try:
 except ImportError:
     logger.warning("Security models not fully available; API functionality may be limited")
     MODELS_AVAILABLE = False
-
-# Define what is available for import from this package
-__all__ = [
-    "security_bp",
-    "init_app",
-    "update_file_integrity_baseline",
-    "get_security_status",
-    "validate_baseline_integrity"
-]
-
-# Package version
-__version__ = '0.1.1'  # Updated version for enhanced baseline management
 
 # Track initialized state to prevent duplicate initialization
 _initialized = False
@@ -191,12 +180,7 @@ def init_app(app: Flask) -> None:
             g.request_start_time = datetime.now(timezone.utc)
 
             # Track critical security endpoint access
-            critical_endpoints = [
-                'update_file_integrity_baseline',
-                'update_security_config',
-                'create_security_incident',
-                'bulk_update_vulnerabilities'
-            ]
+            critical_endpoints = CRITICAL_ENDPOINTS
 
             endpoint = request.endpoint
             if endpoint and any(critical in endpoint for critical in critical_endpoints):
@@ -204,7 +188,7 @@ def init_app(app: Flask) -> None:
 
                 if SECURITY_UTILS_AVAILABLE:
                     log_security_event(
-                        event_type="security_critical_endpoint_access",
+                        event_type=EVENT_CRITICAL_ENDPOINT_ACCESS,
                         description=f"Access to critical security endpoint: {endpoint}",
                         severity="medium",
                         user_id=user_id,
@@ -215,6 +199,7 @@ def init_app(app: Flask) -> None:
                             "user_agent": request.user_agent.string
                         }
                     )
+
         except Exception as e:
             logger.warning(f"Error in security request tracking: {e}")
 
@@ -239,9 +224,9 @@ def init_app(app: Flask) -> None:
     _initialized = True
     logger.debug("Security API package initialized successfully")
 
-
 def update_file_integrity_baseline(app: Flask, baseline_path: str, changes: list,
-                                 auto_update_limit: int = 10, remove_missing: bool = False) -> Tuple[bool, str]:
+                                 auto_update_limit: int = AUTO_UPDATE_LIMIT,
+                                 remove_missing: bool = False) -> Tuple[bool, str]:
     """
     Update the file integrity baseline with authorized changes.
 
@@ -296,7 +281,7 @@ def update_file_integrity_baseline(app: Flask, baseline_path: str, changes: list
         if success:
             metrics.gauge('security_baseline_update_status', 1)  # Success
             log_security_event(
-                event_type="security_baseline_updated",
+                event_type=EVENT_FILE_INTEGRITY_BASELINE_UPDATED,
                 description=f"File integrity baseline updated successfully: {message}",
                 severity="info",
                 details={
@@ -308,16 +293,16 @@ def update_file_integrity_baseline(app: Flask, baseline_path: str, changes: list
 
             # Cache baseline status for performance
             if hasattr(cache, 'set'):
-                cache.set('security_baseline_status', {
+                cache.set(CACHE_KEY_BASELINE_STATUS, {
                     'status': 'updated',
                     'last_updated': datetime.now(timezone.utc).isoformat(),
                     'message': message
-                }, timeout=3600)  # 1 hour cache
+                }, timeout=CACHE_TIMEOUT_MEDIUM)  # 1 hour cache
 
         else:
             metrics.gauge('security_baseline_update_status', 0)  # Failure
             log_security_event(
-                event_type="security_baseline_update_failed",
+                event_type=EVENT_FILE_INTEGRITY_BASELINE_UPDATE_FAILED,
                 description=f"File integrity baseline update failed: {message}",
                 severity="warning",
                 details={
@@ -332,7 +317,7 @@ def update_file_integrity_baseline(app: Flask, baseline_path: str, changes: list
     except ImportError:
         logger.error("Required security modules not available for baseline update")
         log_security_event(
-            event_type="security_baseline_update_failed",
+            event_type=EVENT_FILE_INTEGRITY_BASELINE_UPDATE_FAILED,
             description="File integrity baseline update failed: Required modules not available",
             severity="error"
         )
@@ -340,48 +325,54 @@ def update_file_integrity_baseline(app: Flask, baseline_path: str, changes: list
     except Exception as e:
         logger.error(f"Error updating file integrity baseline: {str(e)}")
         log_security_event(
-            event_type="security_baseline_update_failed",
+            event_type=EVENT_FILE_INTEGRITY_BASELINE_UPDATE_FAILED,
             description=f"File integrity baseline update failed with exception: {str(e)}",
             severity="error",
             details={"error": str(e)}
         )
         return False, f"Error updating baseline: {str(e)}"
 
-
 def get_security_status() -> Dict[str, Any]:
     """
-    Get comprehensive security status information for the system.
+    Get the current security status of the system.
+
+    Returns a comprehensive overview of the current security status including
+    incident counts, vulnerability metrics, file integrity status, and
+    threat intelligence summary.
 
     Returns:
-        Dictionary containing security status information including:
-        - File integrity status
-        - Active security incidents
-        - Critical vulnerabilities
-        - Recent security scans
-        - Threat intelligence summary
+        Dict with security status information
     """
-    status = {
-        "status": "unknown",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "components": {}
-    }
-
     try:
-        # Get file integrity status if available
-        if SECURITY_UTILS_AVAILABLE:
-            try:
-                integrity_status = get_last_integrity_status()
-                status["components"]["file_integrity"] = {
-                    "status": integrity_status.get("status", "unknown"),
-                    "last_checked": integrity_status.get("last_check_time"),
-                    "violations": integrity_status.get("changes_detected", 0)
+        # Default status structure
+        status = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "overall_status": STATUS_HEALTHY,
+            "components": {
+                "incidents": {
+                    "active_count": 0,
+                    "critical_count": 0
+                },
+                "vulnerabilities": {
+                    "critical_count": 0,
+                    "high_count": 0,
+                    "total_open": 0
+                },
+                "scans": {
+                    "recent_count": 0,
+                    "last_completed": None
+                },
+                "file_integrity": {
+                    "status": STATUS_HEALTHY,
+                    "last_check": None,
+                    "violations_count": 0
+                },
+                "threat_intelligence": {
+                    "active_threats": 0,
+                    "last_updated": None
                 }
-            except Exception as e:
-                logger.warning(f"Error getting integrity status: {e}")
-                status["components"]["file_integrity"] = {
-                    "status": "error",
-                    "error": str(e)
-                }
+            }
+        }
 
         # Get incident stats if models available
         if MODELS_AVAILABLE:
@@ -406,46 +397,51 @@ def get_security_status() -> Dict[str, Any]:
 
                 # Get scan stats
                 recent_scans = SecurityScan.query.order_by(SecurityScan.created_at.desc()).limit(5).count()
-                failed_scans = SecurityScan.query.filter_by(status='failed').count()
+                last_scan = SecurityScan.query.order_by(SecurityScan.created_at.desc()).first()
 
                 status["components"]["scans"] = {
                     "recent_count": recent_scans,
-                    "failed_count": failed_scans
-                }
-
-                # Get threat stats
-                active_threats = ThreatIndicator.query.filter_by(active=True).count()
-
-                status["components"]["threats"] = {
-                    "active_count": active_threats
+                    "last_completed": last_scan.completed_at.isoformat() if last_scan and last_scan.completed_at else None
                 }
 
             except Exception as e:
-                logger.warning(f"Error getting security model stats: {e}")
-                status["components"]["model_status"] = {
-                    "status": "error",
-                    "error": str(e)
-                }
+                logger.warning(f"Error getting security models data: {e}")
 
-        # Determine overall status
-        component_statuses = [c.get("status") for c in status["components"].values() if "status" in c]
-        if "critical" in component_statuses:
-            status["status"] = "critical"
-        elif "error" in component_statuses:
-            status["status"] = "error"
-        elif "warning" in component_statuses:
-            status["status"] = "warning"
-        elif component_statuses:
-            status["status"] = "healthy"
+        # Get file integrity status using core security function
+        if SECURITY_UTILS_AVAILABLE:
+            try:
+                integrity_status = get_last_integrity_status()
+                status["components"]["file_integrity"] = {
+                    "status": integrity_status.get("status", STATUS_HEALTHY),
+                    "last_check": integrity_status.get("timestamp"),
+                    "violations_count": integrity_status.get("violations_count", 0)
+                }
+            except Exception as e:
+                logger.warning(f"Error getting file integrity status: {e}")
+
+        # Determine overall status based on component statuses
+        if status["components"]["incidents"]["critical_count"] > 0:
+            status["overall_status"] = STATUS_CRITICAL
+        elif status["components"]["vulnerabilities"]["critical_count"] > 0:
+            status["overall_status"] = STATUS_ERROR
+        elif status["components"]["incidents"]["active_count"] > 0 or \
+             status["components"]["vulnerabilities"]["high_count"] > 0 or \
+             status["components"]["file_integrity"]["status"] != STATUS_HEALTHY:
+            status["overall_status"] = STATUS_WARNING
+
+        # Cache the status if cache is available
+        if hasattr(cache, 'set'):
+            cache.set(CACHE_KEY_SECURITY_STATUS, status, timeout=CACHE_TIMEOUT_SHORT)
 
         return status
 
     except Exception as e:
-        logger.error(f"Error getting security status: {e}")
-        status['status'] = 'error'
-        status['error_message'] = str(e)
-        return status
-
+        logger.error(f"Error generating security status: {e}")
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "overall_status": STATUS_ERROR,
+            "error": str(e)
+        }
 
 def validate_baseline_integrity(baseline_path: str = None) -> Tuple[bool, List[Dict[str, Any]]]:
     """
@@ -470,7 +466,7 @@ def validate_baseline_integrity(baseline_path: str = None) -> Tuple[bool, List[D
 
         # Get baseline path from app config if not provided
         if not baseline_path:
-            baseline_path = app.config.get('FILE_BASELINE_PATH')
+            baseline_path = app.config.get('FILE_BASELINE_PATH', DEFAULT_BASELINE_PATH)
             if not baseline_path:
                 return False, [{"severity": "error", "message": "Baseline path not configured"}]
 
@@ -489,70 +485,14 @@ def validate_baseline_integrity(baseline_path: str = None) -> Tuple[bool, List[D
         logger.error(f"Error validating baseline integrity: {e}")
         return False, [{"severity": "critical", "message": f"Error validating baseline: {str(e)}"}]
 
+# Define what is available for import from this package
+__all__ = [
+    "security_bp",
+    "init_app",
+    "update_file_integrity_baseline",
+    "get_security_status",
+    "validate_baseline_integrity"
+]
 
-def _add_security_headers(response):
-    """
-    Add security-specific headers to responses.
-
-    This function implements the same security header logic as the
-    blueprint after_request handler but can be used outside of the
-    security blueprint context when needed.
-
-    Args:
-        response: Flask response object to modify
-
-    Returns:
-        Flask response with added security headers
-    """
-    # Import Flask request object only when needed in function scope to avoid circular imports
-    from flask import request, g
-
-    # Add security headers
-    response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['X-Frame-Options'] = 'DENY'
-    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
-
-    # Add Content-Security-Policy header with nonce if available
-    if hasattr(g, 'csp_nonce'):
-        csp_policies = [
-            "default-src 'self'",
-            f"script-src 'self' 'nonce-{g.csp_nonce}'",
-            "object-src 'none'",
-            "base-uri 'self'",
-            "frame-ancestors 'none'",
-            "form-action 'self'"
-        ]
-        response.headers['Content-Security-Policy'] = "; ".join(csp_policies)
-
-    # Add Permissions-Policy header to restrict sensitive permissions
-    response.headers['Permissions-Policy'] = "camera=(), microphone=(), geolocation=(), payment=()"
-
-    # Add additional security headers
-    response.headers['X-XSS-Protection'] = '1; mode=block'  # For older browsers that support it
-
-    # Add cache control headers to prevent caching of sensitive security data
-    if request.method != 'GET' or request.path.startswith('/api/security/'):
-        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '-1'
-
-    # Add HSTS header for production environments
-    if not current_app.debug and not current_app.testing and request.is_secure:
-        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
-
-    # Record metrics if available
-    try:
-        if hasattr(metrics, 'increment'):
-            metrics.increment(
-                'security.headers_added',
-                labels={'path': request.path}
-            )
-    except Exception:
-        # Fail silently if metrics aren't available
-        pass
-
-    # Remove potentially sensitive headers
-    response.headers.pop('Server', None)
-    response.headers.pop('X-Powered-By', None)
-
-    return response
+# Package version
+__version__ = '0.1.1'  # Updated version for enhanced baseline management

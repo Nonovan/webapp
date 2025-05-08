@@ -1,58 +1,72 @@
 {#
- # Multi-Factor Authentication Instructions Component
- #
- # This reusable component provides step-by-step instructions for setting up
- # and using multi-factor authentication with the Cloud Infrastructure Platform.
- #
- # Usage:
- # {% include "auth/components/mfa_instructions.html" with context %}
- #
- # Required context:
- #  - qr_code_url: URL for QR code image (if in setup mode)
- #  - secret: MFA secret key for manual entry (if in setup mode)
- #  - setup_mode: Boolean indicating if this is for initial setup (default: true)
- #
- # Optional context:
- #  - custom_class: Additional CSS classes for the container
- #  - show_backup_info: Boolean to show/hide backup code information (default: true)
- #}
+# Multi-Factor Authentication Instructions Component
+#
+# This reusable component provides step-by-step instructions for setting up
+# and using multi-factor authentication with the Cloud Infrastructure Platform.
+#
+# Usage:
+# {% include "auth/components/mfa_instructions.html" with context %}
+#
+# Required context:
+# - qr_code_url: URL for QR code image (if in setup mode)
+# - secret: MFA secret key for manual entry (if in setup mode)
+# - setup_mode: Boolean indicating if this is for initial setup (default: true)
+#
+# Optional context:
+# - custom_class: Additional CSS classes for the container
+# - show_backup_info: Boolean to show/hide backup code information (default: true)
+# - platform_name: Name of the platform for display (default: 'Cloud Platform')
+# - verification_code_length: Length of the verification code (default: 6)
+# - show_help_links: Whether to show additional help links (default: true)
+#}
 
 {# Set default values if not provided #}
 {% set setup_mode = setup_mode|default(true) %}
 {% set show_backup_info = show_backup_info|default(true) %}
 {% set custom_class = custom_class|default('') %}
+{% set platform_name = platform_name|default('Cloud Platform') %}
+{% set verification_code_length = verification_code_length|default(6) %}
+{% set show_help_links = show_help_links|default(true) %}
 
 <div class="mfa-instructions {{ custom_class }}" aria-labelledby="mfa-instructions-heading">
     <h4 id="mfa-instructions-heading" class="mb-3">
         {% if setup_mode %}
-        <i class="bi bi-shield-lock me-2"></i>Multi-Factor Authentication Setup
+        <i class="bi bi-shield-lock me-2" aria-hidden="true"></i>Multi-Factor Authentication Setup
         {% else %}
-        <i class="bi bi-shield-check me-2"></i>Using Multi-Factor Authentication
+        <i class="bi bi-shield-check me-2" aria-hidden="true"></i>Using Multi-Factor Authentication
         {% endif %}
     </h4>
 
     {% if setup_mode %}
     <div class="alert alert-info d-flex align-items-center" role="alert">
-        <i class="bi bi-info-circle-fill flex-shrink-0 me-2"></i>
+        <i class="bi bi-info-circle-fill flex-shrink-0 me-2" aria-hidden="true"></i>
         <div>
-            Multi-factor authentication adds an extra layer of security to your account by requiring a verification code in addition to your password.
+            Multi-factor authentication adds an extra layer of security to your account by requiring a verification code
+            in addition to your password.
         </div>
     </div>
 
     <h5 class="mt-4">Step 1: Install an authenticator app</h5>
     <p>Download and install one of these authenticator apps on your mobile device:</p>
     <ul class="list-unstyled mb-4">
-        <li><i class="bi bi-phone me-2"></i><strong>Google Authenticator</strong>
-            - <a href="https://play.google.com/store/apps/details?id=com.google.android.apps.authenticator2" target="_blank" rel="noopener noreferrer">Android</a> |
-            <a href="https://apps.apple.com/app/google-authenticator/id388497605" target="_blank" rel="noopener noreferrer">iOS</a>
+        <li><i class="bi bi-phone me-2" aria-hidden="true"></i><strong>Google Authenticator</strong>
+            - <a href="https://play.google.com/store/apps/details?id=com.google.android.apps.authenticator2"
+                target="_blank" rel="noopener noreferrer" class="app-link"
+                data-app="google-authenticator-android">Android</a> |
+            <a href="https://apps.apple.com/app/google-authenticator/id388497605" target="_blank"
+                rel="noopener noreferrer" class="app-link" data-app="google-authenticator-ios">iOS</a>
         </li>
-        <li><i class="bi bi-phone me-2"></i><strong>Microsoft Authenticator</strong>
-            - <a href="https://play.google.com/store/apps/details?id=com.azure.authenticator" target="_blank" rel="noopener noreferrer">Android</a> |
-            <a href="https://apps.apple.com/app/microsoft-authenticator/id983156458" target="_blank" rel="noopener noreferrer">iOS</a>
+        <li><i class="bi bi-phone me-2" aria-hidden="true"></i><strong>Microsoft Authenticator</strong>
+            - <a href="https://play.google.com/store/apps/details?id=com.azure.authenticator" target="_blank"
+                rel="noopener noreferrer" class="app-link" data-app="microsoft-authenticator-android">Android</a> |
+            <a href="https://apps.apple.com/app/microsoft-authenticator/id983156458" target="_blank"
+                rel="noopener noreferrer" class="app-link" data-app="microsoft-authenticator-ios">iOS</a>
         </li>
-        <li><i class="bi bi-phone me-2"></i><strong>Authy</strong>
-            - <a href="https://play.google.com/store/apps/details?id=com.authy.authy" target="_blank" rel="noopener noreferrer">Android</a> |
-            <a href="https://apps.apple.com/app/authy/id494168017" target="_blank" rel="noopener noreferrer">iOS</a>
+        <li><i class="bi bi-phone me-2" aria-hidden="true"></i><strong>Authy</strong>
+            - <a href="https://play.google.com/store/apps/details?id=com.authy.authy" target="_blank"
+                rel="noopener noreferrer" class="app-link" data-app="authy-android">Android</a> |
+            <a href="https://apps.apple.com/app/authy/id494168017" target="_blank" rel="noopener noreferrer"
+                class="app-link" data-app="authy-ios">iOS</a>
         </li>
     </ul>
 
@@ -65,11 +79,14 @@
                 <div class="card-body text-center">
                     {% if qr_code_url %}
                     <div class="mb-3">
-                        <img src="{{ qr_code_url }}" alt="QR Code for MFA Setup" class="img-fluid border p-2" style="max-width: 200px;">
+                        <img src="{{ qr_code_url }}" alt="QR Code for MFA Setup" class="img-fluid border p-2"
+                            style="max-width: 200px;">
                     </div>
                     <p class="text-muted">Open your authenticator app and scan this QR code</p>
                     {% else %}
-                    <div class="alert alert-warning">QR code not available</div>
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle-fill me-2" aria-hidden="true"></i>QR code not available
+                    </div>
                     {% endif %}
                 </div>
             </div>
@@ -82,20 +99,24 @@
                     <p>If you can't scan the QR code, enter this key manually in your app:</p>
                     {% if secret %}
                     <div class="input-group mb-3">
-                        <input type="text" class="form-control font-monospace" value="{{ secret }}" id="secretKey" readonly aria-label="Secret key">
+                        <input type="text" class="form-control font-monospace" value="{{ secret }}" id="secretKey"
+                            readonly aria-label="Secret key">
                         <button class="btn btn-outline-secondary" type="button" id="copySecretBtn"
-                                onclick="copyToClipboard('secretKey')" aria-label="Copy secret key">
-                            <i class="bi bi-clipboard"></i>
+                            onclick="copyToClipboard('secretKey')" aria-label="Copy secret key">
+                            <i class="bi bi-clipboard" aria-hidden="true"></i>
                         </button>
                     </div>
                     <div class="text-muted small">
                         <ul class="mb-0 ps-3">
-                            <li>Account name: {{ platform_name|default('Cloud Platform') }}</li>
+                            <li>Account name: <strong>{{ platform_name }}</strong></li>
                             <li>Key type: Time-based (TOTP)</li>
+                            <li>Time period: 30 seconds</li>
                         </ul>
                     </div>
                     {% else %}
-                    <div class="alert alert-warning">Secret key not available</div>
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle-fill me-2" aria-hidden="true"></i>Secret key not available
+                    </div>
                     {% endif %}
                 </div>
             </div>
@@ -103,7 +124,8 @@
     </div>
 
     <h5>Step 3: Verification</h5>
-    <p>Enter the 6-digit verification code from your authenticator app to complete setup:</p>
+    <p>Enter the {{ verification_code_length }}-digit verification code from your authenticator app to complete setup:
+    </p>
 
     {% else %}
     <!-- Usage instructions for existing MFA users -->
@@ -112,8 +134,8 @@
         <p>To complete the authentication process:</p>
         <ol>
             <li>Open your authenticator app on your mobile device</li>
-            <li>Find the entry for <strong>{{ platform_name|default('Cloud Platform') }}</strong></li>
-            <li>Enter the 6-digit code shown in your app</li>
+            <li>Find the entry for <strong>{{ platform_name }}</strong></li>
+            <li>Enter the {{ verification_code_length }}-digit code shown in your app</li>
             <li>The code refreshes every 30 seconds, so use the current one</li>
         </ol>
     </div>
@@ -121,14 +143,15 @@
 
     {% if show_backup_info %}
     <div class="mt-4">
-        <h5><i class="bi bi-question-circle me-2"></i>Lost access to your authenticator app?</h5>
+        <h5><i class="bi bi-question-circle me-2" aria-hidden="true"></i>Lost access to your authenticator app?</h5>
         {% if setup_mode %}
-        <p>After completing setup, you will receive backup codes that you should save in a secure location. These codes can be used if you lose access to your authenticator app.</p>
+        <p>After completing setup, you will receive backup codes that you should save in a secure location. These codes
+            can be used if you lose access to your authenticator app.</p>
         {% else %}
         <div class="d-flex align-items-center">
             <div class="me-3">
                 <a href="{{ url_for('auth.backup_codes') }}" class="btn btn-outline-secondary btn-sm">
-                    <i class="bi bi-key me-1"></i>View Backup Codes
+                    <i class="bi bi-key me-1" aria-hidden="true"></i>View Backup Codes
                 </a>
             </div>
             <div class="small text-muted">
@@ -138,12 +161,55 @@
         {% endif %}
     </div>
     {% endif %}
+
+    {% if show_help_links %}
+    <div class="mt-4 pt-3 border-top">
+        <h6><i class="bi bi-lightbulb me-2" aria-hidden="true"></i>Additional Resources</h6>
+        <div class="small">
+            <ul class="mb-0">
+                <li><a href="{{ url_for('main.security') }}#mfa" class="text-decoration-none">Learn more about MFA
+                        security</a></li>
+                <li><a href="{{ url_for('auth.help') }}#mfa-troubleshooting" class="text-decoration-none">MFA
+                        troubleshooting guide</a></li>
+                <li><a href="{{ url_for('auth.help') }}#mfa-setup-video" class="text-decoration-none">Video tutorial for
+                        setting up MFA</a></li>
+            </ul>
+        </div>
+    </div>
+    {% endif %}
 </div>
 
 {% if setup_mode and csp_nonce %}
 <script nonce="{{ csp_nonce }}">
+    document.addEventListener('DOMContentLoaded', function () {
+        // Setup to track app selection for analytics
+        const appLinks = document.querySelectorAll('.app-link');
+        if (appLinks) {
+            appLinks.forEach(link => {
+                link.addEventListener('click', function (e) {
+                    const app = this.getAttribute('data-app');
+                    if (window.trackEvent) {
+                        trackEvent('mfa_app_selected', {
+                            app: app,
+                            platform: detectMobilePlatform()
+                        });
+                    }
+                });
+            });
+        }
+    });
+
+    function detectMobilePlatform() {
+        const ua = navigator.userAgent.toLowerCase();
+        if (ua.indexOf('android') > -1) return 'android';
+        if (ua.indexOf('iphone') > -1 || ua.indexOf('ipad') > -1) return 'ios';
+        return 'unknown';
+    }
+
     function copyToClipboard(elementId) {
         const copyText = document.getElementById(elementId);
+        if (!copyText) return;
+
         copyText.select();
         copyText.setSelectionRange(0, 99999); // For mobile devices
 
@@ -152,16 +218,38 @@
                 .then(() => {
                     // Show feedback
                     const copyBtn = document.getElementById('copySecretBtn');
+                    if (!copyBtn) return;
+
                     const originalHtml = copyBtn.innerHTML;
-                    copyBtn.innerHTML = '<i class="bi bi-check-lg"></i>';
+                    copyBtn.innerHTML = '<i class="bi bi-check-lg" aria-hidden="true"></i>';
+                    copyBtn.classList.add('btn-success');
+                    copyBtn.classList.remove('btn-outline-secondary');
+
+                    // Track copy event if analytics available
+                    if (window.trackSecurityEvent) {
+                        trackSecurityEvent('mfa_secret_copied');
+                    }
+
                     setTimeout(() => {
                         copyBtn.innerHTML = originalHtml;
+                        copyBtn.classList.remove('btn-success');
+                        copyBtn.classList.add('btn-outline-secondary');
                     }, 2000);
+
+                    // Show toast if available
+                    if (window.showToastIfAvailable) {
+                        showToastIfAvailable('Success', 'Secret key copied to clipboard', 'success');
+                    }
                 })
                 .catch(err => {
                     console.error('Clipboard write failed:', err);
                     // Fallback to older method
                     document.execCommand('copy');
+
+                    // Show error toast if available
+                    if (window.showToastIfAvailable) {
+                        showToastIfAvailable('Warning', 'Could not copy using secure method', 'warning');
+                    }
                 });
         } catch (err) {
             console.error('Clipboard API not supported:', err);

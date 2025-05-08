@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block title %}Multi-Factor Authentication - {{ config.get('PLATFORM_NAME', 'Cloud Platform') }}{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+            <div class="card shadow-sm">
+                <div class="card-body p-4">
+                    <div class="text-center mb-4">
+                        <i class="bi bi-shield-lock text-primary" style="font-size: 3rem;"></i>
+                        <h1 class="h3 mt-3">Multi-Factor Authentication</h1>
+                        <p class="text-muted">Please enter your verification code to continue</p>
+                    </div>
+
+                    {% include "auth/components/security_notice.html" with context %}
+
+                    <form method="post" class="needs-validation" novalidate>
+                        {{ csrf_token() }}
+
+                        <div class="mb-4">
+                            <label for="verification_code" class="form-label">Verification Code</label>
+                            <div class="input-group has-validation">
+                                <span class="input-group-text"><i class="bi bi-123"></i></span>
+                                <input type="text"
+                                    class="form-control form-control-lg {% if form.verification_code.errors %}is-invalid{% endif %}"
+                                    id="verification_code" name="verification_code"
+                                    placeholder="Enter verification code" inputmode="numeric" pattern="[a-z0-9]+"
+                                    autocomplete="one-time-code" aria-describedby="verificationHelp" required autofocus>
+                                {% if form.verification_code.errors %}
+                                <div class="invalid-feedback">
+                                    {{ form.verification_code.errors[0] }}
+                                </div>
+                                {% endif %}
+                            </div>
+                            <div id="verificationHelp" class="form-text">
+                                Enter the {{ verification_code_length|default(6) }}-digit code from your authenticator
+                                app
+                            </div>
+                        </div>
+
+                        <div class="mb-4 form-check">
+                            <input type="checkbox" class="form-check-input" id="use_backup" name="use_backup"
+                                value="true">
+                            <label class="form-check-label" for="use_backup">
+                                <i class="bi bi-key-fill me-1"></i>Use backup code instead
+                            </label>
+                        </div>
+
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary btn-lg" id="verifyBtn">
+                                <span class="spinner-border spinner-border-sm d-none" role="status"
+                                    aria-hidden="true"></span>
+                                Verify
+                            </button>
+                        </div>
+
+                        <div class="mt-4 text-center">
+                            <a href="{{ url_for('auth.help') }}#mfa-troubleshooting" class="text-decoration-none">
+                                <i class="bi bi-question-circle me-1"></i>Need help?
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card mt-3 border-light shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title h6">
+                        <i class="bi bi-info-circle me-2"></i>Lost access to your authenticator app?
+                    </h5>
+                    <p class="card-text small mb-0">
+                        If you can't access your authenticator app, check the "Use backup code" option above and enter
+                        one of your backup codes.
+                        If you don't have backup codes, please contact support.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/auth-common.js') }}" integrity="{{ sri_hash('js/auth-common.js') }}"
+    crossorigin="anonymous"></script>
+
+<script nonce="{{ csp_nonce }}">
+    document.addEventListener('DOMContentLoaded', function () {
+        // Set up form validation
+        setupFormValidation();
+
+        // Setup brute force protection
+        setupBruteForceProtection(document.querySelector('form'), 'verifyBtn');
+
+        // Display loading indicator on submit
+        const form = document.querySelector('form');
+        const verifyBtn = document.getElementById('verifyBtn');
+
+        form.addEventListener('submit', function (e) {
+            if (form.checkValidity()) {
+                const spinner = verifyBtn.querySelector('.spinner-border');
+                spinner.classList.remove('d-none');
+                verifyBtn.setAttribute('disabled', 'disabled');
+            }
+        });
+
+        // Toggle help text based on backup code checkbox
+        const useBackupCheckbox = document.getElementById('use_backup');
+        const verificationHelp = document.getElementById('verificationHelp');
+        const originalHelpText = verificationHelp.innerHTML;
+
+        useBackupCheckbox.addEventListener('change', function () {
+            if (this.checked) {
+                verificationHelp.innerHTML = 'Enter one of your backup codes';
+                document.getElementById('verification_code').setAttribute('pattern', '[a-z0-9-]+');
+                document.getElementById('verification_code').setAttribute('placeholder', 'Enter backup code');
+            } else {
+                verificationHelp.innerHTML = originalHelpText;
+                document.getElementById('verification_code').setAttribute('pattern', '[a-z0-9]+');
+                document.getElementById('verification_code').setAttribute('placeholder', 'Enter verification code');
+            }
+        });
+
+        // Security feature: Track verification attempts
+        if (window.trackSecurityEvent) {
+            trackSecurityEvent('mfa_verification_attempt');
+        }
+
+        // Check for timeout
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('timeout') === 'true') {
+            showToastIfAvailable('Session Timeout', 'Your session timed out. Please complete MFA verification again.', 'warning');
+        }
+    });
+</script>
+{% endblock %}
