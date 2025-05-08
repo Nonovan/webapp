@@ -244,6 +244,19 @@ DEFAULT_FEATURE_FLAGS: Dict[str, bool] = {
     'FEATURE_MFA': True,
 }
 
+# Disaster recovery configuration
+DEFAULT_DR_CONFIG: Dict[str, Any] = {
+    'DR_MODE': True,
+    'DR_ENHANCED_LOGGING': True,
+    'DR_LOG_PATH': '/var/log/cloud-platform/dr-events.log',
+    'DR_COORDINATOR_EMAIL': 'dr-coordinator@example.com',
+    'DR_NOTIFICATION_ENABLED': True,
+    'METRICS_DR_MODE': True,
+    'RECOVERY_MODE': True,
+    'SENTRY_ENVIRONMENT': 'dr-recovery',
+    'SENTRY_TRACES_SAMPLE_RATE': 0.5,  # Higher sampling rate during DR
+}
+
 # Development environment overrides
 DEV_OVERRIDES: Dict[str, Any] = {
     'DEBUG': True,
@@ -270,6 +283,19 @@ TEST_OVERRIDES: Dict[str, Any] = {
     'AUDIT_LOG_ENABLED': False,  # Disable audit logging in tests
 }
 
+# DR recovery environment overrides
+DR_OVERRIDES: Dict[str, Any] = {
+    'DEBUG': False,
+    'LOG_LEVEL': 'WARNING',
+    'AUTO_UPDATE_BASELINE': False,
+    'DR_MODE': True,
+    'DR_ENHANCED_LOGGING': True,
+    'RECOVERY_MODE': True,
+    'METRICS_DR_MODE': True,
+    'SENTRY_ENVIRONMENT': 'dr-recovery',
+    'SENTRY_TRACES_SAMPLE_RATE': 0.5,
+}
+
 # Production security requirements (these must be enabled in production)
 PROD_SECURITY_REQUIREMENTS: List[str] = [
     'SESSION_COOKIE_SECURE',
@@ -283,7 +309,7 @@ PROD_SECURITY_REQUIREMENTS: List[str] = [
     'AUDIT_LOG_ENABLED',
 ]
 
-# Default global configuration settings for monitoring file integrity
+# File integrity monitoring patterns by priority level
 FILE_INTEGRITY_MONITORED_PATTERNS: Dict[str, List[str]] = {
     'critical': [
         'core/security/*.py',
@@ -358,10 +384,12 @@ __all__ = [
     'DEFAULT_CSP_CONFIG',
     'DEFAULT_AUDIT_CONFIG',
     'DEFAULT_FEATURE_FLAGS',
+    'DEFAULT_DR_CONFIG',
 
     # Environment overrides
     'DEV_OVERRIDES',
     'TEST_OVERRIDES',
+    'DR_OVERRIDES',
     'PROD_SECURITY_REQUIREMENTS',
 
     # File integrity monitoring

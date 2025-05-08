@@ -136,7 +136,33 @@ class Config:
         'FEATURE_DARK_MODE': True,
         'FEATURE_ICS_CONTROL': True,
         'FEATURE_CLOUD_MANAGEMENT': True,
-        'FEATURE_MFA': True
+        'FEATURE_MFA': True,
+
+        # Disaster Recovery settings
+        'DR_MODE': False,
+        'DR_ENHANCED_LOGGING': False,
+        'DR_COORDINATOR_EMAIL': None,
+        'DR_NOTIFICATION_ENABLED': False,
+        'RECOVERY_MODE': False,
+
+        # File Integrity Baseline settings
+        'BASELINE_UPDATE_MAX_FILES': 50,
+        'BASELINE_UPDATE_CRITICAL_THRESHOLD': 5,
+        'BASELINE_BACKUP_ENABLED': True,
+        'BASELINE_UPDATE_RETENTION': 5,
+        'BASELINE_UPDATE_APPROVAL_REQUIRED': True,
+        'BASELINE_AUTO_UPDATE_PATTERN': [
+            "*.css",
+            "*.js",
+            "static/*",
+            "templates/*.html"
+        ],
+        'BASELINE_NEVER_AUTO_UPDATE': [
+            "core/security/*.py",
+            "app.py",
+            "wsgi.py",
+            "config/*.py"
+        ]
     }
 
     # Development-specific overrides
@@ -149,6 +175,8 @@ class Config:
         'SECURITY_HEADERS_ENABLED': True,
         'METRICS_ENABLED': True,
         'LOG_LEVEL': 'DEBUG',
+        'API_REQUIRE_HTTPS': False,  # Allow HTTP in dev for easier testing
+        'AUTO_UPDATE_BASELINE': True,  # Auto-update baseline in dev
     }
 
     # Test-specific overrides
@@ -159,6 +187,21 @@ class Config:
         'SERVER_NAME': 'localhost',
         'METRICS_ENABLED': False,
         'SECURITY_CHECK_FILE_INTEGRITY': False,
+        'ENABLE_FILE_INTEGRITY_MONITORING': False,
+        'AUDIT_LOG_ENABLED': False,  # Disable audit logging in tests
+    }
+
+    # DR recovery-specific overrides
+    DR_OVERRIDES: Dict[str, Any] = {
+        'DEBUG': False,
+        'LOG_LEVEL': 'WARNING',
+        'AUTO_UPDATE_BASELINE': False,
+        'DR_MODE': True,
+        'DR_ENHANCED_LOGGING': True,
+        'RECOVERY_MODE': True,
+        'METRICS_DR_MODE': True,
+        'SENTRY_ENVIRONMENT': 'dr-recovery',
+        'SENTRY_TRACES_SAMPLE_RATE': 0.5,  # Higher sampling rate during DR
     }
 
     # Production-specific security requirements
@@ -170,6 +213,8 @@ class Config:
         'WTF_CSRF_ENABLED',
         'SECURITY_HEADERS_ENABLED',
         'API_REQUIRE_HTTPS',
+        'JWT_BLACKLIST_ENABLED',
+        'AUDIT_LOG_ENABLED',
     ]
 
     # Application settings
@@ -205,6 +250,9 @@ class Config:
                 app.config[key] = value
         elif environment == 'testing':
             for key, value in cls.TEST_OVERRIDES.items():
+                app.config[key] = value
+        elif environment == 'dr-recovery':
+            for key, value in cls.DR_OVERRIDES.items():
                 app.config[key] = value
 
         # Load settings from environment variables (highest priority)
@@ -255,6 +303,8 @@ class Config:
                     'FEATURE_ICS_CONTROL': app.config.get('FEATURE_ICS_CONTROL', True),
                     'FEATURE_CLOUD_MANAGEMENT': app.config.get('FEATURE_CLOUD_MANAGEMENT', True),
                     'FEATURE_MFA': app.config.get('FEATURE_MFA', True),
+                    'DR_MODE': app.config.get('DR_MODE', False),
+                    'RECOVERY_MODE': app.config.get('RECOVERY_MODE', False),
                 }
             }
 
@@ -273,20 +323,7 @@ class Config:
         for key, value in os.environ.items():
             if key.startswith('FLASK_'):
                 app_key = key[6:]  # Remove FLASK_ prefix
-
-                # Handle boolean values
-                if value.lower() in ('true', 'yes', '1'):
-                    app.config[app_key] = True
-                elif value.lower() in ('false', 'no', '0'):
-                    app.config[app_key] = False
-                # Handle integer values
-                elif value.isdigit():
-                    app.config[app_key] = int(value)
-                # Handle float values
-                elif value.replace('.', '', 1).isdigit() and value.count('.') == 1:
-                    app.config[app_key] = float(value)
-                else:
-                    app.config[app_key] = value
+                app.config[app_key] = cls._convert_env_value(value)
 
         # Set required variables and overrides
         for var in cls.REQUIRED_VARS:
@@ -319,6 +356,9 @@ class Config:
 
         # Load file integrity monitoring configuration
         cls._load_integrity_config_from_environment(app)
+
+        # Load disaster recovery configuration
+        cls._load_dr_config_from_environment(app)
 
     @classmethod
     def _load_integrity_config_from_environment(cls, app) -> None:
@@ -372,6 +412,65 @@ class Config:
                 if patterns:
                     app.config['CRITICAL_FILES_PATTERN'] = patterns
 
+        # Baseline update configuration
+        if 'BASELINE_UPDATE_MAX_FILES' in os.environ:
+            try:
+                app.config['BASELINE_UPDATE_MAX_FILES'] = int(os.environ['BASELINE_UPDATE_MAX_FILES'])
+            except ValueError:
+                logger.warning("Invalid BASELINE_UPDATE_MAX_FILES value, using default")
+
+        if 'BASELINE_UPDATE_RETENTION' in os.environ:
+            try:
+                app.config['BASELINE_UPDATE_RETENTION'] = int(os.environ['BASELINE_UPDATE_RETENTION'])
+            except ValueError:
+                logger.warning("Invalid BASELINE_UPDATE_RETENTION value, using default")
+
+        if 'BASELINE_UPDATE_APPROVAL_REQUIRED' in os.environ:
+            app.config['BASELINE_UPDATE_APPROVAL_REQUIRED'] = cls._convert_env_value(
+                os.environ['BASELINE_UPDATE_APPROVAL_REQUIRED']
+            )
+
+        if 'BASELINE_BACKUP_ENABLED' in os.environ:
+            app.config['BASELINE_BACKUP_ENABLED'] = cls._convert_env_value(
+                os.environ['BASELINE_BACKUP_ENABLED']
+            )
+
+    @classmethod
+    def _load_dr_config_from_environment(cls, app) -> None:
+        """
+        Load disaster recovery configuration from environment variables.
+
+        Args:
+            app: Flask application instance
+        """
+        # DR mode enabled/disabled
+        if 'DR_MODE' in os.environ:
+            app.config['DR_MODE'] = cls._convert_env_value(os.environ['DR_MODE'])
+
+        # Recovery mode enabled/disabled
+        if 'RECOVERY_MODE' in os.environ:
+            app.config['RECOVERY_MODE'] = cls._convert_env_value(os.environ['RECOVERY_MODE'])
+
+        # DR enhanced logging
+        if 'DR_ENHANCED_LOGGING' in os.environ:
+            app.config['DR_ENHANCED_LOGGING'] = cls._convert_env_value(os.environ['DR_ENHANCED_LOGGING'])
+
+        # DR log path
+        if 'DR_LOG_PATH' in os.environ:
+            app.config['DR_LOG_PATH'] = os.environ['DR_LOG_PATH']
+
+        # DR coordinator email
+        if 'DR_COORDINATOR_EMAIL' in os.environ:
+            app.config['DR_COORDINATOR_EMAIL'] = os.environ['DR_COORDINATOR_EMAIL']
+
+        # DR notification enabled
+        if 'DR_NOTIFICATION_ENABLED' in os.environ:
+            app.config['DR_NOTIFICATION_ENABLED'] = cls._convert_env_value(os.environ['DR_NOTIFICATION_ENABLED'])
+
+        # Metrics DR mode
+        if 'METRICS_DR_MODE' in os.environ:
+            app.config['METRICS_DR_MODE'] = cls._convert_env_value(os.environ['METRICS_DR_MODE'])
+
     @staticmethod
     def _convert_env_value(value: str) -> Any:
         """
@@ -410,7 +509,7 @@ class Config:
         environment = app.config.get('ENVIRONMENT', 'development')
 
         # Skip strict validation for development and testing
-        if environment not in ('production', 'staging'):
+        if environment not in ('production', 'staging', 'dr-recovery'):
             return
 
         # Check required variables in production
@@ -422,7 +521,7 @@ class Config:
         if missing_vars:
             raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
 
-        # Check security settings in production
+        # Check security settings in production and DR
         insecure_settings = []
         for setting in cls.PROD_REQUIREMENTS:
             if setting in app.config and not app.config[setting]:
@@ -448,6 +547,20 @@ class Config:
         # Check if audit logging is properly configured
         if app.config.get('AUDIT_LOG_ENABLED', True) and app.config.get('AUDIT_LOG_RETENTION_DAYS', 90) < 30:
             logger.warning("AUDIT_LOG_RETENTION_DAYS should be at least 30 days in production")
+
+        # Validate DR-specific settings
+        if environment == 'dr-recovery':
+            if app.config.get('DR_MODE') is not True:
+                logger.warning("DR_MODE should be True in dr-recovery environment")
+
+            if not app.config.get('DR_LOG_PATH'):
+                logger.warning("DR_LOG_PATH should be configured in dr-recovery environment")
+
+            if not app.config.get('DR_COORDINATOR_EMAIL'):
+                logger.warning("DR_COORDINATOR_EMAIL should be configured in dr-recovery environment")
+
+            if app.config.get('AUTO_UPDATE_BASELINE', False):
+                logger.error("AUTO_UPDATE_BASELINE must be disabled in dr-recovery environment")
 
     @classmethod
     def _setup_derived_values(cls, app) -> None:
@@ -509,15 +622,45 @@ class Config:
 
         # Set up file baseline path if file integrity monitoring is enabled
         if app.config.get('ENABLE_FILE_INTEGRITY_MONITORING', True):
-            if 'FILE_BASELINE_PATH' not in app.config or not app.config['FILE_BASELINE_PATH']:
-                # Set baseline path in instance directory
-                app.config['FILE_BASELINE_PATH'] = os.path.join(app.instance_path, 'file_baseline.json')
+            env = app.config.get('ENVIRONMENT', 'development')
 
-            # Ensure instance directory exists
+            # Set environment-specific baseline path
+            if 'FILE_BASELINE_PATH' not in app.config or not app.config['FILE_BASELINE_PATH']:
+                baseline_path_template = app.config.get('BASELINE_PATH_TEMPLATE',
+                                                       'instance/security/baseline_{environment}.json')
+                baseline_path = baseline_path_template.format(environment=env)
+                app.config['FILE_BASELINE_PATH'] = os.path.join(app.root_path, baseline_path)
+
+            # Ensure baseline directory exists
             try:
                 os.makedirs(os.path.dirname(app.config['FILE_BASELINE_PATH']), exist_ok=True)
             except OSError as e:
                 logger.error(f"Failed to create baseline directory: {str(e)}")
+
+            # Set up baseline backup directory if backup enabled
+            if app.config.get('BASELINE_BACKUP_ENABLED', True):
+                backup_path_template = app.config.get('BASELINE_BACKUP_PATH_TEMPLATE',
+                                                     'instance/security/baseline_backups/{timestamp}_{environment}.json')
+                backup_dir = os.path.dirname(os.path.join(app.root_path,
+                                                         backup_path_template.format(timestamp='', environment=env)))
+
+                try:
+                    if not os.path.exists(backup_dir):
+                        os.makedirs(backup_dir, mode=0o750, exist_ok=True)
+                        logger.info(f"Created baseline backup directory: {backup_dir}")
+                except OSError as e:
+                    logger.error(f"Failed to create baseline backup directory: {str(e)}")
+
+        # Set up DR log directory if in DR mode
+        if app.config.get('DR_MODE', False) and app.config.get('DR_ENHANCED_LOGGING', False):
+            dr_log_path = app.config.get('DR_LOG_PATH', '/var/log/cloud-platform/dr-events.log')
+            try:
+                log_dir = os.path.dirname(dr_log_path)
+                if not os.path.exists(log_dir):
+                    os.makedirs(log_dir, mode=0o750, exist_ok=True)
+                    logger.info(f"Created DR log directory: {log_dir}")
+            except OSError as e:
+                logger.error(f"Failed to create DR log directory: {str(e)}")
 
     @staticmethod
     def load_from_name(name: str) -> Dict[str, Any]:
@@ -529,7 +672,8 @@ class Config:
         quick configuration switching.
 
         Args:
-            name (str): Environment name ('development', 'production', 'testing')
+            name (str): Environment name ('development', 'production', 'testing',
+                       'dr-recovery')
 
         Returns:
             Dict[str, Any]: Environment-specific configuration dictionary
@@ -548,6 +692,7 @@ class Config:
                 'ENABLE_AUTO_COUNTERMEASURES': False,
                 'SESSION_COOKIE_SECURE': False,
                 'SESSION_COOKIE_HTTPONLY': True,
+                'AUTO_UPDATE_BASELINE': True,
             },
             'production': {
                 'DEBUG': False,
@@ -556,6 +701,7 @@ class Config:
                 'SESSION_COOKIE_SECURE': True,
                 'SESSION_COOKIE_HTTPONLY': True,
                 'SESSION_COOKIE_SAMESITE': 'Lax',
+                'AUTO_UPDATE_BASELINE': False,
             },
             'testing': {
                 'DEBUG': False,
@@ -563,6 +709,19 @@ class Config:
                 'ENABLE_AUTO_COUNTERMEASURES': False,
                 'WTF_CSRF_ENABLED': False,
                 'SESSION_COOKIE_SECURE': False,
+                'ENABLE_FILE_INTEGRITY_MONITORING': False,
+            },
+            'dr-recovery': {
+                'DEBUG': False,
+                'TESTING': False,
+                'DR_MODE': True,
+                'RECOVERY_MODE': True,
+                'DR_ENHANCED_LOGGING': True,
+                'SESSION_COOKIE_SECURE': True,
+                'SESSION_COOKIE_HTTPONLY': True,
+                'AUTO_UPDATE_BASELINE': False,
+                'LOG_LEVEL': 'WARNING',
+                'METRICS_DR_MODE': True,
             }
         }
 
@@ -636,10 +795,18 @@ class Config:
             os.path.join(app_root, 'models', 'user.py')
         ]
 
+        # For DR environment, include DR-specific files
+        if config.get('DR_MODE', False):
+            critical_files.extend([
+                os.path.join(app_root, 'config', 'dr_recovery.py'),
+                os.path.join(app_root, 'services', 'dr_service.py'),
+                os.path.join(app_root, 'scripts', 'dr', 'recovery_verification.py'),
+            ])
+
         # Compute hashes for config files - use algorithm based on file size
         config_hashes = {}
         algorithm = config.get('FILE_HASH_ALGORITHM', 'sha256')
-        small_file_threshold = 10240  # 10KB
+        small_file_threshold = config.get('SMALL_FILE_THRESHOLD', 10240)  # 10KB default
 
         for file_path in config_files:
             if os.path.exists(file_path):
@@ -672,6 +839,14 @@ class Config:
             os.path.join(app_root, 'blueprints', 'auth'),
             os.path.join(app_root, 'blueprints', 'monitoring')
         ]
+
+        # Add DR-specific directories if in DR mode
+        if config.get('DR_MODE', False):
+            monitored_directories.extend([
+                os.path.join(app_root, 'scripts', 'dr'),
+                os.path.join(app_root, 'services', 'recovery')
+            ])
+
         config['MONITORED_DIRECTORIES'] = monitored_directories
 
         # Update configuration
@@ -698,18 +873,26 @@ class Config:
         Update the file integrity baseline with new hash values.
 
         This function imports the actual implementation from core.security.cs_file_integrity
-        if available, or falls back to a basic implementation.
+        if available, or falls back to a basic implementation. It supports configurable
+        auto-update limits and makes baseline backups before updates.
 
         Args:
             app: Flask application instance
-            baseline_path: Path to baseline file
-            updates: List of updates to apply
-            remove_missing: Whether to remove missing files
-            auto_update_limit: Maximum number of files to auto-update
+            baseline_path: Path to baseline file (uses app config if None)
+            updates: List of change dictionaries to incorporate into baseline
+            remove_missing: Whether to remove entries for files that no longer exist
+            auto_update_limit: Maximum number of files to auto-update (safety limit)
 
         Returns:
             tuple: (success_bool, message_string)
         """
+        # Check for DR mode restrictions
+        if app and app.config.get('DR_MODE', False) and not app.config.get('AUTO_UPDATE_BASELINE', False):
+            if not baseline_path:
+                baseline_path = app.config.get('FILE_BASELINE_PATH', 'instance/file_baseline.json')
+            logger.warning(f"Baseline update attempted in DR mode: {baseline_path}")
+            return False, "Baseline updates are restricted in DR recovery mode"
+
         try:
             from core.security.cs_file_integrity import update_file_integrity_baseline as core_update
             return core_update(app, baseline_path, updates, remove_missing, auto_update_limit)
@@ -722,4 +905,103 @@ class Config:
                 return utils_update(app, baseline_path, updates, remove_missing)
             except ImportError:
                 logger.error("No file integrity baseline update implementation available")
-                return False, "File integrity functions not available"
+
+                # Try implementing baseline update as standalone functionality
+                try:
+                    return cls._update_baseline_fallback(app, baseline_path, updates, remove_missing, auto_update_limit)
+                except Exception as e:
+                    logger.error(f"Failed to update baseline with fallback implementation: {str(e)}")
+                    return False, f"File integrity functions not available: {str(e)}"
+
+    @classmethod
+    def _update_baseline_fallback(
+            cls,
+            app=None,
+            baseline_path=None,
+            updates=None,
+            remove_missing=False,
+            auto_update_limit=10) -> Tuple[bool, str]:
+        """
+        Fallback implementation of baseline update when core utilities are unavailable.
+
+        Args:
+            app: Flask application instance
+            baseline_path: Path to baseline file
+            updates: List of update dictionaries
+            remove_missing: Whether to remove missing files
+            auto_update_limit: Maximum number of files to update
+
+        Returns:
+            tuple: (success_bool, message_string)
+        """
+        import json
+        import os
+
+        if not updates:
+            return True, "No updates provided"
+
+        # Enforce update limit for safety
+        if len(updates) > auto_update_limit:
+            logger.warning(f"Too many files to update: {len(updates)} exceeds limit of {auto_update_limit}")
+            updates = updates[:auto_update_limit]
+
+        # Determine baseline path
+        if app and not baseline_path:
+            baseline_path = app.config.get('FILE_BASELINE_PATH')
+            if not baseline_path:
+                return False, "Baseline path not configured"
+
+        # Load existing baseline or create new one
+        baseline = {}
+        if os.path.exists(baseline_path):
+            try:
+                with open(baseline_path, 'r') as f:
+                    baseline = json.load(f)
+            except (json.JSONDecodeError, IOError) as e:
+                return False, f"Failed to read baseline file: {e}"
+
+        # Create backup of baseline
+        try:
+            backup_path = f"{baseline_path}.{int(datetime.now().timestamp())}.bak"
+            with open(backup_path, 'w') as f:
+                json.dump(baseline, f, indent=2)
+                logger.info(f"Created baseline backup at {backup_path}")
+        except (IOError, OSError) as e:
+            logger.warning(f"Failed to create baseline backup: {e}")
+
+        # Process updates
+        changes_applied = 0
+        for update in updates:
+            if not isinstance(update, dict):
+                continue
+
+            path = update.get('path')
+            current_hash = update.get('current_hash') or update.get('hash')
+
+            if not path or not current_hash:
+                continue
+
+            baseline[path] = current_hash
+            changes_applied += 1
+
+        # Remove missing files if requested
+        removed = 0
+        if remove_missing:
+            to_remove = []
+            for path in baseline:
+                if not os.path.exists(path):
+                    to_remove.append(path)
+
+            for path in to_remove:
+                del baseline[path]
+                removed += 1
+
+        # Write updated baseline
+        try:
+            os.makedirs(os.path.dirname(baseline_path), exist_ok=True)
+            with open(baseline_path, 'w') as f:
+                json.dump(baseline, f, indent=2)
+        except (IOError, OSError) as e:
+            return False, f"Failed to write baseline file: {e}"
+
+        return True, f"Updated baseline: {changes_applied} changes applied, {removed} entries removed"

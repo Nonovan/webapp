@@ -1,161 +1,212 @@
 """
-Configuration package for Cloud Infrastructure Platform.
+Configuration Package for Cloud Infrastructure Platform.
 
-This package centralizes configuration management with environment-specific
-settings and proper handling of sensitive information. It provides a unified
-interface for accessing configuration based on the current environment.
+This package provides configuration management for different environments
+(development, testing, staging, production, CI, DR recovery), component-specific
+settings, and utility functions for loading and validating configuration.
+
+The configuration system supports environment-specific overrides, secure
+file integrity monitoring, and schema validation.
 """
 
 import os
-from typing import Optional, Type, Dict, Any
+import logging
+import redis
+from typing import Dict, Any, Optional, List, Tuple, Union
+from functools import lru_cache
+from flask import Flask, current_app
 
-from .base import Config
-from .environments import (
-    DevelopmentConfig,
-    ProductionConfig,
-    TestingConfig,
-    StagingConfig,
-    CIConfig,
-    detect_environment,
-    get_environment_config
-)
+# Initialize logger
+logger = logging.getLogger(__name__)
 
-# Import key constants from config_constants module
+# Import configuration constants
 from .config_constants import (
     # Environment constants
     ENVIRONMENT_DEVELOPMENT,
     ENVIRONMENT_TESTING,
     ENVIRONMENT_STAGING,
     ENVIRONMENT_PRODUCTION,
-    ENVIRONMENT_DR_RECOVERY,
     ENVIRONMENT_CI,
+    ENVIRONMENT_DR_RECOVERY,
     ALLOWED_ENVIRONMENTS,
     SECURE_ENVIRONMENTS,
+
+    # Security configuration constants
+    DEFAULT_SECURITY_CONFIG,
+    DEFAULT_SECURITY_HEADERS,
+    DEFAULT_CSRF_CONFIG,
+    DEFAULT_JWT_CONFIG,
+    DEFAULT_FILE_SECURITY_CONFIG,
+    DEFAULT_FILE_INTEGRITY_CONFIG,
+    FILE_INTEGRITY_SEVERITY_MAPPING,
+    SENSITIVE_FIELDS,
+
+    # Monitoring/Rate limiting constants
+    DEFAULT_RATE_LIMIT_CONFIG,
+    DEFAULT_MONITORING_CONFIG,
+    DEFAULT_AUDIT_CONFIG,
 
     # Required variables
     REQUIRED_ENV_VARS,
     REQUIRED_PROD_ENV_VARS,
 
-    # Default configurations
+    # Default configuration values
     DEFAULT_ENV_VALUES,
     DEFAULT_DB_CONFIG,
-    DEFAULT_SECURITY_CONFIG,
-    DEFAULT_SECURITY_HEADERS,
-    DEFAULT_CSRF_CONFIG,
-    DEFAULT_RATE_LIMIT_CONFIG,
-    DEFAULT_JWT_CONFIG,
     DEFAULT_CACHE_CONFIG,
     DEFAULT_ICS_CONFIG,
     DEFAULT_CLOUD_CONFIG,
-    DEFAULT_MONITORING_CONFIG,
-    DEFAULT_FILE_SECURITY_CONFIG,
-    DEFAULT_FILE_INTEGRITY_CONFIG,
     DEFAULT_CSP_CONFIG,
-    DEFAULT_AUDIT_CONFIG,
     DEFAULT_FEATURE_FLAGS,
+    DEFAULT_DR_CONFIG,
 
-    # Environment-specific overrides
+    # Environment overrides
     DEV_OVERRIDES,
     TEST_OVERRIDES,
-    PROD_SECURITY_REQUIREMENTS,
+    DR_OVERRIDES,
 
-    # File integrity monitoring
+    # File integrity constants
     FILE_INTEGRITY_MONITORED_PATTERNS,
     FILE_INTEGRITY_BASELINE_CONFIG,
-    FILE_INTEGRITY_SEVERITY_MAPPING,
-    SENSITIVE_FIELDS,
     SMALL_FILE_THRESHOLD,
     DEFAULT_HASH_ALGORITHM
 )
 
-# Configuration registry
+# Import configuration classes
+from .base import Config
+from .development import DevelopmentConfig
+from .testing import TestingConfig
+from .staging import StagingConfig
+from .production import ProductionConfig
+from .ci import CIConfig
+from .dr_recovery import DRRecoveryConfig
+
+# Configuration registry mapping environment names to config classes
 CONFIG_REGISTRY = {
-    'development': DevelopmentConfig,
-    'production': ProductionConfig,
-    'testing': TestingConfig,
-    'staging': StagingConfig,
-    'ci': CIConfig,
-    'default': DevelopmentConfig
+    ENVIRONMENT_DEVELOPMENT: DevelopmentConfig,
+    ENVIRONMENT_TESTING: TestingConfig,
+    ENVIRONMENT_STAGING: StagingConfig,
+    ENVIRONMENT_PRODUCTION: ProductionConfig,
+    ENVIRONMENT_CI: CIConfig,
+    ENVIRONMENT_DR_RECOVERY: DRRecoveryConfig
 }
 
-def get_config(environment: Optional[str] = None) -> Type[Config]:
+@lru_cache(maxsize=8)
+def get_config(env_name: str = None) -> type:
     """
-    Get the appropriate configuration class for the specified environment.
-
-    This function returns the configuration class appropriate for the requested
-    environment. If no environment is specified, it will attempt to detect the
-    environment from the APP_ENV or FLASK_ENV environment variable, falling back
-    to 'default' if neither is set.
+    Get the configuration class for the specified environment.
 
     Args:
-        environment: The environment name (development, production, testing, staging, ci)
+        env_name: Environment name (development, testing, staging, production, ci, dr_recovery)
 
     Returns:
-        The corresponding configuration class (not an instance)
+        Configuration class
 
-    Example:
-        config_class = get_config('production')
-        app.config.from_object(config_class)
+    Raises:
+        ValueError: If the environment name is invalid
     """
-    if not environment:
-        environment = os.environ.get('APP_ENV') or os.environ.get('FLASK_ENV', 'default')
+    if env_name is None:
+        env_name = detect_environment()
 
-    return CONFIG_REGISTRY.get(environment.lower(), CONFIG_REGISTRY['default'])
+    env_name = env_name.lower()
+    if env_name not in CONFIG_REGISTRY:
+        valid_envs = ", ".join(CONFIG_REGISTRY.keys())
+        raise ValueError(f"Invalid environment: '{env_name}'. Must be one of: {valid_envs}")
 
+    return CONFIG_REGISTRY[env_name]
 
-def get_config_instance(environment: Optional[str] = None) -> Config:
+def get_config_instance(env_name: str = None) -> Config:
     """
-    Get an instantiated configuration object for the specified environment.
-
-    This function returns a configuration instance for the requested environment.
-    If no environment is specified, it will attempt to detect the current environment.
+    Get a configuration class instance for the specified environment.
 
     Args:
-        environment: The environment name (development, production, testing, staging, ci)
+        env_name: Environment name (development, testing, staging, production, ci, dr_recovery)
 
     Returns:
-        An instance of the corresponding configuration class
-
-    Example:
-        config = get_config_instance()
-        app.config.update(config.__dict__)
+        Configuration class instance
     """
-    return get_environment_config(environment)
+    config_class = get_config(env_name)
+    return config_class()
 
+def detect_environment() -> str:
+    """
+    Detect the current environment from environment variables.
+
+    The function checks for FLASK_ENV, ENVIRONMENT, or APP_ENV environment variables
+    in that order. If none are found, it defaults to development.
+
+    Returns:
+        Environment name (development, testing, staging, production, ci, dr_recovery)
+    """
+    # Check various environment variables
+    for env_var in ['FLASK_ENV', 'ENVIRONMENT', 'APP_ENV']:
+        env = os.environ.get(env_var)
+        if env:
+            if env.lower() in ALLOWED_ENVIRONMENTS:
+                return env.lower()
+            logger.warning(f"Unknown environment '{env}' specified in {env_var}")
+
+    # Default to development if no environment is specified
+    return ENVIRONMENT_DEVELOPMENT
 
 def load_component_config(component_name: str, environment: Optional[str] = None) -> Dict[str, Any]:
     """
-    Load configuration for a specific component with optional environment override.
-
-    This function loads and merges component configuration from the components directory,
-    applying any environment-specific overrides.
+    Load configuration for a specific component.
 
     Args:
-        component_name: The name of the component (e.g., 'logging', 'security', 'database')
-        environment: Optional environment name to load environment-specific overrides
+        component_name: Name of the component (e.g. 'database', 'api', 'security')
+        environment: Environment name (defaults to the current environment)
 
     Returns:
-        A dictionary containing the merged configuration
-
-    Example:
-        logging_config = load_component_config('logging', 'production')
-        setup_logging(logging_config)
+        Component configuration dictionary
     """
-    # Import here to avoid circular imports
-    from .components import load_component_config as _load_component
-
-    if not environment:
+    if environment is None:
         environment = detect_environment()
 
-    return _load_component(component_name, environment)
+    # First try environment-specific component config
+    config_path = os.path.join(
+        os.path.dirname(__file__),
+        'components',
+        'environments',
+        environment,
+        f'{component_name}.ini'
+    )
 
+    if not os.path.exists(config_path):
+        # Fall back to default component config
+        config_path = os.path.join(
+            os.path.dirname(__file__),
+            'components',
+            f'{component_name}.ini'
+        )
+
+    if not os.path.exists(config_path):
+        logger.warning(f"No configuration file found for component '{component_name}'")
+        return {}
+
+    try:
+        import configparser
+        config = configparser.ConfigParser()
+        config.read(config_path)
+
+        # Convert to dictionary
+        result = {}
+        for section in config.sections():
+            result[section] = {}
+            for key, value in config.items(section):
+                result[section][key] = value
+
+        return result
+    except Exception as e:
+        logger.error(f"Error loading component configuration '{component_name}': {e}")
+        return {}
 
 def update_file_integrity_baseline(
         app=None,
         baseline_path=None,
         updates=None,
         remove_missing=False,
-        auto_update_limit: int = 10) -> bool:
+        auto_update_limit: int = 10) -> Tuple[bool, str]:
     """
     Update the file integrity baseline with new hash values.
 
@@ -171,22 +222,99 @@ def update_file_integrity_baseline(
         auto_update_limit: Maximum number of files to auto-update (safety limit)
 
     Returns:
-        bool: True if the baseline was successfully updated, False otherwise
+        tuple: (success_bool, message_string)
     """
     # First try the implementation from core security module
     try:
         from core.security.cs_file_integrity import update_file_integrity_baseline as core_update
-        return core_update(app, baseline_path, updates, remove_missing)
+        return core_update(app, baseline_path, updates, remove_missing, auto_update_limit)
     except ImportError:
-        # Fall back to the Config class implementation
+        logger.warning("Could not import update_file_integrity_baseline from core.security.cs_file_integrity")
+
+    # Try to import from core utils as fallback
+    try:
+        from core.utils import update_file_integrity_baseline as utils_update
+        return utils_update(app, baseline_path, updates, remove_missing)
+    except ImportError:
+        logger.warning("Could not import update_file_integrity_baseline from core.utils")
+
+    # Fall back to the Config class implementation
+    try:
+        from .base import Config
+        return Config.update_file_integrity_baseline(app, baseline_path, updates, remove_missing, auto_update_limit)
+    except (ImportError, AttributeError):
+        logger.error("No file integrity baseline update implementation available")
+        return False, "File integrity functions not available"
+
+def validate_baseline_integrity(app=None) -> Tuple[bool, List[Dict[str, Any]]]:
+    """
+    Validate the current file integrity baseline.
+
+    Checks whether the file integrity baseline is valid and identifies any
+    violations without modifying the baseline.
+
+    Args:
+        app: Flask application instance (uses current_app if None)
+
+    Returns:
+        Tuple[bool, List[Dict]]: (integrity_status, violation_list)
+    """
+    # Try the implementation from core security module
+    try:
+        from core.security.cs_file_integrity import check_critical_file_integrity
+        return check_critical_file_integrity(app or current_app)
+    except ImportError:
+        logger.warning("Could not import check_critical_file_integrity from core.security.cs_file_integrity")
+
+    # Try to import from security service as fallback
+    try:
+        from services import check_integrity
+        return check_integrity()
+    except ImportError:
+        logger.warning("Could not import check_integrity from services")
+
+    # Try to import from api.security as last resort
+    try:
+        from api.security import validate_baseline_integrity as api_validate
+        return api_validate()
+    except ImportError:
+        logger.warning("No file integrity validation implementation available")
+        return False, []
+
+def initialize_file_monitoring(app: Flask) -> bool:
+    """
+    Initialize file integrity monitoring for the application.
+
+    Sets up the baseline, monitoring intervals, and related configuration
+    for tracking integrity of critical files.
+
+    Args:
+        app: Flask application instance
+
+    Returns:
+        bool: True if initialization successful, False otherwise
+    """
+    try:
+        # Try to use the core security implementation
+        from core.security.cs_file_integrity import initialize_file_monitoring as core_init
+
+        basedir = app.root_path
+        patterns = app.config.get('CRITICAL_FILES_PATTERN')
+        interval = app.config.get('FILE_INTEGRITY_CHECK_INTERVAL', 3600)
+
+        return core_init(app, basedir, patterns, interval)
+    except ImportError:
+        logger.warning("Could not import initialize_file_monitoring from core.security.cs_file_integrity")
+
+        # Fall back to basic file integrity initialization
         try:
             from .base import Config
-            return Config.update_file_integrity_baseline(app, baseline_path, updates, remove_missing, auto_update_limit)
-        except (ImportError, AttributeError):
-            import logging
-            logging.warning("Could not import any file integrity baseline update implementation")
+            app.config = Config.initialize_file_hashes(app.config, app.root_path)
+            logger.info("Basic file integrity monitoring initialized")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to initialize file integrity monitoring: {e}")
             return False
-
 
 # Version information
 __version__ = '0.1.1'
@@ -200,6 +328,7 @@ __all__ = [
     'TestingConfig',
     'StagingConfig',
     'CIConfig',
+    'DRRecoveryConfig',
 
     # Configuration utility functions
     'get_config',
@@ -207,6 +336,8 @@ __all__ = [
     'detect_environment',
     'load_component_config',
     'update_file_integrity_baseline',
+    'validate_baseline_integrity',
+    'initialize_file_monitoring',
     'CONFIG_REGISTRY',
 
     # Environment constants
@@ -240,11 +371,12 @@ __all__ = [
     'DEFAULT_CSP_CONFIG',
     'DEFAULT_AUDIT_CONFIG',
     'DEFAULT_FEATURE_FLAGS',
+    'DEFAULT_DR_CONFIG',
 
-    # Environment-specific overrides
+    # Environment overrides
     'DEV_OVERRIDES',
     'TEST_OVERRIDES',
-    'PROD_SECURITY_REQUIREMENTS',
+    'DR_OVERRIDES',
 
     # File integrity monitoring
     'FILE_INTEGRITY_MONITORED_PATTERNS',
