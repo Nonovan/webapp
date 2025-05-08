@@ -48,7 +48,7 @@ logs/
 *.log*
 uploads/
 media/
-static/
+#static/
 .webassets-cache/
 
 # Instance folder - contains environment-specific configuration
@@ -72,7 +72,7 @@ coverage.xml
 *.py,cover
 
 # Database
-*.db 
+*.db
 *.sqlite
 *.sqlite3
 *.psql
@@ -92,7 +92,7 @@ bower_components/
 .env.local
 .secrets.*
 
-# AWS 
+# AWS
 .aws/
 .elasticbeanstalk/
 .ebextensions/

@@ -669,3 +669,13 @@ def _generate_mock_trend_data(metric_name: str, start_time: datetime, end_time: 
             break
 
     return data
+
+__all___ = [
+    'detect_anomalies',
+    'analyze_trends',
+    'calculate_statistics',
+    'forecast_metrics',
+    'anomaly_detection_count',
+    'forecasting_operation_count',
+    'trend_analysis_count'
+]

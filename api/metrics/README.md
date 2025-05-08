@@ -11,6 +11,7 @@ The API Metrics module provides endpoints for collecting, querying, and exportin
 - [Configuration](#configuration)
 - [Security Features](#security-features)
 - [Usage Examples](#usage-examples)
+- [Implementation Details](#implementation-details)
 - [Integration Points](#integration-points)
 - [Best Practices](#best-practices)
 - [Related Documentation](#related-documentation)
@@ -22,54 +23,50 @@ The API Metrics module implements RESTful endpoints following security best prac
 ## Key Components
 
 - **`routes.py`**: Implements RESTful API endpoints for metrics retrieval
-  - Current metrics endpoint for real-time status
-  - Historical metrics with configurable time ranges
-  - Metrics export in various formats (JSON, Prometheus, CSV)
-  - System health summary endpoint
-  - Category-specific metrics endpoints
-  - Trend analysis and forecasting capabilities
+  - `get_current_metrics`: Real-time system status
+  - `get_historical_metrics`: Historical data with time ranges
+  - `export_metrics`: Multiple format exports
+  - `get_health_summary`: System health overview
+  - `get_system_metrics`: System-specific metrics
+  - `get_application_metrics`: Application performance data
+  - `get_database_metrics`: Database performance metrics
+  - `get_security_metrics`: Security-related metrics
+  - `get_cloud_metrics`: Cloud resource metrics
+  - `get_metric_trends`: Trend analysis and forecasting
 
-- **`collectors.py`**: Metric collection from various system components
-  - System resource metrics collection (CPU, memory, disk, network)
-  - Application performance metrics collection
-  - Database metrics aggregation and query performance
-  - Cloud resource metrics gathering across providers
-  - Security metrics compilation with compliance focus
-  - Container and service metrics collection
-  - ICS system telemetry integration
-
-- **`exporters.py`**: Metrics export functionality
-  - Prometheus exposition format conversion
-  - JSON metrics structuring with schema enforcement
-  - Time-series formatters for visualization
-  - CSV export with proper escaping
-  - Integration with monitoring systems
-  - Customizable output filtering
-  - Streaming support for large datasets
+- **`collectors.py`**: Metric collection functionality
+  - `collect_system_metrics`: System resource metrics
+  - `collect_database_metrics`: Database performance metrics
+  - `collect_application_metrics`: Application metrics
+  - `collect_security_metrics`: Security-related metrics
+  - `collect_cloud_metrics`: Cloud infrastructure metrics
 
 - **`analyzers.py`**: Metric analysis utilities
-  - Anomaly detection algorithms
-  - Trend analysis functions
-  - Threshold evaluation with smart alerting
-  - Performance regression detection
-  - Seasonal pattern recognition
-  - Forecasting capabilities
-  - Correlation between metrics
+  - `detect_anomalies`: Anomaly detection in metrics
+  - `analyze_trends`: Trend analysis and patterns
+  - `calculate_statistics`: Statistical computations
+  - `forecast_metrics`: Predictive analytics
+  - `anomaly_detection_count`: Anomaly tracking
+  - `forecasting_operation_count`: Forecast tracking
+  - `trend_analysis_count`: Trend analysis tracking
 
-- **`aggregators.py`**: Metrics aggregation and calculation
-  - Time-based aggregation functions
-  - Statistical calculations (percentiles, averages, standard deviation)
-  - Cross-component correlation
-  - Resource utilization summaries
-  - Downsampling for historical data
-  - Customizable aggregation windows
+- **`aggregators.py`**: Time series processing
+  - `TimeSeriesConfig`: Configuration constants
+  - `DataPoint`: Type definition for data points
+  - `validate_time_series_input`: Input validation
+  - `aggregate_time_series`: Data aggregation
+  - `calculate_percentiles`: Statistical analysis
+  - `resample_time_series`: Time series resampling
+  - `process_large_dataset`: Large dataset handling
 
-- **`__init__.py`**: Module initialization and configuration
-  - Blueprint registration with proper routes
-  - Metrics caching configuration
-  - Rate limiting settings with fine-grained control
-  - Authorization requirements and permission mapping
-  - Security headers and monitoring setup
+- **`exporters.py`**: Export functionality
+  - `export_metrics_prometheus`: Prometheus format export
+  - `export_metrics_csv`: CSV format export
+  - `export_metrics_json`: JSON format export
+  - `format_help_text`: Help text formatting
+  - `flatten_metrics`: Metric flattening
+  - `sanitize_metric_name`: Metric name sanitization
+  - `filter_sensitive_metrics`: Sensitive data filtering
 
 ## Directory Structure
 
@@ -356,48 +353,38 @@ Response:
 
 ## Implementation Details
 
-### Exporters
+### Collectors
 
-The exporters.py module provides the following functionality:
+The `collectors.py` module provides metric collection from various sources:
 
-- **Prometheus Export**: Converts metrics to the Prometheus exposition format with proper metadata
+- **System Metrics Collection**:
 
   ```python
-  export_metrics_prometheus(metrics_data, prefix='app_')
+  collect_system_metrics()     # System resource metrics
   ```
 
-- **CSV Export**: Converts metrics to CSV format with categories, names, values, and units
+- **Database Metrics Collection**:
 
   ```python
-  export_metrics_csv(metrics_data)
+  collect_database_metrics()   # Database performance metrics
   ```
 
-- **JSON Export**: Formats metrics as structured JSON with optional metadata enrichment
+- **Application Metrics Collection**:
 
   ```python
-  export_metrics_json(metrics_data, include_metadata=True)
+  collect_application_metrics()  # Application performance metrics
   ```
 
-### Aggregators
-
-The `aggregators.py` module provides time series data processing:
-
-- **Time Series Aggregation**: Groups metrics into consistent intervals
+- **Security Metrics Collection**:
 
   ```python
-  aggregate_time_series(data_points, interval='hour', aggregation_method='avg')
+  collect_security_metrics()   # Security-related metrics
   ```
 
-- **Percentile Calculation**: Statistical analysis for performance metrics
+- **Cloud Metrics Collection**:
 
   ```python
-  calculate_percentiles(data_points, percentiles=[50, 90, 95, 99])
-  ```
-
-- **Time Series Resampling**: Handles data gaps and normalization
-
-  ```python
-  resample_time_series(data_points, interval='hour', start_time=start, end_time=end)
+  collect_cloud_metrics()      # Cloud resource metrics
   ```
 
 ### Analyzers
@@ -426,6 +413,50 @@ The `analyzers.py` module provides advanced analytics:
 
   ```python
   forecast_metrics(metric_name, trend_data)
+  ```
+
+### Aggregators
+
+The `aggregators.py` module provides time series data processing:
+
+- **Time Series Aggregation**: Groups metrics into consistent intervals
+
+  ```python
+  aggregate_time_series(data_points, interval='hour', aggregation_method='avg')
+  ```
+
+- **Percentile Calculation**: Statistical analysis for performance metrics
+
+  ```python
+  calculate_percentiles(data_points, percentiles=[50, 90, 95, 99])
+  ```
+
+- **Time Series Resampling**: Handles data gaps and normalization
+
+  ```python
+  resample_time_series(data_points, interval='hour', start_time=start, end_time=end)
+  ```
+
+### Exporters
+
+The `exporters.py` module provides the following functionality:
+
+- **Prometheus Export**: Converts metrics to the Prometheus exposition format with proper metadata
+
+  ```python
+  export_metrics_prometheus(metrics_data, prefix='app_')
+  ```
+
+- **CSV Export**: Converts metrics to CSV format with categories, names, values, and units
+
+  ```python
+  export_metrics_csv(metrics_data)
+  ```
+
+- **JSON Export**: Formats metrics as structured JSON with optional metadata enrichment
+
+  ```python
+  export_metrics_json(metrics_data, include_metadata=True)
   ```
 
 ## Integration Points

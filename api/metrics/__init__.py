@@ -9,13 +9,6 @@ The module follows security best practices including authentication, role-based
 access control, rate limiting, and comprehensive logging. Metrics are collected
 from multiple sources including system resources, application performance,
 database operations, security events, and cloud resources.
-
-Exports:
-    metrics_bp: Flask Blueprint for metrics routes
-    init_app: Function to initialize the metrics module with a Flask app
-    export_metrics_prometheus: Function for exporting metrics in Prometheus format
-    export_metrics_csv: Function for exporting metrics in CSV format
-    export_metrics_json: Function for exporting metrics in JSON format
 """
 
 import logging
@@ -38,8 +31,6 @@ _initialized = False
 def init_app(app: Flask) -> None:
     """
     Initialize the metrics module with the Flask application.
-
-    Registers all routes and sets up necessary configurations for the metrics API.
 
     Args:
         app: Flask application instance
@@ -67,22 +58,13 @@ def init_app(app: Flask) -> None:
     # Register metrics collectors
     _register_custom_metrics(app)
 
-    # Example: Register blueprint with app
-    # app.register_blueprint(metrics_bp) # Ensure this is done if not handled elsewhere
-
-    # Log initialization
     logger.info("Metrics API initialized successfully")
     _initialized = True
 
 def _register_custom_metrics(app: Flask) -> None:
-    """
-    Register custom metrics collectors with the metrics registry.
-
-    Args:
-        app: Flask application instance
-    """
+    """Register custom metrics collectors with the metrics registry."""
     try:
-        # Example: Get a configuration value
+        # Configure default latency buckets
         default_latency_buckets = (0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0)
         latency_buckets = app.config.get('METRICS_API_LATENCY_BUCKETS', default_latency_buckets)
 
@@ -90,7 +72,7 @@ def _register_custom_metrics(app: Flask) -> None:
         metrics_registry.counter(
             'metrics_api_requests_total',
             'Total number of Metrics API requests',
-            labels=['endpoint', 'status', 'method'] # Added 'method' label
+            labels=['endpoint', 'status', 'method']
         )
 
         # Response time histogram
@@ -98,7 +80,7 @@ def _register_custom_metrics(app: Flask) -> None:
             'metrics_api_latency_seconds',
             'Metrics API request latency in seconds',
             labels=['endpoint'],
-            buckets=latency_buckets # Use configured or default buckets
+            buckets=latency_buckets
         )
 
         # Export metrics counter
@@ -126,7 +108,35 @@ def _register_custom_metrics(app: Flask) -> None:
     except Exception as e:
         logger.error("Failed to register custom metrics: %s", e)
 
-# Import exporters for direct access
+# Import public components from submodules
+from .collectors import (
+    collect_system_metrics,
+    collect_database_metrics,
+    collect_application_metrics,
+    collect_security_metrics,
+    collect_cloud_metrics
+)
+
+from .analyzers import (
+    detect_anomalies,
+    analyze_trends,
+    calculate_statistics,
+    forecast_metrics,
+    anomaly_detection_count,
+    forecasting_operation_count,
+    trend_analysis_count
+)
+
+from .aggregators import (
+    TimeSeriesConfig,
+    DataPoint,
+    validate_time_series_input,
+    aggregate_time_series,
+    calculate_percentiles,
+    resample_time_series,
+    process_large_dataset
+)
+
 from .exporters import (
     export_metrics_prometheus,
     export_metrics_csv,
@@ -137,11 +147,39 @@ from .exporters import (
     filter_sensitive_metrics
 )
 
-# Explicitly define what is available for import
+# Define public API
 __all__ = [
+    # Blueprint and initialization
     'metrics_bp',
     'init_app',
+    '__version__',
 
+    # Collectors
+    'collect_system_metrics',
+    'collect_database_metrics',
+    'collect_application_metrics',
+    'collect_security_metrics',
+    'collect_cloud_metrics',
+
+    # Analyzers
+    'detect_anomalies',
+    'analyze_trends',
+    'calculate_statistics',
+    'forecast_metrics',
+    'anomaly_detection_count',
+    'forecasting_operation_count',
+    'trend_analysis_count',
+
+    # Aggregators
+    'TimeSeriesConfig',
+    'DataPoint',
+    'validate_time_series_input',
+    'aggregate_time_series',
+    'calculate_percentiles',
+    'resample_time_series',
+    'process_large_dataset',
+
+    # Exporters
     'export_metrics_prometheus',
     'export_metrics_csv',
     'export_metrics_json',

@@ -685,3 +685,17 @@ def check_security_health(metrics: Dict[str, Any]) -> Dict[str, str]:
         message = f"{incidents} active security incidents"
 
     return {"status": status, "message": message}
+
+__all__ = [
+    'metrics_bp',
+    'get_current_metrics',
+    'get_historical_metrics',
+    'export_metrics',
+    'get_health_summary',
+    'get_system_metrics',
+    'get_application_metrics',
+    'get_database_metrics',
+    'get_security_metrics',
+    'get_cloud_metrics',
+    'get_metric_trends'
+]
