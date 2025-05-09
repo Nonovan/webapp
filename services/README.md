@@ -17,6 +17,8 @@ This directory contains service classes that implement business logic and coordi
 
 Services encapsulate complex operations and provide clean APIs for controllers/routes to use. They follow a functional core/imperative shell architecture where business logic is separated from side effects (like database operations). This approach enhances testability and maintainability by reducing complexity in individual components.
 
+The service layer centralizes business logic, ensuring consistent application of security controls, error handling, and validation across the platform. Services communicate with models for data persistence and expose functionality to API endpoints, CLI tools, and web interfaces through a clean, consistent API.
+
 ## Key Services
 
 - **`AuthService`**: User authentication, registration, and session management
@@ -67,10 +69,10 @@ Services encapsulate complex operations and provide clean APIs for controllers/r
 - **`NotificationService`**: Centralized notification delivery
   - **Usage**: Use this service to send notifications via multiple channels (in-app, email).
   - **Features**:
-    - Multi-channel notification dispatch (in-app, email)
+    - Multi-channel notification dispatch (in-app, email, SMS)
     - User-specific notification targeting
     - Notification types and priorities
-    - Integration with `EmailService`
+    - Integration with `EmailService` and `SMSService`
     - Marking notifications as read
 
 - **`ScanningService`**: Security scanning management
@@ -95,6 +97,18 @@ Services encapsulate complex operations and provide clean APIs for controllers/r
     - File integrity status reporting
     - Comprehensive security logging and metrics
 
+- **`SMSService`**: SMS messaging and phone number validation
+  - **Usage**: Use this service to send SMS messages and verify phone numbers
+  - **Features**:
+    - Single and bulk SMS messaging
+    - Multiple provider support (Twilio, AWS SNS, MessageBird, Vonage)
+    - Phone number validation and formatting
+    - Delivery status tracking
+    - Rate limiting with configurable thresholds
+    - Priority-based message handling
+    - Integration with user notification preferences
+    - Message templating capabilities
+
 - **`WebhookService`**: Management of webhook subscriptions and deliveries
   - **Usage**: Use this service to manage webhook subscriptions and trigger event deliveries.
   - **Features**:
@@ -111,17 +125,22 @@ Services encapsulate complex operations and provide clean APIs for controllers/r
 
 ```plaintext
 services/
-├── __init__.py           # Package initialization with exported components
-├── audit_service.py      # Audit logging service
-├── auth_service.py       # Authentication and authorization service
-├── email_service.py      # Email sending and templating service
-├── monitoring_service.py # System monitoring and health check service
-├── newsletter_service.py # Newsletter management service
+├── __init__.py             # Package initialization with exported components
+├── audit_service.py        # Audit logging service
+├── auth_service.py         # Authentication and authorization service
+├── email_service.py        # Email sending and templating service
+├── monitoring_service.py   # System monitoring and health check service
+├── newsletter_service.py   # Newsletter management service
 ├── notification_service.py # Multi-channel notification service
-├── scanning_service.py   # Security scanning management service
-├── security_service.py   # Security operations and file integrity services
-├── webhook_service.py    # Webhook management and delivery service
-└── README.md             # This documentation
+├── scanning_service.py     # Security scanning management service
+├── security_service.py     # Security operations and file integrity services
+├── service_constants.py    # Centralized constants for service configuration
+├── sms_service.py          # SMS messaging and phone validation service
+├── webhook_service.py      # Webhook management and delivery service
+├── notification/           # Enhanced notification framework
+│   ├── __init__.py         # Package initialization
+│   └── note_manager.py     # Notification manager implementation
+└── README.md               # This documentation
 ```
 
 ## Best Practices & Security
@@ -137,6 +156,9 @@ services/
 - Create unit tests for all service functions
 - Implement circuit breakers for external service calls
 - Verify file integrity for security-critical files
+- Use secure connections for all SMS and webhook communications
+- Validate phone numbers before sending SMS messages
+- Apply appropriate throttling to prevent SMS and email abuse
 
 ## Common Features
 
@@ -150,6 +172,9 @@ services/
 - Defensive programming patterns
 - Security event monitoring and alerting
 - Health checks with automatic administrator notifications
+- User preference integration for communication services
+- Multi-provider support with fallback mechanisms
+- Metrics collection for operational monitoring
 
 ## Usage
 
@@ -158,19 +183,24 @@ services/
 ```python
 from services import AuthService
 
-# User login
-success, user, error_message = AuthService.authenticate_user('username', 'password')
-if success:
-    AuthService.login_user_session(user)
+# Authenticate a user
+user, token = AuthService.authenticate(username="user@example.com", password="secure_password")
+if user:
+    print(f"User authenticated: {user.username}, token: {token}")
 else:
-    print(f"Login failed: {error_message}")
+    print("Authentication failed")
 
-# User registration
-success, user, error_message = AuthService.register_user(
-    username='newuser',
-    email='user@example.com',
-    password='secure_password'
+# Register a new user
+result = AuthService.register_user(
+    username="new_user@example.com",
+    password="secure_password",
+    first_name="John",
+    last_name="Doe"
 )
+if result['success']:
+    print(f"User registered: {result['user'].username}")
+else:
+    print(f"Registration failed: {result['error']}")
 ```
 
 ### Email Sending
@@ -179,218 +209,193 @@ success, user, error_message = AuthService.register_user(
 from services import send_email, send_template_email
 
 # Send a simple email
-send_email(
-    to='recipient@example.com',
-    subject='Important notification',
-    html_content='<h1>Hello!</h1><p>This is an important message.</p>'
+result = send_email(
+    to="recipient@example.com",
+    subject="Important notification",
+    body="This is an important notification about your account."
 )
+print(f"Email sent: {result['success']}")
 
 # Send a templated email
-send_template_email(
-    to='recipient@example.com',
-    subject='Welcome to our platform',
-    template_name='welcome_email',
-    template_data={
-        'username': 'john_doe',
-        'activation_link': 'https://example.com/activate/123'
-    }
+result = send_template_email(
+    to="recipient@example.com",
+    template="welcome",
+    context={"username": "john_doe", "activation_link": "https://example.com/activate/token"}
 )
+print(f"Template email sent: {result['success']}")
 ```
 
-### Newsletter Management
+### SMS Messaging
 
 ```python
-from services import NewsletterService
+from services import send_sms, send_bulk_sms, verify_phone_number, SMSProvider
 
-# Subscribe a user
-result = NewsletterService.subscribe_email('subscriber@example.com')
+# Verify a phone number
+verification = verify_phone_number("+12345678901")
+if verification['valid']:
+    print(f"Phone number is valid: {verification['formatted']}")
+else:
+    print(f"Invalid phone number: {verification['error']}")
 
-# Send a newsletter
-result = NewsletterService.send_newsletter(
-    subject='Monthly Update',
-    content='<h1>Monthly Newsletter</h1><p>Latest updates...</p>'
+# Send a simple SMS message
+result = send_sms(
+    to="+12345678901",
+    message="Your verification code is: 123456",
+    priority="high"
 )
+print(f"SMS sent: {result['success']}")
 
-# Get subscription statistics
-stats = NewsletterService.get_stats()
+# Send bulk SMS messages
+recipients = ["+12345678901", "+19876543210"]
+result = send_bulk_sms(
+    recipients=recipients,
+    message="System maintenance scheduled for tomorrow at 2AM.",
+    respect_preferences=True  # Honor user communication preferences
+)
+print(f"Bulk SMS sent: {result['stats']['sent']}/{result['stats']['total']}")
+
+# Test SMS provider connectivity
+connection_test = test_sms_configuration(provider=SMSProvider.TWILIO)
+print(f"Connection test result: {connection_test['success']}")
 ```
 
 ### Security Operations
 
 ```python
-from services import check_integrity, update_security_baseline, SecurityService
+from services import verify_file_hash, update_security_baseline, check_integrity, get_integrity_status
 
-# Check file integrity
-integrity_status, changes = check_integrity()
-if not integrity_status:
-    print(f"File integrity check failed with {len(changes)} changes detected")
-    for change in changes:
-        print(f"File: {change['path']}, Status: {change['status']}")
+# Verify a file's hash
+is_valid, details = verify_file_hash('/path/to/important/file.py')
+if not is_valid:
+    print(f"File integrity check failed: {details['status']}")
+    print(f"Current hash: {details['current_hash']}")
 
-# Update security baseline for specific paths
-paths_to_update = ['/path/to/critical/file.py', '/path/to/config.json']
-success, message = update_security_baseline(paths_to_update)
-if success:
-    print(f"Baseline updated successfully: {message}")
-else:
-    print(f"Baseline update failed: {message}")
-
-# Schedule periodic integrity checks
-SecurityService.schedule_integrity_check(
-    interval_seconds=3600,  # Check every hour
-    callback=lambda integrity_status, changes: send_alert_if_compromised(integrity_status, changes)
+# Update the security baseline for specific files
+success, msg = update_security_baseline(
+    paths_to_update=['/path/to/file1.py', '/path/to/file2.py']
 )
+print(f"Baseline update: {success}, {msg}")
 
-# Get current integrity status
-status = SecurityService.get_integrity_status()
-print(f"Last check: {status['last_check_time']}")
+# Check integrity of all baseline files
+status, changes = check_integrity()
+if not status:
+    print(f"Integrity check failed with {len(changes)} changes detected")
+    for change in changes:
+        print(f"  {change['path']}: {change['status']}")
+
+# Get the current status of file integrity monitoring
+status = get_integrity_status()
 print(f"Baseline status: {status['baseline_status']}")
 print(f"Files monitored: {status['file_count']}")
 print(f"Changes detected: {status['changes_detected']}")
 
-# Verify specific file against baseline
-is_valid, details = SecurityService.verify_file_hash('/path/to/important/file.py')
-if not is_valid:
-    print(f"File integrity check failed: {details['status']}")
-    print(f"Expected hash: {details['expected_hash']}")
-    print(f"Current hash: {details['current_hash']}")
+# Update file integrity baseline with enhanced notifications and audit logging
+success, message, stats = update_file_integrity_baseline_with_notifications(
+    baseline_path="instance/security/baseline.json",
+    changes=[
+        {"path": "/path/to/file.py", "hash": "abc123...", "severity": "critical"},
+        {"path": "/path/to/another.py", "hash": "def456...", "severity": "medium"}
+    ],
+    remove_missing=True,
+    notify=True,
+    audit=True
+)
+print(f"Baseline update with notifications: {success}")
+print(f"Critical changes: {stats['critical_changes']}")
+print(f"High severity changes: {stats['high_severity_changes']}")
 ```
 
 ### Security Scanning
 
 ```python
-from services import ScanningService
-from models.security import SecurityScan
+from services import start_security_scan, get_scan_status
 
-# Get available scan profiles
-available_profiles = ScanningService.get_available_scan_profiles()
-print(f"Available profiles: {[p['name'] for p in available_profiles]}")
-
-# Create a new scan
-scan = SecurityScan(
-    scan_type=SecurityScan.TYPE_VULNERABILITY,
-    targets=[{'id': 'web-server-01', 'type': 'server'}],
+# Start a security scan
+scan_id = start_security_scan(
+    target="web_application",
     profile="standard",
-    options={"depth": "high"}
+    options={"depth": "deep", "include_dependencies": True}
 )
-scan.save()
+print(f"Scan started with ID: {scan_id}")
 
-# Start the scan
-success = ScanningService.start_scan(scan)
-if success:
-    print(f"Scan {scan.id} started successfully")
-else:
-    print(f"Failed to start scan {scan.id}")
-
-# Get scan health metrics
-health_metrics = ScanningService.get_scan_health_metrics()
-print(f"Active scans: {health_metrics.get('active_scans', 0)}")
-print(f"Queued scans: {health_metrics.get('queued_scans', 0)}")
+# Check scan status
+status = get_scan_status(scan_id)
+print(f"Scan {scan_id} is {status['status']}, progress: {status['progress']}%")
+print(f"Findings so far: {status['findings_count']} ({status['critical_count']} critical)")
 ```
 
 ### Audit Logging
 
 ```python
 from services import AuditService
-from flask import request
 
-# Log a user login attempt
-AuditService.log_event(
-    user_id=user.id if user else None,
-    action='user.login.attempt',
-    status='success' if success else 'failure',
-    ip_address=request.remote_addr,
-    details={'username': 'attempted_user'}
+# Log a security event
+AuditService.log_security_event(
+    event_type="user.login_attempt",
+    description="Failed login attempt with incorrect password",
+    severity="warning",
+    user_id=None,  # Unknown user
+    ip_address="192.168.1.100",
+    details={"username": "admin", "method": "password", "failure_reason": "invalid_password"}
 )
 
-# Retrieve recent critical audit logs
-logs, total_count = AuditService.get_logs(severity='critical', limit=10)
-```
-
-### Monitoring
-
-```python
-from services import MonitoringService
-
-# Get current system status
-status_data = MonitoringService.get_system_status(include_security=True)
-print(f"CPU Usage: {status_data['system']['cpu_percent']}%")
-print(f"Memory Usage: {status_data['system']['memory_percent']}%")
-print(f"Disk Usage: {status_data['system']['disk_percent']}%")
-
-# Perform a comprehensive health check
-is_healthy, health_details = MonitoringService.perform_health_check()
-if not is_healthy:
-    print(f"System health check failed: {health_details['components']}")
-
-# Get snapshot of system metrics
-metrics_snapshot = MonitoringService.get_metrics_snapshot(categories=['system', 'application'])
-print(f"Network connections: {metrics_snapshot['system']['network']['connections']}")
-
-# Check specific network connectivity
-network_ok, network_details = MonitoringService.check_network_connectivity()
-if not network_ok:
-    print(f"Network issues detected: {network_details}")
+# Search audit logs
+audit_logs = AuditService.search_logs(
+    event_types=["user.login_attempt", "user.password_change"],
+    severity_min="warning",
+    start_time="2023-01-01T00:00:00Z",
+    end_time="2023-12-31T23:59:59Z",
+    user_id=123,
+    limit=100
+)
+print(f"Found {len(audit_logs)} matching audit logs")
 ```
 
 ### Notifications
 
 ```python
-from services import NotificationService, send_security_alert
+from services import notify_stakeholders, NOTIFICATION_CATEGORY_SECURITY
 
-# Send an informational in-app notification
-NotificationService.send_in_app_notification(
-    user_ids=[123, 456],
-    message="Your report is ready for download.",
-    action_url="/reports/download/xyz"
-)
-
-# Send a critical security alert via in-app and email
-send_security_alert(
-    user_ids=789,
-    message="Suspicious login detected on your account.",
-    email_subject="Security Alert: Suspicious Login",
-    email_template="security_alert",
-    email_template_data={'ip_address': '192.168.1.100', 'time': '2024-07-26 10:00 UTC'}
+# Send a notification to all security stakeholders
+notify_stakeholders(
+    subject="Security Policy Update",
+    message="The security policy has been updated with new password requirements.",
+    level="info",
+    category=NOTIFICATION_CATEGORY_SECURITY,
+    data={"policy_id": 123, "version": "2.0"}
 )
 ```
 
 ### Webhook Management
 
 ```python
-from services import WebhookService
+from services import create_webhook_subscription, trigger_webhook_event
 
 # Create a webhook subscription
-subscription, secret, error = WebhookService.create_subscription(
+subscription, secret, error = create_webhook_subscription(
     user_id=123,
-    target_url='https://example.com/webhook-receiver',
-    event_types=['resource.created', 'resource.deleted'],
-    description='Notify on resource changes'
+    target_url="https://example.com/webhook",
+    event_types=["resource.created", "resource.updated"],
+    description="Production environment change notifications"
 )
+
 if subscription:
-    print(f"Subscription created. Secret: {secret}") # Store the secret securely!
+    print(f"Webhook subscription created: {subscription.id}")
+    print(f"Secret for validation: {secret}")
 else:
-    print(f"Failed to create subscription: {error}")
+    print(f"Failed to create webhook subscription: {error}")
 
-# Trigger an event
-payload = {'resource_id': 'res-abc', 'type': 'vm', 'status': 'created'}
-WebhookService.trigger_event(event_type='resource.created', payload=payload)
-
-# Check health metrics for a subscription
-health_data = WebhookService.get_subscription_health('subscription-uuid', user_id=123)
-print(f"Status: {health_data['status']}")
-print(f"Success rate: {health_data['success_rate']}%")
-print(f"Average response time: {health_data['average_response_time_ms']}ms")
-
-# Replay a failed delivery
-success, error, details = WebhookService.replay_failed_delivery(delivery_id=456, user_id=123)
-if success:
-    print(f"Delivery replayed successfully: {details}")
-
-# Rotate webhook secret for enhanced security
-success, error, new_secret = WebhookService.rotate_subscription_secret('subscription-uuid', user_id=123)
-if success:
-    print(f"Secret rotated. New secret: {new_secret}")
+# Trigger a webhook event
+delivery_count = trigger_webhook_event(
+    event_type="resource.created",
+    payload={
+        "resource_id": 456,
+        "resource_type": "instance",
+        "action": "created",
+        "timestamp": "2023-06-15T14:30:00Z"
+    }
+)
+print(f"Event delivered to {delivery_count} subscribers")
 ```
 
 ## Related Documentation
@@ -406,11 +411,13 @@ if success:
 - Security Baseline Management (admin/security/assessment_tools/config_files/security_baselines/README.md)
 - Security Policies (docs/security/README.md)
 - Security Scanning Framework (docs/security/scanning-framework.md)
+- SMS Integration Guide (docs/communications/sms-integration.md)
 - System Health Metrics (docs/operations/system-metrics.md)
 - Webhook Implementation Guide (docs/api/guides/webhooks.md)
 
 ## Version History
 
-- **0.3.0 (2024-08-15)**: Enhanced security monitoring and webhook management capabilities
-- **0.2.0 (2024-07-28)**: Added ScanningService for security vulnerability scanning
-- **0.1.0 (2023-09-01)**: Initial implementation of core service classes
+- **0.0.4 (2024-09-01)**: Added SMS messaging service and enhanced file integrity baseline management
+- **0.0.3 (2024-08-15)**: Enhanced security monitoring and webhook management capabilities
+- **0.0.2 (2024-07-28)**: Added ScanningService for security vulnerability scanning
+- **0.0.1 (2023-09-01)**: Initial implementation of core service classes

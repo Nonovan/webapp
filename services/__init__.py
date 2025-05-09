@@ -28,6 +28,7 @@ SCANNING_SERVICE_AVAILABLE = False
 WEBHOOK_SERVICE_AVAILABLE = False
 NOTIFICATION_SERVICE_AVAILABLE = False
 NOTIFICATION_MODULE_AVAILABLE = False
+SMS_SERVICE_AVAILABLE = False
 
 # Import service constants
 try:
@@ -53,7 +54,27 @@ try:
         NOTIFICATION_CATEGORY_MAINTENANCE, NOTIFICATION_CATEGORY_MONITORING,
         NOTIFICATION_CATEGORY_COMPLIANCE, NOTIFICATION_CATEGORY_INTEGRITY,
         NOTIFICATION_CATEGORY_AUDIT, NOTIFICATION_CATEGORY_SCAN,
-        NOTIFICATION_CATEGORY_VULNERABILITY, NOTIFICATION_CATEGORY_INCIDENT
+        NOTIFICATION_CATEGORY_VULNERABILITY, NOTIFICATION_CATEGORY_INCIDENT,
+
+        # SMS Service Constants
+        SMS_DEFAULT_REGION,
+        SMS_MAX_LENGTH,
+        SMS_RETRY_COUNT,
+        SMS_CRITICAL_PRIORITY,
+        SMS_HIGH_PRIORITY,
+        SMS_MEDIUM_PRIORITY,
+        SMS_LOW_PRIORITY,
+        SMS_RATE_LIMIT_WINDOW,
+        SMS_RATE_LIMIT_MAX_PER_USER,
+        SMS_ALLOWED_DOMAINS,
+        SMS_STATUS_QUEUED,
+        SMS_STATUS_SENDING,
+        SMS_STATUS_SENT,
+        SMS_STATUS_DELIVERED,
+        SMS_STATUS_FAILED,
+        SMS_STATUS_UNDELIVERABLE,
+        SMS_STATUS_UNKNOWN,
+        SMS_PROVIDER_SETTINGS
     )
     SERVICE_CONSTANTS_AVAILABLE = True
 except ImportError as e:
@@ -98,6 +119,31 @@ except ImportError as e:
     NOTIFICATION_CATEGORY_SCAN = 'scan'
     NOTIFICATION_CATEGORY_VULNERABILITY = 'vulnerability'
     NOTIFICATION_CATEGORY_INCIDENT = 'incident'
+
+    # SMS Service fallback constants
+    SMS_DEFAULT_REGION = 'US'
+    SMS_MAX_LENGTH = 160
+    SMS_RETRY_COUNT = 3
+    SMS_CRITICAL_PRIORITY = 'critical'
+    SMS_HIGH_PRIORITY = 'high'
+    SMS_MEDIUM_PRIORITY = 'medium'
+    SMS_LOW_PRIORITY = 'low'
+    SMS_RATE_LIMIT_WINDOW = 300  # 5 minutes
+    SMS_RATE_LIMIT_MAX_PER_USER = 5  # 5 messages per window
+    SMS_ALLOWED_DOMAINS = []
+    SMS_STATUS_QUEUED = 'queued'
+    SMS_STATUS_SENDING = 'sending'
+    SMS_STATUS_SENT = 'sent'
+    SMS_STATUS_DELIVERED = 'delivered'
+    SMS_STATUS_FAILED = 'failed'
+    SMS_STATUS_UNDELIVERABLE = 'undeliverable'
+    SMS_STATUS_UNKNOWN = 'unknown'
+    SMS_PROVIDER_SETTINGS = {
+        'twilio': {},
+        'aws_sns': {},
+        'messagebird': {},
+        'vonage': {}
+    }
 
 # Try importing metrics
 try:
@@ -201,6 +247,21 @@ try:
 except ImportError:
     logger.warning("WebhookService not available")
 
+# Try to import SMS Service
+try:
+    from .sms_service import (
+        SMSService,
+        SMSProvider,
+        send_sms,
+        send_bulk_sms,
+        verify_phone_number,
+        test_sms_configuration
+    )
+    SMS_SERVICE_AVAILABLE = True
+except ImportError:
+    logger.warning("SMSService not available")
+    SMS_SERVICE_AVAILABLE = False
+
 # Export classes and functions to make them available when importing this package
 __all__ = [
     # Service classes
@@ -247,8 +308,11 @@ __all__ = [
     'NOTIFICATION_CATEGORY_VULNERABILITY',
     'NOTIFICATION_CATEGORY_INCIDENT',
 
-    # Notification instances
-    'notification_manager',
+    # SMS functions
+    'send_sms',
+    'send_bulk_sms',
+    'verify_phone_number',
+    'test_sms_configuration',
 
     # Security functions
     'check_integrity',
@@ -290,6 +354,7 @@ __all__ = [
     'AUTH_SERVICE_AVAILABLE',
     'NEWSLETTER_SERVICE_AVAILABLE',
     'WEBHOOK_SERVICE_AVAILABLE',
+    'SMS_SERVICE_AVAILABLE',
 
     # Version info
     '__version__'
@@ -301,6 +366,13 @@ if HAS_INTEGRITY_NOTIFICATIONS:
 
 if HAS_SCAN_NOTIFICATIONS:
     __all__.append('send_scan_notification')
+
+# Conditionally add SMS service components if available
+if SMS_SERVICE_AVAILABLE:
+    __all__.extend([
+        'SMSService',
+        'SMSProvider'
+    ])
 
 # Conditionally add security functions if SecurityService is available
 if SECURITY_SERVICE_AVAILABLE:
@@ -1035,4 +1107,5 @@ logger.debug(f"Services package initialized (version: {__version__}), " +
             f"Security service available: {SECURITY_SERVICE_AVAILABLE}, " +
             f"Scanning service available: {SCANNING_SERVICE_AVAILABLE}, " +
             f"Notification module available: {NOTIFICATION_MODULE_AVAILABLE}, " +
-            f"Notification service available: {NOTIFICATION_SERVICE_AVAILABLE}")
+            f"SMS service available: {SMS_SERVICE_AVAILABLE}, " +
+            f"Auth service available: {AUTH_SERVICE_AVAILABLE}")

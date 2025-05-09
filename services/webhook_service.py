@@ -22,11 +22,29 @@ from sqlalchemy import func, and_, or_
 
 from extensions import db, metrics, cache
 from models.communication.webhook import WebhookSubscription, WebhookDelivery, WebhookSubscriptionGroup
+from models.communication.user_preference import NotificationPreference, CommunicationPreference
 from api.webhooks import EventType, DeliveryStatus, EVENT_TYPES, EVENT_CATEGORIES, generate_webhook_signature
 # Assuming delivery logic might be moved here or called from here
 from api.webhooks.delivery import deliver_webhook as trigger_delivery_process
 from core.security import log_security_event, validate_url
 from services.notification_service import send_system_notification
+
+# Import service constants if available
+try:
+    from services.service_constants import (
+        NOTIFICATION_CATEGORY_INTEGRITY,
+        NOTIFICATION_CATEGORY_SECURITY,
+        WEBHOOK_EVENT_NOTIFICATION_PREFERENCE_UPDATED,
+        WEBHOOK_EVENT_COMMUNICATION_PREFERENCE_UPDATED
+    )
+    SERVICE_CONSTANTS_AVAILABLE = True
+except ImportError:
+    # Fallback definitions
+    NOTIFICATION_CATEGORY_INTEGRITY = 'integrity'
+    NOTIFICATION_CATEGORY_SECURITY = 'security'
+    WEBHOOK_EVENT_NOTIFICATION_PREFERENCE_UPDATED = 'user.notification_preference.updated'
+    WEBHOOK_EVENT_COMMUNICATION_PREFERENCE_UPDATED = 'user.communication_preference.updated'
+    SERVICE_CONSTANTS_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -398,9 +416,26 @@ class WebhookService:
             category = WebhookService._get_event_category(event_type)
             metrics.increment(f'webhook.event.{category}')
 
+            # Only send to webhooks for users that have enabled webhook notifications
+            # if this is a notification/preference related event
+            filtered_subscribers = None
+
+            # For preference events, check notification settings
+            if event_type in (WEBHOOK_EVENT_NOTIFICATION_PREFERENCE_UPDATED,
+                             WEBHOOK_EVENT_COMMUNICATION_PREFERENCE_UPDATED):
+                # Get users who have webhook notifications enabled
+                if hasattr(NotificationPreference, 'query'):
+                    enabled_users = NotificationPreference.query.filter_by(webhook_enabled=True).all()
+                    if enabled_users:
+                        filtered_subscribers = [pref.user_id for pref in enabled_users]
+
             # This might call the function currently in api/webhooks/delivery.py
             # or contain the logic directly. We'll call the imported function.
-            results = trigger_delivery_process(event_type=event_type, payload=enriched_payload)
+            results = trigger_delivery_process(
+                event_type=event_type,
+                payload=enriched_payload,
+                filtered_subscribers=filtered_subscribers
+            )
             count = len(results)
             if count > 0:
                 logger.info(f"Triggered {count} webhook deliveries for event: {event_type} (id: {event_id})")
@@ -443,6 +478,16 @@ class WebhookService:
         if WebhookService._is_rate_limited(subscription):
             metrics.increment('webhook.test_delivery.rate_limited')
             return False, "Rate limit exceeded for this webhook endpoint. Please try again later.", None
+
+        # Check if user has webhook notifications enabled in preferences
+        pref = None
+        try:
+            if hasattr(NotificationPreference, 'get_for_user'):
+                pref = NotificationPreference.get_for_user(user_id)
+                if pref and not pref.webhook_enabled:
+                    logger.info(f"Webhook test allowed despite user preferences being disabled (test is exempt)")
+        except Exception as e:
+            logger.debug(f"Could not check user notification preferences: {str(e)}")
 
         test_event_type = "test.event"
         payload = custom_payload or {
@@ -721,6 +766,16 @@ class WebhookService:
                 metrics.increment('webhook.replay_delivery.rate_limited')
                 return False, "Rate limit exceeded for this webhook endpoint. Please try again later.", None
 
+            # Check if user has webhook notifications enabled in preferences
+            pref = None
+            try:
+                if hasattr(NotificationPreference, 'get_for_user'):
+                    pref = NotificationPreference.get_for_user(user_id)
+                    if pref and not pref.webhook_enabled:
+                        logger.info(f"Webhook replay allowed despite user preferences being disabled (replays are exempt)")
+            except Exception as e:
+                logger.debug(f"Could not check user notification preferences: {str(e)}")
+
             # Create a new delivery based on the failed one
             event_type = delivery.event_type
             payload = delivery.payload
@@ -839,7 +894,8 @@ class WebhookService:
                 'success_rate': round(success_rate, 1),
                 'average_response_time_ms': round(avg_response_time, 2) if avg_response_time else None,
                 'is_active': subscription.is_active,
-                'target_url': subscription.target_url
+                'target_url': subscription.target_url,
+                'webhook_notifications_preference': WebhookService._get_user_webhook_preference_status(user_id)
             }
 
         except Exception as e:
@@ -1023,6 +1079,42 @@ class WebhookService:
             return 0, errors
 
     @staticmethod
+    def get_subscriptions_by_event_type(event_type: str, active_only: bool = True) -> List[WebhookSubscription]:
+        """
+        Get all subscriptions for a specific event type.
+
+        Args:
+            event_type: The event type to find subscriptions for
+            active_only: If True, only return active subscriptions
+
+        Returns:
+            List of WebhookSubscription objects
+        """
+        try:
+            query = WebhookSubscription.query.filter(WebhookSubscription.event_types.contains([event_type]))
+
+            if active_only:
+                query = query.filter_by(is_active=True)
+
+            # Filter based on user notification preferences
+            if event_type in (WEBHOOK_EVENT_NOTIFICATION_PREFERENCE_UPDATED,
+                             WEBHOOK_EVENT_COMMUNICATION_PREFERENCE_UPDATED):
+                if hasattr(NotificationPreference, 'query'):
+                    # Get users who have webhook enabled
+                    enabled_user_ids = [pref.user_id for pref in
+                                       NotificationPreference.query.filter_by(webhook_enabled=True).all()]
+
+                    if enabled_user_ids:
+                        query = query.filter(WebhookSubscription.user_id.in_(enabled_user_ids))
+                    else:
+                        return []  # No users have webhook notifications enabled
+
+            return query.all()
+        except Exception as e:
+            logger.error(f"Error finding subscriptions for event type {event_type}: {str(e)}")
+            return []
+
+    @staticmethod
     def _is_rate_limited(subscription) -> bool:
         """
         Check if a subscription is currently rate limited.
@@ -1195,6 +1287,111 @@ class WebhookService:
         except Exception as e:
             # Best effort, don't fail if this doesn't work
             logger.warning(f"Failed to record webhook delivery event: {e}")
+
+    @staticmethod
+    def _get_user_webhook_preference_status(user_id: int) -> Dict[str, Any]:
+        """
+        Get the webhook notification preference status for a user.
+
+        Args:
+            user_id: The user ID to check
+
+        Returns:
+            Dictionary with preference status information
+        """
+        result = {
+            'webhook_enabled': False,
+            'exists': False
+        }
+
+        try:
+            if hasattr(NotificationPreference, 'get_for_user'):
+                pref = NotificationPreference.get_for_user(user_id)
+                if pref:
+                    result['exists'] = True
+                    result['webhook_enabled'] = pref.webhook_enabled
+
+                    # Get additional subscribed categories if available
+                    if hasattr(pref, 'subscribed_categories'):
+                        result['subscribed_categories'] = pref.subscribed_categories
+        except Exception as e:
+            logger.debug(f"Could not get webhook preference status for user {user_id}: {str(e)}")
+
+        return result
+
+    @staticmethod
+    def sync_with_user_preferences() -> Tuple[int, int, List[str]]:
+        """
+        Synchronize webhook subscriptions with user notification preferences.
+
+        This can be used to bulk-enable or disable webhook subscriptions based on
+        user notification preferences. It will only affect subscriptions related to
+        notification/integrity events.
+
+        Returns:
+            Tuple of (updated_count, error_count, error_messages)
+        """
+        updated_count = 0
+        error_count = 0
+        errors = []
+
+        notification_event_types = [
+            WEBHOOK_EVENT_NOTIFICATION_PREFERENCE_UPDATED,
+            WEBHOOK_EVENT_COMMUNICATION_PREFERENCE_UPDATED,
+            # Add other notification-related event types here
+        ]
+
+        try:
+            # Get users with webhook notifications disabled
+            disabled_users = []
+            if hasattr(NotificationPreference, 'query'):
+                disabled_users = [
+                    pref.user_id for pref in NotificationPreference.query.filter_by(webhook_enabled=False).all()
+                ]
+
+            if not disabled_users:
+                return 0, 0, ["No users with webhook notifications disabled"]
+
+            # Find active webhook subscriptions that should be disabled
+            subscriptions_to_disable = WebhookSubscription.query.filter(
+                WebhookSubscription.is_active == True,
+                WebhookSubscription.user_id.in_(disabled_users)
+            ).all()
+
+            # Filter to only notification-related subscriptions
+            subscriptions_to_update = []
+            for sub in subscriptions_to_disable:
+                for event_type in notification_event_types:
+                    if event_type in sub.event_types:
+                        subscriptions_to_update.append(sub)
+                        break
+
+            # Update subscriptions
+            for sub in subscriptions_to_update:
+                try:
+                    sub.is_active = False
+                    sub.updated_at = datetime.now(timezone.utc)
+                    updated_count += 1
+
+                    # Clear cache for this subscription
+                    cache_key = f"webhook:sub:{sub.id}"
+                    if hasattr(current_app, 'cache'):
+                        current_app.cache.delete(cache_key)
+                except Exception as e:
+                    error_count += 1
+                    errors.append(f"Error updating subscription {sub.id}: {str(e)}")
+
+            if updated_count > 0:
+                db.session.commit()
+                metrics.increment('webhook.subscription.preference_sync', updated_count)
+                logger.info(f"Synchronized {updated_count} webhook subscriptions with user preferences")
+
+            return updated_count, error_count, errors
+
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Error synchronizing webhook subscriptions with user preferences: {str(e)}")
+            return 0, 1, [f"Error: {str(e)}"]
 
 
 # Define what is exported when using 'from services import *'

@@ -27,16 +27,14 @@ class ServiceStatus(Enum):
     """Status values for service operations."""
     SUCCESS = auto()
     ERROR = auto()
-    WARNING = auto()
     PENDING = auto()
-    UNAVAILABLE = auto()
-    UNAUTHORIZED = auto()
-    FORBIDDEN = auto()
+    WARNING = auto()
     NOT_FOUND = auto()
+    UNAUTHORIZED = auto()
+    INVALID_REQUEST = auto()
+    UNAVAILABLE = auto()
     TIMEOUT = auto()
-    CONFLICT = auto()
-    TOO_MANY_REQUESTS = auto()
-    RESOURCE_EXHAUSTED = auto()
+    RATE_LIMITED = auto()
 
 # ============================================================================
 # Notification Constants
@@ -51,27 +49,81 @@ CHANNEL_WEBHOOK = 'webhook'
 # Notification categories
 NOTIFICATION_CATEGORY_SYSTEM = 'system'          # System-level notifications
 NOTIFICATION_CATEGORY_SECURITY = 'security'      # Security-related notifications
-NOTIFICATION_CATEGORY_USER = 'user'             # User-specific notifications
-NOTIFICATION_CATEGORY_ADMIN = 'admin'           # Administrative notifications
-NOTIFICATION_CATEGORY_MAINTENANCE = 'maintenance' # Maintenance notifications
-NOTIFICATION_CATEGORY_MONITORING = 'monitoring'  # System monitoring notifications
+NOTIFICATION_CATEGORY_USER = 'user'              # User-related notifications
+NOTIFICATION_CATEGORY_ADMIN = 'admin'            # Administrative notifications
+NOTIFICATION_CATEGORY_MAINTENANCE = 'maintenance'# Scheduled maintenance notices
+NOTIFICATION_CATEGORY_MONITORING = 'monitoring'  # Monitoring alerts and metrics
 NOTIFICATION_CATEGORY_COMPLIANCE = 'compliance'  # Compliance-related notifications
-NOTIFICATION_CATEGORY_INTEGRITY = 'integrity'    # File integrity notifications
-NOTIFICATION_CATEGORY_AUDIT = 'audit'           # Audit-related notifications
-NOTIFICATION_CATEGORY_SCAN = 'scan'             # Security scan notifications
+NOTIFICATION_CATEGORY_INTEGRITY = 'integrity'    # File integrity monitoring alerts
+NOTIFICATION_CATEGORY_AUDIT = 'audit'            # Audit log related notifications
+NOTIFICATION_CATEGORY_SCAN = 'scan'              # Security scan notifications
 NOTIFICATION_CATEGORY_VULNERABILITY = 'vulnerability'  # Vulnerability notifications
-NOTIFICATION_CATEGORY_INCIDENT = 'incident'     # Security incident notifications
+NOTIFICATION_CATEGORY_INCIDENT = 'incident'      # Security incident notifications
 
-# Notification priorities
-class NotificationPriority(Enum):
-    """Priority levels for notifications."""
-    LOW = 10
-    NORMAL = 20
-    HIGH = 30
-    URGENT = 40
-    CRITICAL = 50
+# Define how long notifications are kept before automatic deletion/archiving
+NOTIFICATION_EXPIRY_DAYS = 30  # Notifications older than this are archived
 
-# Notification preferences - matches NotificationPreference model
+# ============================================================================
+# SMS Service Constants
+# ============================================================================
+
+# SMS default region - used for phone number parsing when region is not specified
+SMS_DEFAULT_REGION = 'US'
+
+# Maximum SMS message length (standard SMS limit)
+SMS_MAX_LENGTH = 160
+
+# Default number of retry attempts for failed SMS deliveries
+SMS_RETRY_COUNT = 3
+
+# SMS priority levels
+SMS_CRITICAL_PRIORITY = 'critical'  # Highest priority, for critical alerts
+SMS_HIGH_PRIORITY = 'high'          # High priority, for urgent notifications
+SMS_MEDIUM_PRIORITY = 'medium'      # Medium priority, for normal notifications
+SMS_LOW_PRIORITY = 'low'            # Low priority, for informational notifications
+
+# Rate limiting settings
+SMS_RATE_LIMIT_WINDOW = 300          # Rate limit window in seconds (5 minutes)
+SMS_RATE_LIMIT_MAX_PER_USER = 5      # Maximum messages per user in the window
+
+# List of allowed domains for SMS communications (empty list = no restriction)
+SMS_ALLOWED_DOMAINS = []
+
+# SMS delivery status codes (normalized across providers)
+SMS_STATUS_QUEUED = 'queued'         # Message is queued for delivery
+SMS_STATUS_SENDING = 'sending'       # Message is being sent
+SMS_STATUS_SENT = 'sent'             # Message has been sent to provider
+SMS_STATUS_DELIVERED = 'delivered'   # Message delivered to recipient
+SMS_STATUS_FAILED = 'failed'         # Message delivery failed
+SMS_STATUS_UNDELIVERABLE = 'undeliverable' # Message cannot be delivered
+SMS_STATUS_UNKNOWN = 'unknown'       # Status is unknown
+
+# Provider-specific integration settings
+SMS_PROVIDER_SETTINGS = {
+    'twilio': {
+        'use_messaging_service': True,  # Whether to use messaging service for high priority
+        'status_check_interval': 60,    # Seconds between status checks
+        'max_concurrent_requests': 10,  # Max parallel API requests
+        'verify_ssl': True              # Whether to verify SSL certificates
+    },
+    'aws_sns': {
+        'promotional_limit': 100,       # Daily limit for promotional messages
+        'transactional_limit': 200,     # Daily limit for transactional messages
+        'attributes_per_message': 10,   # Maximum number of attributes per message
+    },
+    'messagebird': {
+        'datacoding': 'auto',           # Either 'plain', 'unicode', or 'auto'
+        'validity': 86400,              # Message validity period in seconds (24 hours)
+        'gateway': 0                    # MessageBird gateway to use (0 = default)
+    },
+    'vonage': {
+        'account_ref': '',              # Account reference for billing
+        'callback_url': '',             # URL for delivery receipts
+        'message_class': 1              # Message class (0-3)
+    }
+}
+
+# Notification preference - priority threshold constants
 NOTIFICATION_PRIORITY_THRESHOLD_LOW = 'low'
 NOTIFICATION_PRIORITY_THRESHOLD_MEDIUM = 'medium'
 NOTIFICATION_PRIORITY_THRESHOLD_HIGH = 'high'
@@ -110,82 +162,68 @@ DEFAULT_HASH_ALGORITHM = 'sha256'
 DEFAULT_BASELINE_FILE_PATH = Path('instance/security/baseline.json')
 DEFAULT_BACKUP_PATH_TEMPLATE = 'instance/security/baseline_backups/{timestamp}.json'
 DEFAULT_FILE_INTEGRITY_CHECK_INTERVAL = 3600  # 1 hour in seconds
-MAX_BASELINE_UPDATE_FILES = 100
-AUTO_UPDATE_LIMIT = 10
-DEFAULT_BASELINE_BACKUP_COUNT = 5
+MAX_BASELINE_UPDATE_FILES = 1000
+AUTO_UPDATE_LIMIT = 10  # Maximum number of files to auto-update in one check
+DEFAULT_BASELINE_BACKUP_COUNT = 5  # Number of backups to keep
 
-# File integrity change status values
-INTEGRITY_STATUS_UNCHANGED = 'unchanged'
-INTEGRITY_STATUS_CHANGED = 'changed'
-INTEGRITY_STATUS_MISSING = 'missing'
-INTEGRITY_STATUS_NEW = 'new'
-INTEGRITY_STATUS_ERROR = 'error'
+# File integrity status codes
+INTEGRITY_STATUS_UNCHANGED = 'unchanged'  # File matches the baseline
+INTEGRITY_STATUS_CHANGED = 'changed'      # File has been modified
+INTEGRITY_STATUS_MISSING = 'missing'      # File in baseline is missing
+INTEGRITY_STATUS_NEW = 'new'              # File exists but not in baseline
+INTEGRITY_STATUS_ERROR = 'error'          # Error checking file
 
-# File integrity severity levels
+# File integrity violation severity levels
 INTEGRITY_SEVERITY_CRITICAL = 'critical'
 INTEGRITY_SEVERITY_HIGH = 'high'
 INTEGRITY_SEVERITY_MEDIUM = 'medium'
 INTEGRITY_SEVERITY_LOW = 'low'
 
-# File change severity mappings
-FILE_CHANGE_SEVERITY_MAP: Dict[str, str] = {
-    'missing': INTEGRITY_SEVERITY_HIGH,
-    'changed': INTEGRITY_SEVERITY_HIGH,
-    'modified': INTEGRITY_SEVERITY_HIGH,
-    'new': INTEGRITY_SEVERITY_MEDIUM,
-    'permission': INTEGRITY_SEVERITY_CRITICAL,
-    'owner': INTEGRITY_SEVERITY_HIGH,
-    'timestamp': INTEGRITY_SEVERITY_LOW,
-    'checksum': INTEGRITY_SEVERITY_HIGH,
+# Map directory/file patterns to severity levels
+FILE_CHANGE_SEVERITY_MAP = {
+    # Critical files
+    'config/security/*.py': INTEGRITY_SEVERITY_CRITICAL,
+    'core/security/*.py': INTEGRITY_SEVERITY_CRITICAL,
+    'services/security_service.py': INTEGRITY_SEVERITY_CRITICAL,
+
+    # High severity
+    'config/*.py': INTEGRITY_SEVERITY_HIGH,
+    'core/*.py': INTEGRITY_SEVERITY_HIGH,
+    'services/*.py': INTEGRITY_SEVERITY_HIGH,
+    'models/*.py': INTEGRITY_SEVERITY_HIGH,
+    'app.py': INTEGRITY_SEVERITY_HIGH,
+
+    # Medium severity
+    'api/*.py': INTEGRITY_SEVERITY_MEDIUM,
+    'blueprints/*.py': INTEGRITY_SEVERITY_MEDIUM,
+
+    # Low severity - everything else
+    '*': INTEGRITY_SEVERITY_LOW
 }
 
-# Critical file patterns - files that need extra verification
-CRITICAL_FILE_PATTERNS: List[str] = [
-    'app.py',
-    'wsgi.py',
-    'config/*.py',
-    'config/*.ini',
-    'config/*.json',
+# Patterns for critical files that should never change unexpectedly
+CRITICAL_FILE_PATTERNS = [
+    'config/security/*.py',
     'core/security/*.py',
-    'core/middleware.py',
-    'services/security_service.py',
-    'services/scanning_service.py'
+    'app.py',
+    'services/security_service.py'
 ]
 
-# File Integrity Validation Constants
+# File integrity monitoring constants
 FILE_INTEGRITY_CONSTANTS = {
-    'MAX_HASH_RETRIES': 3,
-    'HASH_BUFFER_SIZE': 65536,  # 64kb chunks for hashing
-    'MAX_VERIFICATION_TIME': 300,  # 5 min timeout for verification
-    'REQUIRED_PERMISSIONS': 0o644  # Default secure file permissions
-}
-
-# File integrity notification settings
-FILE_INTEGRITY_NOTIFICATION_SETTINGS = {
-    'NOTIFY_ON_CRITICAL': True,           # Always notify on critical changes
-    'NOTIFY_ON_HIGH_SEVERITY': True,      # Always notify on high severity changes
-    'NOTIFY_ON_MEDIUM_SEVERITY': False,   # Only notify on medium severity with other context
-    'CRITICAL_THRESHOLD': 1,              # Notify if ≥ 1 critical change
-    'HIGH_SEVERITY_THRESHOLD': 3,         # Notify if ≥ 3 high severity changes
-    'MEDIUM_SEVERITY_THRESHOLD': 5,       # Notify if ≥ 5 medium severity changes
-    'BULK_CHANGE_THRESHOLD': 10,          # Notify if ≥ 10 total changes
-    'NOTIFICATION_COOLDOWN': 3600,        # Seconds between notifications for same issue (1 hour)
-    'STAKEHOLDER_ROLES': ['security_admin', 'system_admin', 'compliance_officer']
-}
-
-# File integrity baseline update strategies
-FILE_INTEGRITY_UPDATE_STRATEGIES = {
-    'AUTO_APPROVE_NON_CRITICAL': True,    # Auto-approve updates for non-critical files
-    'APPROVAL_REQUIRED_FOR_CRITICAL': True, # Require approval for critical files
-    'MAX_AUTO_APPROVED_CHANGES': 50,      # Maximum number of auto-approved changes
+    'MAX_FILE_SIZE': 50 * 1024 * 1024,  # Maximum size of files to check (50MB)
+    'IGNORE_PATTERNS': [                # File patterns to ignore
+        '__pycache__/*',
+        '*.pyc',
+        '*.log',
+        'logs/*',
+        'instance/tmp/*',
+        '.git/*'
+    ],
     'REQUIRE_CHANGE_JUSTIFICATION': True, # Require justification for changes in production
     'KEEP_PREVIOUS_HASHES': 3,            # Number of previous hashes to keep
     'UPDATE_NOTIFICATION_THRESHOLD': 'high', # Notify on updates to files with severity >= threshold
 }
-
-# ============================================================================
-# Scanning Service Constants
-# ============================================================================
 
 # Scan status values
 SCAN_STATUS_PENDING = 'pending'
@@ -241,96 +279,62 @@ DEFAULT_SCAN_PROFILES: Dict[str, Dict[str, Any]] = {
     "full": {
         "id": "full",
         "name": "Full Scan",
-        "description": "Comprehensive deep scan across all security dimensions",
-        "scan_types": [SCAN_TYPE_VULNERABILITY, SCAN_TYPE_CONFIGURATION, SCAN_TYPE_COMPLIANCE,
-                     SCAN_TYPE_POSTURE, SCAN_TYPE_CODE],
+        "description": "In-depth security analysis across all systems",
+        "scan_types": [
+            SCAN_TYPE_VULNERABILITY, SCAN_TYPE_CONFIGURATION,
+            SCAN_TYPE_COMPLIANCE, SCAN_TYPE_POSTURE, SCAN_TYPE_CONTAINER
+        ],
         "intensity": "high",
         "is_default": False,
         "parameters": {
             "depth": "high",
             "parallel_checks": 2,
             "timeout": 7200,
-            "non_invasive": False,
-            "follow_dependencies": True
+            "non_invasive": False
         }
     },
     "compliance": {
         "id": "compliance",
         "name": "Compliance Scan",
-        "description": "Focused on regulatory compliance requirements",
-        "scan_types": [SCAN_TYPE_COMPLIANCE, SCAN_TYPE_CONFIGURATION, SCAN_TYPE_IAM],
+        "description": "Focused scan for regulatory compliance",
+        "scan_types": [SCAN_TYPE_COMPLIANCE, SCAN_TYPE_CONFIGURATION],
         "intensity": "standard",
         "is_default": False,
         "parameters": {
             "depth": "medium",
             "parallel_checks": 4,
-            "timeout": 3600,
-            "frameworks": ["pci-dss", "hipaa", "gdpr", "iso27001"]
-        }
-    },
-    "code": {
-        "id": "code",
-        "name": "Code Security Scan",
-        "description": "Static analysis of source code for security vulnerabilities",
-        "scan_types": [SCAN_TYPE_CODE],
-        "intensity": "standard",
-        "is_default": False,
-        "parameters": {
-            "depth": "medium",
-            "parallel_checks": 4,
-            "timeout": 1800,
-            "languages": ["python", "javascript", "typescript", "java", "go"],
-            "include_dependencies": True
-        }
-    },
-    "container": {
-        "id": "container",
-        "name": "Container Security Scan",
-        "description": "Scans container images for vulnerabilities and misconfigurations",
-        "scan_types": [SCAN_TYPE_CONTAINER, SCAN_TYPE_VULNERABILITY],
-        "intensity": "standard",
-        "is_default": False,
-        "parameters": {
-            "depth": "medium",
-            "parallel_checks": 2,
-            "timeout": 1200,
-            "scan_layers": True,
-            "check_base_images": True
+            "timeout": 5400,
+            "non_invasive": True,
+            "compliance_frameworks": ["PCI-DSS", "HIPAA", "GDPR", "SOC2"]
         }
     }
 }
 
-# Maximum number of concurrent scans
+# Maximum number of concurrent scans allowed
 MAX_CONCURRENT_SCANS = 5
 
-# Scan severity levels
+# Scan finding severity levels
 SCAN_SEVERITY_CRITICAL = 'critical'
 SCAN_SEVERITY_HIGH = 'high'
 SCAN_SEVERITY_MEDIUM = 'medium'
 SCAN_SEVERITY_LOW = 'low'
 SCAN_SEVERITY_INFO = 'info'
 
-# Scan Failure Thresholds
+# Configure failure thresholds for scan severity levels
 SCAN_FAILURE_THRESHOLDS = {
-    'MAX_CONSECUTIVE_FAILURES': 3,
-    'FAILURE_WINDOW_HOURS': 24,
-    'MAX_RETRY_COUNT': 2
+    'production': {
+        SCAN_SEVERITY_CRITICAL: 0,  # Any critical finding fails the scan
+        SCAN_SEVERITY_HIGH: 5,      # More than 5 high findings fails the scan
+        SCAN_SEVERITY_MEDIUM: 20,   # More than 20 medium findings fails the scan
+    },
+    'staging': {
+        SCAN_SEVERITY_CRITICAL: 2,  # More than 2 critical findings fails the scan
+        SCAN_SEVERITY_HIGH: 10,     # More than 10 high findings fails the scan
+    },
+    'development': {
+        SCAN_SEVERITY_CRITICAL: 5,  # More than 5 critical findings fails the scan
+    }
 }
-
-# User communication preference settings for scan notifications
-SCAN_COMMUNICATION_SETTINGS = {
-    'DEFAULT_NOTIFICATION_THRESHOLD': SCAN_SEVERITY_HIGH,
-    'NOTIFY_ON_SCAN_START': False,
-    'NOTIFY_ON_SCAN_COMPLETE': True,
-    'NOTIFY_ON_SCAN_FAILURE': True,
-    'INCLUDE_FINDING_DETAILS': True,
-    'MAX_FINDINGS_IN_NOTIFICATION': 10,
-    'INCLUDE_REMEDIATION_INFO': True
-}
-
-# ============================================================================
-# Webhook Service Constants
-# ============================================================================
 
 # Webhook event types
 WEBHOOK_EVENT_SECURITY_SCAN_STARTED = 'security.scan.started'
@@ -366,121 +370,67 @@ EMAIL_TEMPLATE_PASSWORD_RESET = 'password_reset.html'
 EMAIL_TEMPLATE_VERIFICATION = 'verification.html'
 EMAIL_TEMPLATE_BASELINE_UPDATED = 'baseline_updated.html'
 EMAIL_TEMPLATE_PREFERENCE_CONFIRMATION = 'preference_confirmation.html'
-EMAIL_TEMPLATE_DIGEST = 'notification_digest.html'
+EMAIL_TEMPLATE_DIGEST = 'digest.html'
 
 # ============================================================================
 # Monitoring Service Constants
 # ============================================================================
 
-# Health check status values
+# Health check status codes
 HEALTH_STATUS_HEALTHY = 'healthy'
 HEALTH_STATUS_DEGRADED = 'degraded'
 HEALTH_STATUS_UNHEALTHY = 'unhealthy'
 HEALTH_STATUS_UNKNOWN = 'unknown'
 
-# Health check types
+# Health check component identifiers
 HEALTH_CHECK_DATABASE = 'database'
 HEALTH_CHECK_CACHE = 'cache'
 HEALTH_CHECK_STORAGE = 'storage'
 HEALTH_CHECK_API = 'api'
 HEALTH_CHECK_SECURITY = 'security'
 
-# Default resource thresholds
-DEFAULT_CPU_WARNING_THRESHOLD = 80.0  # Percent
-DEFAULT_MEMORY_WARNING_THRESHOLD = 85.0  # Percent
-DEFAULT_DISK_WARNING_THRESHOLD = 90.0  # Percent
-DEFAULT_OPEN_FILES_WARNING_THRESHOLD = 85.0  # Percent of max
+# Default warning thresholds for system resources
+DEFAULT_CPU_WARNING_THRESHOLD = 80  # Percent
+DEFAULT_MEMORY_WARNING_THRESHOLD = 85  # Percent
+DEFAULT_DISK_WARNING_THRESHOLD = 90  # Percent
+DEFAULT_OPEN_FILES_WARNING_THRESHOLD = 85  # Percent
 
 # ============================================================================
-# Rate Limiting Constants
+# Cache Timeout Constants
 # ============================================================================
 
-# Default rate limits for various operations
-RATE_LIMIT_DEFAULT = '100 per minute'
-RATE_LIMIT_AUTHENTICATION = '10 per minute'
-RATE_LIMIT_SECURITY_SCAN = '5 per hour'
-RATE_LIMIT_FILE_INTEGRITY_CHECK = '12 per hour'
-RATE_LIMIT_BASELINE_UPDATE = '6 per hour'
-RATE_LIMIT_PREFERENCE_UPDATE = '20 per hour'  # New rate limit for preference updates
-
-# API Rate Limit Thresholds
-API_LIMIT_THRESHOLDS = {
-    'MAX_FAILURES_PER_HOUR': 100,
-    'LOCKOUT_DURATION': 3600,  # 1 hour
-    'WARNING_THRESHOLD': 80  # Percent of limit
-}
+# Cache timeout values (in seconds)
+CACHE_TIMEOUT_SHORT = 60  # 1 minute
+CACHE_TIMEOUT_MEDIUM = 300  # 5 minutes
+CACHE_TIMEOUT_LONG = 3600  # 1 hour
+CACHE_TIMEOUT_USER_PREFERENCE = 1800  # 30 minutes
 
 # ============================================================================
-# Metric Names
+# Miscellaneous Constants
 # ============================================================================
 
-# Security metrics
-METRIC_SECURITY_SCAN_STARTED = 'security.scan.started'
-METRIC_SECURITY_SCAN_COMPLETED = 'security.scan.completed'
-METRIC_SECURITY_SCAN_FAILED = 'security.scan.failed'
-METRIC_SECURITY_FINDING_DETECTED = 'security.finding.detected'
-METRIC_FILE_INTEGRITY_CHECK = 'security.file_integrity.check'
-METRIC_FILE_INTEGRITY_VIOLATION = 'security.file_integrity.violation'
-METRIC_BASELINE_UPDATE = 'security.baseline.update'
-
-# Notification metrics
-METRIC_NOTIFICATION_SENT = 'notification.sent'
-METRIC_NOTIFICATION_FAILED = 'notification.failed'
-
-# Webhook metrics
-METRIC_WEBHOOK_DELIVERED = 'webhook.delivered'
-METRIC_WEBHOOK_FAILED = 'webhook.failed'
-
-# User preference metrics
-METRIC_PREFERENCE_UPDATED = 'user.preference.updated'
-METRIC_PREFERENCE_ACCESSED = 'user.preference.accessed'
-METRIC_EMAIL_PREFERENCE_OPT_OUT = 'user.preference.email_opt_out'
-METRIC_EMAIL_PREFERENCE_OPT_IN = 'user.preference.email_opt_in'
-
-# ============================================================================
-# Cache Keys and Timeouts
-# ============================================================================
-
-# Cache key prefixes
-CACHE_KEY_PREFIX_SCAN = 'scan:'
-CACHE_KEY_PREFIX_FILE_INTEGRITY = 'file_integrity:'
-CACHE_KEY_PREFIX_SECURITY = 'security:'
-CACHE_KEY_PREFIX_USER_PREFERENCE = 'user_pref:'  # New prefix for user preferences
-
-# Cache timeouts (in seconds)
-CACHE_TIMEOUT_SHORT = 300  # 5 minutes
-CACHE_TIMEOUT_MEDIUM = 1800  # 30 minutes
-CACHE_TIMEOUT_LONG = 86400  # 24 hours
-CACHE_TIMEOUT_USER_PREFERENCE = 600  # 10 minutes, specific to user preferences
-
-# ============================================================================
-# Other Constants
-# ============================================================================
-
-# Maximum number of audit log items to return by default
+# Default limit for audit log retrieval
 DEFAULT_AUDIT_LOG_LIMIT = 100
 
-# Audit Log Settings
+# Settings for audit logging
 AUDIT_LOG_SETTINGS = {
-    'MAX_AGE_DAYS': 90,
-    'BATCH_SIZE': 1000,
-    'REQUIRED_FIELDS': ['timestamp', 'actor', 'action', 'target']
+    'RETENTION_DAYS': 90,  # Number of days to retain audit logs
+    'ROTATION_SIZE': 10485760,  # 10MB before log rotation
+    'BACKUP_COUNT': 10,  # Number of rotated files to keep
+    'SECURE_BACKUP': True  # Whether to securely store backups
 }
 
-# Default timeout values (in seconds)
-DEFAULT_REQUEST_TIMEOUT = 60
-DEFAULT_WEBHOOK_TIMEOUT = 10
-DEFAULT_SCAN_TIMEOUT = 3600
-DEFAULT_LONG_OPERATION_TIMEOUT = 300
+# Default timeouts
+DEFAULT_REQUEST_TIMEOUT = 30  # seconds
+DEFAULT_WEBHOOK_TIMEOUT = 10  # seconds
+DEFAULT_SCAN_TIMEOUT = 3600  # 1 hour
+DEFAULT_LONG_OPERATION_TIMEOUT = 7200  # 2 hours
 
-# User notification expiry (in days)
-NOTIFICATION_EXPIRY_DAYS = 30
-
-# Default limiting parameters
-DEFAULT_PAGE_SIZE = 20
+# Pagination defaults
+DEFAULT_PAGE_SIZE = 25
 MAX_PAGE_SIZE = 100
 
-# Default file size limits (in bytes)
+# File size limits
 MAX_SCAN_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 MAX_BASELINE_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 SMALL_FILE_THRESHOLD = 10240  # 10KB (small files can use different hashing strategy)
@@ -579,24 +529,10 @@ __all__ = [
     'DEFAULT_DISK_WARNING_THRESHOLD', 'DEFAULT_OPEN_FILES_WARNING_THRESHOLD',
 
     # Rate Limiting Constants
-    'RATE_LIMIT_DEFAULT', 'RATE_LIMIT_AUTHENTICATION',
-    'RATE_LIMIT_SECURITY_SCAN', 'RATE_LIMIT_FILE_INTEGRITY_CHECK',
-    'RATE_LIMIT_BASELINE_UPDATE', 'RATE_LIMIT_PREFERENCE_UPDATE',
-    'API_LIMIT_THRESHOLDS',
+    'RATE_LIMIT_AUTHENTICATED', 'RATE_LIMIT_ANONYMOUS',
+    'RATE_LIMIT_LOGIN', 'RATE_LIMIT_REGISTER', 'RATE_LIMIT_PASSWORD_RESET',
 
-    # Metric Names
-    'METRIC_SECURITY_SCAN_STARTED', 'METRIC_SECURITY_SCAN_COMPLETED',
-    'METRIC_SECURITY_SCAN_FAILED', 'METRIC_SECURITY_FINDING_DETECTED',
-    'METRIC_FILE_INTEGRITY_CHECK', 'METRIC_FILE_INTEGRITY_VIOLATION',
-    'METRIC_BASELINE_UPDATE', 'METRIC_NOTIFICATION_SENT',
-    'METRIC_NOTIFICATION_FAILED', 'METRIC_WEBHOOK_DELIVERED',
-    'METRIC_WEBHOOK_FAILED', 'METRIC_PREFERENCE_UPDATED',
-    'METRIC_PREFERENCE_ACCESSED', 'METRIC_EMAIL_PREFERENCE_OPT_OUT',
-    'METRIC_EMAIL_PREFERENCE_OPT_IN',
-
-    # Cache Keys and Timeouts
-    'CACHE_KEY_PREFIX_SCAN', 'CACHE_KEY_PREFIX_FILE_INTEGRITY',
-    'CACHE_KEY_PREFIX_SECURITY', 'CACHE_KEY_PREFIX_USER_PREFERENCE',
+    # Cache Timeouts
     'CACHE_TIMEOUT_SHORT', 'CACHE_TIMEOUT_MEDIUM', 'CACHE_TIMEOUT_LONG',
     'CACHE_TIMEOUT_USER_PREFERENCE',
 
@@ -606,5 +542,13 @@ __all__ = [
     'DEFAULT_LONG_OPERATION_TIMEOUT', 'NOTIFICATION_EXPIRY_DAYS',
     'DEFAULT_PAGE_SIZE', 'MAX_PAGE_SIZE',
     'MAX_SCAN_FILE_SIZE', 'MAX_BASELINE_FILE_SIZE', 'SMALL_FILE_THRESHOLD',
-    'USER_PREFERENCE_SETTINGS'
+    'USER_PREFERENCE_SETTINGS',
+
+    # SMS Service Constants
+    'SMS_DEFAULT_REGION', 'SMS_MAX_LENGTH', 'SMS_RETRY_COUNT',
+    'SMS_CRITICAL_PRIORITY', 'SMS_HIGH_PRIORITY', 'SMS_MEDIUM_PRIORITY', 'SMS_LOW_PRIORITY',
+    'SMS_RATE_LIMIT_WINDOW', 'SMS_RATE_LIMIT_MAX_PER_USER', 'SMS_ALLOWED_DOMAINS',
+    'SMS_STATUS_QUEUED', 'SMS_STATUS_SENDING', 'SMS_STATUS_SENT',
+    'SMS_STATUS_DELIVERED', 'SMS_STATUS_FAILED', 'SMS_STATUS_UNDELIVERABLE',
+    'SMS_STATUS_UNKNOWN', 'SMS_PROVIDER_SETTINGS'
 ]
