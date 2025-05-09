@@ -178,6 +178,12 @@ try:
 except ImportError:
     logger.warning("AuthService not available")
 
+# Import AuditService if available
+try:
+    from .audit_service import AuditService
+except ImportError:
+    logger.warning("AuditService not available")
+
 try:
     from .email_service import EmailService, send_email, send_template_email, validate_email_address, test_email_configuration
     EMAIL_SERVICE_AVAILABLE = True
@@ -397,86 +403,102 @@ if SECURITY_SERVICE_AVAILABLE:
         """
         return SecurityService.schedule_integrity_check(interval_seconds, callback)
 
-    def update_file_integrity_baseline(app, baseline_path: str, changes: List[Dict[str, Any]],
-                                     auto_update_limit: int = 10,
-                                     bypass_critical_check: bool = False) -> Tuple[bool, str]:
+    def update_file_integrity_baseline(
+        baseline_path: str,
+        updates: List[Dict[str, Any]],
+        remove_missing: bool = False,
+        notify_stakeholders: bool = True
+    ) -> Tuple[bool, str]:
         """
         Update the file integrity baseline with changes.
 
-        This function is used to update the baseline when changes are detected.
-        It incorporates new file hashes into the baseline, typically used in development
-        or controlled update scenarios.
+        This function integrates with notification and audit services to ensure
+        that baseline updates are properly tracked and relevant parties are notified.
 
         Args:
-            app: Flask application instance
-            baseline_path: Path to the baseline JSON file
-            changes: List of change dictionaries from integrity check
-            auto_update_limit: Maximum number of files to auto-update (safety limit)
-            bypass_critical_check: If True, allows updating critical files (use with caution)
+            baseline_path: Path to the baseline file
+            updates: List of updates to apply, each containing path, hash, and status
+            remove_missing: Whether to remove baseline entries for missing files
+            notify_stakeholders: Whether to send notifications about major changes
 
         Returns:
             Tuple containing (success, message)
         """
+        if not SECURITY_SERVICE_AVAILABLE:
+            logger.warning("Security service not available for baseline update")
+            return False, "Security service not available"
+
         try:
-            # Import required security functions
-            from core.security.cs_file_integrity import update_file_integrity_baseline as core_update_baseline
+            # First attempt the update using the SecurityService
+            result = SecurityService.update_baseline(
+                paths_to_update=[u['path'] for u in updates if 'path' in u],
+                remove_missing=remove_missing
+            )
+            success, message = result
 
-            # Filter changes to include only those that should be updated
-            if bypass_critical_check:
-                non_critical = changes
-            else:
-                # Exclude critical/high severity changes
-                non_critical = [c for c in changes if c.get('severity') not in ('critical', 'high')]
+            if not success:
+                logger.error(f"Failed to update baseline: {message}")
+                metrics.increment('security.baseline.update_failed')
+                return result
 
-            # Safety check - don't update if too many files changed
-            if len(non_critical) > auto_update_limit and not app.config.get('BYPASS_UPDATE_LIMITS', False):
-                logger.warning(f"Too many files to update: {len(non_critical)} exceeds limit of {auto_update_limit}")
-                return False, f"Too many files to update: {len(non_critical)} exceeds safety limit"
+            # Success - log to audit trail if available
+            if 'AuditService' in globals() and hasattr(AuditService, 'log_file_integrity_event'):
+                update_details = {
+                    'baseline_path': baseline_path,
+                    'update_count': len(updates),
+                    'removed_missing': remove_missing,
+                    'timestamp': datetime.now(timezone.utc).isoformat()
+                }
 
-            if not non_critical:
-                return True, "No changes to update"
+                # Count updates by severity
+                severities = {}
+                for update in updates:
+                    severity = update.get('severity', 'medium')
+                    if severity not in severities:
+                        severities[severity] = 0
+                    severities[severity] += 1
 
-            # Format the changes for the core function
-            # The core function expects updates with 'path' and 'current_hash' keys
-            formatted_updates = []
-            for change in non_critical:
-                if 'path' in change and 'actual_hash' in change:
-                    formatted_updates.append({
-                        'path': change['path'],
-                        'current_hash': change['actual_hash']
-                    })
-                # Support alternate key names for backward compatibility
-                elif 'path' in change and 'current_hash' in change:
-                    formatted_updates.append({
-                        'path': change['path'],
-                        'current_hash': change['current_hash']
-                    })
+                update_details['severities'] = severities
 
-            if not formatted_updates:
-                logger.warning("No valid changes found to update baseline")
-                return False, "No valid changes to update"
+                AuditService.log_file_integrity_event(
+                    status='success',
+                    action='update',
+                    changes=updates,
+                    details=update_details,
+                    severity='info'
+                )
 
-            # Log the update details
-            logger.info(f"Updating baseline at {baseline_path} with {len(formatted_updates)} changes")
+            # Send notification if enabled and there are significant updates
+            if notify_stakeholders and NOTIFICATION_MODULE_AVAILABLE:
+                critical_updates = [u for u in updates if u.get('severity') == 'critical']
+                high_severity_updates = [u for u in updates if u.get('severity') == 'high']
 
-            # Update the baseline with these changes
-            result = core_update_baseline(app, baseline_path, formatted_updates)
+                if critical_updates or len(high_severity_updates) >= 3:
+                    notification_severity = 'warning' if critical_updates else 'info'
 
-            if result:
-                logger.info("File integrity baseline updated successfully")
-                return True, f"Updated baseline with {len(formatted_updates)} changes"
-            else:
-                logger.error("Failed to update file integrity baseline")
-                return False, "Failed to update baseline"
+                    try:
+                        notification_manager.send_to_stakeholders(
+                            subject="File Integrity Baseline Updated",
+                            message=f"File integrity baseline has been updated with {len(updates)} changes " +
+                                    f"({len(critical_updates)} critical, {len(high_severity_updates)} high severity).",
+                            level=notification_severity,
+                            category=NOTIFICATION_CATEGORY_INTEGRITY,
+                            data={
+                                'baseline_path': baseline_path,
+                                'total_changes': len(updates),
+                                'critical_changes': len(critical_updates),
+                                'high_severity_changes': len(high_severity_updates)
+                            }
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to send baseline update notification: {e}")
 
-        except ImportError as e:
-            logger.warning(f"Could not update baseline: cs_file_integrity module not available - {e}")
-            return False, "File integrity module not available"
-        except PermissionError as e:
-            logger.error(f"Permission error updating baseline: {str(e)}")
-            return False, f"Permission denied: {str(e)}"
+            metrics.increment('security.baseline.update_success')
+            return success, message
+
         except Exception as e:
-            logger.error(f"Error updating baseline: {str(e)}")
+            logger.error(f"Error updating file integrity baseline: {e}")
+            metrics.increment('security.baseline.update_error')
             return False, f"Error updating baseline: {str(e)}"
 
     def update_file_baseline(baseline_path: str,

@@ -13,6 +13,7 @@ Security features implemented:
 - JWT token generation for API authentication
 - Session anomaly detection
 - IP-based security controls
+- Integration with notification services
 """
 
 import base64
@@ -34,6 +35,39 @@ from core.security import (
 )
 from models import AuditLog, LoginAttempt, User, UserSession
 from extensions import db, metrics
+
+# Import notification services if available
+try:
+    from services.notification import notification_manager
+    from services.notification import (
+        NOTIFICATION_CATEGORY_SECURITY,
+        NOTIFICATION_CATEGORY_USER
+    )
+    NOTIFICATION_AVAILABLE = True
+except ImportError:
+    NOTIFICATION_AVAILABLE = False
+
+# Import constants from service_constants if available
+try:
+    from services.service_constants import (
+        AUTH_NOTIFICATION_ENABLED,
+        AUTH_SECURITY_EVENT_NOTIFICATION_DELAY,
+        AUTH_MAX_SESSIONS_PER_USER
+    )
+except ImportError:
+    # Default values if service_constants is not available
+    AUTH_NOTIFICATION_ENABLED = True
+    AUTH_SECURITY_EVENT_NOTIFICATION_DELAY = 0  # No delay by default
+    AUTH_MAX_SESSIONS_PER_USER = 5
+
+# Import audit service if available
+try:
+    from services.audit_service import AuditService
+    AUDIT_SERVICE_AVAILABLE = True
+except ImportError:
+    AUDIT_SERVICE_AVAILABLE = False
+
+logger = logging.getLogger(__name__)
 
 
 class AuthService:
@@ -92,6 +126,30 @@ class AuthService:
                 details={"username": username}
             )
 
+            # Add to audit log if available
+            if AUDIT_SERVICE_AVAILABLE:
+                AuditService.log_event(
+                    user_id=user.id if user else None,
+                    action=AuditService.EVENT_ACCESS_DENIED,
+                    target_resource="authentication",
+                    status="failure",
+                    ip_address=ip_address,
+                    details={
+                        "reason": "rate_limited",
+                        "username": username
+                    },
+                    severity="warning"
+                )
+
+            # Send security notification if available
+            if NOTIFICATION_AVAILABLE and AUTH_NOTIFICATION_ENABLED:
+                notification_manager.send_to_stakeholders(
+                    subject="Authentication rate limit triggered",
+                    message=f"IP address {ip_address} has been rate limited due to excessive login attempts.",
+                    level="warning",
+                    category=NOTIFICATION_CATEGORY_SECURITY
+                )
+
             current_app.logger.warning("IP rate limited during login: %s", ip_address)
             metrics.increment('security.auth_rate_limited')
             return False, None, "Too many login attempts. Please try again later."
@@ -112,6 +170,20 @@ class AuthService:
                 user_id=user.id
             )
 
+            # Add to audit log if available
+            if AUDIT_SERVICE_AVAILABLE:
+                AuditService.log_event(
+                    user_id=user.id,
+                    action=AuditService.EVENT_ACCESS_DENIED,
+                    target_resource="authentication",
+                    status="locked",
+                    ip_address=ip_address,
+                    details={
+                        "reason": "account_locked"
+                    },
+                    severity="warning"
+                )
+
             # Use event logging for security monitoring
             current_app.logger.warning("Login attempt on locked account: %s", username)
             metrics.increment('security.auth_locked_account')
@@ -126,6 +198,20 @@ class AuthService:
                 ip_address=ip_address,
                 user_id=user.id
             )
+
+            # Add to audit log if available
+            if AUDIT_SERVICE_AVAILABLE:
+                AuditService.log_event(
+                    user_id=user.id,
+                    action=AuditService.EVENT_ACCESS_DENIED,
+                    target_resource="authentication",
+                    status="inactive",
+                    ip_address=ip_address,
+                    details={
+                        "reason": f"account_{user.status}"
+                    },
+                    severity="warning"
+                )
 
             return False, None, f"This account is {user.status}. Please contact an administrator."
 
@@ -147,7 +233,47 @@ class AuthService:
                     ip_address=ip_address,
                     user_id=user.id
                 )
+
+                # Add to audit log if available
+                if AUDIT_SERVICE_AVAILABLE:
+                    AuditService.log_event(
+                        user_id=user.id,
+                        action=AuditService.EVENT_ACCESS_DENIED,
+                        target_resource="authentication",
+                        status="locked",
+                        ip_address=ip_address,
+                        details={
+                            "reason": "locked_after_failed_attempts",
+                            "attempt_count": user.failed_login_count
+                        },
+                        severity="warning"
+                    )
+
+                # Send security notification if available
+                if NOTIFICATION_AVAILABLE and AUTH_NOTIFICATION_ENABLED:
+                    notification_manager.send_to_stakeholders(
+                        subject=f"Account locked: {username}",
+                        message=f"User account {username} has been locked after multiple failed login attempts. IP: {ip_address}",
+                        level="warning",
+                        category=NOTIFICATION_CATEGORY_SECURITY
+                    )
+
                 return False, None, user.get_lockout_message()
+
+            # Add to audit log if available
+            if AUDIT_SERVICE_AVAILABLE:
+                AuditService.log_event(
+                    user_id=user.id,
+                    action=AuditService.EVENT_ACCESS_DENIED,
+                    target_resource="authentication",
+                    status="failure",
+                    ip_address=ip_address,
+                    details={
+                        "reason": "invalid_password",
+                        "attempt_count": user.failed_login_count
+                    },
+                    severity="warning"
+                )
 
             return False, None, "Invalid username or password"
 
@@ -185,6 +311,22 @@ class AuthService:
                 "method": "password"
             }
         )
+
+        # Add to audit log if available
+        if AUDIT_SERVICE_AVAILABLE:
+            AuditService.log_event(
+                user_id=user.id,
+                action=AuditService.EVENT_USER_LOGIN,
+                target_resource="authentication",
+                status="success",
+                ip_address=ip_address,
+                details={
+                    "user_agent": user_agent,
+                    "method": "password",
+                    "mfa_required": session.get('awaiting_mfa', False)
+                },
+                severity="info"
+            )
 
         current_app.logger.info("Successful authentication for user: %s", username)
         metrics.increment('security.auth_successful')
@@ -279,6 +421,32 @@ class AuthService:
                 user_id=user.id
             )
 
+            # Add to audit log if available
+            if AUDIT_SERVICE_AVAILABLE:
+                AuditService.log_event(
+                    user_id=user.id,
+                    action=AuditService.EVENT_USER_CREATE,
+                    target_resource="user",
+                    target_id=str(user.id),
+                    status="success",
+                    ip_address=ip_address,
+                    details={
+                        "username": username,
+                        "status": initial_status,
+                        "auto_activated": current_app.config.get('AUTO_ACTIVATE_USERS', True)
+                    },
+                    severity="info"
+                )
+
+            # Send notification to admins about new user registration
+            if NOTIFICATION_AVAILABLE and AUTH_NOTIFICATION_ENABLED:
+                notification_manager.send_to_stakeholders(
+                    subject="New user registration",
+                    message=f"New user '{username}' ({email}) has registered. Initial status: {initial_status}.",
+                    level="info",
+                    category=NOTIFICATION_CATEGORY_USER
+                )
+
             current_app.logger.info("New user registered: %s (ID: %d)", username, user.id)
             metrics.increment('security.registration_successful')
             return True, user, ""
@@ -352,8 +520,8 @@ class AuthService:
             db.session.add(user_session)
             db.session.commit()
 
-            # Trim old sessions to prevent session buildup
-            AuthService._trim_old_sessions(user.id)
+            # Trim old sessions to prevent session buildup - use service constant if available
+            AuthService._trim_old_sessions(user.id, max_sessions=AUTH_MAX_SESSIONS_PER_USER)
 
         except Exception as e:
             current_app.logger.error("Error recording user session: %s", str(e))
@@ -398,6 +566,21 @@ class AuthService:
                     user_id=user_id,
                     ip_address=ip_address
                 )
+
+                # Add to audit log if available
+                if AUDIT_SERVICE_AVAILABLE:
+                    AuditService.log_event(
+                        user_id=user_id,
+                        action=AuditService.EVENT_USER_LOGOUT,
+                        target_resource="session",
+                        target_id=session_id,
+                        status="success",
+                        ip_address=ip_address,
+                        details={
+                            "username": username
+                        },
+                        severity="info"
+                    )
 
             # Clear session
             session.clear()
@@ -466,6 +649,38 @@ class AuthService:
                             "current_ip": request.remote_addr if request else None
                         }
                     )
+
+                    # Add to audit log if available
+                    if AUDIT_SERVICE_AVAILABLE:
+                        AuditService.log_event(
+                            user_id=session.get('user_id'),
+                            action=AuditService.EVENT_SECURITY_ALERT,
+                            target_resource="session",
+                            target_id=session.get('session_id'),
+                            status="hijacking_attempt",
+                            ip_address=request.remote_addr if request else None,
+                            details={
+                                "reason": "ip_mismatch",
+                                "session_ip": session.get('ip_address'),
+                                "current_ip": request.remote_addr if request else None
+                            },
+                            severity="warning"
+                        )
+
+                    # Send security notification if available
+                    if NOTIFICATION_AVAILABLE and AUTH_NOTIFICATION_ENABLED:
+                        # Apply optional notification delay to avoid alert fatigue
+                        notification_manager.send_to_stakeholders(
+                            subject="Possible session hijacking attempt",
+                            message=(
+                                f"Session hijacking attempt detected for user {session.get('username')}\n"
+                                f"Session IP: {session.get('ip_address')}\n"
+                                f"Current IP: {request.remote_addr if request else 'unknown'}"
+                            ),
+                            level="warning",
+                            category=NOTIFICATION_CATEGORY_SECURITY
+                        )
+
                     metrics.increment('security.session_ip_mismatch')
                     return False, "Session IP validation failed"
 
@@ -482,6 +697,22 @@ class AuthService:
                         user_id=session.get('user_id'),
                         ip_address=request.remote_addr if request else None
                     )
+
+                    # Add to audit log if available
+                    if AUDIT_SERVICE_AVAILABLE:
+                        AuditService.log_event(
+                            user_id=session.get('user_id'),
+                            action=AuditService.EVENT_SECURITY_ALERT,
+                            target_resource="session",
+                            target_id=session.get('session_id'),
+                            status="hijacking_attempt",
+                            ip_address=request.remote_addr if request else None,
+                            details={
+                                "reason": "fingerprint_mismatch"
+                            },
+                            severity="warning"
+                        )
+
                     metrics.increment('security.session_fingerprint_mismatch')
                     return False, "Session validation failed"
 
@@ -529,6 +760,21 @@ class AuthService:
                 "scopes": scopes
             }
         )
+
+        # Add to audit log if available
+        if AUDIT_SERVICE_AVAILABLE:
+            AuditService.log_event(
+                user_id=user.id,
+                action=AuditService.EVENT_API_KEY_CREATE,
+                target_resource="api_token",
+                status="success",
+                ip_address=request.remote_addr if request else None,
+                details={
+                    "scopes": scopes,
+                    "expires_in": expires_in
+                },
+                severity="info"
+            )
 
         metrics.increment('security.api_token_generated')
 
@@ -584,6 +830,22 @@ class AuthService:
                         "token_scopes": token_scopes
                     }
                 )
+
+                # Add to audit log if available
+                if AUDIT_SERVICE_AVAILABLE:
+                    AuditService.log_event(
+                        user_id=user.id,
+                        action=AuditService.EVENT_ACCESS_DENIED,
+                        target_resource="api",
+                        status="insufficient_scope",
+                        ip_address=request.remote_addr if request else None,
+                        details={
+                            "required_scopes": required_scopes,
+                            "token_scopes": token_scopes
+                        },
+                        severity="warning"
+                    )
+
                 return False, None, "Token does not have required scopes"
 
         # Log successful token verification for sensitive operations
@@ -657,6 +919,22 @@ class AuthService:
                     user_id=user.id,
                     ip_address=request.remote_addr if request else None
                 )
+
+                # Add to audit log if available
+                if AUDIT_SERVICE_AVAILABLE:
+                    AuditService.log_event(
+                        user_id=user.id,
+                        action=AuditService.EVENT_API_KEY_REVOKE,
+                        target_resource="api_token",
+                        target_id=jti,
+                        status="success",
+                        ip_address=request.remote_addr if request else None,
+                        details={
+                            "jti": jti,
+                            "expires_at": expires_at.isoformat()
+                        },
+                        severity="info"
+                    )
 
                 metrics.increment('security.api_token_revoked')
                 return True
@@ -755,6 +1033,23 @@ class AuthService:
                     user_id=user.id,
                     ip_address=request.remote_addr if request else None
                 )
+
+                # Add to audit log if available
+                if AUDIT_SERVICE_AVAILABLE:
+                    AuditService.log_event(
+                        user_id=user.id,
+                        action=AuditService.EVENT_PASSWORD_CHANGE,
+                        target_resource="user_password",
+                        target_id=str(user.id),
+                        status="failure",
+                        ip_address=request.remote_addr if request else None,
+                        details={
+                            "reason": "invalid_current_password",
+                            "username": user.username
+                        },
+                        severity="warning"
+                    )
+
                 return False, "Current password is incorrect"
 
             # Validate new password
@@ -801,6 +1096,22 @@ class AuthService:
                 user_id=user.id,
                 ip_address=request.remote_addr if request else None
             )
+
+            # Add to audit log if available
+            if AUDIT_SERVICE_AVAILABLE:
+                AuditService.log_event(
+                    user_id=user.id,
+                    action=AuditService.EVENT_PASSWORD_CHANGE,
+                    target_resource="user_password",
+                    target_id=str(user.id),
+                    status="success",
+                    ip_address=request.remote_addr if request else None,
+                    details={
+                        "username": user.username,
+                        "sessions_invalidated": current_app.config.get('INVALIDATE_SESSIONS_ON_PASSWORD_CHANGE', True)
+                    },
+                    severity="info"
+                )
 
             metrics.increment('security.change_password_success')
             return True, "Password changed successfully"
@@ -870,6 +1181,35 @@ class AuthService:
                 user_id=user.id,
                 ip_address=request.remote_addr if request else None
             )
+
+            # Add to audit log if available
+            if AUDIT_SERVICE_AVAILABLE:
+                AuditService.log_event(
+                    user_id=user.id,
+                    action=AuditService.EVENT_PASSWORD_RESET,
+                    target_resource="user_password",
+                    target_id=str(user.id),
+                    status="success",
+                    ip_address=request.remote_addr if request else None,
+                    details={
+                        "username": user.username,
+                        "sessions_invalidated": True
+                    },
+                    severity="info"
+                )
+
+            # Send notification to user about password reset
+            if NOTIFICATION_AVAILABLE and AUTH_NOTIFICATION_ENABLED:
+                notification_manager.send(
+                    subject="Your password has been reset",
+                    body=f"Your password for {user.username} has been successfully reset. If you didn't request this change, please contact support immediately.",
+                    level="info",
+                    recipients=user.email,
+                    tags={
+                        "category": NOTIFICATION_CATEGORY_USER,
+                        "event_type": "password_reset"
+                    }
+                )
 
             metrics.increment('security.reset_password_success')
             return True, "Password reset successful"
@@ -951,6 +1291,22 @@ class AuthService:
                 user_id=user.id,
                 ip_address=request.remote_addr if request else None
             )
+
+            # Add to audit log if available
+            if AUDIT_SERVICE_AVAILABLE:
+                AuditService.log_event(
+                    user_id=user.id,
+                    action=AuditService.EVENT_PASSWORD_RESET,
+                    target_resource="user_password",
+                    target_id=str(user.id),
+                    status="requested",
+                    ip_address=request.remote_addr if request else None,
+                    details={
+                        "username": user.username,
+                        "expiration_hours": expiration_hours
+                    },
+                    severity="info"
+                )
 
             metrics.increment('security.password_reset_requested')
             return True, "Password reset instructions have been sent to your email address.", token
@@ -1052,6 +1408,22 @@ class AuthService:
                 ip_address=request.remote_addr if request else None
             )
 
+            # Add to audit log if available
+            if AUDIT_SERVICE_AVAILABLE:
+                AuditService.log_event(
+                    user_id=user.id,
+                    action=AuditService.EVENT_MFA_CHANGE,
+                    target_resource="user_mfa",
+                    target_id=str(user.id),
+                    status="enabled",
+                    ip_address=request.remote_addr if request else None,
+                    details={
+                        "username": user.username,
+                        "mfa_type": "totp"
+                    },
+                    severity="info"
+                )
+
             metrics.increment('security.mfa_enabled')
             return True
         except Exception as e:
@@ -1099,6 +1471,35 @@ class AuthService:
                     user_id=user.id,
                     ip_address=request.remote_addr if request else None
                 )
+
+                # Add to audit log if available
+                if AUDIT_SERVICE_AVAILABLE:
+                    AuditService.log_event(
+                        user_id=user.id,
+                        action=AuditService.EVENT_MFA_CHANGE,
+                        target_resource="user_mfa",
+                        target_id=str(user.id),
+                        status="disabled",
+                        ip_address=request.remote_addr if request else None,
+                        details={
+                            "username": user.username
+                        },
+                        severity="warning"
+                    )
+
+                # Send security notification if available
+                if NOTIFICATION_AVAILABLE and AUTH_NOTIFICATION_ENABLED:
+                    notification_manager.send_to_stakeholders(
+                        subject=f"MFA disabled for user: {user.username}",
+                        message=(
+                            f"Multi-factor authentication has been disabled for user {user.username}.\n"
+                            f"IP Address: {request.remote_addr if request else 'unknown'}\n"
+                            "This may indicate a security risk if unexpected."
+                        ),
+                        level="warning",
+                        category=NOTIFICATION_CATEGORY_SECURITY
+                    )
+
                 metrics.increment('security.mfa_disabled')
 
             return True
@@ -1142,6 +1543,23 @@ class AuthService:
                         user_id=user.id,
                         ip_address=request.remote_addr if request else None
                     )
+
+                    # Add to audit log if available
+                    if AUDIT_SERVICE_AVAILABLE:
+                        AuditService.log_event(
+                            user_id=user.id,
+                            action=AuditService.EVENT_MFA_CHANGE,
+                            target_resource="user_mfa_verification",
+                            target_id=str(user.id),
+                            status="backup_used",
+                            ip_address=request.remote_addr if request else None,
+                            details={
+                                "username": user.username,
+                                "method": "backup_code"
+                            },
+                            severity="warning"
+                        )
+
                     db.session.commit()
                     metrics.increment('security.mfa_backup_used')
                 else:
@@ -1155,6 +1573,22 @@ class AuthService:
 
                 result = AuthService.verify_totp_code(user.two_factor_secret, verification_code)
                 if result:
+                    # Add to audit log if available
+                    if AUDIT_SERVICE_AVAILABLE:
+                        AuditService.log_event(
+                            user_id=user.id,
+                            action=AuditService.EVENT_MFA_CHANGE,
+                            target_resource="user_mfa_verification",
+                            target_id=str(user.id),
+                            status="success",
+                            ip_address=request.remote_addr if request else None,
+                            details={
+                                "username": user.username,
+                                "method": "totp"
+                            },
+                            severity="info"
+                        )
+
                     metrics.increment('security.mfa_verified')
 
                 return result
@@ -1196,6 +1630,22 @@ class AuthService:
                 user_id=user.id,
                 ip_address=request.remote_addr if request else None
             )
+
+            # Add to audit log if available
+            if AUDIT_SERVICE_AVAILABLE:
+                AuditService.log_event(
+                    user_id=user.id,
+                    action=AuditService.EVENT_MFA_CHANGE,
+                    target_resource="user_mfa_backup",
+                    target_id=str(user.id),
+                    status="generated",
+                    ip_address=request.remote_addr if request else None,
+                    details={
+                        "username": user.username,
+                        "codes_count": len(codes) if codes else 0
+                    },
+                    severity="info"
+                )
 
             metrics.increment('security.mfa_backup_generated')
             return codes
@@ -1333,7 +1783,7 @@ class AuthService:
             return 0
 
     @staticmethod
-    def _trim_old_sessions(user_id: int, max_sessions: int = 5) -> None:
+    def _trim_old_sessions(user_id: int, max_sessions: int = AUTH_MAX_SESSIONS_PER_USER) -> None:
         """
         Trim old sessions when a user has too many.
 
@@ -1364,28 +1814,477 @@ class AuthService:
             for session in old_sessions:
                 session.is_active = False
                 session.revoked = True
-                session.revocation_reason = 'session_limit'
+                session.revocation_reason = 'session_limit_exceeded'
                 session.ended_at = datetime.now(timezone.utc)
 
             db.session.commit()
+
+            # Log the session trimming for security audit
+            user = User.query.get(user_id)
+            username = user.username if user else f"User #{user_id}"
+
+            log_security_event(
+                event_type=AuditLog.EVENT_SESSION_LIMIT,
+                description=f"Old sessions trimmed for user: {username}",
+                severity="info",
+                user_id=user_id,
+                details={
+                    "max_sessions": max_sessions,
+                    "sessions_removed": active_count - max_sessions
+                }
+            )
+
+            # Add to audit log if available
+            if AUDIT_SERVICE_AVAILABLE:
+                AuditService.log_event(
+                    user_id=user_id,
+                    action="user.session.trim",
+                    target_resource="user_sessions",
+                    target_id=str(user_id),
+                    status="success",
+                    details={
+                        "username": username,
+                        "max_sessions": max_sessions,
+                        "sessions_removed": active_count - max_sessions
+                    },
+                    severity="info"
+                )
+
+            # Track metric
+            metrics.increment('security.sessions_trimmed')
+            metrics.gauge('security.active_sessions_per_user', max_sessions, tags={"user_id": user_id})
+
         except Exception as e:
             db.session.rollback()
-            current_app.logger.warning(f"Error trimming old sessions: {str(e)}")
+            current_app.logger.error(f"Error trimming old sessions: {str(e)}")
+            metrics.increment('security.session_trim_error')
 
     @staticmethod
     def _get_client_ip() -> str:
         """
-        Get client IP address from request.
+        Get the client IP address from the request.
+        Handles proxy forwarding.
 
         Returns:
-            IP address string
+            str: Client IP address
         """
         if not request:
-            return '0.0.0.0'
+            return ""
 
-        # Check for proxy headers first
+        # Check for forwarded IP (handle proxies)
         if request.headers.get('X-Forwarded-For'):
-            # Return the client's IP, not the proxy
-            return request.headers['X-Forwarded-For'].split(',')[0].strip()
+            # X-Forwarded-For format: client, proxy1, proxy2, ...
+            # We want the client IP, which is the first one
+            return request.headers.get('X-Forwarded-For').split(',')[0].strip()
 
-        return request.remote_addr or '0.0.0.0'
+        return request.remote_addr or ""
+
+    @staticmethod
+    def get_active_sessions(user_id: int) -> List[Dict[str, Any]]:
+        """
+        Get all active sessions for a user.
+
+        Args:
+            user_id: User ID
+
+        Returns:
+            List of session information dictionaries
+        """
+        try:
+            sessions = UserSession.query.filter_by(
+                user_id=user_id,
+                is_active=True
+            ).order_by(UserSession.created_at.desc()).all()
+
+            result = []
+            for session in sessions:
+                # Create a sanitized session info dict
+                session_info = {
+                    "id": session.id,
+                    "session_id": session.session_id,
+                    "created_at": session.created_at.isoformat() if session.created_at else None,
+                    "last_active": session.last_active.isoformat() if session.last_active else None,
+                    "ip_address": session.ip_address,
+                    "client_type": session.client_type,
+                    "device": session.get_device_info(),
+                    "login_method": session.login_method,
+                    "is_current": session.session_id == flask.session.get('session_id')
+                }
+                result.append(session_info)
+
+            return result
+
+        except Exception as e:
+            current_app.logger.error(f"Error getting active sessions: {str(e)}")
+            return []
+
+    @staticmethod
+    def revoke_session(user_id: int, session_id: str) -> bool:
+        """
+        Revoke a specific session.
+
+        Args:
+            user_id: User ID (for authorization check)
+            session_id: Session ID to revoke
+
+        Returns:
+            bool: True if session was revoked
+        """
+        try:
+            # Get the session
+            session_record = UserSession.query.filter_by(
+                session_id=session_id,
+                is_active=True
+            ).first()
+
+            if not session_record:
+                return False
+
+            # Security check - ensure user can only revoke their own sessions
+            # unless they have elevated permissions
+            current_user_id = session.get('user_id')
+            is_admin = session.get('role') == 'admin'
+
+            if session_record.user_id != user_id and session_record.user_id != current_user_id and not is_admin:
+                log_security_event(
+                    event_type=AuditLog.EVENT_UNAUTHORIZED_ACCESS,
+                    description=f"Unauthorized attempt to revoke session",
+                    severity="warning",
+                    user_id=current_user_id,
+                    ip_address=request.remote_addr if request else None,
+                    details={
+                        "target_user_id": user_id,
+                        "target_session_id": session_id
+                    }
+                )
+                return False
+
+            # Revoke the session
+            session_record.is_active = False
+            session_record.revoked = True
+            session_record.revocation_reason = 'user_revoked'
+            session_record.ended_at = datetime.now(timezone.utc)
+            db.session.commit()
+
+            # Log security event for successful revocation
+            log_security_event(
+                event_type=AuditLog.EVENT_SESSION_REVOKED,
+                description=f"Session revoked for user #{session_record.user_id}",
+                severity="info",
+                user_id=current_user_id,
+                ip_address=request.remote_addr if request else None,
+                details={
+                    "revoked_session_id": session_id,
+                    "target_user_id": session_record.user_id
+                }
+            )
+
+            # Add to audit log if available
+            if AUDIT_SERVICE_AVAILABLE:
+                AuditService.log_event(
+                    user_id=current_user_id,
+                    action="user.session.revoke",
+                    target_resource="user_session",
+                    target_id=session_id,
+                    status="success",
+                    ip_address=request.remote_addr if request else None,
+                    details={
+                        "revoked_user_id": session_record.user_id,
+                        "revoked_by_self": session_record.user_id == current_user_id
+                    },
+                    severity="info"
+                )
+
+            # Send security notification for suspicious session revocation
+            # (if admin revoked someone else's session)
+            if NOTIFICATION_AVAILABLE and AUTH_NOTIFICATION_ENABLED and is_admin and session_record.user_id != current_user_id:
+                notification_manager.send(
+                    subject="Your session was revoked by administrator",
+                    body=f"One of your login sessions was revoked by an administrator at {datetime.now(timezone.utc).isoformat()}.",
+                    level="info",
+                    recipients=session_record.user_id,
+                    tags={
+                        "category": NOTIFICATION_CATEGORY_SECURITY,
+                        "event_type": "session_revoked"
+                    }
+                )
+
+            metrics.increment('security.session_revoked')
+            return True
+
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Error revoking session: {str(e)}")
+            metrics.increment('security.session_revoke_error')
+            return False
+
+    @staticmethod
+    def get_session_security_stats(user_id: int) -> Dict[str, Any]:
+        """
+        Get security statistics for user sessions.
+
+        Args:
+            user_id: User ID to get statistics for
+
+        Returns:
+            Dictionary with session security statistics
+        """
+        stats = {
+            "active_sessions": 0,
+            "locations": [],
+            "devices": {},
+            "suspicious_activity": False,
+            "last_password_change": None,
+            "mfa_enabled": False,
+            "recent_ip_changes": False,
+            "session_history": {
+                "last_30_days": 0,
+                "suspicious": 0
+            }
+        }
+
+        try:
+            # Get basic user info including security settings
+            user = User.query.get(user_id)
+            if not user:
+                return stats
+
+            # Add MFA status
+            stats["mfa_enabled"] = user.two_factor_enabled if hasattr(user, "two_factor_enabled") else False
+
+            # Add password change date
+            if hasattr(user, "last_password_change") and user.last_password_change:
+                stats["last_password_change"] = user.last_password_change.isoformat()
+
+            # Get active sessions
+            active_sessions = UserSession.query.filter_by(
+                user_id=user_id,
+                is_active=True
+            ).all()
+
+            stats["active_sessions"] = len(active_sessions)
+
+            # Get locations and devices
+            locations = set()
+            devices = {}
+
+            for session in active_sessions:
+                if session.ip_address:
+                    locations.add(session.ip_address)
+
+                device = session.get_device_info() if hasattr(session, "get_device_info") else session.user_agent
+                device_type = device.get('type', 'unknown') if isinstance(device, dict) else 'unknown'
+
+                if device_type not in devices:
+                    devices[device_type] = 0
+                devices[device_type] += 1
+
+            stats["locations"] = list(locations)
+            stats["devices"] = devices
+
+            # Get session history statistics
+            thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+            recent_sessions = UserSession.query.filter(
+                UserSession.user_id == user_id,
+                UserSession.created_at >= thirty_days_ago
+            ).all()
+
+            stats["session_history"]["last_30_days"] = len(recent_sessions)
+            stats["session_history"]["suspicious"] = len([
+                s for s in recent_sessions if s.is_suspicious
+            ])
+
+            # Check for recent IP changes
+            if len(active_sessions) > 1 and len(locations) > 1:
+                stats["recent_ip_changes"] = True
+
+            # Set suspicious activity flag if any suspicious sessions exist
+            stats["suspicious_activity"] = any(s.is_suspicious for s in active_sessions if hasattr(s, "is_suspicious"))
+
+            return stats
+
+        except Exception as e:
+            current_app.logger.error(f"Error getting session security stats: {str(e)}")
+            return stats
+
+    @classmethod
+    def detect_suspicious_behavior(cls, user_id: int, ip_address: str = None) -> Dict[str, Any]:
+        """
+        Detect suspicious behavior for a user based on login patterns.
+
+        Args:
+            user_id: User ID to analyze
+            ip_address: Current IP address (optional)
+
+        Returns:
+            Dictionary with suspicious behavior flags and details
+        """
+        result = {
+            "suspicious": False,
+            "reasons": [],
+            "risk_level": "low",
+            "details": {}
+        }
+
+        if not user_id:
+            return result
+
+        try:
+            # Get the current IP if not provided
+            if not ip_address and request:
+                ip_address = cls._get_client_ip()
+
+            # Get user's recent login history
+            thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+            recent_logins = UserSession.query.filter(
+                UserSession.user_id == user_id,
+                UserSession.created_at >= thirty_days_ago
+            ).order_by(UserSession.created_at.desc()).all()
+
+            if not recent_logins:
+                # No history to analyze
+                return result
+
+            # Check for unusual login locations
+            user_locations = set(s.ip_address for s in recent_logins if s.ip_address)
+
+            # If current IP is new and we have history, that's potentially suspicious
+            if ip_address and len(user_locations) > 0 and ip_address not in user_locations:
+                result["suspicious"] = True
+                result["reasons"].append("new_location")
+                result["details"]["new_ip"] = ip_address
+                result["details"]["known_ips"] = list(user_locations)
+
+            # Check for rapid location changes
+            if len(recent_logins) >= 2:
+                recent_locations = []
+                for session in recent_logins[:5]:  # Check the 5 most recent sessions
+                    if session.ip_address:
+                        recent_locations.append({
+                            'ip': session.ip_address,
+                            'time': session.created_at
+                        })
+
+                # Look for impossible travel (significant location changes in a short time)
+                for i in range(len(recent_locations) - 1):
+                    if recent_locations[i]['ip'] != recent_locations[i+1]['ip']:
+                        time_diff = (recent_locations[i]['time'] - recent_locations[i+1]['time']).total_seconds() / 3600
+                        if time_diff < 2:  # Less than 2 hours between logins from different IPs
+                            result["suspicious"] = True
+                            result["reasons"].append("impossible_travel")
+                            result["risk_level"] = "high"
+                            result["details"]["rapid_location_change"] = {
+                                "ip1": recent_locations[i+1]['ip'],
+                                "ip2": recent_locations[i]['ip'],
+                                "hours_between": round(time_diff, 1)
+                            }
+                            break
+
+            # Check for unusual time of day
+            if hasattr(user_id, 'typical_login_times'):
+                # This would be a more complex analysis based on user's normal patterns
+                pass
+
+            # Determine risk level based on number of suspicious factors
+            if len(result["reasons"]) > 1:
+                result["risk_level"] = "high"
+            elif len(result["reasons"]) == 1 and "impossible_travel" not in result["reasons"]:
+                result["risk_level"] = "medium"
+
+            return result
+
+        except Exception as e:
+            current_app.logger.error(f"Error detecting suspicious behavior: {str(e)}")
+            return result
+
+    @staticmethod
+    def check_password_reuse(user_id: int, new_password: str) -> bool:
+        """
+        Check if a password has been previously used by this user.
+
+        Args:
+            user_id: User ID
+            new_password: Password to check for reuse
+
+        Returns:
+            True if password has been used before, False otherwise
+        """
+        try:
+            user = User.query.get(user_id)
+            if not user:
+                return False
+
+            # If the user model supports password history checking
+            if hasattr(user, 'has_used_password'):
+                return user.has_used_password(new_password)
+
+            # Fallback to just checking current password
+            return user.check_password(new_password)
+
+        except Exception as e:
+            current_app.logger.error(f"Error checking password reuse: {str(e)}")
+            return False
+
+    @staticmethod
+    def get_login_history(user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Get login history for a user.
+
+        Args:
+            user_id: User ID
+            limit: Maximum number of history entries to return
+
+        Returns:
+            List of login history entries
+        """
+        result = []
+
+        try:
+            sessions = UserSession.query.filter_by(
+                user_id=user_id
+            ).order_by(UserSession.created_at.desc()).limit(limit).all()
+
+            for session in sessions:
+                entry = {
+                    "timestamp": session.created_at.isoformat() if session.created_at else None,
+                    "ip_address": session.ip_address,
+                    "user_agent": session.user_agent,
+                    "success": True,  # All sessions were successful logins
+                    "method": session.login_method,
+                    "active": session.is_active,
+                    "device_info": session.get_device_info() if hasattr(session, "get_device_info") else None
+                }
+                result.append(entry)
+
+            # If audit service is available, also fetch failed login attempts
+            if AUDIT_SERVICE_AVAILABLE and AuditService:
+                failed_logins = AuditService.get_logs(
+                    user_id=user_id,
+                    action="user.login",
+                    status="failure",
+                    limit=limit,
+                    order_by="timestamp",
+                    order_direction="desc"
+                )[0]  # First element is the list of logs
+
+                for log in failed_logins:
+                    entry = {
+                        "timestamp": log.get("timestamp"),
+                        "ip_address": log.get("ip_address"),
+                        "user_agent": log.get("details", {}).get("user_agent"),
+                        "success": False,
+                        "method": log.get("details", {}).get("method", "password"),
+                        "active": False,
+                        "reason": log.get("details", {}).get("reason")
+                    }
+                    result.append(entry)
+
+            # Sort combined results by timestamp (newest first)
+            result.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+
+            # Limit to specified number
+            return result[:limit]
+
+        except Exception as e:
+            current_app.logger.error(f"Error getting login history: {str(e)}")
+            return result

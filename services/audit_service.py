@@ -29,6 +29,20 @@ except ImportError as e:
     has_app_context = lambda: False
     logging.warning(f"Core components not available for AuditService: {e}")
 
+# Check for availability of security-related components
+try:
+    from services import SECURITY_SERVICE_AVAILABLE, SCANNING_SERVICE_AVAILABLE
+    from services import (
+        check_integrity,
+        update_security_baseline,
+        verify_baseline_consistency
+    )
+    SECURITY_INTEGRATION_AVAILABLE = True
+except ImportError:
+    SECURITY_INTEGRATION_AVAILABLE = False
+    SECURITY_SERVICE_AVAILABLE = False
+    SCANNING_SERVICE_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 class AuditService:
@@ -52,6 +66,15 @@ class AuditService:
     EVENT_SECURITY_ALERT = "security.alert"
     EVENT_API_KEY_CREATE = "api_key.create"
     EVENT_API_KEY_REVOKE = "api_key.revoke"
+
+    # Security specific event types
+    EVENT_FILE_INTEGRITY_CHECK = "security.file_integrity.check"
+    EVENT_FILE_INTEGRITY_VIOLATION = "security.file_integrity.violation"
+    EVENT_BASELINE_UPDATE = "security.baseline.update"
+    EVENT_SECURITY_SCAN_START = "security.scan.start"
+    EVENT_SECURITY_SCAN_COMPLETE = "security.scan.complete"
+    EVENT_SECURITY_SCAN_FINDING = "security.scan.finding"
+    EVENT_SECURITY_CONFIG_CHANGE = "security.config.change"
 
     @staticmethod
     def log_event(
@@ -98,6 +121,23 @@ class AuditService:
             details = {}
         if not details.get('timestamp'):
             details['timestamp'] = datetime.now(timezone.utc).isoformat()
+
+        # Add source for system-generated events
+        if user_id is None and not details.get('source'):
+            details['source'] = 'system'
+            # Detect component source if possible
+            if action.startswith('security.'):
+                details['component'] = 'security'
+            elif action.startswith('user.'):
+                details['component'] = 'auth'
+            elif action.startswith('audit.'):
+                details['component'] = 'audit'
+            elif action.startswith('file.'):
+                details['component'] = 'filesystem'
+            elif action.startswith('api.'):
+                details['component'] = 'api'
+            elif action.startswith('scan.'):
+                details['component'] = 'scanner'
 
         try:
             log_entry = AuditLog(
@@ -289,6 +329,115 @@ class AuditService:
         return logs
 
     @staticmethod
+    def get_security_events(
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        limit: int = 100,
+        severity: Optional[str] = None,
+        type_filter: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get security-specific events from the audit log.
+
+        Args:
+            start_time: Start time for filtering events
+            end_time: End time for filtering events
+            limit: Maximum number of events to return
+            severity: Filter by severity level
+            type_filter: Filter by security event type (file_integrity, scan, etc.)
+
+        Returns:
+            List of security events as dictionaries
+        """
+        if not start_time:
+            start_time = datetime.now(timezone.utc) - timedelta(days=7)
+        if not end_time:
+            end_time = datetime.now(timezone.utc)
+
+        # Build the query filter
+        action_filter = "security.%"
+        if type_filter:
+            if type_filter == "file_integrity":
+                action_filter = "security.file_integrity.%"
+            elif type_filter == "scan":
+                action_filter = "security.scan.%"
+            elif type_filter == "baseline":
+                action_filter = "security.baseline.%"
+            elif type_filter == "alert":
+                action_filter = "security.alert.%"
+
+        # Get the logs
+        logs, _ = AuditService.get_logs(
+            limit=limit,
+            action=action_filter,
+            start_time=start_time,
+            end_time=end_time,
+            severity=severity,
+            order_by="timestamp",
+            order_direction="desc"
+        )
+
+        return logs
+
+    @staticmethod
+    def get_file_integrity_events(
+        days: int = 7,
+        status: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get file integrity monitoring events.
+
+        Args:
+            days: Number of days to look back
+            status: Optional status filter ('success', 'failure')
+
+        Returns:
+            List of file integrity events
+        """
+        end_time = datetime.now(timezone.utc)
+        start_time = end_time - timedelta(days=days)
+
+        logs, _ = AuditService.get_logs(
+            action="security.file_integrity.%",
+            start_time=start_time,
+            end_time=end_time,
+            status=status,
+            order_by="timestamp",
+            order_direction="desc"
+        )
+
+        return logs
+
+    @staticmethod
+    def get_scanning_events(
+        days: int = 7,
+        status: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get security scanning events.
+
+        Args:
+            days: Number of days to look back
+            status: Optional status filter ('success', 'failure')
+
+        Returns:
+            List of security scanning events
+        """
+        end_time = datetime.now(timezone.utc)
+        start_time = end_time - timedelta(days=days)
+
+        logs, _ = AuditService.get_logs(
+            action="security.scan.%",
+            start_time=start_time,
+            end_time=end_time,
+            status=status,
+            order_by="timestamp",
+            order_direction="desc"
+        )
+
+        return logs
+
+    @staticmethod
     @cache.memoize(timeout=300)  # Cache for 5 minutes
     def get_security_metrics(start_time: Optional[datetime] = None, end_time: Optional[datetime] = None) -> Dict[str, Any]:
         """
@@ -350,6 +499,59 @@ class AuditService:
                 AuditLog.timestamp.between(start_time, end_time)
             ).count()
             metrics["security_event_count"] = security_event_count
+
+            # Get file integrity-specific metrics
+            file_integrity_check_count = AuditLog.query.filter(
+                AuditLog.action == AuditService.EVENT_FILE_INTEGRITY_CHECK,
+                AuditLog.timestamp.between(start_time, end_time)
+            ).count()
+            metrics["file_integrity_check_count"] = file_integrity_check_count
+
+            file_integrity_violation_count = AuditLog.query.filter(
+                AuditLog.action == AuditService.EVENT_FILE_INTEGRITY_VIOLATION,
+                AuditLog.timestamp.between(start_time, end_time)
+            ).count()
+            metrics["file_integrity_violation_count"] = file_integrity_violation_count
+
+            # Get scanning metrics
+            scan_count = AuditLog.query.filter(
+                AuditLog.action == AuditService.EVENT_SECURITY_SCAN_START,
+                AuditLog.timestamp.between(start_time, end_time)
+            ).count()
+            metrics["security_scan_count"] = scan_count
+
+            scan_finding_count = AuditLog.query.filter(
+                AuditLog.action == AuditService.EVENT_SECURITY_SCAN_FINDING,
+                AuditLog.timestamp.between(start_time, end_time)
+            ).count()
+            metrics["security_scan_finding_count"] = scan_finding_count
+
+            # Get baseline update metrics
+            baseline_update_count = AuditLog.query.filter(
+                AuditLog.action == AuditService.EVENT_BASELINE_UPDATE,
+                AuditLog.timestamp.between(start_time, end_time)
+            ).count()
+            metrics["baseline_update_count"] = baseline_update_count
+
+            # Add security service and scanning service availability
+            if SECURITY_INTEGRATION_AVAILABLE:
+                metrics["security_service_available"] = SECURITY_SERVICE_AVAILABLE
+                metrics["scanning_service_available"] = SCANNING_SERVICE_AVAILABLE
+
+                # If SecurityService is available, get more metrics
+                if SECURITY_SERVICE_AVAILABLE:
+                    try:
+                        from services import get_integrity_status
+                        integrity_status = get_integrity_status()
+                        metrics["file_integrity_monitoring"] = {
+                            "enabled": integrity_status.get("monitoring_enabled", False),
+                            "baseline_status": integrity_status.get("baseline_status", "unknown"),
+                            "file_count": integrity_status.get("file_count", 0),
+                            "changes_detected": integrity_status.get("changes_detected", 0)
+                        }
+                    except Exception as e:
+                        logger.warning(f"Could not get integrity status: {e}")
+                        metrics["file_integrity_monitoring"] = {"error": "Failed to get status"}
 
             return metrics
 
@@ -483,6 +685,78 @@ class AuditService:
             return []
 
     @staticmethod
+    def generate_security_compliance_report(
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate a security compliance report focusing on file integrity, scanning, and other security events.
+
+        Args:
+            start_time: Start of reporting period
+            end_time: End of reporting period
+
+        Returns:
+            Dictionary with security compliance report data
+        """
+        # Get general compliance report first
+        report = AuditService.generate_compliance_report(
+            start_time=start_time,
+            end_time=end_time,
+            compliance_type="security"
+        )
+
+        # Early return on error
+        if "error" in report:
+            return report
+
+        if SECURITY_INTEGRATION_AVAILABLE:
+            # Add file integrity metrics
+            file_integrity_events = AuditService.get_file_integrity_events(
+                days=(end_time - start_time).days if start_time and end_time else 30
+            )
+
+            file_integrity_metrics = {
+                "total_events": len(file_integrity_events),
+                "checks_performed": sum(1 for e in file_integrity_events if e.get('action') == AuditService.EVENT_FILE_INTEGRITY_CHECK),
+                "violations_detected": sum(1 for e in file_integrity_events if e.get('action') == AuditService.EVENT_FILE_INTEGRITY_VIOLATION),
+                "baseline_updates": sum(1 for e in file_integrity_events if e.get('action') == AuditService.EVENT_BASELINE_UPDATE),
+            }
+
+            report["file_integrity"] = file_integrity_metrics
+
+            # Add scanning metrics
+            scan_events = AuditService.get_scanning_events(
+                days=(end_time - start_time).days if start_time and end_time else 30
+            )
+
+            scan_metrics = {
+                "total_events": len(scan_events),
+                "scans_started": sum(1 for e in scan_events if e.get('action') == AuditService.EVENT_SECURITY_SCAN_START),
+                "scans_completed": sum(1 for e in scan_events if e.get('action') == AuditService.EVENT_SECURITY_SCAN_COMPLETE),
+                "findings_detected": sum(1 for e in scan_events if e.get('action') == AuditService.EVENT_SECURITY_SCAN_FINDING),
+            }
+
+            report["security_scans"] = scan_metrics
+
+            # Get baseline consistency status if available
+            if SECURITY_SERVICE_AVAILABLE:
+                try:
+                    # Get baseline consistency status
+                    is_consistent, details = verify_baseline_consistency()
+                    report["baseline_consistency"] = {
+                        "is_consistent": is_consistent,
+                        "file_count": details.get("file_count", 0),
+                        "last_modified": details.get("last_modified"),
+                        "has_metadata": details.get("has_metadata", False),
+                        "errors": details.get("errors", [])
+                    }
+                except Exception as e:
+                    logger.warning(f"Could not verify baseline consistency: {e}")
+
+        return report
+
+    @staticmethod
     def generate_compliance_report(
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
@@ -514,6 +788,11 @@ class AuditService:
             }
 
         try:
+            # If this is a security compliance report and we have security integration,
+            # use the specialized function instead
+            if compliance_type == "security" and SECURITY_INTEGRATION_AVAILABLE and SECURITY_SERVICE_AVAILABLE:
+                return AuditService.generate_security_compliance_report(start_time, end_time)
+
             report = {
                 "title": f"{compliance_type.capitalize()} Compliance Report",
                 "period_start": start_time.isoformat(),
@@ -700,3 +979,177 @@ class AuditService:
                 "error": "Failed to purge old logs",
                 "reason": str(e)
             }
+
+    @staticmethod
+    def log_file_integrity_event(
+        status: str,
+        action: str,
+        changes: Optional[List[Dict[str, Any]]] = None,
+        details: Optional[Dict[str, Any]] = None,
+        user_id: Optional[int] = None,
+        severity: str = "info"
+    ) -> bool:
+        """
+        Log a file integrity event to the audit trail.
+
+        Args:
+            status: 'success', 'failure', or 'violation'
+            action: The specific action ('check', 'violation', 'update')
+            changes: Optional list of file changes
+            details: Optional additional details
+            user_id: User ID if action was initiated by a user, else None for system
+            severity: Event severity ('info', 'warning', 'error', 'critical')
+
+        Returns:
+            True if logging succeeded, False otherwise
+        """
+        # Determine appropriate action string
+        event_type = AuditService.EVENT_FILE_INTEGRITY_CHECK
+        if action == 'violation':
+            event_type = AuditService.EVENT_FILE_INTEGRITY_VIOLATION
+            if severity == 'info':
+                severity = 'warning'  # Violations should be at least warning level
+        elif action == 'update':
+            event_type = AuditService.EVENT_BASELINE_UPDATE
+
+        # Create event details
+        event_details = details or {}
+        if changes:
+            # Only include first 5 changes to avoid excessive log size
+            event_details['changes_summary'] = changes[:5]
+            event_details['changes_count'] = len(changes)
+
+            # Check for critical changes
+            critical_changes = [c for c in changes if c.get('severity') == 'critical']
+            if critical_changes:
+                event_details['critical_changes'] = len(critical_changes)
+                # Critical changes should elevate the event severity
+                if severity in ('info', 'warning'):
+                    severity = 'error'
+
+        # Log the event
+        return AuditService.log_event(
+            user_id=user_id,
+            action=event_type,
+            target_resource='file_integrity',
+            status=status,
+            details=event_details,
+            severity=severity
+        )
+
+    @staticmethod
+    def log_security_scan_event(
+        scan_id: str,
+        action: str,
+        scan_type: str,
+        status: str = 'success',
+        findings: Optional[Dict[str, Any]] = None,
+        user_id: Optional[int] = None,
+        severity: str = 'info'
+    ) -> bool:
+        """
+        Log a security scanning event to the audit trail.
+
+        Args:
+            scan_id: ID of the scan
+            action: Specific action ('start', 'complete', 'finding')
+            scan_type: Type of scan performed
+            status: Operation status ('success', 'failure')
+            findings: Optional scan findings
+            user_id: User ID if initiated by a user, else None
+            severity: Event severity level
+
+        Returns:
+            True if logging succeeded, False otherwise
+        """
+        # Determine appropriate event type
+        event_type = AuditService.EVENT_SECURITY_SCAN_START
+        if action == 'complete':
+            event_type = AuditService.EVENT_SECURITY_SCAN_COMPLETE
+        elif action == 'finding':
+            event_type = AuditService.EVENT_SECURITY_SCAN_FINDING
+            # Findings should have higher severity
+            if severity == 'info':
+                severity = 'warning'
+
+        # Create event details
+        details = {
+            'scan_id': scan_id,
+            'scan_type': scan_type
+        }
+
+        # Add findings information if available
+        if findings:
+            # Include finding counts by severity
+            if isinstance(findings, dict):
+                details['findings'] = findings
+            else:
+                details['findings_count'] = len(findings)
+
+            # Check for critical findings
+            if isinstance(findings, dict) and findings.get('critical', 0) > 0:
+                # Critical findings should elevate severity
+                if severity in ('info', 'warning'):
+                    severity = 'error'
+
+        # Log the event
+        return AuditService.log_event(
+            user_id=user_id,
+            action=event_type,
+            target_resource='security_scan',
+            target_id=scan_id,
+            status=status,
+            details=details,
+            severity=severity
+        )
+
+
+# Add custom audit integration for file integrity and scanning
+if SECURITY_INTEGRATION_AVAILABLE:
+    from functools import wraps
+
+    def audit_integrity_check(func):
+        """
+        Decorator to audit file integrity checks.
+
+        Usage:
+            @audit_integrity_check
+            def check_integrity(paths):
+                # Normal integrity check code
+        """
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # Capture start time
+            start_time = datetime.now(timezone.utc)
+
+            # Call the original function
+            try:
+                result = func(*args, **kwargs)
+                integrity_status, changes = result
+
+                # Log the event
+                AuditService.log_file_integrity_event(
+                    status='success' if integrity_status else 'violation',
+                    action='check' if integrity_status else 'violation',
+                    changes=changes if not integrity_status else None,
+                    details={
+                        'timestamp': start_time.isoformat(),
+                        'duration_ms': (datetime.now(timezone.utc) - start_time).total_seconds() * 1000,
+                        'files_checked': len(changes) if changes else 0
+                    },
+                    severity='info' if integrity_status else 'warning'
+                )
+                return result
+            except Exception as e:
+                # Log failure
+                AuditService.log_file_integrity_event(
+                    status='failure',
+                    action='check',
+                    details={
+                        'timestamp': start_time.isoformat(),
+                        'error': str(e)
+                    },
+                    severity='error'
+                )
+                raise
+        return wrapper
