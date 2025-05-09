@@ -764,248 +764,265 @@ if SECURITY_SERVICE_AVAILABLE:
         """
         return SecurityService.get_integrity_status()
 
-# Conditionally add scanning functions if ScanningService is available
-if SCANNING_SERVICE_AVAILABLE:
-    def run_security_scan(target: str, scan_type: str = "standard",
-                        parameters: Optional[Dict[str, Any]] = None,
-                        callback_url: Optional[str] = None) -> str:
+    def update_file_integrity_baseline_with_notifications(
+        baseline_path: str,
+        changes: List[Dict[str, Any]],
+        remove_missing: bool = False,
+        notify: bool = True,
+        audit: bool = True,
+        severity_threshold: str = 'high',
+        update_limit: int = AUTO_UPDATE_LIMIT
+    ) -> Tuple[bool, str, Dict[str, Any]]:
         """
-        Run a security scan with the specified parameters.
+        Update file integrity baseline with comprehensive notification and auditing.
+
+        This function provides a unified approach to file integrity baseline updates,
+        ensuring proper notification, auditing, security checks, and rate limiting.
+        It centralizes these security operations while maintaining expected behavior.
 
         Args:
-            target: The target to scan (can be a URL, path, container image, etc.)
-            scan_type: Type of scan to run ("standard", "quick", "full", etc.)
-            parameters: Optional parameters to customize the scan
-            callback_url: Optional URL to call when scan completes
+            baseline_path: Path to the baseline file
+            changes: List of changes to apply to the baseline, each containing at minimum:
+                    - 'path': The file path
+                    - 'current_hash' or 'hash': The hash value to set
+                    - 'severity' (optional): Severity level ('critical', 'high', 'medium', 'low')
+            remove_missing: Whether to remove entries for missing files
+            notify: Whether to send notifications about significant changes
+            audit: Whether to record the update in the audit log
+            severity_threshold: Minimum severity to trigger notifications ('critical', 'high', 'medium', 'low')
+            update_limit: Maximum number of changes to apply at once (safety limit)
 
         Returns:
-            Scan ID that can be used to check status and retrieve results
+            Tuple containing:
+            - bool: Success indicator
+            - str: Status message
+            - Dict[str, Any]: Detailed statistics about the update operation
         """
-        profile = ScanningService.get_profile(scan_type)
+        if not SECURITY_SERVICE_AVAILABLE:
+            logger.warning("Security service not available for baseline update")
+            return False, "Security service not available", {"changes_applied": 0, "error": "Service unavailable"}
 
-        scan = {
-            "id": f"scan_{int(datetime.now().timestamp())}",
-            "target": target,
-            "profile_id": scan_type,
-            "parameters": parameters or {},
-            "callback_url": callback_url,
-            "status": SCAN_STATUS_PENDING,
-            "created_at": datetime.now(timezone.utc).isoformat()
+        stats = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "baseline_path": baseline_path,
+            "changes_requested": len(changes),
+            "changes_applied": 0,
+            "removed_entries": 0,
+            "changes_rejected": 0,
+            "critical_changes": 0,
+            "high_severity_changes": 0,
+            "medium_severity_changes": 0,
+            "low_severity_changes": 0,
+            "success": False,
+            "notification_sent": False,
+            "audit_logged": False,
+            "duration_ms": 0
         }
 
-        success = ScanningService.start_scan(scan)
-        if success:
-            return scan["id"]
-        else:
-            raise RuntimeError("Failed to start security scan")
+        start_time = datetime.now(timezone.utc)
 
-    def get_scan_status(scan_id: str) -> Dict[str, Any]:
-        """
-        Get the current status of a security scan.
+        # Security check: Enforce update limit
+        if len(changes) > update_limit:
+            logger.warning(f"Too many changes requested ({len(changes)}), exceeding limit of {update_limit}")
+            stats["changes_rejected"] = len(changes) - update_limit
 
-        Args:
-            scan_id: ID of the scan to check
+            # Prioritize changes by severity for safety
+            def get_severity_priority(change):
+                severity = change.get('severity', 'medium').lower()
+                priority_map = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
+                return priority_map.get(severity, 2)
 
-        Returns:
-            Dictionary with scan status information
-        """
-        return ScanningService.get_scan_status(scan_id)
+            changes = sorted(changes, key=get_severity_priority)[:update_limit]
 
-    def get_scan_results(scan_id: str) -> Dict[str, Any]:
-        """
-        Get the results of a completed security scan.
+        # Validate and count changes by severity
+        validated_changes = []
+        for change in changes:
+            # Skip invalid entries
+            if not isinstance(change, dict) or 'path' not in change:
+                stats["changes_rejected"] += 1
+                continue
 
-        Args:
-            scan_id: ID of the scan
+            # Get hash (support both 'current_hash' and 'hash' keys)
+            hash_value = change.get('current_hash') or change.get('hash')
+            if not hash_value:
+                stats["changes_rejected"] += 1
+                continue
 
-        Returns:
-            Dictionary with scan results
-        """
-        return ScanningService.get_scan_results(scan_id)
+            # Add to validated list
+            validated_changes.append(change)
 
-    def get_scan_history(limit: int = 10) -> List[Dict[str, Any]]:
-        """
-        Get history of recent security scans.
+            # Count by severity
+            severity = change.get('severity', 'medium').lower()
+            if severity == 'critical':
+                stats["critical_changes"] += 1
+            elif severity == 'high':
+                stats["high_severity_changes"] += 1
+            elif severity == 'medium':
+                stats["medium_severity_changes"] += 1
+            else:
+                stats["low_severity_changes"] += 1
 
-        Args:
-            limit: Maximum number of results to return
+        # Early return if no valid changes
+        if not validated_changes:
+            return False, "No valid changes to apply", stats
 
-        Returns:
-            List of scan history entries
-        """
-        return ScanningService.get_scan_history(limit)
+        try:
+            # Log the baseline update attempt
+            if audit and 'AuditService' in globals() and hasattr(AuditService, 'log_file_integrity_event'):
+                try:
+                    # Determine proper severity for audit
+                    audit_severity = 'info'
+                    if stats["critical_changes"] > 0:
+                        audit_severity = 'critical'
+                    elif stats["high_severity_changes"] > 0:
+                        audit_severity = 'warning'
 
-    def get_scan_profiles() -> List[Dict[str, Any]]:
-        """
-        Get available security scan profiles.
+                    AuditService.log_file_integrity_event(
+                        status='started',
+                        action='update',
+                        changes=validated_changes[:5],  # Only include the first 5 to avoid excessive logging
+                        details={
+                            'baseline_path': baseline_path,
+                            'update_count': len(validated_changes),
+                            'critical_count': stats["critical_changes"],
+                            'high_severity_count': stats["high_severity_changes"],
+                            'remove_missing': remove_missing
+                        },
+                        severity=audit_severity
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to log baseline update start event: {e}")
 
-        Returns:
-            List of scan profile configurations
-        """
-        return ScanningService.get_available_scan_profiles()
+            # First attempt the update using the SecurityService
+            result = SecurityService.update_baseline(
+                paths_to_update=[change.get('path') for change in validated_changes if 'path' in change],
+                remove_missing=remove_missing
+            )
+            success, message = result
 
-    def start_security_scan(scan_config: Dict[str, Any]) -> str:
-        """
-        Start a security scan with custom configuration.
+            # Update stats based on result
+            if success:
+                stats["success"] = True
+                stats["changes_applied"] = len(validated_changes)
 
-        Args:
-            scan_config: Complete scan configuration
+                # If we're removing missing files, try to estimate how many were removed
+                if remove_missing:
+                    # Get the new baseline to compare
+                    try:
+                        baseline_data = SecurityService._load_baseline(Path(baseline_path))
+                        new_files = baseline_data.get("files", {})
+                        # Estimate by counting paths that were in changes but not in new baseline
+                        valid_paths = {change.get('path') for change in validated_changes if 'path' in change}
+                        missing = sum(1 for path in valid_paths if path not in new_files)
+                        stats["removed_entries"] = missing
+                    except Exception:
+                        # If we can't determine, just use 0
+                        pass
 
-        Returns:
-            Scan ID
-        """
-        success = ScanningService.start_scan(scan_config)
-        if success:
-            return scan_config.get("id", "unknown")
-        else:
-            raise RuntimeError("Failed to start security scan")
+                metrics.increment('security.baseline.update_success')
 
-    def cancel_security_scan(scan_id: str) -> bool:
-        """
-        Cancel a running security scan.
+                # Log completion to audit trail
+                if audit and 'AuditService' in globals() and hasattr(AuditService, 'log_file_integrity_event'):
+                    try:
+                        AuditService.log_file_integrity_event(
+                            status='success',
+                            action='update',
+                            changes=None,  # Don't duplicate the changes in the completion log
+                            details={
+                                'baseline_path': baseline_path,
+                                'changes_applied': stats["changes_applied"],
+                                'removed_entries': stats["removed_entries"],
+                                'message': message
+                            },
+                            severity='info'
+                        )
+                        stats["audit_logged"] = True
+                    except Exception as e:
+                        logger.warning(f"Failed to log baseline update completion: {e}")
 
-        Args:
-            scan_id: ID of the scan to cancel
+                # Send notification if requested and significant changes detected
+                if (notify and NOTIFICATION_MODULE_AVAILABLE and
+                    (stats["critical_changes"] > 0 or stats["high_severity_changes"] > 0)):
 
-        Returns:
-            True if successfully cancelled, False otherwise
-        """
-        return ScanningService.cancel_scan(scan_id)
+                    try:
+                        # Determine notification level
+                        notification_level = 'info'
+                        if stats["critical_changes"] > 0:
+                            notification_level = 'warning'
+                        elif stats["high_severity_changes"] >= 3:  # Multiple high severity changes
+                            notification_level = 'warning'
 
-    def get_scan_health_metrics() -> Dict[str, Any]:
-        """
-        Get health metrics for the scanning service.
+                        # Build the notification message
+                        subject = "File Integrity Baseline Updated"
 
-        Returns:
-            Dictionary with health metrics
-        """
-        return {
-            "active_scans": ScanningService.get_active_scan_count(),
-            "queue_depth": ScanningService.get_queue_length(),
-            "available_workers": MAX_CONCURRENT_SCANS - ScanningService.get_active_scan_count()
-        }
+                        # Add severity indicators for critical updates
+                        if stats["critical_changes"] > 0:
+                            subject = f"[IMPORTANT] {subject} - Critical Files Modified"
 
-    def estimate_scan_duration(scan_type: str, target_size: Optional[int] = None) -> int:
-        """
-        Estimate the duration of a security scan.
+                        message = (
+                            f"The file integrity baseline has been updated with {stats['changes_applied']} changes. "
+                            f"This update includes:\n\n"
+                            f"• {stats['critical_changes']} critical file changes\n"
+                            f"• {stats['high_severity_changes']} high severity changes\n"
+                            f"• {stats['medium_severity_changes']} medium severity changes\n"
+                            f"• {stats['low_severity_changes']} low severity changes"
+                        )
 
-        Args:
-            scan_type: Type of scan to run
-            target_size: Size of the target in bytes (if applicable)
+                        if stats["removed_entries"] > 0:
+                            message += f"\n\nAdditionally, {stats['removed_entries']} missing files were removed from baseline."
 
-        Returns:
-            Estimated duration in seconds
-        """
-        # Basic estimation algorithm - this would be enhanced in a real implementation
-        profile = ScanningService.get_profile(scan_type)
-        base_time = profile.get("parameters", {}).get("timeout", 3600)
+                        # Send using notification manager
+                        notification_manager.send_to_stakeholders(
+                            subject=subject,
+                            message=message,
+                            level=notification_level,
+                            category=NOTIFICATION_CATEGORY_INTEGRITY,
+                            tags={
+                                'category': NOTIFICATION_CATEGORY_INTEGRITY,
+                                'event_type': 'baseline_update',
+                                'baseline_path': baseline_path,
+                                'critical_files': stats["critical_changes"] > 0
+                            }
+                        )
+                        stats["notification_sent"] = True
 
-        if target_size:
-            # Adjust time based on size (very naive approach)
-            size_factor = max(1.0, min(3.0, target_size / (50 * 1024 * 1024)))
-            return int(base_time * size_factor)
+                    except Exception as e:
+                        logger.warning(f"Failed to send baseline update notification: {e}")
+            else:
+                # Update failed
+                metrics.increment('security.baseline.update_failed')
 
-        return base_time
+                # Log failure to audit trail
+                if audit and 'AuditService' in globals() and hasattr(AuditService, 'log_file_integrity_event'):
+                    try:
+                        AuditService.log_file_integrity_event(
+                            status='failure',
+                            action='update',
+                            details={
+                                'baseline_path': baseline_path,
+                                'error': message,
+                            },
+                            severity='error'
+                        )
+                        stats["audit_logged"] = True
+                    except Exception as e:
+                        logger.warning(f"Failed to log baseline update failure: {e}")
 
-# Conditionally add webhook functions if WebhookService is available
-if WEBHOOK_SERVICE_AVAILABLE:
-    def trigger_webhook_event(event_type: str, data: Dict[str, Any],
-                            subscriptions: Optional[List[str]] = None) -> Dict[str, Any]:
-        """
-        Trigger a webhook event to notify external systems.
+        except Exception as e:
+            message = f"Error updating file integrity baseline: {str(e)}"
+            logger.error(message)
+            metrics.increment('security.baseline.update_error')
+            success = False
 
-        Args:
-            event_type: Type of event (e.g., "security.scan.completed")
-            data: Event data to include in the payload
-            subscriptions: Optional list of subscription IDs to target (if None, matches by event type)
+        finally:
+            # Calculate duration
+            end_time = datetime.now(timezone.utc)
+            stats["duration_ms"] = (end_time - start_time).total_seconds() * 1000
 
-        Returns:
-            Dictionary with delivery results
-        """
-        return WebhookService.trigger_event(event_type, data, subscriptions)
+        return success, message, stats
 
-    def create_webhook_subscription(callback_url: str, event_types: List[str],
-                                  secret: Optional[str] = None,
-                                  description: Optional[str] = None) -> str:
-        """
-        Create a new webhook subscription.
 
-        Args:
-            callback_url: URL to call when events occur
-            event_types: List of event types to subscribe to
-            secret: Optional secret for signature verification
-            description: Optional description of subscription
-
-        Returns:
-            Subscription ID
-        """
-        return WebhookService.create_subscription(callback_url, event_types, secret, description)
-
-    def get_webhook_subscription(subscription_id: str) -> Dict[str, Any]:
-        """
-        Get information about a webhook subscription.
-
-        Args:
-            subscription_id: ID of the subscription
-
-        Returns:
-            Subscription information dictionary
-        """
-        return WebhookService.get_subscription(subscription_id)
-
-    def update_webhook_subscription(subscription_id: str,
-                                 updates: Dict[str, Any]) -> bool:
-        """
-        Update an existing webhook subscription.
-
-        Args:
-            subscription_id: ID of the subscription to update
-            updates: Dictionary of fields to update
-
-        Returns:
-            True if successful, False otherwise
-        """
-        return WebhookService.update_subscription(subscription_id, updates)
-
-    def delete_webhook_subscription(subscription_id: str) -> bool:
-        """
-        Delete a webhook subscription.
-
-        Args:
-            subscription_id: ID of the subscription to delete
-
-        Returns:
-            True if successful, False otherwise
-        """
-        return WebhookService.delete_subscription(subscription_id)
-
-    def check_subscription_health(subscription_id: str) -> Dict[str, Any]:
-        """
-        Check the health of a webhook subscription.
-
-        Args:
-            subscription_id: ID of the subscription to check
-
-        Returns:
-            Health status dictionary
-        """
-        return WebhookService.check_health(subscription_id)
-
-# Directly provide notification convenience functions if not available from the notification module
-if not HAS_INTEGRITY_NOTIFICATIONS and SECURITY_SERVICE_AVAILABLE and NOTIFICATION_MODULE_AVAILABLE:
-    def send_integrity_notification(changes: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Send notification about file integrity changes.
-
-        Args:
-            changes: List of file changes detected
-
-        Returns:
-            Dictionary containing delivery results
-        """
-        return notification_manager.send_file_integrity_notification(changes)
-
-    __all__.append('send_integrity_notification')
+    __all__.append('update_file_integrity_baseline_with_notifications')
 
 if not HAS_SCAN_NOTIFICATIONS and SCANNING_SERVICE_AVAILABLE and NOTIFICATION_MODULE_AVAILABLE:
     def send_scan_notification(scan_id: str, scan_type: str, status: str,
