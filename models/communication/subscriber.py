@@ -151,6 +151,9 @@ class Subscriber(BaseModel):
         if not confirmed:
             self.confirmation_token = generate_secure_token()
 
+        # Always generate an unsubscribe token for security and usability
+        self.unsubscribe_token = generate_secure_token()
+
         # Set timestamps
         now = datetime.now(timezone.utc)
         self.subscription_date = now if is_active else None
@@ -169,6 +172,10 @@ class Subscriber(BaseModel):
             if hasattr(metrics, 'increment'):
                 metrics.increment('subscribers.deactivated')
 
+            # Log event
+            if hasattr(current_app, 'logger'):
+                current_app.logger.info(f"Subscriber deactivated: {self.email}")
+
     def reactivate(self) -> None:
         """
         Reactivate a previously deactivated subscription.
@@ -182,6 +189,10 @@ class Subscriber(BaseModel):
             # Track metrics
             if hasattr(metrics, 'increment'):
                 metrics.increment('subscribers.reactivated')
+
+            # Log event
+            if hasattr(current_app, 'logger'):
+                current_app.logger.info(f"Subscriber reactivated: {self.email}")
 
     def add_category(self, category: 'SubscriberCategory') -> bool:
         """
@@ -268,6 +279,10 @@ class Subscriber(BaseModel):
             if hasattr(metrics, 'increment'):
                 metrics.increment('subscribers.confirmed')
 
+            # Log event
+            if hasattr(current_app, 'logger'):
+                current_app.logger.info(f"Subscriber confirmed: {self.email}")
+
             return True
         except SQLAlchemyError as e:
             db.session.rollback()
@@ -299,6 +314,101 @@ class Subscriber(BaseModel):
         # Track metrics
         if hasattr(metrics, 'increment'):
             metrics.increment('subscribers.bounce')
+
+    def add_to_list(self, list_name_or_id: Union[str, int]) -> bool:
+        """
+        Add subscriber to a mailing list by name or ID.
+
+        Args:
+            list_name_or_id (Union[str, int]): Name or ID of the mailing list
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Import here to avoid circular imports
+            from models.communication.newsletter import MailingList, SubscriberList
+
+            # Find the mailing list
+            mailing_list = None
+            if isinstance(list_name_or_id, int) or str(list_name_or_id).isdigit():
+                mailing_list = MailingList.query.get(int(list_name_or_id))
+            else:
+                mailing_list = MailingList.query.filter_by(name=list_name_or_id).first()
+
+            if not mailing_list:
+                return False
+
+            # Check if already in list
+            existing = SubscriberList.query.filter_by(
+                subscriber_id=self.id,
+                list_id=mailing_list.id
+            ).first()
+
+            if existing:
+                return True  # Already in list
+
+            # Add to list
+            association = SubscriberList(
+                subscriber_id=self.id,
+                list_id=mailing_list.id
+            )
+            db.session.add(association)
+            db.session.commit()
+
+            # Clear cache
+            self._clear_cache()
+
+            return True
+        except Exception as e:
+            db.session.rollback()
+            if hasattr(current_app, 'logger'):
+                current_app.logger.error(f"Error adding subscriber to list: {str(e)}")
+            return False
+
+    def remove_from_list(self, list_name_or_id: Union[str, int]) -> bool:
+        """
+        Remove subscriber from a mailing list by name or ID.
+
+        Args:
+            list_name_or_id (Union[str, int]): Name or ID of the mailing list
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Import here to avoid circular imports
+            from models.communication.newsletter import MailingList, SubscriberList
+
+            # Find the mailing list
+            mailing_list = None
+            if isinstance(list_name_or_id, int) or str(list_name_or_id).isdigit():
+                mailing_list = MailingList.query.get(int(list_name_or_id))
+            else:
+                mailing_list = MailingList.query.filter_by(name=list_name_or_id).first()
+
+            if not mailing_list:
+                return False
+
+            # Find and remove association
+            association = SubscriberList.query.filter_by(
+                subscriber_id=self.id,
+                list_id=mailing_list.id
+            ).first()
+
+            if association:
+                db.session.delete(association)
+                db.session.commit()
+
+            # Clear cache
+            self._clear_cache()
+
+            return True
+        except Exception as e:
+            db.session.rollback()
+            if hasattr(current_app, 'logger'):
+                current_app.logger.error(f"Error removing subscriber from list: {str(e)}")
+            return False
 
     def regenerate_confirmation_token(self) -> str:
         """
@@ -337,10 +447,70 @@ class Subscriber(BaseModel):
             return self.STATUS_PENDING
         return self.STATUS_ACTIVE
 
+    def get_full_name(self) -> str:
+        """
+        Get subscriber's formatted full name if available.
+
+        Returns:
+            str: Full name or email if name not available
+        """
+        if not self.name:
+            return self.email
+
+        return self.name
+
+    def sync_with_newsletter(self) -> bool:
+        """
+        Synchronize with newsletter subscriber model if it exists.
+
+        Ensures data consistency between different subscriber models in the system.
+
+        Returns:
+            bool: True if successful, False if error or not applicable
+        """
+        try:
+            # Import here to avoid circular imports
+            from models.communication.newsletter import Subscriber as NewsletterSubscriber
+
+            # Try to find matching newsletter subscriber
+            newsletter_sub = NewsletterSubscriber.query.filter_by(email=self.email).first()
+
+            if newsletter_sub:
+                # Update newsletter subscriber with our details
+                if not newsletter_sub.confirmed and self.confirmed:
+                    newsletter_sub.confirmed = True
+                    newsletter_sub.confirmed_at = self.confirmed_at
+
+                if self.is_active != newsletter_sub.is_active:
+                    newsletter_sub.is_active = self.is_active
+
+                # Use the most recent preferences
+                if self.preferences and (not newsletter_sub.preferences or
+                                        self.updated_at > newsletter_sub.updated_at):
+                    newsletter_sub.preferences = self.preferences.copy()
+
+                db.session.add(newsletter_sub)
+                db.session.commit()
+
+                # Clear cache for both models
+                if hasattr(newsletter_sub, '_clear_cache'):
+                    newsletter_sub._clear_cache()
+
+                return True
+
+            return False
+        except (ImportError, AttributeError):
+            # Newsletter model doesn't exist or isn't compatible
+            return False
+        except Exception as e:
+            if hasattr(current_app, 'logger'):
+                current_app.logger.error(f"Error syncing with newsletter subscriber: {str(e)}")
+            return False
+
     @staticmethod
     def is_valid_email(email: str) -> bool:
         """
-        Validate email format using regex pattern.
+        Validate email format using comprehensive RFC 5322 compliant regex.
 
         Args:
             email (str): Email address to validate
@@ -348,9 +518,36 @@ class Subscriber(BaseModel):
         Returns:
             bool: True if email format is valid
         """
-        # RFC 5322 compliant email regex
+        if not email or len(email) > 255:
+            return False
+
+        # Check for common syntax errors before applying complex regex
+        if '@' not in email or email.count('@') > 1:
+            return False
+
+        if email.startswith('.') or email.endswith('.'):
+            return False
+
+        # RFC 5322 compliant email regex that balances thoroughness with performance
         pattern = r"^[a-zA-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
-        return re.match(pattern, email) is not None
+
+        # Apply regex validation
+        if not re.match(pattern, email):
+            return False
+
+        # Ensure domain has at least one dot and valid TLD
+        parts = email.split('@')
+        domain_parts = parts[1].split('.')
+
+        # Validate domain has proper structure
+        if len(domain_parts) < 2:
+            return False
+
+        # Validate TLD is not all numeric
+        if domain_parts[-1].isdigit():
+            return False
+
+        return True
 
     def _default_channel_preferences(self) -> Dict[str, bool]:
         """
@@ -378,6 +575,16 @@ class Subscriber(BaseModel):
                     cache.delete(f"subscriber_token:{self.confirmation_token}")
                 if self.unsubscribe_token:
                     cache.delete(f"subscriber_unsubscribe:{self.unsubscribe_token}")
+
+                # Clear the subscriber statistics cache
+                cache.delete("subscriber:stats")
+
+                # Clear any list membership caches
+                cache.delete(f"subscriber_lists:{self.id}")
+
+                # Clear category caches
+                for category in self.categories:
+                    cache.delete(f"category_subscribers:{category.id}")
             except Exception as e:
                 if hasattr(current_app, 'logger'):
                     current_app.logger.warning(f"Failed to clear subscriber cache: {str(e)}")
@@ -541,6 +748,8 @@ class Subscriber(BaseModel):
                 query = query.filter(cls.is_active == False)
             elif status == cls.STATUS_PENDING:
                 query = query.filter(cls.is_active == True, cls.confirmed == False)
+            elif status == cls.STATUS_BOUNCED:
+                query = query.filter(cls.bounce_count >= 3)
 
         # Filter by categories
         if categories:
@@ -556,20 +765,49 @@ class Subscriber(BaseModel):
         return query.limit(limit).all()
 
     @classmethod
-    def get_stats(cls) -> Dict[str, Any]:
+    def get_stats(cls, use_cache: bool = True) -> Dict[str, Any]:
         """
         Get subscriber statistics.
+
+        Args:
+            use_cache (bool): Whether to use cached stats if available
 
         Returns:
             Dict[str, Any]: Dictionary with subscriber statistics
         """
+        # Try to get from cache if enabled
+        if use_cache and hasattr(cache, 'get'):
+            cached_stats = cache.get("subscriber:stats")
+            if cached_stats:
+                try:
+                    return json.loads(cached_stats)
+                except:
+                    pass
+
         try:
+            # Calculate current time once for consistent comparisons
+            now = datetime.now(timezone.utc)
+            thirty_days_ago = now.replace(day=now.day-30 if now.day > 30 else 1)
+
             # Get total counts
             total = cls.query.count()
             active = cls.query.filter(cls.is_active == True).count()
             confirmed = cls.query.filter(cls.is_active == True, cls.confirmed == True).count()
             pending = cls.query.filter(cls.is_active == True, cls.confirmed == False).count()
             inactive = cls.query.filter(cls.is_active == False).count()
+            bounced = cls.query.filter(cls.bounce_count >= 3).count()
+
+            # New subscribers in last 30 days
+            new_30d = cls.query.filter(
+                cls.created_at >= thirty_days_ago,
+                cls.is_active == True
+            ).count()
+
+            # Unsubscribed in last 30 days
+            unsubscribed_30d = cls.query.filter(
+                cls.unsubscribe_date >= thirty_days_ago,
+                cls.is_active == False
+            ).count()
 
             # Get count by source (if available)
             sources = {}
@@ -582,15 +820,48 @@ class Subscriber(BaseModel):
                     if source:
                         sources[source] = count
 
-            # Return stats dictionary
-            return {
+            # Calculate engagement metrics
+            engaged_30d = cls.query.filter(
+                cls.last_engagement >= thirty_days_ago,
+                cls.is_active == True
+            ).count()
+
+            # Calculate conversion rate (confirmed/total)
+            conversion_rate = 0
+            if total > 0:
+                conversion_rate = round((confirmed / total) * 100, 2)
+
+            # Calculate engagement rate (engaged/confirmed)
+            engagement_rate = 0
+            if confirmed > 0:
+                engagement_rate = round((engaged_30d / confirmed) * 100, 2)
+
+            # Return stats dictionary with all metrics
+            result = {
                 'total': total,
                 'active': active,
                 'confirmed': confirmed,
                 'pending': pending,
                 'inactive': inactive,
-                'sources': sources
+                'bounced': bounced,
+                'new_30d': new_30d,
+                'unsubscribed_30d': unsubscribed_30d,
+                'engaged_30d': engaged_30d,
+                'conversion_rate': conversion_rate,
+                'engagement_rate': engagement_rate,
+                'sources': sources,
+                'generated_at': datetime.now(timezone.utc).isoformat()
             }
+
+            # Cache the result
+            if hasattr(cache, 'set'):
+                try:
+                    cache.set("subscriber:stats", json.dumps(result), timeout=600)  # 10 minutes
+                except:
+                    pass
+
+            return result
+
         except SQLAlchemyError as e:
             if hasattr(current_app, 'logger'):
                 current_app.logger.error(f"Error getting subscriber stats: {str(e)}")
@@ -600,7 +871,15 @@ class Subscriber(BaseModel):
                 'confirmed': 0,
                 'pending': 0,
                 'inactive': 0,
-                'sources': {}
+                'bounced': 0,
+                'new_30d': 0,
+                'unsubscribed_30d': 0,
+                'engaged_30d': 0,
+                'conversion_rate': 0,
+                'engagement_rate': 0,
+                'sources': {},
+                'error': True,
+                'generated_at': datetime.now(timezone.utc).isoformat()
             }
 
     def to_dict(self) -> Dict[str, Any]:
@@ -623,6 +902,7 @@ class Subscriber(BaseModel):
             'subscription_date': self.subscription_date.isoformat() if self.subscription_date else None,
             'unsubscribe_date': self.unsubscribe_date.isoformat() if self.unsubscribe_date else None,
             'last_engagement': self.last_engagement.isoformat() if getattr(self, 'last_engagement', None) else None,
+            'bounce_count': getattr(self, 'bounce_count', 0),
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'categories': [c.name for c in self.categories] if self.categories else [],
@@ -697,7 +977,36 @@ class SubscriberCategory(BaseModel):
         Returns:
             List[Subscriber]: List of active subscribers in this category
         """
-        return self.subscribers.filter(Subscriber.is_active == True, Subscriber.confirmed == True).all()
+        # Try to get from cache first
+        cache_key = f"category_subscribers:{self.id}"
+        if hasattr(cache, 'get'):
+            cached_ids = cache.get(cache_key)
+            if cached_ids:
+                try:
+                    subscriber_ids = json.loads(cached_ids)
+                    return Subscriber.query.filter(
+                        Subscriber.id.in_(subscriber_ids),
+                        Subscriber.is_active == True,
+                        Subscriber.confirmed == True
+                    ).all()
+                except:
+                    pass
+
+        # Query database
+        subscribers = self.subscribers.filter(
+            Subscriber.is_active == True,
+            Subscriber.confirmed == True
+        ).all()
+
+        # Cache result
+        if subscribers and hasattr(cache, 'set'):
+            try:
+                subscriber_ids = [s.id for s in subscribers]
+                cache.set(cache_key, json.dumps(subscriber_ids), timeout=300)
+            except:
+                pass
+
+        return subscribers
 
     def get_subscriber_count(self) -> int:
         """
@@ -737,7 +1046,44 @@ class SubscriberCategory(BaseModel):
         Returns:
             Optional[SubscriberCategory]: Category object or None if not found
         """
-        return cls.query.filter(func.lower(cls.name) == name.lower()).first()
+        if not name:
+            return None
+
+        # Case-insensitive search for better usability
+        return cls.query.filter(func.lower(cls.name) == name.lower().strip()).first()
+
+    @classmethod
+    def get_or_create(cls, name: str, description: Optional[str] = None) -> Tuple['SubscriberCategory', bool]:
+        """
+        Get existing category by name or create a new one.
+
+        Args:
+            name (str): Category name
+            description (Optional[str]): Category description
+
+        Returns:
+            Tuple[SubscriberCategory, bool]: Category object and whether it was created
+        """
+        if not name:
+            raise ValueError("Category name is required")
+
+        # Try to find existing category
+        category = cls.get_by_name(name)
+
+        if category:
+            # Update description if provided and different
+            if description and description != category.description:
+                category.description = description
+                db.session.add(category)
+                db.session.commit()
+            return category, False
+
+        # Create new category
+        category = cls(name=name, description=description)
+        db.session.add(category)
+        db.session.commit()
+
+        return category, True
 
     def to_dict(self) -> Dict[str, Any]:
         """
