@@ -29,6 +29,8 @@ WEBHOOK_SERVICE_AVAILABLE = False
 NOTIFICATION_SERVICE_AVAILABLE = False
 NOTIFICATION_MODULE_AVAILABLE = False
 SMS_SERVICE_AVAILABLE = False
+HAS_INTEGRITY_NOTIFICATIONS = False
+HAS_SCAN_NOTIFICATIONS = False
 
 # Import service constants
 try:
@@ -154,9 +156,21 @@ except ImportError:
     METRICS_AVAILABLE = False
     # Create dummy metrics object
     class DummyMetrics:
-        def increment(self, *args, **kwargs): pass
-        def gauge(self, *args, **kwargs): pass
-        def timing(self, *args, **kwargs): pass
+        def increment(self, *args, **kwargs):
+            pass
+
+        def decrement(self, *args, **kwargs):
+            pass
+
+        def gauge(self, *args, **kwargs):
+            pass
+
+        def histogram(self, *args, **kwargs):
+            pass
+
+        def timing(self, *args, **kwargs):
+            pass
+
     metrics = DummyMetrics()
 
 # Import and expose NotificationManager from the notification package
@@ -164,7 +178,19 @@ try:
     from .notification import (
         NotificationManager,
         notification_manager,
-        notify_stakeholders
+        notify_stakeholders,
+        NOTIFICATION_CATEGORY_SYSTEM,
+        NOTIFICATION_CATEGORY_SECURITY,
+        NOTIFICATION_CATEGORY_USER,
+        NOTIFICATION_CATEGORY_ADMIN,
+        NOTIFICATION_CATEGORY_MAINTENANCE,
+        NOTIFICATION_CATEGORY_MONITORING,
+        NOTIFICATION_CATEGORY_COMPLIANCE,
+        NOTIFICATION_CATEGORY_INTEGRITY,
+        NOTIFICATION_CATEGORY_AUDIT,
+        NOTIFICATION_CATEGORY_SCAN,
+        NOTIFICATION_CATEGORY_VULNERABILITY,
+        NOTIFICATION_CATEGORY_INCIDENT
     )
 
     # Import convenience functions if available
@@ -325,6 +351,7 @@ __all__ = [
     'update_file_baseline',
     'verify_baseline_consistency',
     'export_baseline',
+    'validate_baseline_consistency',
 
     # Scanning functions
     'run_security_scan',
@@ -379,13 +406,15 @@ if SECURITY_SERVICE_AVAILABLE:
     # Helper functions from SecurityService
     def check_integrity(paths: Optional[List[str]] = None) -> Tuple[bool, List[Dict[str, Any]]]:
         """
-        Check file integrity against the baseline.
+        Check file integrity against the stored baseline.
 
         Args:
-            paths: Optional list of file paths to check. If None, checks all files in baseline.
+            paths: Optional list of paths to check, if None all baseline files are checked
 
         Returns:
-            Tuple containing (integrity_status, list_of_changes)
+            Tuple of (integrity_status, changes)
+            - integrity_status: True if all files match baseline, False otherwise
+            - changes: List of dictionaries detailing any changes found
         """
         return SecurityService.check_file_integrity(paths)
 
@@ -405,48 +434,29 @@ if SECURITY_SERVICE_AVAILABLE:
 
     def verify_file_hash(filepath: str, expected_hash: Optional[str] = None) -> Tuple[bool, Dict[str, Any]]:
         """
-        Verify a file's hash against an expected value or calculate it.
+        Verify the hash of a file against an expected value or baseline.
 
         Args:
-            filepath: Path to the file to check
-            expected_hash: Expected hash value (if None, just returns the calculated hash)
+            filepath: Path to the file to verify
+            expected_hash: Optional hash to check against, if None gets from baseline
 
         Returns:
-            Tuple containing (match_status, details_dict)
+            Tuple containing (match_status, details)
         """
-        calculated = SecurityService._calculate_hash(Path(filepath))
-        if calculated is None:
-            return False, {"error": "Failed to calculate hash", "file": filepath}
-
-        if expected_hash is None:
-            return True, {"hash": calculated, "file": filepath}
-
-        match = calculated == expected_hash
-        return match, {
-            "match": match,
-            "file": filepath,
-            "calculated": calculated,
-            "expected": expected_hash
-        }
+        return SecurityService.verify_file_hash(filepath, expected_hash)
 
     def calculate_file_hash(filepath: str, algorithm: str = DEFAULT_HASH_ALGORITHM) -> Optional[str]:
         """
-        Calculate a file's hash using the specified algorithm.
+        Calculate the hash of a file using the specified algorithm.
 
         Args:
-            filepath: Path to the file
-            algorithm: Hash algorithm to use (default: sha256)
+            filepath: Path to the file to hash
+            algorithm: Hash algorithm to use (default: from service constants)
 
         Returns:
-            Hash value as string, or None if calculation failed
+            String hash of the file or None if hashing fails
         """
-        # Use SecurityService._calculate_hash but enforce the algorithm choice
-        orig_algo = SecurityService.DEFAULT_HASH_ALGORITHM
-        try:
-            SecurityService.DEFAULT_HASH_ALGORITHM = algorithm
-            return SecurityService._calculate_hash(Path(filepath))
-        finally:
-            SecurityService.DEFAULT_HASH_ALGORITHM = orig_algo
+        return SecurityService._calculate_hash(Path(filepath), algorithm)
 
     def schedule_integrity_check(interval_seconds: int = 3600,
                                callback: Optional[Callable[[bool, List[Dict[str, Any]]], None]] = None) -> bool:
@@ -454,11 +464,11 @@ if SECURITY_SERVICE_AVAILABLE:
         Schedule periodic file integrity checks.
 
         Args:
-            interval_seconds: Time between checks in seconds
-            callback: Function to call with integrity check results
+            interval_seconds: Interval between checks in seconds
+            callback: Optional callable invoked with check results
 
         Returns:
-            bool: True if scheduled successfully, False otherwise
+            True if scheduling succeeded, False otherwise
         """
         return SecurityService.schedule_integrity_check(interval_seconds, callback)
 
@@ -469,125 +479,127 @@ if SECURITY_SERVICE_AVAILABLE:
         notify_stakeholders: bool = True
     ) -> Tuple[bool, str]:
         """
-        Update the file integrity baseline with changes.
-
-        This function integrates with notification and audit services to ensure
-        that baseline updates are properly tracked and relevant parties are notified.
+        Update the file integrity baseline with the specified changes.
 
         Args:
-            baseline_path: Path to the baseline file
-            updates: List of updates to apply, each containing path, hash, and status
-            remove_missing: Whether to remove baseline entries for missing files
-            notify_stakeholders: Whether to send notifications about major changes
+            baseline_path: Path to baseline file
+            updates: List of update dictionaries with path, hash info
+            remove_missing: Whether to remove entries for missing files
+            notify_stakeholders: Whether to send notifications about the update
 
         Returns:
             Tuple containing (success, message)
         """
-        if not SECURITY_SERVICE_AVAILABLE:
-            logger.warning("Security service not available for baseline update")
-            return False, "Security service not available"
+        # Validate inputs
+        if not baseline_path or not isinstance(baseline_path, str):
+            return False, "Invalid baseline path provided"
+
+        if not updates or not isinstance(updates, list):
+            return False, "No updates provided or invalid update format"
 
         try:
-            # First attempt the update using the SecurityService
+            # Extract paths from update dictionaries
+            update_paths = []
+            for update in updates:
+                if 'path' in update:
+                    update_paths.append(update['path'])
+
+            # Apply updates to baseline
+            baseline_file = Path(baseline_path)
+
+            # Get AuditService if available to log the changes
+            audit_service = None
+            try:
+                if 'AuditService' in globals():
+                    audit_service = AuditService
+            except Exception as e:
+                logger.debug(f"Could not access AuditService: {e}")
+
+            # Use SecurityService to update baseline
             result = SecurityService.update_baseline(
-                paths_to_update=[u['path'] for u in updates if 'path' in u],
+                paths_to_update=update_paths,
                 remove_missing=remove_missing
             )
+
             success, message = result
 
-            if not success:
-                logger.error(f"Failed to update baseline: {message}")
-                metrics.increment('security.baseline.update_failed')
-                return result
+            # Send notification if enabled and the operation was successful
+            if success and notify_stakeholders and NOTIFICATION_MODULE_AVAILABLE:
+                try:
+                    # Count severities for notification
+                    severities = {
+                        'critical': 0,
+                        'high': 0,
+                        'medium': 0,
+                        'low': 0
+                    }
 
-            # Success - log to audit trail if available
-            if 'AuditService' in globals() and hasattr(AuditService, 'log_file_integrity_event'):
-                update_details = {
-                    'baseline_path': baseline_path,
-                    'update_count': len(updates),
-                    'removed_missing': remove_missing,
-                    'timestamp': datetime.now(timezone.utc).isoformat()
-                }
+                    update_details = {
+                        'baseline_path': baseline_path,
+                        'update_count': len(updates),
+                        'remove_missing': remove_missing
+                    }
 
-                # Count updates by severity
-                severities = {}
-                for update in updates:
-                    severity = update.get('severity', 'medium')
-                    if severity not in severities:
-                        severities[severity] = 0
-                    severities[severity] += 1
+                    # Count severity levels
+                    for update in updates:
+                        severity = update.get('severity', 'low')
+                        severities[severity] += 1
 
-                update_details['severities'] = severities
+                    update_details['severities'] = severities
 
-                AuditService.log_file_integrity_event(
-                    status='success',
-                    action='update',
-                    changes=updates,
-                    details=update_details,
-                    severity='info'
-                )
+                    if audit_service:
+                        audit_service.log_file_integrity_event(
+                            status='success',
+                            action='update',
+                            changes=updates,
+                            details=update_details,
+                            severity='info'
+                        )
 
-            # Send notification if enabled and there are significant updates
-            if notify_stakeholders and NOTIFICATION_MODULE_AVAILABLE:
-                critical_updates = [u for u in updates if u.get('severity') == 'critical']
-                high_severity_updates = [u for u in updates if u.get('severity') == 'high']
+                    # Send notification if enabled and there are significant updates
+                    critical_updates = [u for u in updates if u.get('severity') == 'critical']
+                    high_severity_updates = [u for u in updates if u.get('severity') == 'high']
 
-                if critical_updates or len(high_severity_updates) >= 3:
-                    notification_severity = 'warning' if critical_updates else 'info'
+                    if critical_updates or len(high_severity_updates) >= 3:
+                        notification_severity = 'warning' if critical_updates else 'info'
 
-                    try:
                         notification_manager.send_to_stakeholders(
                             subject="File Integrity Baseline Updated",
-                            message=f"File integrity baseline has been updated with {len(updates)} changes " +
-                                    f"({len(critical_updates)} critical, {len(high_severity_updates)} high severity).",
-                            level=notification_severity,
+                            message=(
+                                f"The file integrity baseline has been updated with {len(updates)} changes. "
+                                f"This includes {len(critical_updates)} critical and "
+                                f"{len(high_severity_updates)} high severity changes."
+                            ),
                             category=NOTIFICATION_CATEGORY_INTEGRITY,
-                            data={
-                                'baseline_path': baseline_path,
-                                'total_changes': len(updates),
-                                'critical_changes': len(critical_updates),
-                                'high_severity_changes': len(high_severity_updates)
-                            }
+                            level=notification_severity,
+                            data=update_details
                         )
-                    except Exception as e:
-                        logger.warning(f"Failed to send baseline update notification: {e}")
+                except Exception as e:
+                    logger.warning(f"Failed to send notification for baseline update: {e}")
 
-            metrics.increment('security.baseline.update_success')
             return success, message
 
         except Exception as e:
-            logger.error(f"Error updating file integrity baseline: {e}")
-            metrics.increment('security.baseline.update_error')
-            return False, f"Error updating baseline: {str(e)}"
+            logger.error(f"Unexpected error updating file baseline: {str(e)}")
+            return False, f"Error: {str(e)}"
 
     def update_file_baseline(baseline_path: str,
                             updates: Dict[str, str],
                             remove_missing: bool = False,
                             create_if_missing: bool = False) -> Tuple[bool, str]:
         """
-        Update file integrity baseline with new hashes.
-
-        This function provides a direct way to update the file baseline with explicit
-        hash values without requiring a Flask application context.
+        Update a file baseline with hash values directly.
 
         Args:
-            baseline_path: Path to the baseline JSON file
-            updates: Dictionary mapping file paths to new hashes
-            remove_missing: Whether to remove entries for files that no longer exist
-            create_if_missing: Whether to create the baseline file if it doesn't exist
+            baseline_path: Path to the baseline file
+            updates: Dictionary mapping file paths to hash values
+            remove_missing: Whether to remove entries for missing files
+            create_if_missing: Whether to create the baseline if it doesn't exist
 
         Returns:
-            Tuple of (success, message)
+            Tuple containing (success, message)
         """
         try:
-            # Try to use the utility from core
-            try:
-                from core.utils import update_file_integrity_baseline as core_update_baseline
-                return core_update_baseline(baseline_path, updates, remove_missing)
-            except ImportError:
-                logger.debug("Core utility not available, using SecurityService directly")
-
-            # Convert baseline_path to Path object for consistency
             baseline_file = Path(baseline_path)
 
             # Handle case where baseline doesn't exist but create_if_missing is True
@@ -631,22 +643,16 @@ if SECURITY_SERVICE_AVAILABLE:
                 # Check if hashes match what was requested
                 mismatched = [p for p in paths if p in files and files[p] != updates.get(p)]
                 if mismatched:
-                    logger.warning(f"Hash mismatch after baseline update for: {mismatched}")
+                    logger.warning(f"Paths updated but hashes don't match requested values: {mismatched}")
 
-                    # Force update the file directly with exact hashes if mismatches found
-                    try:
-                        # Make a copy of the baseline data and update it with the exact hashes
-                        updated_baseline = baseline_data.copy()
-                        for path, hash_value in updates.items():
-                            if path in updated_baseline["files"]:
-                                updated_baseline["files"][path] = hash_value
+                    # Force update hashes to match exactly what was provided
+                    baseline_data["files"].update(updates)
+                    save_success = SecurityService._save_baseline(baseline_data, baseline_file)
 
-                        # Write the updated baseline back to file
-                        SecurityService._save_baseline(updated_baseline, baseline_file)
-                        logger.info(f"Forced update of {len(mismatched)} hash values to match exactly")
-                        return True, f"{message} (with {len(mismatched)} forced hash updates)"
-                    except Exception as e:
-                        logger.error(f"Failed to force hash updates: {e}")
+                    if save_success:
+                        return True, f"Baseline updated with exact hash values for {len(updates)} files."
+                    else:
+                        return False, "Failed to save baseline with exact hash values."
 
             return success, message
 
@@ -656,129 +662,145 @@ if SECURITY_SERVICE_AVAILABLE:
 
     def verify_baseline_consistency(baseline_path: Optional[str] = None) -> Tuple[bool, Dict[str, Any]]:
         """
-        Verify the consistency and integrity of a file integrity baseline.
+        Verify that a baseline file is consistent and valid.
 
         Args:
-            baseline_path: Path to the baseline file (uses default if None)
+            baseline_path: Path to baseline file, if None uses default
 
         Returns:
-            Tuple containing (consistency_status, details_dict)
+            Tuple containing (is_consistent, details)
         """
+        baseline_file = Path(baseline_path) if baseline_path else Path(DEFAULT_BASELINE_FILE_PATH)
         result = {
-            "exists": False,
-            "readable": False,
-            "valid_format": False,
-            "has_required_fields": False,
-            "has_metadata": False,
-            "file_count": 0,
-            "metadata_keys": [],
-            "errors": [],
-            "size": 0,
-            "last_modified": None,
-            "permissions": None,
+            'is_consistent': False,
+            'errors': [],
+            'warnings': [],
+            'message': '',
+            'baseline_path': str(baseline_file)
         }
 
-        try:
-            # Determine baseline path
-            if baseline_path is None:
-                baseline_path = SecurityService.get_baseline_path()
-                if baseline_path is None:
-                    baseline_path = str(DEFAULT_BASELINE_FILE_PATH)
-
-            # Check if file exists and is readable
-            baseline_file = Path(baseline_path)
-            result["exists"] = baseline_file.exists()
-            result["readable"] = baseline_file.exists() and os.access(baseline_file, os.R_OK)
-
-            if not result["exists"]:
-                result["errors"].append("Baseline file does not exist")
-                return False, result
-
-            if not result["readable"]:
-                result["errors"].append("Baseline file is not readable")
-                return False, result
-
-            # Get file stats
-            try:
-                stats = baseline_file.stat()
-                result["last_modified"] = datetime.fromtimestamp(stats.st_mtime, tz=timezone.utc).isoformat()
-                result["size"] = stats.st_size
-            except OSError as e:
-                result["errors"].append(f"Error getting file stats: {e}")
-
-            # Check file permissions
-            if os.name == 'posix':
-                permissions = stats.st_mode & 0o777
-                result["permissions"] = oct(permissions)[2:]
-
-                if permissions & 0o077:  # Check if world or group has any access
-                    result["errors"].append(f"Insecure permissions: {result['permissions']}")
-
-            # Try to load baseline and validate content
-            try:
-                baseline_data = SecurityService._load_baseline(baseline_file)
-
-                # Check required fields
-                if "files" in baseline_data:
-                    result["has_required_fields"] = True
-                    result["file_count"] = len(baseline_data["files"])
-                else:
-                    result["errors"].append("Missing 'files' in baseline data")
-
-                # Check metadata
-                if "metadata" in baseline_data:
-                    result["has_metadata"] = True
-                    result["metadata_keys"] = list(baseline_data["metadata"].keys())
-                else:
-                    result["metadata_keys"] = []
-
-                # Passed all checks
-                result["valid_format"] = result["has_required_fields"]
-
-            except Exception as e:
-                result["errors"].append(f"Error parsing baseline content: {e}")
-                result["valid_format"] = False
-
-            # Overall consistency status
-            is_consistent = (
-                result["exists"] and
-                result["readable"] and
-                result["valid_format"] and
-                result["has_required_fields"]
-            )
-
-            return is_consistent, result
-
-        except Exception as e:
-            result["errors"].append(f"Unexpected error: {str(e)}")
+        # Check if file exists
+        if not baseline_file.exists():
+            result['message'] = f"Baseline file not found: {baseline_file}"
+            result['errors'].append("Baseline file not found")
+            logger.warning(result['message'])
             return False, result
+
+        try:
+            # Check if file is readable
+            with open(baseline_file, 'r') as f:
+                try:
+                    # Check if content is valid JSON
+                    data = json.load(f)
+
+                    # Check for required keys
+                    if 'files' not in data:
+                        result['errors'].append("Missing 'files' key in baseline")
+                        result['message'] = "Invalid baseline format: missing 'files' key"
+                        logger.error(result['message'])
+                        return False, result
+
+                    # Check files section structure
+                    files = data.get('files', {})
+                    if not isinstance(files, dict):
+                        result['errors'].append("'files' section should be a dictionary")
+                        result['message'] = "Invalid baseline format: 'files' should be a dictionary"
+                        logger.error(result['message'])
+                        return False, result
+
+                    # Check file hash entries
+                    invalid_entries = []
+                    for file_path, file_hash in files.items():
+                        if not isinstance(file_path, str) or not file_path:
+                            invalid_entries.append(f"Invalid file path: {file_path}")
+                        elif not isinstance(file_hash, str) or not file_hash:
+                            invalid_entries.append(f"Invalid hash for {file_path}: {file_hash}")
+
+                    if invalid_entries:
+                        result['errors'].extend(invalid_entries)
+                        result['message'] = f"Invalid entries in baseline file: {len(invalid_entries)} issues found"
+                        logger.error(result['message'])
+                        return False, result
+
+                    # Check metadata section
+                    metadata = data.get('metadata', {})
+                    if not isinstance(metadata, dict):
+                        result['warnings'].append("'metadata' section should be a dictionary")
+                        logger.warning("Baseline metadata section is not a dictionary")
+                    else:
+                        # Check for recommended metadata
+                        if 'last_updated_at' not in metadata:
+                            result['warnings'].append("Missing 'last_updated_at' in metadata")
+                            logger.debug("Baseline is missing 'last_updated_at' timestamp")
+
+                        if 'hash_algorithm' not in metadata:
+                            result['warnings'].append("Missing 'hash_algorithm' in metadata")
+                            logger.debug("Baseline is missing 'hash_algorithm' information")
+
+                    # Check file sizes
+                    if len(files) == 0:
+                        result['warnings'].append("Baseline contains no file entries")
+                        logger.warning("Baseline file is empty (contains no file entries)")
+
+                    # If we got this far with no errors, it's consistent
+                    if not result['errors']:
+                        result['is_consistent'] = True
+                        result['message'] = (
+                            f"Baseline is consistent with {len(files)} files"
+                            f"{' (warnings: ' + str(len(result['warnings'])) + ')' if result['warnings'] else ''}"
+                        )
+                        return True, result
+
+                    return False, result
+
+                except json.JSONDecodeError as e:
+                    result['errors'].append(f"Invalid JSON format: {str(e)}")
+                    result['message'] = f"Baseline file is not valid JSON: {str(e)}"
+                    logger.error(result['message'])
+                    return False, result
+
+        except IOError as e:
+            result['errors'].append(f"IO Error: {str(e)}")
+            result['message'] = f"Cannot read baseline file: {str(e)}"
+            logger.error(result['message'])
+            return False, result
+        except Exception as e:
+            result['errors'].append(f"Unexpected error: {str(e)}")
+            result['message'] = f"Error verifying baseline consistency: {str(e)}"
+            logger.error(result['message'])
+            return False, result
+
+    # Add alias to match the name imported in main __init__.py
+    validate_baseline_consistency = verify_baseline_consistency
+
+    # Add to __all__ to expose the function
+    __all__.extend([
+        'verify_baseline_consistency',
+        'validate_baseline_consistency'
+    ])
 
     def export_baseline(baseline_path: Optional[str] = None, destination: Optional[str] = None,
                        format_type: str = "json") -> Tuple[bool, str]:
         """
-        Export the file integrity baseline to a different location or format.
+        Export a baseline file to a specific format.
 
         Args:
-            baseline_path: Path to source baseline file (uses default if None)
-            destination: Path for exported baseline (auto-generated if None)
-            format_type: Format for export ("json" or "yaml")
+            baseline_path: Source baseline path (uses default if None)
+            destination: Destination file path (auto-generated if None)
+            format_type: Output format ("json" or "yaml")
 
         Returns:
-            Tuple of (success, message)
+            Tuple containing (success, message)
         """
         try:
-            # Determine source baseline path
-            if baseline_path is None:
-                baseline_path = SecurityService.get_baseline_path()
-                if baseline_path is None:
-                    baseline_path = str(DEFAULT_BASELINE_FILE_PATH)
+            # Determine source path
+            source_file = Path(baseline_path) if baseline_path else Path(DEFAULT_BASELINE_FILE_PATH)
 
-            source_file = Path(baseline_path)
             if not source_file.exists():
-                return False, f"Baseline file not found: {baseline_path}"
+                return False, f"Source baseline file does not exist: {source_file}"
 
-            # Auto-generate destination path if not provided
-            if not destination:
+            # Generate destination if not provided
+            if destination is None:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 if format_type == "json":
                     destination = str(source_file.with_name(f"{source_file.stem}_{timestamp}.json"))
@@ -804,25 +826,25 @@ if SECURITY_SERVICE_AVAILABLE:
                     with open(dest_path, 'w') as f:
                         yaml.safe_dump(baseline_data, f, default_flow_style=False)
                     return True, f"Baseline exported to YAML: {destination}"
-                except ImportError:
-                    return False, "YAML library not available, install PyYAML"
-
+                except Exception as e:
+                    return False, f"Failed to export to YAML: {str(e)}"
             else:
-                return False, f"Unsupported format: {format_type}"
+                return False, f"Unsupported export format: {format_type}"
 
         except Exception as e:
-            logger.error(f"Error exporting baseline: {e}")
+            logger.error(f"Error exporting baseline: {str(e)}")
             return False, f"Export failed: {str(e)}"
 
     def get_integrity_status() -> Dict[str, Any]:
         """
-        Get the current status of file integrity monitoring.
+        Get the current file integrity monitoring status.
 
         Returns:
-            Dictionary with integrity status information
+            Dictionary containing status information
         """
         return SecurityService.get_integrity_status()
 
+    # Implement the enhanced version of update_file_integrity_baseline_with_notifications
     def update_file_integrity_baseline_with_notifications(
         baseline_path: str,
         changes: List[Dict[str, Any]],
@@ -833,36 +855,25 @@ if SECURITY_SERVICE_AVAILABLE:
         update_limit: int = AUTO_UPDATE_LIMIT
     ) -> Tuple[bool, str, Dict[str, Any]]:
         """
-        Update file integrity baseline with comprehensive notification and auditing.
-
-        This function provides a unified approach to file integrity baseline updates,
-        ensuring proper notification, auditing, security checks, and rate limiting.
-        It centralizes these security operations while maintaining expected behavior.
+        Update file integrity baseline with enhanced notification and audit capabilities.
 
         Args:
-            baseline_path: Path to the baseline file
-            changes: List of changes to apply to the baseline, each containing at minimum:
-                    - 'path': The file path
-                    - 'current_hash' or 'hash': The hash value to set
-                    - 'severity' (optional): Severity level ('critical', 'high', 'medium', 'low')
-            remove_missing: Whether to remove entries for missing files
-            notify: Whether to send notifications about significant changes
-            audit: Whether to record the update in the audit log
-            severity_threshold: Minimum severity to trigger notifications ('critical', 'high', 'medium', 'low')
-            update_limit: Maximum number of changes to apply at once (safety limit)
+            baseline_path: Path to baseline file
+            changes: List of changes to apply to baseline
+            remove_missing: Whether to remove missing files from baseline
+            notify: Whether to send notifications about this update
+            audit: Whether to log to audit trail
+            severity_threshold: Minimum severity to trigger notifications ('low', 'medium', 'high', 'critical')
+            update_limit: Maximum number of files to update at once
 
         Returns:
-            Tuple containing:
-            - bool: Success indicator
-            - str: Status message
-            - Dict[str, Any]: Detailed statistics about the update operation
+            Tuple containing (success, message, stats)
         """
-        if not SECURITY_SERVICE_AVAILABLE:
-            logger.warning("Security service not available for baseline update")
-            return False, "Security service not available", {"changes_applied": 0, "error": "Service unavailable"}
+        success = False
+        message = "Operation not completed"
 
+        # Initialize stats dictionary for tracking operation details
         stats = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
             "baseline_path": baseline_path,
             "changes_requested": len(changes),
             "changes_applied": 0,
@@ -882,62 +893,46 @@ if SECURITY_SERVICE_AVAILABLE:
 
         # Security check: Enforce update limit
         if len(changes) > update_limit:
-            logger.warning(f"Too many changes requested ({len(changes)}), exceeding limit of {update_limit}")
-            stats["changes_rejected"] = len(changes) - update_limit
-
-            # Prioritize changes by severity for safety
-            def get_severity_priority(change):
-                severity = change.get('severity', 'medium').lower()
-                priority_map = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
-                return priority_map.get(severity, 2)
-
-            changes = sorted(changes, key=get_severity_priority)[:update_limit]
-
-        # Validate and count changes by severity
-        validated_changes = []
-        for change in changes:
-            # Skip invalid entries
-            if not isinstance(change, dict) or 'path' not in change:
-                stats["changes_rejected"] += 1
-                continue
-
-            # Get hash (support both 'current_hash' and 'hash' keys)
-            hash_value = change.get('current_hash') or change.get('hash')
-            if not hash_value:
-                stats["changes_rejected"] += 1
-                continue
-
-            # Add to validated list
-            validated_changes.append(change)
-
-            # Count by severity
-            severity = change.get('severity', 'medium').lower()
-            if severity == 'critical':
-                stats["critical_changes"] += 1
-            elif severity == 'high':
-                stats["high_severity_changes"] += 1
-            elif severity == 'medium':
-                stats["medium_severity_changes"] += 1
-            else:
-                stats["low_severity_changes"] += 1
-
-        # Early return if no valid changes
-        if not validated_changes:
-            return False, "No valid changes to apply", stats
+            message = f"Too many changes requested ({len(changes)}). Maximum allowed: {update_limit}"
+            logger.warning(message)
+            stats["changes_rejected"] = len(changes)
+            return False, message, stats
 
         try:
-            # Log the baseline update attempt
+            # Validate and categorize the changes by severity
+            validated_changes = []
+            for change in changes:
+                if 'path' not in change:
+                    logger.warning(f"Skipping change without path: {change}")
+                    stats["changes_rejected"] += 1
+                    continue
+
+                # Store severity data for reporting
+                severity = change.get('severity', 'low')
+                if severity == 'critical':
+                    stats["critical_changes"] += 1
+                elif severity == 'high':
+                    stats["high_severity_changes"] += 1
+                elif severity == 'medium':
+                    stats["medium_severity_changes"] += 1
+                else:
+                    stats["low_severity_changes"] += 1
+
+                validated_changes.append(change)
+
+            # Log the operation start to audit trail if enabled
             if audit and 'AuditService' in globals() and hasattr(AuditService, 'log_file_integrity_event'):
                 try:
-                    # Determine proper severity for audit
-                    audit_severity = 'info'
+                    # Determine appropriate audit severity based on change severities
                     if stats["critical_changes"] > 0:
                         audit_severity = 'critical'
                     elif stats["high_severity_changes"] > 0:
-                        audit_severity = 'warning'
+                        audit_severity = 'high'
+                    else:
+                        audit_severity = 'info'
 
                     AuditService.log_file_integrity_event(
-                        status='started',
+                        status='pending',
                         action='update',
                         changes=validated_changes[:5],  # Only include the first 5 to avoid excessive logging
                         details={
@@ -989,8 +984,9 @@ if SECURITY_SERVICE_AVAILABLE:
                             changes=None,  # Don't duplicate the changes in the completion log
                             details={
                                 'baseline_path': baseline_path,
-                                'changes_applied': stats["changes_applied"],
-                                'removed_entries': stats["removed_entries"],
+                                'update_count': len(validated_changes),
+                                'applied_count': stats["changes_applied"],
+                                'removed_count': stats["removed_entries"],
                                 'message': message
                             },
                             severity='info'
@@ -999,69 +995,65 @@ if SECURITY_SERVICE_AVAILABLE:
                     except Exception as e:
                         logger.warning(f"Failed to log baseline update completion: {e}")
 
-                # Send notification if requested and significant changes detected
-                if (notify and NOTIFICATION_MODULE_AVAILABLE and
-                    (stats["critical_changes"] > 0 or stats["high_severity_changes"] > 0)):
+                # Send notification if enabled and there are important changes
+                if notify and NOTIFICATION_MODULE_AVAILABLE and callable(getattr(notification_manager, 'send_to_stakeholders', None)):
+                    # Only notify for changes at or above the severity threshold
+                    notify_changes = {
+                        'critical': stats["critical_changes"] > 0,
+                        'high': stats["critical_changes"] > 0 or stats["high_severity_changes"] > 0,
+                        'medium': stats["critical_changes"] > 0 or stats["high_severity_changes"] > 0 or stats["medium_severity_changes"] > 0,
+                        'low': True  # Always notify on 'low' threshold
+                    }
 
-                    try:
-                        # Determine notification level
-                        notification_level = 'info'
-                        if stats["critical_changes"] > 0:
-                            notification_level = 'warning'
-                        elif stats["high_severity_changes"] >= 3:  # Multiple high severity changes
-                            notification_level = 'warning'
+                    should_notify = notify_changes.get(severity_threshold.lower(), False)
 
-                        # Build the notification message
-                        subject = "File Integrity Baseline Updated"
+                    if should_notify:
+                        try:
+                            # Determine notification level based on most severe change
+                            if stats["critical_changes"] > 0:
+                                level = 'critical'
+                            elif stats["high_severity_changes"] > 0:
+                                level = 'warning'
+                            else:
+                                level = 'info'
 
-                        # Add severity indicators for critical updates
-                        if stats["critical_changes"] > 0:
-                            subject = f"[IMPORTANT] {subject} - Critical Files Modified"
-
-                        message = (
-                            f"The file integrity baseline has been updated with {stats['changes_applied']} changes. "
-                            f"This update includes:\n\n"
-                            f"• {stats['critical_changes']} critical file changes\n"
-                            f"• {stats['high_severity_changes']} high severity changes\n"
-                            f"• {stats['medium_severity_changes']} medium severity changes\n"
-                            f"• {stats['low_severity_changes']} low severity changes"
-                        )
-
-                        if stats["removed_entries"] > 0:
-                            message += f"\n\nAdditionally, {stats['removed_entries']} missing files were removed from baseline."
-
-                        # Send using notification manager
-                        notification_manager.send_to_stakeholders(
-                            subject=subject,
-                            message=message,
-                            level=notification_level,
-                            category=NOTIFICATION_CATEGORY_INTEGRITY,
-                            tags={
-                                'category': NOTIFICATION_CATEGORY_INTEGRITY,
-                                'event_type': 'baseline_update',
-                                'baseline_path': baseline_path,
-                                'critical_files': stats["critical_changes"] > 0
-                            }
-                        )
-                        stats["notification_sent"] = True
-
-                    except Exception as e:
-                        logger.warning(f"Failed to send baseline update notification: {e}")
+                            notification_manager.send_to_stakeholders(
+                                subject="File Integrity Baseline Updated",
+                                message=(
+                                    f"The file integrity baseline has been updated with {stats['changes_applied']} changes. "
+                                    f"This includes {stats['critical_changes']} critical, {stats['high_severity_changes']} high, "
+                                    f"and {stats['medium_severity_changes']} medium severity changes."
+                                ),
+                                category=NOTIFICATION_CATEGORY_INTEGRITY,
+                                level=level,
+                                data={
+                                    'baseline_path': baseline_path,
+                                    'changes_applied': stats['changes_applied'],
+                                    'removed_entries': stats['removed_entries'],
+                                    'critical_changes': stats['critical_changes'],
+                                    'high_severity_changes': stats['high_severity_changes'],
+                                    'operation': 'baseline_update'
+                                }
+                            )
+                            stats["notification_sent"] = True
+                        except Exception as e:
+                            logger.warning(f"Failed to send notification: {e}")
             else:
-                # Update failed
-                metrics.increment('security.baseline.update_failed')
+                # Handle failure case
+                metrics.increment('security.baseline.update_error')
 
                 # Log failure to audit trail
                 if audit and 'AuditService' in globals() and hasattr(AuditService, 'log_file_integrity_event'):
                     try:
                         AuditService.log_file_integrity_event(
-                            status='failure',
+                            status='error',
                             action='update',
+                            changes=None,
                             details={
                                 'baseline_path': baseline_path,
-                                'error': message,
+                                'error': message
                             },
-                            severity='error'
+                            severity='warning'
                         )
                         stats["audit_logged"] = True
                     except Exception as e:
@@ -1080,25 +1072,86 @@ if SECURITY_SERVICE_AVAILABLE:
 
         return success, message, stats
 
-
     __all__.append('update_file_integrity_baseline_with_notifications')
 
 if not HAS_SCAN_NOTIFICATIONS and SCANNING_SERVICE_AVAILABLE and NOTIFICATION_MODULE_AVAILABLE:
     def send_scan_notification(scan_id: str, scan_type: str, status: str,
-                              findings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                             findings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Send notification about security scan results.
+        Send notifications about scan results.
 
         Args:
-            scan_id: ID of the scan
+            scan_id: Unique identifier for the scan
             scan_type: Type of scan performed
-            status: Status of the scan (completed, failed, etc.)
-            findings: Optional findings from the scan
+            status: Current scan status
+            findings: Optional scan findings
 
         Returns:
-            Dictionary containing delivery results
+            Dictionary with notification results
         """
-        return notification_manager.send_scan_notification(scan_id, scan_type, status, findings)
+        result = {
+            'success': False,
+            'notifications_sent': 0,
+            'error': None
+        }
+
+        try:
+            if not NOTIFICATION_MODULE_AVAILABLE:
+                result['error'] = 'Notification module not available'
+                return result
+
+            # Determine notification level based on findings
+            level = 'info'
+            if findings:
+                critical_findings = findings.get('critical_count', 0)
+                high_findings = findings.get('high_count', 0)
+
+                if critical_findings > 0:
+                    level = 'critical'
+                elif high_findings > 0:
+                    level = 'warning'
+
+            # Create appropriate message based on status
+            if status == 'completed':
+                if findings:
+                    message = (
+                        f"Scan {scan_id} completed. "
+                        f"Found: {findings.get('critical_count', 0)} critical, "
+                        f"{findings.get('high_count', 0)} high, "
+                        f"{findings.get('medium_count', 0)} medium, "
+                        f"{findings.get('low_count', 0)} low severity issues."
+                    )
+                else:
+                    message = f"Scan {scan_id} completed successfully."
+            elif status == 'failed':
+                message = f"Scan {scan_id} failed. Please check logs for details."
+                level = 'warning'
+            else:
+                message = f"Scan {scan_id} status changed to: {status}"
+
+            # Send notification
+            notification_manager.send_to_stakeholders(
+                subject=f"Security Scan {status.capitalize()}: {scan_type}",
+                message=message,
+                category=NOTIFICATION_CATEGORY_SCAN,
+                level=level,
+                data={
+                    'scan_id': scan_id,
+                    'scan_type': scan_type,
+                    'status': status,
+                    'findings': findings
+                }
+            )
+
+            result['success'] = True
+            result['notifications_sent'] = 1  # We could track actual count from the notification manager if needed
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Error sending scan notification: {str(e)}")
+            result['error'] = str(e)
+            return result
 
     __all__.append('send_scan_notification')
 
