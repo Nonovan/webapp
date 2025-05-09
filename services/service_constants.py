@@ -185,6 +185,7 @@ FILE_CHANGE_SEVERITY_MAP = {
     'config/security/*.py': INTEGRITY_SEVERITY_CRITICAL,
     'core/security/*.py': INTEGRITY_SEVERITY_CRITICAL,
     'services/security_service.py': INTEGRITY_SEVERITY_CRITICAL,
+    'services/file_integrity_service.py': INTEGRITY_SEVERITY_CRITICAL,
 
     # High severity
     'config/*.py': INTEGRITY_SEVERITY_HIGH,
@@ -206,7 +207,8 @@ CRITICAL_FILE_PATTERNS = [
     'config/security/*.py',
     'core/security/*.py',
     'app.py',
-    'services/security_service.py'
+    'services/security_service.py',
+    'services/file_integrity_service.py'
 ]
 
 # File integrity monitoring constants
@@ -223,6 +225,7 @@ FILE_INTEGRITY_CONSTANTS = {
     'REQUIRE_CHANGE_JUSTIFICATION': True, # Require justification for changes in production
     'KEEP_PREVIOUS_HASHES': 3,            # Number of previous hashes to keep
     'UPDATE_NOTIFICATION_THRESHOLD': 'high', # Notify on updates to files with severity >= threshold
+    'EXPORT_FORMATS': ['json', 'yaml', 'csv'] # Supported export formats for baseline
 }
 
 # File integrity notification settings
@@ -392,6 +395,8 @@ WEBHOOK_EVENT_SECURITY_FINDING = 'security.finding'
 WEBHOOK_EVENT_SECURITY_INCIDENT = 'security.incident'
 WEBHOOK_EVENT_FILE_INTEGRITY_VIOLATION = 'security.file_integrity.violation'
 WEBHOOK_EVENT_BASELINE_UPDATED = 'security.baseline.updated'
+WEBHOOK_EVENT_BASELINE_EXPORTED = 'security.baseline.exported'
+WEBHOOK_EVENT_BASELINE_VERIFIED = 'security.baseline.verified'
 WEBHOOK_EVENT_COMMUNICATION_PREFERENCE_UPDATED = 'user.communication_preference.updated'
 WEBHOOK_EVENT_NOTIFICATION_PREFERENCE_UPDATED = 'user.notification_preference.updated'
 
@@ -417,6 +422,7 @@ EMAIL_TEMPLATE_WELCOME = 'welcome.html'
 EMAIL_TEMPLATE_PASSWORD_RESET = 'password_reset.html'
 EMAIL_TEMPLATE_VERIFICATION = 'verification.html'
 EMAIL_TEMPLATE_BASELINE_UPDATED = 'baseline_updated.html'
+EMAIL_TEMPLATE_BASELINE_EXPORTED = 'baseline_exported.html'
 EMAIL_TEMPLATE_PREFERENCE_CONFIRMATION = 'preference_confirmation.html'
 EMAIL_TEMPLATE_DIGEST = 'digest.html'
 
@@ -495,6 +501,32 @@ USER_PREFERENCE_SETTINGS = {
 }
 
 # ============================================================================
+# File Integrity Baseline Constants
+# ============================================================================
+
+# File formats supported for baseline export
+BASELINE_EXPORT_FORMATS = ['json', 'yaml', 'csv', 'html']
+
+# Permissions mode for baseline storage directories on POSIX systems
+BASELINE_DIR_PERMISSION_MODE = 0o750  # rwxr-x---
+
+# File baseline actions
+BASELINE_ACTION_CREATE = 'create'
+BASELINE_ACTION_UPDATE = 'update'
+BASELINE_ACTION_VERIFY = 'verify'
+BASELINE_ACTION_EXPORT = 'export'
+BASELINE_ACTION_IMPORT = 'import'
+
+# File baseline status values
+BASELINE_STATUS_CONSISTENT = 'consistent'
+BASELINE_STATUS_INCONSISTENT = 'inconsistent'
+BASELINE_STATUS_VALID = 'valid'
+BASELINE_STATUS_INVALID = 'invalid'
+BASELINE_STATUS_EMPTY = 'empty'
+BASELINE_STATUS_NOT_FOUND = 'not_found'
+BASELINE_STATUS_ERROR = 'error'
+
+# ============================================================================
 # Public Exports
 # ============================================================================
 
@@ -506,7 +538,6 @@ __all__ = [
 
     # Enums
     'ServiceStatus',
-    'NotificationPriority',
 
     # Notification Constants
     'CHANNEL_IN_APP', 'CHANNEL_EMAIL', 'CHANNEL_SMS', 'CHANNEL_WEBHOOK',
@@ -540,6 +571,14 @@ __all__ = [
     'FILE_INTEGRITY_CONSTANTS', 'FILE_INTEGRITY_NOTIFICATION_SETTINGS',
     'FILE_INTEGRITY_UPDATE_STRATEGIES',
 
+    # File Integrity Baseline Constants
+    'BASELINE_EXPORT_FORMATS', 'BASELINE_DIR_PERMISSION_MODE',
+    'BASELINE_ACTION_CREATE', 'BASELINE_ACTION_UPDATE', 'BASELINE_ACTION_VERIFY',
+    'BASELINE_ACTION_EXPORT', 'BASELINE_ACTION_IMPORT',
+    'BASELINE_STATUS_CONSISTENT', 'BASELINE_STATUS_INCONSISTENT',
+    'BASELINE_STATUS_VALID', 'BASELINE_STATUS_INVALID',
+    'BASELINE_STATUS_EMPTY', 'BASELINE_STATUS_NOT_FOUND', 'BASELINE_STATUS_ERROR',
+
     # Scanning Service Constants
     'SCAN_STATUS_PENDING', 'SCAN_STATUS_RUNNING', 'SCAN_STATUS_COMPLETED',
     'SCAN_STATUS_FAILED', 'SCAN_STATUS_CANCELLED', 'SCAN_STATUS_TIMEOUT',
@@ -555,7 +594,8 @@ __all__ = [
     'WEBHOOK_EVENT_SECURITY_SCAN_STARTED', 'WEBHOOK_EVENT_SECURITY_SCAN_COMPLETED',
     'WEBHOOK_EVENT_SECURITY_SCAN_FAILED', 'WEBHOOK_EVENT_SECURITY_FINDING',
     'WEBHOOK_EVENT_SECURITY_INCIDENT', 'WEBHOOK_EVENT_FILE_INTEGRITY_VIOLATION',
-    'WEBHOOK_EVENT_BASELINE_UPDATED', 'WEBHOOK_EVENT_COMMUNICATION_PREFERENCE_UPDATED',
+    'WEBHOOK_EVENT_BASELINE_UPDATED', 'WEBHOOK_EVENT_BASELINE_EXPORTED',
+    'WEBHOOK_EVENT_BASELINE_VERIFIED', 'WEBHOOK_EVENT_COMMUNICATION_PREFERENCE_UPDATED',
     'WEBHOOK_EVENT_NOTIFICATION_PREFERENCE_UPDATED',
     'WEBHOOK_SIGNATURE_HEADER',
     'WEBHOOK_DELIVERY_SUCCESS', 'WEBHOOK_DELIVERY_FAILED',
@@ -566,7 +606,8 @@ __all__ = [
     'EMAIL_TEMPLATE_SCAN_REPORT', 'EMAIL_TEMPLATE_INTEGRITY_VIOLATION',
     'EMAIL_TEMPLATE_WELCOME', 'EMAIL_TEMPLATE_PASSWORD_RESET',
     'EMAIL_TEMPLATE_VERIFICATION', 'EMAIL_TEMPLATE_BASELINE_UPDATED',
-    'EMAIL_TEMPLATE_PREFERENCE_CONFIRMATION', 'EMAIL_TEMPLATE_DIGEST',
+    'EMAIL_TEMPLATE_BASELINE_EXPORTED', 'EMAIL_TEMPLATE_PREFERENCE_CONFIRMATION',
+    'EMAIL_TEMPLATE_DIGEST',
 
     # Monitoring Service Constants
     'HEALTH_STATUS_HEALTHY', 'HEALTH_STATUS_DEGRADED',
@@ -575,10 +616,6 @@ __all__ = [
     'HEALTH_CHECK_STORAGE', 'HEALTH_CHECK_API', 'HEALTH_CHECK_SECURITY',
     'DEFAULT_CPU_WARNING_THRESHOLD', 'DEFAULT_MEMORY_WARNING_THRESHOLD',
     'DEFAULT_DISK_WARNING_THRESHOLD', 'DEFAULT_OPEN_FILES_WARNING_THRESHOLD',
-
-    # Rate Limiting Constants
-    'RATE_LIMIT_AUTHENTICATED', 'RATE_LIMIT_ANONYMOUS',
-    'RATE_LIMIT_LOGIN', 'RATE_LIMIT_REGISTER', 'RATE_LIMIT_PASSWORD_RESET',
 
     # Cache Timeouts
     'CACHE_TIMEOUT_SHORT', 'CACHE_TIMEOUT_MEDIUM', 'CACHE_TIMEOUT_LONG',

@@ -1,42 +1,35 @@
 """
 Services Package for Cloud Infrastructure Platform.
 
-This package provides service-layer functionality that encapsulates business logic
-and complex operations independently from presentation concerns. Services are designed
-to be reusable across different presentation layers (API, CLI, web interface).
+This package provides service layer functionality for various aspects of the
+cloud infrastructure platform, including authentication, security, monitoring,
+notifications, and more.
 """
 
 import logging
-import os
-from typing import Dict, Any, List, Optional, Callable, Tuple, Union
-from pathlib import Path
-from datetime import datetime, timezone
-import json
-import sys
-import yaml
+from typing import Dict, List, Any, Optional, Tuple, Callable
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Set up package logger
 logger = logging.getLogger(__name__)
 
-# Track feature availability
-AUTH_SERVICE_AVAILABLE = False
-EMAIL_SERVICE_AVAILABLE = False
-NEWSLETTER_SERVICE_AVAILABLE = False
+# Feature availability tracking
 SECURITY_SERVICE_AVAILABLE = False
 SCANNING_SERVICE_AVAILABLE = False
-WEBHOOK_SERVICE_AVAILABLE = False
+EMAIL_SERVICE_AVAILABLE = False
 NOTIFICATION_SERVICE_AVAILABLE = False
 NOTIFICATION_MODULE_AVAILABLE = False
+AUTH_SERVICE_AVAILABLE = False
+NEWSLETTER_SERVICE_AVAILABLE = False
+WEBHOOK_SERVICE_AVAILABLE = False
 SMS_SERVICE_AVAILABLE = False
-HAS_INTEGRITY_NOTIFICATIONS = False
-HAS_SCAN_NOTIFICATIONS = False
+FILE_INTEGRITY_SERVICE_AVAILABLE = False
+SERVICE_CONSTANTS_AVAILABLE = False
 
-# Import service constants
+# Try to import constants
 try:
     from .service_constants import (
-        # Version info
-        __version__, __author__,
+        __version__,
+        __author__,
 
         # Notification channels
         CHANNEL_IN_APP, CHANNEL_EMAIL, CHANNEL_SMS, CHANNEL_WEBHOOK,
@@ -77,7 +70,12 @@ try:
         SMS_STATUS_FAILED,
         SMS_STATUS_UNDELIVERABLE,
         SMS_STATUS_UNKNOWN,
-        SMS_PROVIDER_SETTINGS
+        SMS_PROVIDER_SETTINGS,
+
+        # File integrity baseline constants
+        BASELINE_EXPORT_FORMATS,
+        BASELINE_ACTION_EXPORT,
+        BASELINE_ACTION_IMPORT
     )
     SERVICE_CONSTANTS_AVAILABLE = True
 except ImportError as e:
@@ -100,8 +98,6 @@ except ImportError as e:
     DEFAULT_BASELINE_BACKUP_COUNT = 5
 
     # Scanning constants - fallback definitions
-    DEFAULT_SCAN_PROFILES = {}
-    MAX_CONCURRENT_SCANS = 5
     SCAN_STATUS_PENDING = 'pending'
     SCAN_STATUS_RUNNING = 'running'
     SCAN_STATUS_COMPLETED = 'completed'
@@ -114,108 +110,18 @@ except ImportError as e:
     NOTIFICATION_CATEGORY_SECURITY = 'security'
     NOTIFICATION_CATEGORY_USER = 'user'
     NOTIFICATION_CATEGORY_ADMIN = 'admin'
-    NOTIFICATION_CATEGORY_MAINTENANCE = 'maintenance'
-    NOTIFICATION_CATEGORY_MONITORING = 'monitoring'
     NOTIFICATION_CATEGORY_COMPLIANCE = 'compliance'
     NOTIFICATION_CATEGORY_INTEGRITY = 'integrity'
-    NOTIFICATION_CATEGORY_AUDIT = 'audit'
     NOTIFICATION_CATEGORY_SCAN = 'scan'
     NOTIFICATION_CATEGORY_VULNERABILITY = 'vulnerability'
     NOTIFICATION_CATEGORY_INCIDENT = 'incident'
 
-    # SMS Service fallback constants
-    SMS_DEFAULT_REGION = 'US'
-    SMS_MAX_LENGTH = 160
-    SMS_RETRY_COUNT = 3
-    SMS_CRITICAL_PRIORITY = 'critical'
-    SMS_HIGH_PRIORITY = 'high'
-    SMS_MEDIUM_PRIORITY = 'medium'
-    SMS_LOW_PRIORITY = 'low'
-    SMS_RATE_LIMIT_WINDOW = 300  # 5 minutes
-    SMS_RATE_LIMIT_MAX_PER_USER = 5  # 5 messages per window
-    SMS_ALLOWED_DOMAINS = []
-    SMS_STATUS_QUEUED = 'queued'
-    SMS_STATUS_SENDING = 'sending'
-    SMS_STATUS_SENT = 'sent'
-    SMS_STATUS_DELIVERED = 'delivered'
-    SMS_STATUS_FAILED = 'failed'
-    SMS_STATUS_UNDELIVERABLE = 'undeliverable'
-    SMS_STATUS_UNKNOWN = 'unknown'
-    SMS_PROVIDER_SETTINGS = {
-        'twilio': {},
-        'aws_sns': {},
-        'messagebird': {},
-        'vonage': {}
-    }
+    # Baseline export constants
+    BASELINE_EXPORT_FORMATS = ['json', 'yaml']
+    BASELINE_ACTION_EXPORT = 'export'
+    BASELINE_ACTION_IMPORT = 'import'
 
-# Try importing metrics
-try:
-    from core.metrics import metrics
-    METRICS_AVAILABLE = True
-except ImportError:
-    logger.debug("Metrics module not available")
-    METRICS_AVAILABLE = False
-    # Create dummy metrics object
-    class DummyMetrics:
-        def increment(self, *args, **kwargs):
-            pass
-
-        def decrement(self, *args, **kwargs):
-            pass
-
-        def gauge(self, *args, **kwargs):
-            pass
-
-        def histogram(self, *args, **kwargs):
-            pass
-
-        def timing(self, *args, **kwargs):
-            pass
-
-    metrics = DummyMetrics()
-
-# Import and expose NotificationManager from the notification package
-try:
-    from .notification import (
-        NotificationManager,
-        notification_manager,
-        notify_stakeholders,
-        NOTIFICATION_CATEGORY_SYSTEM,
-        NOTIFICATION_CATEGORY_SECURITY,
-        NOTIFICATION_CATEGORY_USER,
-        NOTIFICATION_CATEGORY_ADMIN,
-        NOTIFICATION_CATEGORY_MAINTENANCE,
-        NOTIFICATION_CATEGORY_MONITORING,
-        NOTIFICATION_CATEGORY_COMPLIANCE,
-        NOTIFICATION_CATEGORY_INTEGRITY,
-        NOTIFICATION_CATEGORY_AUDIT,
-        NOTIFICATION_CATEGORY_SCAN,
-        NOTIFICATION_CATEGORY_VULNERABILITY,
-        NOTIFICATION_CATEGORY_INCIDENT
-    )
-
-    # Import convenience functions if available
-    try:
-        from .notification import send_integrity_notification
-        HAS_INTEGRITY_NOTIFICATIONS = True
-    except ImportError:
-        HAS_INTEGRITY_NOTIFICATIONS = False
-
-    try:
-        from .notification import send_scan_notification
-        HAS_SCAN_NOTIFICATIONS = True
-    except ImportError:
-        HAS_SCAN_NOTIFICATIONS = False
-
-    NOTIFICATION_MODULE_AVAILABLE = True
-    logger.debug("Notification module available")
-except ImportError as e:
-    logger.warning(f"Notification module not available: {e}")
-    HAS_INTEGRITY_NOTIFICATIONS = False
-    HAS_SCAN_NOTIFICATIONS = False
-    NOTIFICATION_MODULE_AVAILABLE = False
-
-# Try to import original NotificationService (for backward compatibility)
+# Try to import notification service
 try:
     from .notification_service import (
         NotificationService,
@@ -227,29 +133,29 @@ try:
     )
     NOTIFICATION_SERVICE_AVAILABLE = True
 except ImportError:
-    NOTIFICATION_SERVICE_AVAILABLE = False
-    if not NOTIFICATION_MODULE_AVAILABLE:
-        logger.warning("NotificationService functionality may be limited or unavailable")
+    logger.warning("NotificationService not available")
 
-# Import other services if available
+# Try to import Email Service
+try:
+    from .email_service import (
+        EmailService,
+        send_email,
+        send_template_email,
+        validate_email_address,
+        test_email_configuration
+    )
+    EMAIL_SERVICE_AVAILABLE = True
+except ImportError:
+    logger.warning("EmailService not available")
+
+# Try to import Auth Service
 try:
     from .auth_service import AuthService
     AUTH_SERVICE_AVAILABLE = True
 except ImportError:
     logger.warning("AuthService not available")
 
-# Import AuditService if available
-try:
-    from .audit_service import AuditService
-except ImportError:
-    logger.warning("AuditService not available")
-
-try:
-    from .email_service import EmailService, send_email, send_template_email, validate_email_address, test_email_configuration
-    EMAIL_SERVICE_AVAILABLE = True
-except ImportError:
-    logger.warning("EmailService not available")
-
+# Try to import Newsletter Service
 try:
     from .newsletter_service import NewsletterService
     NEWSLETTER_SERVICE_AVAILABLE = True
@@ -304,6 +210,43 @@ except ImportError as e:
     logger.warning(f"File integrity service not available: {e}")
     FILE_INTEGRITY_SERVICE_AVAILABLE = False
 
+# Try to import notification module and NotificationManager
+try:
+    from .notification import (
+        NotificationManager,
+        notification_manager
+    )
+    # Import notify_stakeholders specifically - this only exists in notification module
+    from .notification import notify_stakeholders
+    NOTIFICATION_MODULE_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Notification module not available: {e}")
+    NOTIFICATION_MODULE_AVAILABLE = False
+    # Need to set this to None so it can be referenced safely later
+    notify_stakeholders = None
+
+# Check availability of notification integration functions
+HAS_INTEGRITY_NOTIFICATIONS = False
+HAS_SCAN_NOTIFICATIONS = False
+
+# Only try to import specialized notification functions if the base module is available
+if NOTIFICATION_MODULE_AVAILABLE:
+    # Check for integrity notification integration
+    if SECURITY_SERVICE_AVAILABLE and FILE_INTEGRITY_SERVICE_AVAILABLE:
+        try:
+            from .notification import send_integrity_notification
+            HAS_INTEGRITY_NOTIFICATIONS = True
+        except (ImportError, AttributeError) as e:
+            logger.debug(f"File integrity notification integration not available: {e}")
+
+    # Check for scan notification integration
+    if SCANNING_SERVICE_AVAILABLE:
+        try:
+            from .notification import send_scan_notification
+            HAS_SCAN_NOTIFICATIONS = True
+        except (ImportError, AttributeError) as e:
+            logger.debug(f"Scan notification integration not available: {e}")
+
 # Export classes and functions to make them available when importing this package
 __all__ = [
     # Service classes
@@ -328,7 +271,7 @@ __all__ = [
     'send_success_notification',
     'send_warning_notification',
     'send_user_notification',
-    'notify_stakeholders',
+    'notify_stakeholders',  # This now comes from notification package
 
     # Notification channels
     'CHANNEL_IN_APP',
@@ -424,15 +367,13 @@ if SECURITY_SERVICE_AVAILABLE:
     # Helper functions from SecurityService
     def check_integrity(paths: Optional[List[str]] = None) -> Tuple[bool, List[Dict[str, Any]]]:
         """
-        Check file integrity against the stored baseline.
+        Check file integrity against baseline.
 
         Args:
-            paths: Optional list of paths to check, if None all baseline files are checked
+            paths: Optional list of paths to check. If None, checks all baseline files.
 
         Returns:
-            Tuple of (integrity_status, changes)
-            - integrity_status: True if all files match baseline, False otherwise
-            - changes: List of dictionaries detailing any changes found
+            Tuple containing (status, changes)
         """
         return SecurityService.check_file_integrity(paths)
 
@@ -465,30 +406,55 @@ if SECURITY_SERVICE_AVAILABLE:
 
     def calculate_file_hash(filepath: str, algorithm: str = DEFAULT_HASH_ALGORITHM) -> Optional[str]:
         """
-        Calculate the hash of a file using the specified algorithm.
+        Calculate the hash of a file.
 
         Args:
             filepath: Path to the file to hash
-            algorithm: Hash algorithm to use (default: from service constants)
+            algorithm: Hash algorithm to use (default: sha256)
 
         Returns:
-            String hash of the file or None if hashing fails
+            Hex digest of file hash or None if file cannot be read
         """
-        return SecurityService._calculate_hash(Path(filepath), algorithm)
+        from pathlib import Path
+        return SecurityService._calculate_hash(Path(filepath))
 
     def schedule_integrity_check(interval_seconds: int = 3600,
                                callback: Optional[Callable[[bool, List[Dict[str, Any]]], None]] = None) -> bool:
         """
-        Schedule periodic file integrity checks.
+        Schedule periodic integrity checks.
 
         Args:
-            interval_seconds: Interval between checks in seconds
-            callback: Optional callable invoked with check results
+            interval_seconds: Time between integrity checks in seconds
+            callback: Optional function to call with check results
 
         Returns:
-            True if scheduling succeeded, False otherwise
+            bool: True if scheduling was successful
         """
         return SecurityService.schedule_integrity_check(interval_seconds, callback)
+
+    def get_integrity_status() -> Dict[str, Any]:
+        """
+        Get the current status of the baseline and recent integrity checks.
+
+        Returns:
+            Dictionary with integrity status information
+        """
+        return SecurityService.get_integrity_status()
+
+# Conditionally add scanning functions if ScanningService is available
+if SCANNING_SERVICE_AVAILABLE:
+    def run_security_scan(scan_type: str = 'standard', targets: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Run a security scan with the specified parameters.
+
+        Args:
+            scan_type: Type of scan to run (standard, quick, full, or compliance)
+            targets: Optional list of targets to scan
+
+        Returns:
+            Dictionary containing scan details including ID and status
+        """
+        return ScanningService.run_scan(scan_type, targets)
 
 # Log package initialization
 logger.debug(f"Services package initialized (version: {__version__}), " +
@@ -496,4 +462,5 @@ logger.debug(f"Services package initialized (version: {__version__}), " +
             f"Scanning service available: {SCANNING_SERVICE_AVAILABLE}, " +
             f"Notification module available: {NOTIFICATION_MODULE_AVAILABLE}, " +
             f"SMS service available: {SMS_SERVICE_AVAILABLE}, " +
-            f"Auth service available: {AUTH_SERVICE_AVAILABLE}")
+            f"Auth service available: {AUTH_SERVICE_AVAILABLE}, " +
+            f"File integrity service available: {FILE_INTEGRITY_SERVICE_AVAILABLE}")
