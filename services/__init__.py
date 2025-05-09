@@ -1,18 +1,22 @@
 """
-Services package for the Cloud Infrastructure Platform.
+Services Package for Cloud Infrastructure Platform.
 
-This package provides business logic services that form the core functionality
-of the application. These services abstract the underlying implementation details
-and provide a consistent API for other application components.
+This package provides service-layer functionality that encapsulates business logic
+and complex operations independently from presentation concerns. Services are designed
+to be reusable across different presentation layers (API, CLI, web interface).
 """
 
 import logging
-from typing import Dict, Any, Optional, List, Union, Callable, Tuple
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
 import os
+from typing import Dict, Any, List, Optional, Callable, Tuple, Union
+from pathlib import Path
+from datetime import datetime, timezone
 import json
+import sys
+import yaml
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Track feature availability
@@ -25,14 +29,127 @@ WEBHOOK_SERVICE_AVAILABLE = False
 NOTIFICATION_SERVICE_AVAILABLE = False
 NOTIFICATION_MODULE_AVAILABLE = False
 
+# Import service constants
+try:
+    from .service_constants import (
+        # Version info
+        __version__, __author__,
+
+        # Notification channels
+        CHANNEL_IN_APP, CHANNEL_EMAIL, CHANNEL_SMS, CHANNEL_WEBHOOK,
+
+        # File integrity constants
+        DEFAULT_HASH_ALGORITHM, DEFAULT_BASELINE_FILE_PATH,
+        AUTO_UPDATE_LIMIT, DEFAULT_BASELINE_BACKUP_COUNT,
+
+        # Scanning constants
+        DEFAULT_SCAN_PROFILES, MAX_CONCURRENT_SCANS,
+        SCAN_STATUS_PENDING, SCAN_STATUS_RUNNING, SCAN_STATUS_COMPLETED,
+        SCAN_STATUS_FAILED, SCAN_STATUS_CANCELLED, SCAN_STATUS_TIMEOUT,
+
+        # Notification categories
+        NOTIFICATION_CATEGORY_SYSTEM, NOTIFICATION_CATEGORY_SECURITY,
+        NOTIFICATION_CATEGORY_USER, NOTIFICATION_CATEGORY_ADMIN,
+        NOTIFICATION_CATEGORY_MAINTENANCE, NOTIFICATION_CATEGORY_MONITORING,
+        NOTIFICATION_CATEGORY_COMPLIANCE, NOTIFICATION_CATEGORY_INTEGRITY,
+        NOTIFICATION_CATEGORY_AUDIT, NOTIFICATION_CATEGORY_SCAN,
+        NOTIFICATION_CATEGORY_VULNERABILITY, NOTIFICATION_CATEGORY_INCIDENT
+    )
+    SERVICE_CONSTANTS_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Service constants not available: {e}")
+    SERVICE_CONSTANTS_AVAILABLE = False
+    # Set fallback defaults
+    __version__ = '0.2.0'
+    __author__ = 'Cloud Infrastructure Platform Team'
+    CHANNEL_IN_APP = 'in_app'
+    CHANNEL_EMAIL = 'email'
+    CHANNEL_SMS = 'sms'
+    CHANNEL_WEBHOOK = 'webhook'
+    DEFAULT_HASH_ALGORITHM = 'sha256'
+    DEFAULT_BASELINE_FILE_PATH = 'instance/security/baseline.json'
+    AUTO_UPDATE_LIMIT = 10
+    DEFAULT_BASELINE_BACKUP_COUNT = 5
+    DEFAULT_SCAN_PROFILES = {}
+    MAX_CONCURRENT_SCANS = 5
+    SCAN_STATUS_PENDING = 'pending'
+    SCAN_STATUS_RUNNING = 'running'
+    SCAN_STATUS_COMPLETED = 'completed'
+    SCAN_STATUS_FAILED = 'failed'
+    SCAN_STATUS_CANCELLED = 'cancelled'
+    SCAN_STATUS_TIMEOUT = 'timeout'
+    # Notification categories
+    NOTIFICATION_CATEGORY_SYSTEM = 'system'
+    NOTIFICATION_CATEGORY_SECURITY = 'security'
+    NOTIFICATION_CATEGORY_USER = 'user'
+    NOTIFICATION_CATEGORY_ADMIN = 'admin'
+    NOTIFICATION_CATEGORY_MAINTENANCE = 'maintenance'
+    NOTIFICATION_CATEGORY_MONITORING = 'monitoring'
+    NOTIFICATION_CATEGORY_COMPLIANCE = 'compliance'
+    NOTIFICATION_CATEGORY_INTEGRITY = 'integrity'
+    NOTIFICATION_CATEGORY_AUDIT = 'audit'
+    NOTIFICATION_CATEGORY_SCAN = 'scan'
+    NOTIFICATION_CATEGORY_VULNERABILITY = 'vulnerability'
+    NOTIFICATION_CATEGORY_INCIDENT = 'incident'
+
+# Try importing metrics
+try:
+    from core.metrics import metrics
+    METRICS_AVAILABLE = True
+except ImportError:
+    logger.debug("Metrics module not available")
+    METRICS_AVAILABLE = False
+    # Create dummy metrics object
+    class DummyMetrics:
+        def increment(self, *args, **kwargs): pass
+        def gauge(self, *args, **kwargs): pass
+        def timing(self, *args, **kwargs): pass
+    metrics = DummyMetrics()
+
 # Import and expose NotificationManager from the notification package
 try:
-    from .notification import NotificationManager, notification_manager, notify_stakeholders
-    from .notification import CHANNEL_IN_APP, CHANNEL_EMAIL, CHANNEL_SMS, CHANNEL_WEBHOOK
+    from .notification import (
+        NotificationManager,
+        notification_manager,
+        notify_stakeholders,
+        CHANNEL_IN_APP,
+        CHANNEL_EMAIL,
+        CHANNEL_SMS,
+        CHANNEL_WEBHOOK,
+        # Notification categories
+        NOTIFICATION_CATEGORY_SYSTEM,
+        NOTIFICATION_CATEGORY_SECURITY,
+        NOTIFICATION_CATEGORY_USER,
+        NOTIFICATION_CATEGORY_ADMIN,
+        NOTIFICATION_CATEGORY_MAINTENANCE,
+        NOTIFICATION_CATEGORY_MONITORING,
+        NOTIFICATION_CATEGORY_COMPLIANCE,
+        NOTIFICATION_CATEGORY_INTEGRITY,
+        NOTIFICATION_CATEGORY_AUDIT,
+        NOTIFICATION_CATEGORY_SCAN,
+        NOTIFICATION_CATEGORY_VULNERABILITY,
+        NOTIFICATION_CATEGORY_INCIDENT
+    )
+
+    # Import convenience functions if available
+    try:
+        from .notification import send_integrity_notification
+        HAS_INTEGRITY_NOTIFICATIONS = True
+    except ImportError:
+        HAS_INTEGRITY_NOTIFICATIONS = False
+
+    try:
+        from .notification import send_scan_notification
+        HAS_SCAN_NOTIFICATIONS = True
+    except ImportError:
+        HAS_SCAN_NOTIFICATIONS = False
+
     NOTIFICATION_MODULE_AVAILABLE = True
     logger.debug("Notification module available")
 except ImportError as e:
     logger.warning(f"Notification module not available: {e}")
+    HAS_INTEGRITY_NOTIFICATIONS = False
+    HAS_SCAN_NOTIFICATIONS = False
 
 # Try to import original NotificationService (for backward compatibility)
 try:
@@ -91,9 +208,6 @@ try:
 except ImportError:
     logger.warning("WebhookService not available")
 
-# Version information
-__version__ = '0.1.1'
-
 # Export classes and functions to make them available when importing this package
 __all__ = [
     # Service classes
@@ -125,6 +239,20 @@ __all__ = [
     'CHANNEL_EMAIL',
     'CHANNEL_SMS',
     'CHANNEL_WEBHOOK',
+
+    # Notification categories
+    'NOTIFICATION_CATEGORY_SYSTEM',
+    'NOTIFICATION_CATEGORY_SECURITY',
+    'NOTIFICATION_CATEGORY_USER',
+    'NOTIFICATION_CATEGORY_ADMIN',
+    'NOTIFICATION_CATEGORY_MAINTENANCE',
+    'NOTIFICATION_CATEGORY_MONITORING',
+    'NOTIFICATION_CATEGORY_COMPLIANCE',
+    'NOTIFICATION_CATEGORY_INTEGRITY',
+    'NOTIFICATION_CATEGORY_AUDIT',
+    'NOTIFICATION_CATEGORY_SCAN',
+    'NOTIFICATION_CATEGORY_VULNERABILITY',
+    'NOTIFICATION_CATEGORY_INCIDENT',
 
     # Notification instances
     'notification_manager',
@@ -174,98 +302,100 @@ __all__ = [
     '__version__'
 ]
 
+# Conditionally add notification integration functions if available
+if HAS_INTEGRITY_NOTIFICATIONS:
+    __all__.append('send_integrity_notification')
+
+if HAS_SCAN_NOTIFICATIONS:
+    __all__.append('send_scan_notification')
+
 # Conditionally add security functions if SecurityService is available
 if SECURITY_SERVICE_AVAILABLE:
     # Helper functions from SecurityService
     def check_integrity(paths: Optional[List[str]] = None) -> Tuple[bool, List[Dict[str, Any]]]:
         """
-        Check file integrity against a stored baseline.
-
-        This is a convenience function that delegates to SecurityService.
+        Check file integrity against the baseline.
 
         Args:
-            paths: Optional list of specific file paths to check.
-                  If None, checks all files in the baseline.
+            paths: Optional list of file paths to check. If None, checks all files in baseline.
 
         Returns:
-            Tuple of (integrity_status, changes)
+            Tuple containing (integrity_status, list_of_changes)
         """
         return SecurityService.check_file_integrity(paths)
 
     def update_security_baseline(paths_to_update: Optional[List[str]] = None,
                                remove_missing: bool = False) -> Tuple[bool, str]:
         """
-        Update the security baseline with new file hashes.
-
-        This is a convenience function that delegates to SecurityService.
+        Update the security baseline.
 
         Args:
-            paths_to_update: Optional list of specific file paths to update in the baseline.
-                           If None, re-scans all files in the current baseline.
+            paths_to_update: Optional list of paths to update. If None, updates all baseline files.
             remove_missing: Whether to remove entries for files that no longer exist
 
         Returns:
-            Tuple of (success, message)
+            Tuple containing (success, message)
         """
         return SecurityService.update_baseline(paths_to_update, remove_missing)
 
     def verify_file_hash(filepath: str, expected_hash: Optional[str] = None) -> Tuple[bool, Dict[str, Any]]:
         """
-        Verify a file's hash against an expected value.
-
-        This is a convenience function that delegates to SecurityService.
+        Verify a file's hash against an expected value or calculate it.
 
         Args:
-            filepath: Path to the file to verify
-            expected_hash: Expected hash value (if not provided, uses baseline)
+            filepath: Path to the file to check
+            expected_hash: Expected hash value (if None, just returns the calculated hash)
 
         Returns:
-            Tuple of (match_status, details)
+            Tuple containing (match_status, details_dict)
         """
-        return SecurityService.verify_file_hash(filepath, expected_hash)
+        calculated = SecurityService._calculate_hash(Path(filepath))
+        if calculated is None:
+            return False, {"error": "Failed to calculate hash", "file": filepath}
 
-    def calculate_file_hash(filepath: str, algorithm: str = "sha256") -> Optional[str]:
+        if expected_hash is None:
+            return True, {"hash": calculated, "file": filepath}
+
+        match = calculated == expected_hash
+        return match, {
+            "match": match,
+            "file": filepath,
+            "calculated": calculated,
+            "expected": expected_hash
+        }
+
+    def calculate_file_hash(filepath: str, algorithm: str = DEFAULT_HASH_ALGORITHM) -> Optional[str]:
         """
-        Calculate hash for a file.
-
-        This is a convenience function that delegates to SecurityService.
+        Calculate a file's hash using the specified algorithm.
 
         Args:
-            filepath: Path to the file to hash
-            algorithm: Hash algorithm to use
+            filepath: Path to the file
+            algorithm: Hash algorithm to use (default: sha256)
 
         Returns:
-            File hash as string or None if error
+            Hash value as string, or None if calculation failed
         """
-        return SecurityService._calculate_hash(filepath, algorithm)
-
-    def get_integrity_status() -> Dict[str, Any]:
-        """
-        Get current file integrity status information.
-
-        This is a convenience function that delegates to SecurityService.
-
-        Returns:
-            Dictionary with integrity status information
-        """
-        return SecurityService.get_integrity_status()
+        # Use SecurityService._calculate_hash but enforce the algorithm choice
+        orig_algo = SecurityService.DEFAULT_HASH_ALGORITHM
+        try:
+            SecurityService.DEFAULT_HASH_ALGORITHM = algorithm
+            return SecurityService._calculate_hash(Path(filepath))
+        finally:
+            SecurityService.DEFAULT_HASH_ALGORITHM = orig_algo
 
     def schedule_integrity_check(interval_seconds: int = 3600,
-                               callback: Optional[Callable[..., Any]] = None) -> bool:
+                               callback: Optional[Callable[[bool, List[Dict[str, Any]]], None]] = None) -> bool:
         """
-        Schedule periodic integrity checks.
-
-        This is a convenience function that delegates to SecurityService.
+        Schedule periodic file integrity checks.
 
         Args:
-            interval_seconds: Interval between checks in seconds
-            callback: Optional callback function to call with check results
+            interval_seconds: Time between checks in seconds
+            callback: Function to call with integrity check results
 
         Returns:
-            True if scheduled successfully, False otherwise
+            bool: True if scheduled successfully, False otherwise
         """
         return SecurityService.schedule_integrity_check(interval_seconds, callback)
-
 
     def update_file_integrity_baseline(app, baseline_path: str, changes: List[Dict[str, Any]],
                                      auto_update_limit: int = 10,
@@ -398,7 +528,7 @@ if SECURITY_SERVICE_AVAILABLE:
                     "metadata": {
                         "created_at": datetime.now(timezone.utc).isoformat(),
                         "last_updated_at": datetime.now(timezone.utc).isoformat(),
-                        "hash_algorithm": "sha256"
+                        "hash_algorithm": DEFAULT_HASH_ALGORITHM
                     }
                 }
                 SecurityService._save_baseline(baseline_data, baseline_file)
@@ -445,37 +575,40 @@ if SECURITY_SERVICE_AVAILABLE:
 
     def verify_baseline_consistency(baseline_path: Optional[str] = None) -> Tuple[bool, Dict[str, Any]]:
         """
-        Verify the consistency and health of a baseline file.
+        Verify the consistency and integrity of a file integrity baseline.
 
         Args:
-            baseline_path: Optional path to the baseline file to check.
-                          If None, checks the default baseline.
+            baseline_path: Path to the baseline file (uses default if None)
 
         Returns:
-            Tuple of (consistency_status, details)
+            Tuple containing (consistency_status, details_dict)
         """
+        result = {
+            "exists": False,
+            "readable": False,
+            "valid_format": False,
+            "has_required_fields": False,
+            "has_metadata": False,
+            "file_count": 0,
+            "metadata_keys": [],
+            "errors": [],
+            "size": 0,
+            "last_modified": None,
+            "permissions": None,
+        }
+
         try:
-            if baseline_path:
-                baseline_file = Path(baseline_path)
-            else:
-                from core.security.cs_file_integrity import get_baseline_path
-                baseline_file = Path(get_baseline_path())
+            # Determine baseline path
+            if baseline_path is None:
+                baseline_path = SecurityService.get_baseline_path()
+                if baseline_path is None:
+                    baseline_path = str(DEFAULT_BASELINE_FILE_PATH)
 
-            # Initialize result dictionary
-            result = {
-                "exists": baseline_file.exists(),
-                "readable": baseline_file.exists() and os.access(baseline_file, os.R_OK),
-                "size": 0,
-                "last_modified": None,
-                "permissions": None,
-                "file_count": 0,
-                "has_required_fields": False,
-                "has_metadata": False,
-                "valid_format": False,
-                "errors": []
-            }
+            # Check if file exists and is readable
+            baseline_file = Path(baseline_path)
+            result["exists"] = baseline_file.exists()
+            result["readable"] = baseline_file.exists() and os.access(baseline_file, os.R_OK)
 
-            # Validate file existence and basic properties
             if not result["exists"]:
                 result["errors"].append("Baseline file does not exist")
                 return False, result
@@ -530,46 +663,34 @@ if SECURITY_SERVICE_AVAILABLE:
                 result["exists"] and
                 result["readable"] and
                 result["valid_format"] and
-                not result["errors"]
+                result["has_required_fields"]
             )
 
             return is_consistent, result
 
         except Exception as e:
-            logger.error(f"Error checking baseline consistency: {e}")
-            return False, {"error": str(e), "exists": False, "valid_format": False}
+            result["errors"].append(f"Unexpected error: {str(e)}")
+            return False, result
 
     def export_baseline(baseline_path: Optional[str] = None, destination: Optional[str] = None,
                        format_type: str = "json") -> Tuple[bool, str]:
         """
-        Export a baseline file to another format or location.
+        Export the file integrity baseline to a different location or format.
 
         Args:
-            baseline_path: Optional path to the baseline file to export.
-                         If None, exports the default baseline.
-            destination: Optional destination path.
-                        If None, uses a timestamped version of the source path.
-            format_type: Export format type ("json" or "yaml")
+            baseline_path: Path to source baseline file (uses default if None)
+            destination: Path for exported baseline (auto-generated if None)
+            format_type: Format for export ("json" or "yaml")
 
         Returns:
             Tuple of (success, message)
         """
         try:
-            # Validate format type
-            if format_type not in ["json", "yaml"]:
-                return False, f"Unsupported format: {format_type}"
-
-            # Check YAML availability if needed
-            if format_type == "yaml":
-                try:
-                    import yaml
-                except ImportError:
-                    return False, "YAML export requires PyYAML package"
-
-            # Get source baseline path if not provided
-            if not baseline_path:
-                from core.security.cs_file_integrity import get_baseline_path
-                baseline_path = get_baseline_path()
+            # Determine source baseline path
+            if baseline_path is None:
+                baseline_path = SecurityService.get_baseline_path()
+                if baseline_path is None:
+                    baseline_path = str(DEFAULT_BASELINE_FILE_PATH)
 
             source_file = Path(baseline_path)
             if not source_file.exists():
@@ -595,44 +716,73 @@ if SECURITY_SERVICE_AVAILABLE:
             if format_type == "json":
                 with open(dest_path, 'w') as f:
                     json.dump(baseline_data, f, indent=2)
+                return True, f"Baseline exported to JSON: {destination}"
 
             elif format_type == "yaml":
-                with open(dest_path, 'w') as f:
-                    yaml.dump(baseline_data, f, default_flow_style=False)
+                try:
+                    with open(dest_path, 'w') as f:
+                        yaml.safe_dump(baseline_data, f, default_flow_style=False)
+                    return True, f"Baseline exported to YAML: {destination}"
+                except ImportError:
+                    return False, "YAML library not available, install PyYAML"
 
-            return True, f"Baseline exported to {destination}"
+            else:
+                return False, f"Unsupported format: {format_type}"
 
         except Exception as e:
             logger.error(f"Error exporting baseline: {e}")
-            return False, f"Export error: {str(e)}"
+            return False, f"Export failed: {str(e)}"
 
-# Import ScanningService functions if available
-if SCANNING_SERVICE_AVAILABLE:
-    def run_security_scan(target: str, scan_type: str = "standard",
-                        parameters: Optional[Dict[str, Any]] = None) -> str:
+    def get_integrity_status() -> Dict[str, Any]:
         """
-        Run a security scan on a specified target.
-
-        This is a convenience function that delegates to ScanningService.
-
-        Args:
-            target: Target to scan (URL, hostname, IP, etc.)
-            scan_type: Type of scan to run (standard, deep, compliance, etc.)
-            parameters: Additional scan parameters
+        Get the current status of file integrity monitoring.
 
         Returns:
-            Scan ID for tracking the scan status
+            Dictionary with integrity status information
         """
-        return ScanningService.run_scan(target, scan_type, parameters)
+        return SecurityService.get_integrity_status()
+
+# Conditionally add scanning functions if ScanningService is available
+if SCANNING_SERVICE_AVAILABLE:
+    def run_security_scan(target: str, scan_type: str = "standard",
+                        parameters: Optional[Dict[str, Any]] = None,
+                        callback_url: Optional[str] = None) -> str:
+        """
+        Run a security scan with the specified parameters.
+
+        Args:
+            target: The target to scan (can be a URL, path, container image, etc.)
+            scan_type: Type of scan to run ("standard", "quick", "full", etc.)
+            parameters: Optional parameters to customize the scan
+            callback_url: Optional URL to call when scan completes
+
+        Returns:
+            Scan ID that can be used to check status and retrieve results
+        """
+        profile = ScanningService.get_profile(scan_type)
+
+        scan = {
+            "id": f"scan_{int(datetime.now().timestamp())}",
+            "target": target,
+            "profile_id": scan_type,
+            "parameters": parameters or {},
+            "callback_url": callback_url,
+            "status": SCAN_STATUS_PENDING,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+
+        success = ScanningService.start_scan(scan)
+        if success:
+            return scan["id"]
+        else:
+            raise RuntimeError("Failed to start security scan")
 
     def get_scan_status(scan_id: str) -> Dict[str, Any]:
         """
-        Get status of a specific scan.
-
-        This is a convenience function that delegates to ScanningService.
+        Get the current status of a security scan.
 
         Args:
-            scan_id: ID of scan to check status
+            scan_id: ID of the scan to check
 
         Returns:
             Dictionary with scan status information
@@ -641,63 +791,59 @@ if SCANNING_SERVICE_AVAILABLE:
 
     def get_scan_results(scan_id: str) -> Dict[str, Any]:
         """
-        Get results of a completed scan.
-
-        This is a convenience function that delegates to ScanningService.
+        Get the results of a completed security scan.
 
         Args:
-            scan_id: ID of scan to get results for
+            scan_id: ID of the scan
 
         Returns:
             Dictionary with scan results
         """
         return ScanningService.get_scan_results(scan_id)
 
-    def get_scan_history(limit: int = 10,
-                       offset: int = 0,
-                       filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    def get_scan_history(limit: int = 10) -> List[Dict[str, Any]]:
         """
-        Get scan history.
-
-        This is a convenience function that delegates to ScanningService.
+        Get history of recent security scans.
 
         Args:
             limit: Maximum number of results to return
-            offset: Offset for pagination
-            filters: Optional filters to apply
 
         Returns:
             List of scan history entries
         """
-        return ScanningService.get_scan_history(limit, offset, filters)
+        return ScanningService.get_scan_history(limit)
 
     def get_scan_profiles() -> List[Dict[str, Any]]:
         """
-        Get available scan profiles.
-
-        This is a convenience function that delegates to ScanningService.
+        Get available security scan profiles.
 
         Returns:
-            List of scan profiles with their configurations
+            List of scan profile configurations
         """
-        return ScanningService.get_profiles()
+        return ScanningService.get_available_scan_profiles()
 
-    def start_security_scan(*args, **kwargs):
+    def start_security_scan(scan_config: Dict[str, Any]) -> str:
         """
-        Start a security scan with advanced options.
+        Start a security scan with custom configuration.
 
-        This is a convenience function that delegates to ScanningService.
+        Args:
+            scan_config: Complete scan configuration
+
+        Returns:
+            Scan ID
         """
-        return ScanningService.start_scan(*args, **kwargs)
+        success = ScanningService.start_scan(scan_config)
+        if success:
+            return scan_config.get("id", "unknown")
+        else:
+            raise RuntimeError("Failed to start security scan")
 
     def cancel_security_scan(scan_id: str) -> bool:
         """
-        Cancel an in-progress scan.
-
-        This is a convenience function that delegates to ScanningService.
+        Cancel a running security scan.
 
         Args:
-            scan_id: ID of scan to cancel
+            scan_id: ID of the scan to cancel
 
         Returns:
             True if successfully cancelled, False otherwise
@@ -706,48 +852,55 @@ if SCANNING_SERVICE_AVAILABLE:
 
     def get_scan_health_metrics() -> Dict[str, Any]:
         """
-        Get health metrics of the scanning system.
-
-        This is a convenience function that delegates to ScanningService.
+        Get health metrics for the scanning service.
 
         Returns:
-            Dictionary with scanning system health metrics
+            Dictionary with health metrics
         """
-        return ScanningService.get_health_metrics()
+        return {
+            "active_scans": ScanningService.get_active_scan_count(),
+            "queue_depth": ScanningService.get_queue_length(),
+            "available_workers": MAX_CONCURRENT_SCANS - ScanningService.get_active_scan_count()
+        }
 
-    def estimate_scan_duration(target: str, scan_type: str) -> Dict[str, Any]:
+    def estimate_scan_duration(scan_type: str, target_size: Optional[int] = None) -> int:
         """
-        Estimate the duration of a scan.
-
-        This is a convenience function that delegates to ScanningService.
+        Estimate the duration of a security scan.
 
         Args:
-            target: Target to estimate scan time for
-            scan_type: Type of scan
+            scan_type: Type of scan to run
+            target_size: Size of the target in bytes (if applicable)
 
         Returns:
-            Dictionary with scan duration estimates
+            Estimated duration in seconds
         """
-        return ScanningService.estimate_duration(target, scan_type)
+        # Basic estimation algorithm - this would be enhanced in a real implementation
+        profile = ScanningService.get_profile(scan_type)
+        base_time = profile.get("parameters", {}).get("timeout", 3600)
 
-# Import WebhookService functions if available
+        if target_size:
+            # Adjust time based on size (very naive approach)
+            size_factor = max(1.0, min(3.0, target_size / (50 * 1024 * 1024)))
+            return int(base_time * size_factor)
+
+        return base_time
+
+# Conditionally add webhook functions if WebhookService is available
 if WEBHOOK_SERVICE_AVAILABLE:
-    def trigger_webhook_event(event_type: str, payload: Dict[str, Any],
+    def trigger_webhook_event(event_type: str, data: Dict[str, Any],
                             subscriptions: Optional[List[str]] = None) -> Dict[str, Any]:
         """
-        Trigger a webhook event to subscribers.
-
-        This is a convenience function that delegates to WebhookService.
+        Trigger a webhook event to notify external systems.
 
         Args:
-            event_type: Type of event being triggered
-            payload: Event payload data
-            subscriptions: Optional list of subscription IDs to limit delivery
+            event_type: Type of event (e.g., "security.scan.completed")
+            data: Event data to include in the payload
+            subscriptions: Optional list of subscription IDs to target (if None, matches by event type)
 
         Returns:
             Dictionary with delivery results
         """
-        return WebhookService.trigger_event(event_type, payload, subscriptions)
+        return WebhookService.trigger_event(event_type, data, subscriptions)
 
     def create_webhook_subscription(callback_url: str, event_types: List[str],
                                   secret: Optional[str] = None,
@@ -755,13 +908,11 @@ if WEBHOOK_SERVICE_AVAILABLE:
         """
         Create a new webhook subscription.
 
-        This is a convenience function that delegates to WebhookService.
-
         Args:
-            callback_url: URL to send webhook payloads to
+            callback_url: URL to call when events occur
             event_types: List of event types to subscribe to
-            secret: Optional secret for payload signing
-            description: Optional description of the subscription
+            secret: Optional secret for signature verification
+            description: Optional description of subscription
 
         Returns:
             Subscription ID
@@ -770,31 +921,27 @@ if WEBHOOK_SERVICE_AVAILABLE:
 
     def get_webhook_subscription(subscription_id: str) -> Dict[str, Any]:
         """
-        Get details of a webhook subscription.
-
-        This is a convenience function that delegates to WebhookService.
+        Get information about a webhook subscription.
 
         Args:
-            subscription_id: ID of subscription to get
+            subscription_id: ID of the subscription
 
         Returns:
-            Dictionary with subscription details
+            Subscription information dictionary
         """
         return WebhookService.get_subscription(subscription_id)
 
     def update_webhook_subscription(subscription_id: str,
                                  updates: Dict[str, Any]) -> bool:
         """
-        Update a webhook subscription.
-
-        This is a convenience function that delegates to WebhookService.
+        Update an existing webhook subscription.
 
         Args:
-            subscription_id: ID of subscription to update
+            subscription_id: ID of the subscription to update
             updates: Dictionary of fields to update
 
         Returns:
-            True if successfully updated, False otherwise
+            True if successful, False otherwise
         """
         return WebhookService.update_subscription(subscription_id, updates)
 
@@ -802,29 +949,60 @@ if WEBHOOK_SERVICE_AVAILABLE:
         """
         Delete a webhook subscription.
 
-        This is a convenience function that delegates to WebhookService.
-
         Args:
-            subscription_id: ID of subscription to delete
+            subscription_id: ID of the subscription to delete
 
         Returns:
-            True if successfully deleted, False otherwise
+            True if successful, False otherwise
         """
         return WebhookService.delete_subscription(subscription_id)
 
     def check_subscription_health(subscription_id: str) -> Dict[str, Any]:
         """
-        Check health of a webhook subscription.
-
-        This is a convenience function that delegates to WebhookService.
+        Check the health of a webhook subscription.
 
         Args:
-            subscription_id: ID of subscription to check
+            subscription_id: ID of the subscription to check
 
         Returns:
-            Dictionary with subscription health details
+            Health status dictionary
         """
-        return WebhookService.check_subscription_health(subscription_id)
+        return WebhookService.check_health(subscription_id)
+
+# Directly provide notification convenience functions if not available from the notification module
+if not HAS_INTEGRITY_NOTIFICATIONS and SECURITY_SERVICE_AVAILABLE and NOTIFICATION_MODULE_AVAILABLE:
+    def send_integrity_notification(changes: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Send notification about file integrity changes.
+
+        Args:
+            changes: List of file changes detected
+
+        Returns:
+            Dictionary containing delivery results
+        """
+        return notification_manager.send_file_integrity_notification(changes)
+
+    __all__.append('send_integrity_notification')
+
+if not HAS_SCAN_NOTIFICATIONS and SCANNING_SERVICE_AVAILABLE and NOTIFICATION_MODULE_AVAILABLE:
+    def send_scan_notification(scan_id: str, scan_type: str, status: str,
+                              findings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Send notification about security scan results.
+
+        Args:
+            scan_id: ID of the scan
+            scan_type: Type of scan performed
+            status: Status of the scan (completed, failed, etc.)
+            findings: Optional findings from the scan
+
+        Returns:
+            Dictionary containing delivery results
+        """
+        return notification_manager.send_scan_notification(scan_id, scan_type, status, findings)
+
+    __all__.append('send_scan_notification')
 
 # Log package initialization
 logger.debug(f"Services package initialized (version: {__version__}), " +
