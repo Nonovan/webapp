@@ -14,6 +14,7 @@ A secure, scalable platform for managing multi-cloud infrastructure with integra
 - [Project Structure](#project-structure)
 - [API Reference](#api-reference)
 - [Security Features](#security-features)
+  - [File Integrity Monitoring](#file-integrity-monitoring)
 - [Integration Capabilities](#integration-capabilities)
   - [Webhook System](#webhook-system)
   - [Cloud Providers](#cloud-providers)
@@ -59,6 +60,9 @@ flask db upgrade
 # Create initial admin user
 flask create-admin
 
+# Initialize security baseline
+flask integrity init-baseline
+
 # Run development server
 flask run
 ```
@@ -82,9 +86,16 @@ Key configuration options:
 | `ENVIRONMENT` | Application environment | `development` |
 | `CLOUD_PROVIDERS_ENABLED` | Enable cloud provider integrations | `True` |
 | `FILE_INTEGRITY_MONITORING` | Enable file integrity monitoring | `True` |
-| `FILE_BASELINE_PATH` | Path to integrity baseline file | `instance/file_baseline.json` |
+| `FILE_BASELINE_PATH` | Path to integrity baseline file | `file_baseline.json` |
+| `VERIFY_BASELINE_CONSISTENCY` | Validate baseline structure on startup | `True` |
+| `AUTO_REPAIR_BASELINE` | Auto-repair baseline inconsistencies in development | `False` |
+| `AUTO_UPDATE_BASELINE` | Auto-update baseline for non-critical changes in development | `False` |
+| `BASELINE_UPDATE_MAX_FILES` | Maximum files to update in one operation | `50` |
+| `NOTIFY_CRITICAL_VIOLATIONS` | Send SMS alerts for critical integrity violations | `True` |
+| `BASELINE_BACKUP_PATH_TEMPLATE` | Template for baseline backups | `instance/security/baseline_backups/{timestamp}_{environment}.json` |
+| `BASELINE_UPDATE_RETENTION` | Number of baseline backups to retain | `5` |
 
-See the environment example files in the `deployment/environments/` directory for a comprehensive list of configuration options.
+See the environment example files in the environments directory for a comprehensive list of configuration options.
 
 ### Deployment
 
@@ -100,7 +111,7 @@ cd deployment
 ./scripts/deploy.sh production
 ```
 
-For detailed deployment instructions including cloud provider-specific deployment, container deployment, and Kubernetes deployment, refer to README.md.
+For detailed deployment instructions including cloud provider-specific deployment, container deployment, and Kubernetes deployment, refer to `README.md`.
 
 ## Core Features
 
@@ -163,6 +174,14 @@ For detailed architecture information, see architecture-overview.md.
 ├── config/             # Configuration management
 ├── core/               # Core utility functions and security tools
 │   ├── security/       # Core security implementation
+│   │   ├── cs_audit.py            # Security audit logging
+│   │   ├── cs_authentication.py   # Authentication services
+│   │   ├── cs_authorization.py    # Authorization services
+│   │   ├── cs_crypto.py           # Cryptographic operations
+│   │   ├── cs_file_integrity.py   # File integrity monitoring
+│   │   ├── cs_monitoring.py       # Security monitoring
+│   │   ├── cs_session.py          # Session security management
+│   │   └── cs_utils.py            # Security utilities
 │   └── utils/          # Shared utility functions
 ├── deployment/         # Deployment configuration and scripts
 ├── extensions/         # Flask extensions and shared components
@@ -216,6 +235,72 @@ The platform implements a defense-in-depth security approach with multiple layer
 
 For detailed security documentation, see security-overview.md.
 
+### File Integrity Monitoring
+
+The platform provides sophisticated file integrity monitoring to detect unauthorized modifications to critical system files:
+
+#### Key Features
+
+- **Baseline Management**: Creates and maintains cryptographic hashes of critical files
+- **Real-time Detection**: Detects modifications to protected files during startup and runtime
+- **Severity Classification**: Categorizes changes based on file criticality (critical, high, medium, low)
+- **Automated Response**: Configurable actions based on severity (abort startup, create incident, notify)
+- **Environment-Specific Controls**: Different handling for development vs. production environments
+- **Notification Systems**: Multi-channel alerts for integrity violations (SMS, email, webhooks)
+- **Baseline Versioning**: Maintains backups of previous baselines for recovery
+- **Circuit Breaker Pattern**: Prevents cascading failures due to integrity issues
+- **Detailed Auditing**: Comprehensive logging of all baseline changes and violations
+- **API Access**: RESTful API for baseline management and integrity verification
+
+#### Command-Line Interface
+
+The platform provides CLI commands for file integrity management:
+
+```bash
+# Check file integrity against baseline
+flask integrity check
+
+# Update the baseline with approved changes
+flask integrity update-baseline
+
+# View integrity status
+flask integrity status
+
+# Initialize a new baseline
+flask integrity init-baseline
+
+# Repair a corrupted or inconsistent baseline
+flask integrity repair-baseline
+```
+
+#### API Access
+
+File integrity operations are available through the security API:
+
+```bash
+# Check current integrity status
+curl -X GET /api/security/integrity/status \
+  -H "Authorization: Bearer ${TOKEN}"
+
+# Update baseline with approved changes
+curl -X PUT /api/security/baseline \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "changes": [
+      {
+        "path": "config/app.py",
+        "current_hash": "a1b2c3d4e5f6...",
+        "severity": "medium"
+      }
+    ],
+    "remove_missing": false,
+    "notify": true
+  }'
+```
+
+For detailed file integrity documentation, see `file-integrity-monitoring.md`.
+
 ## Integration Capabilities
 
 ### Webhook System
@@ -226,11 +311,11 @@ The platform includes a webhook system allowing external systems to receive real
 | --- | --- | --- |
 | Cloud Resources | Resource lifecycle events | `resource.created`, `resource.updated` |
 | Alerts | Alert state changes | `alert.triggered`, `alert.resolved` |
-| Security | Security-related events | `security.incident`, `security.scan.completed` |
+| Security | Security-related events | `security.incident`, `security.integrity.violation` |
 | ICS | Industrial control system events | `ics.reading`, `ics.state.change` |
 | System | Platform system events | `system.backup.completed` |
 
-Webhooks feature HMAC signature verification, automatic retries, and delivery confirmation. For detailed webhook documentation, see webhooks.md.
+Webhooks feature HMAC signature verification, automatic retries, and delivery confirmation. For detailed webhook documentation, see `webhooks.md`.
 
 ### Cloud Providers
 
@@ -253,7 +338,7 @@ The platform is designed to help meet requirements from:
 
 Compliance features include comprehensive audit logging, encryption for sensitive data, role-based access control, and security monitoring capabilities.
 
-For compliance documentation, see compliance.md.
+For compliance documentation, see `compliance.md`.
 
 ## Scripts & Utilities
 
@@ -284,6 +369,13 @@ The platform includes various scripts for automation, maintenance, compliance ch
 - **`rollback.sh`**: Handles application rollback to a previous version
 - **`update-dns.sh`**: Updates DNS records for disaster recovery failover
 
+### Security Scripts
+
+- **`update_file_baseline.sh`**: Updates the file integrity baseline with current file states
+- **`integrity_report.sh`**: Generates detailed integrity reports with change analysis
+- **`validate_baseline.sh`**: Validates the consistency and format of baseline files
+- **`rotate_baseline.sh`**: Creates and manages baseline rotation with retention policies
+
 Example script usage:
 
 ```bash
@@ -293,11 +385,11 @@ Example script usage:
 # Validate compliance with PCI DSS
 ./scripts/compliance/validate_compliance.sh --standard pci-dss --report compliance-report.json
 
-# Optimize database
-./scripts/database/optimize.sh --env production --apply
+# Generate file integrity report
+./scripts/security/integrity_report.sh --format html --output integrity-report.html
 
-# Apply security updates
-./scripts/security/apply_security_updates.sh --environment production
+# Update security baseline for specific directories
+./scripts/security/update_file_baseline.sh --dirs config,core/security --remove-missing
 ```
 
 ## Development
@@ -312,6 +404,9 @@ python -m pytest
 python -m pytest tests/unit
 python -m pytest tests/integration
 python -m pytest tests/security
+
+# Run file integrity tests
+python -m pytest tests/security/test_file_integrity.py
 ```
 
 ### Code Style
@@ -346,4 +441,5 @@ For more detailed documentation, see these key resources:
 - API Documentation
 - Deployment Guide
 - Security Overview
+- File Integrity Monitoring Guide
 - User Guide
