@@ -44,6 +44,7 @@ try:
         # File integrity constants
         DEFAULT_HASH_ALGORITHM, DEFAULT_BASELINE_FILE_PATH,
         AUTO_UPDATE_LIMIT, DEFAULT_BASELINE_BACKUP_COUNT,
+        FILE_INTEGRITY_CONSTANTS, DEFAULT_BACKUP_PATH_TEMPLATE,
 
         # Scanning constants
         DEFAULT_SCAN_PROFILES, MAX_CONCURRENT_SCANS,
@@ -1073,6 +1074,339 @@ if SECURITY_SERVICE_AVAILABLE:
         return success, message, stats
 
     __all__.append('update_file_integrity_baseline_with_notifications')
+
+    def update_file_integrity_baseline_enhanced(
+        baseline_path: str,
+        changes: List[Dict[str, Any]],
+        remove_missing: bool = False,
+        notify: bool = True,
+        audit: bool = True,
+        severity_threshold: str = 'high',
+        update_limit: int = AUTO_UPDATE_LIMIT,
+        backup_before_update: bool = True,
+        verify_after_update: bool = True,
+        analyst: Optional[str] = None,
+        reason: Optional[str] = None
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        """
+        Enhanced function to update file integrity baseline with comprehensive security controls.
+
+        This function provides a robust implementation for updating file integrity baselines
+        with features like pre-update validation, severity-based categorization, automatic
+        backup creation, post-update verification, notification integration, and detailed
+        audit logging.
+
+        Args:
+            baseline_path: Path to the baseline file
+            changes: List of change dictionaries with path, hash info, and severity
+            remove_missing: Whether to remove entries for files that no longer exist
+            notify: Whether to send notifications about this update
+            audit: Whether to log to audit trail
+            severity_threshold: Minimum severity to trigger notifications ('low', 'medium', 'high', 'critical')
+            update_limit: Maximum number of files to update at once
+            backup_before_update: Create a backup of the baseline before updating
+            verify_after_update: Verify baseline integrity after update
+            analyst: Name of the person performing the update (for audit purposes)
+            reason: Justification for the baseline update
+
+        Returns:
+            Tuple containing (success, message, stats) where:
+            - success: Boolean indicating if the update was successful
+            - message: Descriptive message about the operation
+            - stats: Dictionary with detailed statistics about the update operation
+        """
+        # Initialize operation statistics and metadata
+        stats = {
+            "baseline_path": baseline_path,
+            "changes_requested": len(changes),
+            "changes_applied": 0,
+            "removed_entries": 0,
+            "changes_rejected": 0,
+            "critical_changes": 0,
+            "high_severity_changes": 0,
+            "medium_severity_changes": 0,
+            "low_severity_changes": 0,
+            "success": False,
+            "notification_sent": False,
+            "audit_logged": False,
+            "duration_ms": 0,
+            "backup_created": False,
+            "verification_status": None,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
+        start_time = datetime.now(timezone.utc)
+        success = False
+        message = "Operation not completed"
+
+        try:
+            logger.info(f"Starting file integrity baseline update with {len(changes)} changes")
+
+            # Input validation
+            if not baseline_path:
+                message = "Invalid baseline path provided"
+                logger.error(message)
+                return False, message, stats
+
+            if not changes:
+                message = "No changes provided for baseline update"
+                logger.error(message)
+                return False, message, stats
+
+            # Security check: Enforce update limit
+            if len(changes) > update_limit:
+                message = f"Too many changes requested ({len(changes)}). Maximum allowed: {update_limit}"
+                logger.warning(message)
+                stats["changes_rejected"] = len(changes)
+                return False, message, stats
+
+            # Categorize and validate changes
+            validated_changes = []
+
+            for change in changes:
+                # Validate required fields
+                if 'path' not in change:
+                    logger.warning(f"Skipping change without path: {change}")
+                    stats["changes_rejected"] += 1
+                    continue
+
+                # Categorize by severity for reporting and notifications
+                severity = change.get('severity', 'low')
+                if severity == 'critical':
+                    stats["critical_changes"] += 1
+                elif severity == 'high':
+                    stats["high_severity_changes"] += 1
+                elif severity == 'medium':
+                    stats["medium_severity_changes"] += 1
+                else:
+                    stats["low_severity_changes"] += 1
+
+                # Perform additional security validations
+                file_path = Path(change.get('path'))
+                if not file_path.exists():
+                    logger.warning(f"File path not found: {file_path}")
+                    if not remove_missing:
+                        stats["changes_rejected"] += 1
+                        continue
+
+                # Check for oversized files that shouldn't be included
+                try:
+                    if file_path.exists() and file_path.is_file():
+                        max_size = FILE_INTEGRITY_CONSTANTS.get('MAX_FILE_SIZE', 50 * 1024 * 1024)
+                        if file_path.stat().st_size > max_size:
+                            logger.warning(f"Skipping oversized file: {file_path} ({file_path.stat().st_size} bytes)")
+                            stats["changes_rejected"] += 1
+                            continue
+                except (OSError, IOError) as e:
+                    logger.warning(f"Error checking file {file_path}: {e}")
+                    stats["changes_rejected"] += 1
+                    continue
+
+                validated_changes.append(change)
+
+            # Log operation start for audit
+            if audit and 'AuditService' in globals() and hasattr(AuditService, 'log_file_integrity_event'):
+                try:
+                    audit_severity = 'high' if stats["critical_changes"] > 0 else 'medium'
+
+                    AuditService.log_file_integrity_event(
+                        status='pending',
+                        action='update',
+                        changes=validated_changes[:5],  # Limit to avoid excessive logging
+                        details={
+                            'baseline_path': baseline_path,
+                            'update_count': len(validated_changes),
+                            'critical_count': stats["critical_changes"],
+                            'high_severity_count': stats["high_severity_changes"],
+                            'remove_missing': remove_missing,
+                            'analyst': analyst,
+                            'reason': reason
+                        },
+                        severity=audit_severity
+                    )
+                    stats["audit_logged"] = True
+                except Exception as e:
+                    logger.warning(f"Failed to log baseline update start event: {e}")
+
+            # Create backup before updating if requested
+            if backup_before_update:
+                try:
+                    baseline_file = Path(baseline_path)
+                    if baseline_file.exists():
+                        timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+                        backup_path = DEFAULT_BACKUP_PATH_TEMPLATE.format(timestamp=timestamp)
+                        backup_file = Path(backup_path)
+
+                        # Ensure backup directory exists
+                        backup_file.parent.mkdir(parents=True, exist_ok=True)
+
+                        # Create backup
+                        import shutil
+                        shutil.copy2(baseline_file, backup_file)
+
+                        logger.info(f"Created backup of baseline file at {backup_file}")
+                        stats["backup_created"] = True
+                        stats["backup_path"] = str(backup_file)
+                except Exception as e:
+                    logger.error(f"Failed to create baseline backup: {e}")
+                    # Continue with the update even if backup fails
+
+            # Perform the update operation using SecurityService
+            update_paths = [change.get('path') for change in validated_changes if 'path' in change]
+
+            result = SecurityService.update_baseline(
+                paths_to_update=update_paths,
+                remove_missing=remove_missing,
+                max_updates=update_limit
+            )
+
+            success, message = result
+
+            # Update stats based on result
+            if success:
+                stats["success"] = True
+                stats["changes_applied"] = len(validated_changes)
+
+                # If removing missing files, try to determine how many were removed
+                if remove_missing:
+                    try:
+                        baseline_data = SecurityService._load_baseline(Path(baseline_path))
+                        new_files = baseline_data.get("files", {})
+
+                        # Compare with original paths
+                        valid_paths = {change.get('path') for change in validated_changes if 'path' in change}
+                        missing = sum(1 for path in valid_paths if path not in new_files)
+                        stats["removed_entries"] = missing
+                    except Exception as e:
+                        logger.warning(f"Could not determine removed entries: {e}")
+
+                # Post-update verification if requested
+                if verify_after_update and success:
+                    try:
+                        verification_result = SecurityService.check_file_integrity(paths_to_check=update_paths)
+                        verification_status, verification_changes = verification_result
+
+                        stats["verification_status"] = verification_status
+                        stats["verification_issues"] = len(verification_changes)
+
+                        # If verification fails, log but don't change success status
+                        if not verification_status:
+                            logger.warning(f"Post-update verification detected {len(verification_changes)} issues")
+                    except Exception as e:
+                        logger.warning(f"Post-update verification failed: {e}")
+                        stats["verification_status"] = False
+
+                # Record success metrics
+                metrics.increment('security.baseline.update_success')
+
+                # Log completion to audit trail
+                if audit and 'AuditService' in globals() and hasattr(AuditService, 'log_file_integrity_event'):
+                    try:
+                        AuditService.log_file_integrity_event(
+                            status='success',
+                            action='update',
+                            changes=None,  # Don't duplicate the changes in the completion log
+                            details={
+                                'baseline_path': baseline_path,
+                                'update_count': len(validated_changes),
+                                'applied_count': stats["changes_applied"],
+                                'removed_count': stats["removed_entries"],
+                                'message': message,
+                                'analyst': analyst,
+                                'reason': reason
+                            },
+                            severity='info'
+                        )
+                        stats["audit_logged"] = True
+                    except Exception as e:
+                        logger.warning(f"Failed to log baseline update completion: {e}")
+
+                # Send notification if enabled and there are important changes
+                if notify and NOTIFICATION_MODULE_AVAILABLE and callable(getattr(notification_manager, 'send_to_stakeholders', None)):
+                    # Only notify for changes at or above the severity threshold
+                    notify_changes = {
+                        'critical': stats["critical_changes"] > 0,
+                        'high': stats["critical_changes"] > 0 or stats["high_severity_changes"] > 0,
+                        'medium': stats["critical_changes"] > 0 or stats["high_severity_changes"] > 0 or
+                                  stats["medium_severity_changes"] > 0,
+                        'low': True  # Always notify on 'low' threshold
+                    }
+
+                    should_notify = notify_changes.get(severity_threshold.lower(), False)
+
+                    if should_notify:
+                        try:
+                            # Determine notification level based on most severe change
+                            if stats["critical_changes"] > 0:
+                                level = 'critical'
+                            elif stats["high_severity_changes"] > 0:
+                                level = 'warning'
+                            else:
+                                level = 'info'
+
+                            notification_manager.send_to_stakeholders(
+                                subject="File Integrity Baseline Updated",
+                                message=(
+                                    f"The file integrity baseline has been updated with {stats['changes_applied']} changes. "
+                                    f"This includes {stats['critical_changes']} critical, {stats['high_severity_changes']} high, "
+                                    f"and {stats['medium_severity_changes']} medium severity changes."
+                                    f"{f' Update reason: {reason}' if reason else ''}"
+                                ),
+                                category=NOTIFICATION_CATEGORY_INTEGRITY,
+                                level=level,
+                                data={
+                                    'baseline_path': baseline_path,
+                                    'changes_applied': stats['changes_applied'],
+                                    'removed_entries': stats['removed_entries'],
+                                    'critical_changes': stats['critical_changes'],
+                                    'high_severity_changes': stats['high_severity_changes'],
+                                    'operation': 'baseline_update',
+                                    'analyst': analyst,
+                                    'reason': reason
+                                }
+                            )
+                            stats["notification_sent"] = True
+                        except Exception as e:
+                            logger.warning(f"Failed to send notification: {e}")
+            else:
+                # Handle failure case
+                metrics.increment('security.baseline.update_error')
+
+                # Log failure to audit trail
+                if audit and 'AuditService' in globals() and hasattr(AuditService, 'log_file_integrity_event'):
+                    try:
+                        AuditService.log_file_integrity_event(
+                            status='error',
+                            action='update',
+                            changes=None,
+                            details={
+                                'baseline_path': baseline_path,
+                                'error': message,
+                                'analyst': analyst,
+                                'reason': reason
+                            },
+                            severity='warning'
+                        )
+                        stats["audit_logged"] = True
+                    except Exception as e:
+                        logger.warning(f"Failed to log baseline update failure: {e}")
+
+        except Exception as e:
+            message = f"Error updating file integrity baseline: {str(e)}"
+            logger.error(message, exc_info=True)
+            metrics.increment('security.baseline.update_error')
+            success = False
+
+        finally:
+            # Calculate duration and finalize stats
+            end_time = datetime.now(timezone.utc)
+            stats["duration_ms"] = (end_time - start_time).total_seconds() * 1000
+            stats["end_timestamp"] = end_time.isoformat()
+
+        return success, message, stats
+
+    # Add to __all__ to expose the function
+    __all__.append('update_file_integrity_baseline_enhanced')
 
 if not HAS_SCAN_NOTIFICATIONS and SCANNING_SERVICE_AVAILABLE and NOTIFICATION_MODULE_AVAILABLE:
     def send_scan_notification(scan_id: str, scan_type: str, status: str,

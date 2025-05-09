@@ -253,7 +253,7 @@ def update_settings():
 
         # Collect changed configuration values
         for field in form:
-            if field.name in ['csrf_token', 'submit']:
+            if field.name in ['csrf_token', 'submit', 'reason']:
                 continue
 
             current_value = SystemConfig.get_value(field.name)

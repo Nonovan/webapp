@@ -27,7 +27,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List, Tuple, Union
 
-from flask import Blueprint, g, request, session, Response, current_app, jsonify, abort
+from flask import Blueprint, g, request, session, Response, current_app, jsonify, abort, render_template
 from werkzeug.exceptions import Forbidden, Unauthorized, BadRequest
 from werkzeug.local import LocalProxy
 
@@ -89,7 +89,7 @@ def before_request() -> None:
         'ip_address': get_client_ip(request),
         'user_agent': sanitize_header(request.user_agent.string) if request.user_agent else 'unknown',
         'referer': sanitize_header(request.referrer) if request.referrer else 'direct',
-        'request_id': g.request_id
+        'request_id': getattr(g, 'request_id', None)
     }
 
     # Track metrics
@@ -354,10 +354,6 @@ def handle_error(error):
     # Return HTML for browser requests
     return render_template(f'admin/errors/{status_code}.html', error=error), status_code
 
-
-# Ensure views are imported
-from flask import render_template
-from . import routes
 
 # Version information
 __version__ = '0.1.1'

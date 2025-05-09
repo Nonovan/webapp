@@ -63,7 +63,7 @@ except ImportError:
 # Try to import from services if core isn't available
 if not FILE_INTEGRITY_AVAILABLE:
     try:
-        from services.file_integrity import (
+        from services import (
             update_file_integrity_baseline as service_update_baseline,
             check_file_integrity as service_check_integrity,
             calculate_hash as service_calculate_hash

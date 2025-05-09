@@ -225,6 +225,44 @@ FILE_INTEGRITY_CONSTANTS = {
     'UPDATE_NOTIFICATION_THRESHOLD': 'high', # Notify on updates to files with severity >= threshold
 }
 
+# File integrity notification settings
+FILE_INTEGRITY_NOTIFICATION_SETTINGS = {
+    'NOTIFY_ON_CRITICAL': True,           # Always notify on critical file changes
+    'NOTIFY_ON_HIGH': True,               # Always notify on high severity changes
+    'NOTIFY_ON_MULTIPLE_MEDIUM': True,    # Notify when multiple medium severity changes
+    'MEDIUM_THRESHOLD': 3,                # Threshold for multiple medium changes
+    'BATCH_NOTIFICATIONS': True,          # Group notifications for multiple changes
+    'NOTIFICATION_CHANNEL': CHANNEL_EMAIL # Default notification channel
+}
+
+# File integrity update strategies for different environments
+FILE_INTEGRITY_UPDATE_STRATEGIES = {
+    'development': {
+        'AUTO_UPDATE': True,              # Automatically update baselines in development
+        'REQUIRE_APPROVAL': False,        # Don't require approval in development
+        'UPDATE_LIMIT': 50,               # Higher limit for development
+        'BACKUP_ENABLED': True,           # Always create backups before updates
+        'ALLOW_BATCH_UPDATES': True,      # Allow updating multiple files at once
+        'VERIFICATION_REQUIRED': False    # Don't require verification after update
+    },
+    'staging': {
+        'AUTO_UPDATE': False,             # No auto-updates in staging
+        'REQUIRE_APPROVAL': True,         # Require approval in staging
+        'UPDATE_LIMIT': 20,               # Moderate limit for staging
+        'BACKUP_ENABLED': True,           # Always create backups before updates
+        'ALLOW_BATCH_UPDATES': True,      # Allow updating multiple files at once
+        'VERIFICATION_REQUIRED': True     # Require verification after update
+    },
+    'production': {
+        'AUTO_UPDATE': False,             # No auto-updates in production
+        'REQUIRE_APPROVAL': True,         # Always require approval in production
+        'UPDATE_LIMIT': 10,               # Low limit for production
+        'BACKUP_ENABLED': True,           # Always create backups before updates
+        'ALLOW_BATCH_UPDATES': False,     # Only allow single file updates for safety
+        'VERIFICATION_REQUIRED': True     # Always verify after update
+    }
+}
+
 # Scan status values
 SCAN_STATUS_PENDING = 'pending'
 SCAN_STATUS_RUNNING = 'running'
@@ -334,6 +372,16 @@ SCAN_FAILURE_THRESHOLDS = {
     'development': {
         SCAN_SEVERITY_CRITICAL: 5,  # More than 5 critical findings fails the scan
     }
+}
+
+# Scan communication settings for notifications
+SCAN_COMMUNICATION_SETTINGS = {
+    'NOTIFY_ON_START': True,
+    'NOTIFY_ON_COMPLETION': True,
+    'NOTIFY_ON_FAILURE': True,
+    'SUMMARY_EMAIL_TEMPLATE': 'scan_summary.html',
+    'DETAILED_REPORT_TEMPLATE': 'scan_detailed_report.html',
+    'INCLUDE_FULL_REPORT': True
 }
 
 # Webhook event types
