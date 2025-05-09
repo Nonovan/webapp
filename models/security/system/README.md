@@ -15,7 +15,7 @@ This package contains database models related to system-level security functiona
 
 ## Overview
 
-The system-level security models provide foundational security infrastructure that underpins the platform's security posture. These models implement comprehensive auditing, baseline security standards, configuration management, compliance verification, and security scan tracking. The components in this package enable systematic security monitoring, compliance validation, and configuration management across all environments.
+The system-level security models provide foundational security infrastructure that underpins the platform's security posture. These models implement comprehensive auditing, baseline security standards, configuration management, compliance verification, security scan tracking, and file integrity monitoring. The components in this package enable systematic security monitoring, compliance validation, and configuration management across all environments.
 
 ## Key Components
 
@@ -55,6 +55,16 @@ The system-level security models provide foundational security infrastructure th
   - Provides summary metrics and detailed results
   - Integrates with security incident workflows
 
+- **`FileIntegrityBaseline`**: File integrity monitoring baseline management
+  - Creates and manages file integrity monitoring baselines
+  - Tracks cryptographic hashes of critical system files
+  - Detects unauthorized modifications to protected files
+  - Supports multiple baseline profiles for different environments
+  - Provides change detection with severity classification
+  - Performs integrity verification against stored baselines
+  - Includes backup and restore capabilities for baselines
+  - Exports and imports baseline data in multiple formats
+
 - **`SecurityBaseline`**: Security standard definitions and tracking
   - Defines expected security configurations for different systems
   - Maps baseline controls to compliance requirements
@@ -84,13 +94,14 @@ The system-level security models provide foundational security infrastructure th
 
 ```plaintext
 models/security/system/
-├── __init__.py           # Package initialization and exports
-├── audit_log.py          # Security event logging system
-├── compliance_check.py   # Compliance verification models
-├── README.md             # This documentation
-├── security_baseline.py  # Security standards definition
-├── security_scan.py      # Security scanning results
-└── system_config.py      # Security configuration storage
+├── __init__.py                # Package initialization and exports
+├── audit_log.py               # Security event logging system
+├── compliance_check.py        # Compliance verification models
+├── file_integrity_baseline.py # File integrity monitoring baseline management
+├── README.md                  # This documentation
+├── security_baseline.py       # Security standards definition
+├── security_scan.py           # Security scanning results
+└── system_config.py           # Security configuration storage
 ```
 
 ## Usage Examples
@@ -185,7 +196,7 @@ print(f"System is {compliance}% compliant with baseline")
 ### Compliance Verification
 
 ```python
-from models.security.system import ComplianceCheck, ComplianceStatus, ComplianceSeverity, ComplianceValidator
+from models.security.system import ComplianceCheck, ComplianceStatus, ComplianceValidator
 
 # Create a compliance check
 check = ComplianceCheck(
@@ -274,6 +285,58 @@ if health_metrics['health_status'] == 'degraded':
     print(f"Warning: {health_metrics['long_running_scans']} scans running for too long")
 ```
 
+### File Integrity Management
+
+```python
+from models.security.system import FileIntegrityBaseline
+from datetime import datetime, timezone
+
+# Create a new file integrity baseline
+baseline = FileIntegrityBaseline(
+    name="Critical System Files",
+    baseline_type=FileIntegrityBaseline.TYPE_SYSTEM,
+    hash_algorithm=FileIntegrityBaseline.ALGORITHM_SHA256,
+    description="Baseline for critical system configuration files",
+    created_by=current_user.id
+)
+
+# Add file hashes to the baseline
+file_hashes = {
+    "/etc/passwd": "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3",
+    "/etc/shadow": "d8e8fca2dc0f896fd7cb4cb0031ba249",
+    "/bin/bash": "f9c58f91e2d27e54457fc3908f7db4ad99fc00f3"
+}
+success, message = baseline.update_baseline(file_hashes, current_user.id)
+print(message)
+
+# Activate the baseline for monitoring
+baseline.activate(current_user.id)
+
+# Detect changes between current state and baseline
+current_hashes = {
+    "/etc/passwd": "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3",
+    "/etc/shadow": "modified_hash_value_here",  # Changed file
+    # "/bin/bash" is missing - will be detected
+}
+changes = baseline.detect_changes(current_hashes)
+
+# Process the detected changes
+for change in changes:
+    if change['status'] == 'modified':
+        print(f"MODIFIED: {change['path']} (Severity: {change['severity']})")
+    elif change['status'] == 'missing':
+        print(f"MISSING: {change['path']} (Severity: {change['severity']})")
+    elif change['status'] == 'new':
+        print(f"NEW: {change['path']} (Severity: {change['severity']})")
+
+# Export baseline to file for backup
+success, message = baseline.export_to_file("/path/to/backup/baseline.json")
+if success:
+    print(f"Baseline exported: {message}")
+else:
+    print(f"Export failed: {message}")
+```
+
 ### Configuration Management
 
 ```python
@@ -327,6 +390,7 @@ for version in history:
 - Each model provides pagination support for handling large result sets efficiently
 - Bulk operation methods are available for efficiency with large data sets
 - Compliance models use enum classes for consistent status and severity values
+- File integrity baselines support multiple hash algorithms and monitoring profiles
 
 ## Best Practices & Security
 
@@ -342,6 +406,12 @@ for version in history:
 - Export and archive audit logs according to retention policies
 - Use ComplianceSeverity and ComplianceStatus enums for consistent status values
 - Store compliance evidence with proper references and documentation
+- Perform regular file integrity checks and verify against baselines
+- Keep file integrity baseline backups in secure, separate locations
+- Implement alerting for critical file integrity violations
+- Use appropriate permission modes for baseline files (0600/0640)
+- Only allow authorized users to update file integrity baselines
+- Implement approval workflows for baseline changes in production
 
 ## Common Features
 
@@ -357,6 +427,8 @@ for version in history:
 - Tamper-resistant logging mechanisms
 - Multiple report format generation (text, HTML, JSON)
 - Enum-based constants for consistency and type safety
+- Baseline management with change detection capabilities
+- Export and import functionality for data portability
 
 ## Related Documentation
 
@@ -370,3 +442,6 @@ for version in history:
 - Compliance Status Codes Reference
 - File Integrity Checking Implementation
 - API-Based Compliance Checks
+- File Integrity Monitoring Guide
+- Security Incident Response Procedures
+- Baseline Export Format Specifications

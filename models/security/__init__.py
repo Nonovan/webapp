@@ -15,7 +15,7 @@ from typing import List
 logger = logging.getLogger(__name__)
 
 # Import directly accessible models (what the package exposes)
-from .system import AuditLog, SystemConfig
+from .system import AuditLog, SystemConfig, FileIntegrityBaseline, SecurityBaseline, SecurityScan
 from .login_attempt import LoginAttempt
 from .security_incident import SecurityIncident
 from .vulnerability import Vulnerability
@@ -51,9 +51,6 @@ except ImportError:
     INCIDENT_RESPONSE_AVAILABLE = False
     logger.debug("Incident response models not available")
 
-# Import from system sub-package
-from .system import AuditLog, SecurityBaseline, SecurityScan, SystemConfig
-
 # Define exports explicitly for better control over the public API
 __all__ = [
     # Core security models
@@ -64,6 +61,7 @@ __all__ = [
     "Vulnerability",
     "SecurityBaseline",
     "SecurityScan",
+    "FileIntegrityBaseline",
 
     # Circuit breaker components
     "CircuitBreaker",

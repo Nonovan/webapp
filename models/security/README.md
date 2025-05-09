@@ -24,6 +24,8 @@ These models support security operations, incident management, vulnerability tra
   - Supports different severity levels and event categorization
   - Enables compliance tracking and security investigation
   - Provides structured event storage for analysis and reporting
+  - Implements tamper-resistant logging for forensic analysis
+  - Offers flexible querying capabilities for security operations
 
 - **`CircuitBreaker`**: Protection against cascading failures
   - Prevents system overload during service disruptions
@@ -31,12 +33,15 @@ These models support security operations, incident management, vulnerability tra
   - Provides automatic recovery with half-open state pattern
   - Tracks failure statistics and recovery metrics
   - Supports configurable fallback mechanisms
+  - Integrates with system health monitoring
 
 - **`LoginAttempt`**: Authentication attempt monitoring
   - Tracks successful and failed login attempts
   - Implements brute force protection through rate limiting
   - Provides account lockout mechanisms with progressive timing
   - Records IP addresses and geolocation data for threat analysis
+  - Offers security analytics for authentication patterns
+  - Integrates with notification system for unusual activity
 
 - **`SecurityIncident`**: Security incident tracking and management
   - Comprehensive incident lifecycle management (open, investigating, resolved, closed, merged)
@@ -60,6 +65,32 @@ These models support security operations, incident management, vulnerability tra
   - Supports advanced search and filtering capabilities
   - Provides detailed statistics and metrics tracking
 
+- **`ThreatIntelligence`**: Security threat tracking and analysis
+  - Manages indicators of compromise (IoCs) and threat actors
+  - Implements automated threat correlation with security events
+  - Provides threat feed integration and management
+  - Supports flexible indicator types (IP, URL, hash, etc.)
+  - Tracks threat intelligence sources and confidence levels
+  - Implements automated expiration for time-sensitive indicators
+  - Provides STIX/TAXII compatibility for sharing
+
+- **`SystemConfig`**: Security configuration management
+  - Centralizes security-related configuration storage
+  - Provides environment-aware configuration capabilities
+  - Implements version tracking for all configuration changes
+  - Enforces validation rules for security parameters
+  - Supports encryption for sensitive configuration values
+  - Offers comprehensive audit trail for configuration updates
+
+- **`FileIntegrityBaseline`**: File integrity monitoring baseline
+  - Creates and manages file integrity monitoring baselines
+  - Tracks cryptographic hashes of critical system files
+  - Detects unauthorized modifications to protected files
+  - Provides change detection with severity classification
+  - Supports multiple hash algorithms for different security needs
+  - Offers baseline export and import capabilities
+  - Implements secure backup and restore functionality
+
 ## Directory Structure
 
 ```plaintext
@@ -73,6 +104,7 @@ models/security/
 │   ├── __init__.py           # System security package exports
 │   ├── audit_log.py          # Security event logging
 │   ├── compliance_check.py   # Compliance verification models
+│   ├── file_integrity_baseline.py # File integrity monitoring
 │   ├── README.md             # System security documentation
 │   ├── security_baseline.py  # Security standards definition
 │   ├── security_scan.py      # Security scanning configuration and results
@@ -133,25 +165,6 @@ incident.add_related_incident(related_incident_id=42)
 # Add tags for better categorization
 incident.add_tag("web-server")
 incident.add_tag("credential-theft")
-
-# After implementing countermeasures, resolve the incident
-incident.resolve(
-    resolution="Blocked originating IP address, reset affected user passwords, " +
-               "and enabled additional monitoring",
-    user_id=5
-)
-
-# If new related activity is detected, reopen the incident
-incident.reopen(
-    reason="Similar attack pattern detected from new IP range",
-    user_id=5
-)
-
-# When fully addressed, close the incident
-incident.close(
-    reason="All countermeasures validated and no further suspicious activity detected",
-    user_id=5
-)
 
 # Merge with a parent incident if related
 incident.merge_into(
@@ -273,38 +286,43 @@ print(f"Overdue vulnerabilities: {stats['remediation_progress']['overdue']}")
 ### Circuit Breaker Implementation
 
 ```python
-from models.security import CircuitBreaker, RateLimiter, CircuitOpenError
+from models.security import CircuitBreaker, CircuitBreakerState, CircuitOpenError
 
-# Create a circuit breaker to protect a database service
-db_circuit = CircuitBreaker(
-    name="database_service",
-    failure_threshold=5,       # Number of failures before opening
-    recovery_timeout=60,       # Seconds to wait before trying to recover
-    half_open_max_calls=3      # Max calls to allow in half-open state
+# Initialize a circuit breaker for a service
+circuit = CircuitBreaker(
+    name="payment-gateway-api",
+    failure_threshold=5,
+    recovery_timeout=30,  # seconds
+    half_open_max_calls=2
 )
 
-# Use the circuit breaker to protect a function call
-try:
-    with db_circuit:
-        result = database_service.execute_query("SELECT * FROM users")
-        return result
-except CircuitOpenError:
-    # Handle the case when circuit is open
-    return cached_data or fallback_response()
+# Using the circuit breaker to protect a service call
+def call_payment_gateway(payment_data):
+    try:
+        with circuit:
+            # This block is protected by the circuit breaker
+            result = payment_gateway_client.process_payment(payment_data)
+            circuit.record_success()
+            return result
+    except CircuitOpenError as e:
+        # Circuit is open due to previous failures
+        return use_fallback_payment_method(payment_data, e.remaining_timeout)
+    except Exception as e:
+        # Service call failed
+        circuit.record_failure()
+        raise
 
-# Rate limiting for API endpoints
-api_limiter = RateLimiter(
-    key="user:12345",
-    max_requests=100,
-    time_window=60  # 100 requests per minute
-)
+# Checking circuit status
+if circuit.state == CircuitBreakerState.OPEN:
+    print(f"Circuit {circuit.name} is open. Retry after {circuit.remaining_timeout}s")
+elif circuit.state == CircuitBreakerState.HALF_OPEN:
+    print(f"Circuit {circuit.name} is half-open, testing limited traffic")
+else:
+    print(f"Circuit {circuit.name} is closed and fully operational")
 
-try:
-    with api_limiter:
-        # Process API request
-        return process_api_request(request_data)
-except RateLimitExceededError as e:
-    return {"error": "Rate limit exceeded", "retry_after": e.retry_after}
+# Circuit breaker metrics
+metrics = circuit.get_metrics()
+print(f"Success rate: {metrics.success_percent}%, Failures: {metrics.failures}")
 ```
 
 ### Security Baseline Management
@@ -492,3 +510,5 @@ for version in history:
 - Security Administration Guide
 - Audit Requirements
 - Data Retention Policies
+- File Integrity Monitoring Guide
+- Security Update Policy

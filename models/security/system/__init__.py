@@ -6,6 +6,7 @@ This package contains database models related to system-level security functiona
 - SystemConfig: Security-related configuration management
 - SecurityBaseline: Security standard definitions and compliance tracking
 - SecurityScan: Security scanning configuration and results
+- FileIntegrityBaseline: File integrity monitoring baseline management
 - ComplianceCheck: Compliance framework verification and tracking
 
 These models provide the foundation for security governance, configuration management,
@@ -23,6 +24,7 @@ from .audit_log import AuditLog
 from .system_config import SystemConfig
 from .security_baseline import SecurityBaseline
 from .security_scan import SecurityScan
+from .file_integrity_baseline import FileIntegrityBaseline
 
 # Handle optional models
 try:
@@ -36,6 +38,7 @@ try:
         "SystemConfig",
         "SecurityBaseline",
         "SecurityScan",
+        "FileIntegrityBaseline",
         "ComplianceCheck",
         "ComplianceControl",
         "ComplianceFramework",
@@ -51,7 +54,8 @@ except ImportError:
         "AuditLog",
         "SystemConfig",
         "SecurityBaseline",
-        "SecurityScan"
+        "SecurityScan",
+        "FileIntegrityBaseline"
     ]
 
 # Track initialization for diagnostics

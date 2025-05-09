@@ -42,6 +42,7 @@ from .forms import (
     SystemConfigForm, FileIntegrityForm, AuditLogSearchForm,
     IncidentManagementForm, ComplianceReportForm, SecurityReportForm
 )
+from .reports import ComplianceReport
 from .utils import (
     update_file_integrity_baseline, verify_file_integrity,
     restore_baseline_from_backup, check_baseline_status, log_admin_action
@@ -51,7 +52,6 @@ from models.auth import User, Role, Permission
 from models.security import (
     AuditLog, SecurityIncident, SystemConfig, FileIntegrityBaseline
 )
-from models.compliance import ComplianceReport
 from core.security import (
     log_security_event, check_critical_file_integrity,
     get_security_metrics, detect_suspicious_activity
