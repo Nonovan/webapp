@@ -48,6 +48,20 @@ CHANNEL_EMAIL = 'email'
 CHANNEL_SMS = 'sms'
 CHANNEL_WEBHOOK = 'webhook'
 
+# Notification categories
+NOTIFICATION_CATEGORY_SYSTEM = 'system'          # System-level notifications
+NOTIFICATION_CATEGORY_SECURITY = 'security'      # Security-related notifications
+NOTIFICATION_CATEGORY_USER = 'user'             # User-specific notifications
+NOTIFICATION_CATEGORY_ADMIN = 'admin'           # Administrative notifications
+NOTIFICATION_CATEGORY_MAINTENANCE = 'maintenance' # Maintenance notifications
+NOTIFICATION_CATEGORY_MONITORING = 'monitoring'  # System monitoring notifications
+NOTIFICATION_CATEGORY_COMPLIANCE = 'compliance'  # Compliance-related notifications
+NOTIFICATION_CATEGORY_INTEGRITY = 'integrity'    # File integrity notifications
+NOTIFICATION_CATEGORY_AUDIT = 'audit'           # Audit-related notifications
+NOTIFICATION_CATEGORY_SCAN = 'scan'             # Security scan notifications
+NOTIFICATION_CATEGORY_VULNERABILITY = 'vulnerability'  # Vulnerability notifications
+NOTIFICATION_CATEGORY_INCIDENT = 'incident'     # Security incident notifications
+
 # Notification priorities
 class NotificationPriority(Enum):
     """Priority levels for notifications."""
@@ -56,14 +70,6 @@ class NotificationPriority(Enum):
     HIGH = 30
     URGENT = 40
     CRITICAL = 50
-
-# Notification categories
-NOTIFICATION_CATEGORY_SYSTEM = 'system'
-NOTIFICATION_CATEGORY_SECURITY = 'security'
-NOTIFICATION_CATEGORY_USER = 'user'
-NOTIFICATION_CATEGORY_ADMIN = 'admin'
-NOTIFICATION_CATEGORY_MAINTENANCE = 'maintenance'
-NOTIFICATION_CATEGORY_MONITORING = 'monitoring'
 
 # ============================================================================
 # Security Service Constants
@@ -115,6 +121,14 @@ CRITICAL_FILE_PATTERNS: List[str] = [
     'services/security_service.py',
     'services/scanning_service.py'
 ]
+
+# File Integrity Validation Constants
+FILE_INTEGRITY_CONSTANTS = {
+    'MAX_HASH_RETRIES': 3,
+    'HASH_BUFFER_SIZE': 65536,  # 64kb chunks for hashing
+    'MAX_VERIFICATION_TIME': 300,  # 5 min timeout for verification
+    'REQUIRED_PERMISSIONS': 0o644  # Default secure file permissions
+}
 
 # ============================================================================
 # Scanning Service Constants
@@ -243,6 +257,13 @@ SCAN_SEVERITY_MEDIUM = 'medium'
 SCAN_SEVERITY_LOW = 'low'
 SCAN_SEVERITY_INFO = 'info'
 
+# Scan Failure Thresholds
+SCAN_FAILURE_THRESHOLDS = {
+    'MAX_CONSECUTIVE_FAILURES': 3,
+    'FAILURE_WINDOW_HOURS': 24,
+    'MAX_RETRY_COUNT': 2
+}
+
 # ============================================================================
 # Webhook Service Constants
 # ============================================================================
@@ -312,6 +333,13 @@ RATE_LIMIT_SECURITY_SCAN = '5 per hour'
 RATE_LIMIT_FILE_INTEGRITY_CHECK = '12 per hour'
 RATE_LIMIT_BASELINE_UPDATE = '6 per hour'
 
+# API Rate Limit Thresholds
+API_LIMIT_THRESHOLDS = {
+    'MAX_FAILURES_PER_HOUR': 100,
+    'LOCKOUT_DURATION': 3600,  # 1 hour
+    'WARNING_THRESHOLD': 80  # Percent of limit
+}
+
 # ============================================================================
 # Metric Names
 # ============================================================================
@@ -354,6 +382,13 @@ CACHE_TIMEOUT_LONG = 86400  # 24 hours
 # Maximum number of audit log items to return by default
 DEFAULT_AUDIT_LOG_LIMIT = 100
 
+# Audit Log Settings
+AUDIT_LOG_SETTINGS = {
+    'MAX_AGE_DAYS': 90,
+    'BATCH_SIZE': 1000,
+    'REQUIRED_FIELDS': ['timestamp', 'actor', 'action', 'target']
+}
+
 # Default timeout values (in seconds)
 DEFAULT_REQUEST_TIMEOUT = 60
 DEFAULT_WEBHOOK_TIMEOUT = 10
@@ -391,6 +426,9 @@ __all__ = [
     'NOTIFICATION_CATEGORY_SYSTEM', 'NOTIFICATION_CATEGORY_SECURITY',
     'NOTIFICATION_CATEGORY_USER', 'NOTIFICATION_CATEGORY_ADMIN',
     'NOTIFICATION_CATEGORY_MAINTENANCE', 'NOTIFICATION_CATEGORY_MONITORING',
+    'NOTIFICATION_CATEGORY_COMPLIANCE', 'NOTIFICATION_CATEGORY_INTEGRITY',
+    'NOTIFICATION_CATEGORY_AUDIT', 'NOTIFICATION_CATEGORY_SCAN',
+    'NOTIFICATION_CATEGORY_VULNERABILITY', 'NOTIFICATION_CATEGORY_INCIDENT',
 
     # Security Service Constants
     'DEFAULT_HASH_ALGORITHM', 'DEFAULT_BASELINE_FILE_PATH', 'DEFAULT_BACKUP_PATH_TEMPLATE',
@@ -401,6 +439,7 @@ __all__ = [
     'INTEGRITY_SEVERITY_CRITICAL', 'INTEGRITY_SEVERITY_HIGH',
     'INTEGRITY_SEVERITY_MEDIUM', 'INTEGRITY_SEVERITY_LOW',
     'FILE_CHANGE_SEVERITY_MAP', 'CRITICAL_FILE_PATTERNS',
+    'FILE_INTEGRITY_CONSTANTS',
 
     # Scanning Service Constants
     'SCAN_STATUS_PENDING', 'SCAN_STATUS_RUNNING', 'SCAN_STATUS_COMPLETED',
@@ -411,6 +450,7 @@ __all__ = [
     'DEFAULT_SCAN_PROFILES', 'MAX_CONCURRENT_SCANS',
     'SCAN_SEVERITY_CRITICAL', 'SCAN_SEVERITY_HIGH',
     'SCAN_SEVERITY_MEDIUM', 'SCAN_SEVERITY_LOW', 'SCAN_SEVERITY_INFO',
+    'SCAN_FAILURE_THRESHOLDS',
 
     # Webhook Service Constants
     'WEBHOOK_EVENT_SECURITY_SCAN_STARTED', 'WEBHOOK_EVENT_SECURITY_SCAN_COMPLETED',
@@ -438,7 +478,7 @@ __all__ = [
     # Rate Limiting Constants
     'RATE_LIMIT_DEFAULT', 'RATE_LIMIT_AUTHENTICATION',
     'RATE_LIMIT_SECURITY_SCAN', 'RATE_LIMIT_FILE_INTEGRITY_CHECK',
-    'RATE_LIMIT_BASELINE_UPDATE',
+    'RATE_LIMIT_BASELINE_UPDATE', 'API_LIMIT_THRESHOLDS',
 
     # Metric Names
     'METRIC_SECURITY_SCAN_STARTED', 'METRIC_SECURITY_SCAN_COMPLETED',
@@ -454,7 +494,7 @@ __all__ = [
     'CACHE_TIMEOUT_SHORT', 'CACHE_TIMEOUT_MEDIUM', 'CACHE_TIMEOUT_LONG',
 
     # Other Constants
-    'DEFAULT_AUDIT_LOG_LIMIT', 'DEFAULT_REQUEST_TIMEOUT',
+    'DEFAULT_AUDIT_LOG_LIMIT', 'AUDIT_LOG_SETTINGS', 'DEFAULT_REQUEST_TIMEOUT',
     'DEFAULT_WEBHOOK_TIMEOUT', 'DEFAULT_SCAN_TIMEOUT',
     'DEFAULT_LONG_OPERATION_TIMEOUT', 'NOTIFICATION_EXPIRY_DAYS',
     'DEFAULT_PAGE_SIZE', 'MAX_PAGE_SIZE',

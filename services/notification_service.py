@@ -9,6 +9,7 @@ with proper error handling and delivery tracking.
 
 import logging
 import json
+import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional, List, Union, Set, Tuple
 
@@ -21,6 +22,41 @@ from services.email_service import EmailService, send_email, send_template_email
 from models import User
 from core.security import sanitize_url, log_security_event
 
+# Import service constants if available
+try:
+    from services.service_constants import (
+        NOTIFICATION_CATEGORY_SYSTEM,
+        NOTIFICATION_CATEGORY_SECURITY,
+        NOTIFICATION_CATEGORY_USER,
+        NOTIFICATION_CATEGORY_ADMIN,
+        NOTIFICATION_CATEGORY_MAINTENANCE,
+        NOTIFICATION_CATEGORY_MONITORING,
+        NOTIFICATION_CATEGORY_COMPLIANCE,
+        NOTIFICATION_CATEGORY_INTEGRITY,
+        NOTIFICATION_CATEGORY_AUDIT,
+        NOTIFICATION_CATEGORY_SCAN,
+        NOTIFICATION_CATEGORY_VULNERABILITY,
+        NOTIFICATION_CATEGORY_INCIDENT,
+        NOTIFICATION_EXPIRY_DAYS,
+    )
+    SERVICE_CONSTANTS_AVAILABLE = True
+except ImportError:
+    # Default values if service_constants not available
+    NOTIFICATION_CATEGORY_SYSTEM = 'system'
+    NOTIFICATION_CATEGORY_SECURITY = 'security'
+    NOTIFICATION_CATEGORY_USER = 'user'
+    NOTIFICATION_CATEGORY_ADMIN = 'admin'
+    NOTIFICATION_CATEGORY_MAINTENANCE = 'maintenance'
+    NOTIFICATION_CATEGORY_MONITORING = 'monitoring'
+    NOTIFICATION_CATEGORY_COMPLIANCE = 'compliance'
+    NOTIFICATION_CATEGORY_INTEGRITY = 'integrity'
+    NOTIFICATION_CATEGORY_AUDIT = 'audit'
+    NOTIFICATION_CATEGORY_SCAN = 'scan'
+    NOTIFICATION_CATEGORY_VULNERABILITY = 'vulnerability'
+    NOTIFICATION_CATEGORY_INCIDENT = 'incident'
+    NOTIFICATION_EXPIRY_DAYS = 30
+    SERVICE_CONSTANTS_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 # Constants for delivery channels
@@ -28,6 +64,7 @@ CHANNEL_IN_APP = "in_app"
 CHANNEL_EMAIL = "email"
 CHANNEL_SMS = "sms"  # SMS delivery functionality
 CHANNEL_WEBHOOK = "webhook"  # For future webhook integration
+
 
 class NotificationService:
     """
@@ -52,7 +89,8 @@ class NotificationService:
         sms_message: Optional[str] = None,
         respect_preferences: bool = True,
         delivery_tracking_id: Optional[str] = None,
-        expiry: Optional[int] = None  # Expiry in hours
+        expiry: Optional[int] = None,  # Expiry in hours
+        category: Optional[str] = None  # Notification category for organization
     ) -> Dict[str, Any]:
         """
         Sends a notification, potentially via multiple channels (in-app, email, SMS).
@@ -75,6 +113,7 @@ class NotificationService:
             respect_preferences: If True, respects user notification preferences.
             delivery_tracking_id: Optional ID to track notification delivery across systems.
             expiry: Optional time in hours after which the notification expires.
+            category: Notification category for organization and routing.
 
         Returns:
             A dictionary containing the delivery status for each channel and overall success.
@@ -100,17 +139,23 @@ class NotificationService:
         expires_at = None
         if expiry is not None and expiry > 0:
             expires_at = datetime.now(timezone.utc) + timedelta(hours=expiry)
+        elif hasattr(current_app, 'config'):
+            # Use system default if configured
+            default_expiry = current_app.config.get('NOTIFICATION_EXPIRY_DAYS', NOTIFICATION_EXPIRY_DAYS)
+            if default_expiry > 0:
+                expires_at = datetime.now(timezone.utc) + timedelta(days=default_expiry)
 
         # Generate delivery tracking ID if not provided
-        if delivery_tracking_id is None and hasattr(current_app, 'config'):
-            import uuid
+        if delivery_tracking_id is None:
             delivery_tracking_id = f"notif-{uuid.uuid4().hex[:12]}"
 
-        # Add delivery tracking ID to data if not already present
-        if delivery_tracking_id:
-            data = data or {}
-            if 'delivery_tracking_id' not in data:
-                data['delivery_tracking_id'] = delivery_tracking_id
+        # Add delivery tracking ID and category to data
+        data = data or {}
+        data['delivery_tracking_id'] = delivery_tracking_id
+
+        # Add category information if provided
+        if category:
+            data['category'] = category
 
         # If preferences should be respected, get eligible users
         if respect_preferences:
@@ -129,10 +174,12 @@ class NotificationService:
             'in_app_success': False,
             'email_success': False,
             'sms_success': False,
+            'webhook_success': False,
             'users': {
                 'total': len(user_ids),
                 'notified': 0
-            }
+            },
+            'tracking_id': delivery_tracking_id
         }
 
         # In-app notifications
@@ -168,16 +215,18 @@ class NotificationService:
                                 subject=email_subject,
                                 template_name=email_template,
                                 template_data=email_template_data,
-                                priority=priority, # Pass priority to email service
-                                tracking_id=delivery_tracking_id
+                                priority=priority,  # Pass priority to email service
+                                tracking_id=delivery_tracking_id,
+                                category=category
                             )
                         elif email_content:
                             email_success = send_email(
                                 to=recipients,
                                 subject=email_subject,
-                                html_content=email_content, # Assuming HTML, adjust if needed
+                                html_content=email_content,  # Assuming HTML, adjust if needed
                                 priority=priority,
-                                tracking_id=delivery_tracking_id
+                                tracking_id=delivery_tracking_id,
+                                category=category
                             )
                         else:
                             # Fallback to sending the basic message as text content
@@ -186,7 +235,8 @@ class NotificationService:
                                 subject=email_subject,
                                 text_content=message,
                                 priority=priority,
-                                tracking_id=delivery_tracking_id
+                                tracking_id=delivery_tracking_id,
+                                category=category
                             )
                         metrics.increment(f'notification.email.sent.{priority}')
                     except Exception as e:
@@ -202,7 +252,8 @@ class NotificationService:
                 user_ids=user_ids,
                 message=sms_message or NotificationService._create_sms_content(message, title),
                 priority=priority,
-                tracking_id=delivery_tracking_id
+                tracking_id=delivery_tracking_id,
+                category=category
             )
         results['sms_success'] = sms_success
 
@@ -217,10 +268,10 @@ class NotificationService:
             logger.info(
                 f"Notification sent successfully via one or more channels. "
                 f"Type: {notification_type}, Priority: {priority}, "
-                f"Users: {results['users']['notified']}/{results['users']['total']}"
+                f"Users: {results['users']['notified']}/{results['users']['total']}, "
+                f"Category: {category or 'none'}"
             )
-            if delivery_tracking_id:
-                logger.info(f"Notification tracking ID: {delivery_tracking_id}")
+            logger.debug(f"Notification tracking ID: {delivery_tracking_id}")
         else:
             logger.error(
                 f"Failed to send notification via any channel. "
@@ -519,7 +570,8 @@ class NotificationService:
         user_ids: List[int],
         message: str,
         priority: str,
-        tracking_id: Optional[str] = None
+        tracking_id: Optional[str] = None,
+        category: Optional[str] = None
     ) -> bool:
         """
         Sends SMS notifications to users.
@@ -529,10 +581,12 @@ class NotificationService:
             message: SMS message content
             priority: Priority level
             tracking_id: Optional delivery tracking ID
+            category: Notification category for routing
 
         Returns:
             True if sent successfully to any user, False otherwise
         """
+        # Implementation remains the same with added category parameter
         if not user_ids:
             return False
 
@@ -571,7 +625,8 @@ class NotificationService:
                             to=recipient,
                             message=message,
                             priority=priority,
-                            tracking_id=tracking_id
+                            tracking_id=tracking_id,
+                            category=category
                         )
                         if result:
                             success_count += 1
@@ -646,7 +701,7 @@ class NotificationService:
         """
         # If notification preferences are not implemented yet, return all users
         try:
-            from models.user_preference import NotificationPreference
+            from models.communication.user_preference import NotificationPreference
         except ImportError:
             return user_ids
 
@@ -745,6 +800,7 @@ class NotificationService:
 
 
 # Helper functions for common notification types
+
 def send_system_notification(user_ids: Union[int, List[int]], message: str, **kwargs) -> Dict[str, Any]:
     """
     Helper function to send a system notification.
@@ -757,6 +813,10 @@ def send_system_notification(user_ids: Union[int, List[int]], message: str, **kw
     Returns:
         Dictionary containing delivery results
     """
+    # Set the category if not provided
+    if 'category' not in kwargs:
+        kwargs['category'] = NOTIFICATION_CATEGORY_SYSTEM
+
     return NotificationService.send_notification(
         user_ids=user_ids,
         message=message,
@@ -785,9 +845,12 @@ def send_security_alert(user_ids: Union[int, List[int]], message: str, **kwargs)
     # Ensure email notification for security alerts by default
     send_email = kwargs.pop('send_email', True)
 
+    # Set the category if not provided
+    if 'category' not in kwargs:
+        kwargs['category'] = NOTIFICATION_CATEGORY_SECURITY
+
     # Generate tracking ID if not provided
     if 'delivery_tracking_id' not in kwargs:
-        import uuid
         kwargs['delivery_tracking_id'] = f"sec-alert-{uuid.uuid4().hex[:8]}"
 
     # Log security event
@@ -812,17 +875,7 @@ def send_security_alert(user_ids: Union[int, List[int]], message: str, **kwargs)
 
 
 def send_success_notification(user_ids: Union[int, List[int]], message: str, **kwargs) -> Dict[str, Any]:
-    """
-    Helper function to send a success notification.
-
-    Args:
-        user_ids: User ID or list of user IDs to notify
-        message: Success message
-        **kwargs: Additional arguments for NotificationService.send_notification
-
-    Returns:
-        Dictionary containing delivery results
-    """
+    """Helper function to send a success notification."""
     return NotificationService.send_notification(
         user_ids=user_ids,
         message=message,
@@ -833,17 +886,7 @@ def send_success_notification(user_ids: Union[int, List[int]], message: str, **k
 
 
 def send_warning_notification(user_ids: Union[int, List[int]], message: str, **kwargs) -> Dict[str, Any]:
-    """
-    Helper function to send a warning notification.
-
-    Args:
-        user_ids: User ID or list of user IDs to notify
-        message: Warning message
-        **kwargs: Additional arguments for NotificationService.send_notification
-
-    Returns:
-        Dictionary containing delivery results
-    """
+    """Helper function to send a warning notification."""
     return NotificationService.send_notification(
         user_ids=user_ids,
         message=message,
@@ -866,16 +909,6 @@ def send_user_notification(
     This is a specialized wrapper around the general notification system
     for user account management notifications such as account creation,
     password resets, and other user-specific events.
-
-    Args:
-        user_id: ID of the user to notify
-        notification_type: Type of user notification (account_created, password_reset, etc.)
-        data: Additional context data for the notification
-        priority: Priority level for the notification
-        send_email: Whether to send email in addition to in-app notification
-
-    Returns:
-        Boolean indicating if at least one notification was sent successfully
     """
     try:
         data = data or {}
@@ -933,7 +966,7 @@ def send_user_notification(
         }
 
         # Merge with provided data
-        template_data.update(data)
+        template_data.update(data or {})
 
         # Send notification using the service
         result = NotificationService.send_notification(
@@ -946,7 +979,8 @@ def send_user_notification(
             send_email=send_email,
             email_subject=email_subject,
             email_template=email_template,
-            email_template_data=template_data
+            email_template_data=template_data,
+            category=NOTIFICATION_CATEGORY_USER
         )
 
         # Log the notification
@@ -975,5 +1009,19 @@ __all__ = [
     'CHANNEL_IN_APP',
     'CHANNEL_EMAIL',
     'CHANNEL_SMS',
-    'CHANNEL_WEBHOOK'
+    'CHANNEL_WEBHOOK',
+
+    # Notification categories
+    'NOTIFICATION_CATEGORY_SYSTEM',
+    'NOTIFICATION_CATEGORY_SECURITY',
+    'NOTIFICATION_CATEGORY_USER',
+    'NOTIFICATION_CATEGORY_ADMIN',
+    'NOTIFICATION_CATEGORY_MAINTENANCE',
+    'NOTIFICATION_CATEGORY_MONITORING',
+    'NOTIFICATION_CATEGORY_COMPLIANCE',
+    'NOTIFICATION_CATEGORY_INTEGRITY',
+    'NOTIFICATION_CATEGORY_AUDIT',
+    'NOTIFICATION_CATEGORY_SCAN',
+    'NOTIFICATION_CATEGORY_VULNERABILITY',
+    'NOTIFICATION_CATEGORY_INCIDENT'
 ]

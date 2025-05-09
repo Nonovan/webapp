@@ -10,9 +10,28 @@ import logging
 import os
 import json
 import hashlib
+import fnmatch
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional, Tuple, Callable
+
+# Add imports for service constants
+from .service_constants import (
+    DEFAULT_HASH_ALGORITHM,
+    DEFAULT_BASELINE_FILE_PATH,
+    AUTO_UPDATE_LIMIT,
+    INTEGRITY_SEVERITY_CRITICAL,
+    INTEGRITY_SEVERITY_HIGH,
+    INTEGRITY_SEVERITY_MEDIUM,
+    INTEGRITY_SEVERITY_LOW,
+    FILE_CHANGE_SEVERITY_MAP,
+    CRITICAL_FILE_PATTERNS,
+    FILE_INTEGRITY_CONSTANTS,
+    SCAN_STATUS_PENDING,
+    SCAN_TYPE_VULNERABILITY,
+    MAX_CONCURRENT_SCANS,
+    DEFAULT_SCAN_TIMEOUT
+)
 
 # Attempt to import core security utilities and extensions
 try:
@@ -61,10 +80,14 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Configuration fetched via core utility or defaults
-DEFAULT_BASELINE_FILE_PATH = Path(get_security_config('SECURITY_BASELINE_FILE', "instance/security/baseline.json"))
-DEFAULT_HASH_ALGORITHM = get_security_config('FILE_HASH_ALGORITHM', "sha256")
-FILE_INTEGRITY_ENABLED = get_security_config('FILE_INTEGRITY_CHECK_ENABLED', True)
+# Use service constants instead of get_security_config
+DEFAULT_BASELINE_FILE_PATH = Path(DEFAULT_BASELINE_FILE_PATH)
+FILE_INTEGRITY_ENABLED = True
+
+
+class SecurityError(Exception):
+    """Custom exception for security-related errors."""
+    pass
 
 
 class SecurityService:
@@ -132,8 +155,14 @@ class SecurityService:
             logger.warning("Cannot calculate hash, path is not a file: %s", filepath)
             return None
         try:
-            # Use core utility if available, otherwise fallback
-            return generate_secure_hash(filepath, algorithm)
+            # Use buffer size from constants
+            hasher = hashlib.new(algorithm)
+            buffer_size = FILE_INTEGRITY_CONSTANTS.get('HASH_BUFFER_SIZE', 65536)
+
+            with open(filepath, 'rb') as f:
+                while chunk := f.read(buffer_size):
+                    hasher.update(chunk)
+            return hasher.hexdigest()
         except Exception as e:
             logger.error("Error calculating hash for %s using %s: %s", filepath, algorithm, e)
             metrics.increment('security.file_integrity.hash_error')
@@ -211,14 +240,17 @@ class SecurityService:
             logger.warning(f"File integrity check failed for {filepath}: hash mismatch")
             metrics.increment('security.file_integrity.modified')
 
-            # Attempt to determine severity of the change
+            # Use service constants for severity mapping
+            status = details.get("status", "changed")
+            details["severity"] = FILE_CHANGE_SEVERITY_MAP.get(status, INTEGRITY_SEVERITY_MEDIUM)
+
+            # Check critical patterns from service constants
             is_critical = False
-            for pattern in SECURITY_CONFIG.get('CRITICAL_FILES_PATTERN', []):
+            for pattern in CRITICAL_FILE_PATTERNS:
                 if fnmatch.fnmatch(filepath, pattern):
                     is_critical = True
+                    details["severity"] = INTEGRITY_SEVERITY_CRITICAL
                     break
-
-            details["severity"] = "critical" if is_critical else "medium"
 
             # Log security event for critical files
             if is_critical:
@@ -337,7 +369,7 @@ class SecurityService:
         return overall_status, changes
 
     @staticmethod
-    def update_baseline(paths_to_update: Optional[List[str]] = None, remove_missing: bool = False) -> Tuple[bool, str]:
+    def update_baseline(paths_to_update: Optional[List[str]] = None, remove_missing: bool = False, max_updates: int = AUTO_UPDATE_LIMIT) -> Tuple[bool, str]:
         """
         Update the security baseline file.
 
@@ -346,6 +378,7 @@ class SecurityService:
                              If None, re-scans all files currently in the baseline.
             remove_missing: If True and paths_to_update is None, remove entries from the
                             baseline for files that no longer exist.
+            max_updates: Maximum number of files to update in one operation (default from constants)
 
         Returns:
             Tuple of (success, message)
@@ -357,6 +390,11 @@ class SecurityService:
         added_files_count = 0
         removed_files_count = 0
         error_count = 0
+
+        # Add update limit check
+        if paths_to_update and max_updates and len(paths_to_update) > max_updates:
+            logger.warning(f"Too many paths to update ({len(paths_to_update)}), limiting to {max_updates}")
+            paths_to_update = paths_to_update[:max_updates]
 
         target_paths: List[str]
         if paths_to_update is not None:
@@ -624,18 +662,182 @@ class SecurityService:
             status['error_message'] = str(e)
             return status
 
-    # Potential future methods:
-    # @staticmethod
-    # def get_security_posture() -> Dict[str, Any]:
-    #     """Returns an overall security posture summary."""
-    #     # Combine results from integrity checks, vulnerability scans, etc.
-    #     pass
+    @staticmethod
+    def get_security_posture() -> Dict[str, Any]:
+        """
+        Returns an overall security posture summary combining various security metrics.
 
-    # @staticmethod
-    # def run_vulnerability_scan(targets: List[str]) -> str:
-    #     """Initiates a vulnerability scan."""
-    #     # Integrate with scanning tools/APIs
-    #     pass
+        Aggregates information from file integrity monitoring, vulnerability scans,
+        and other security controls to provide a comprehensive security status.
+
+        Returns:
+            Dictionary containing:
+            - overall_status: Overall security status (healthy/degraded/critical)
+            - integrity_status: File integrity monitoring status
+            - vulnerability_status: Latest vulnerability scan results
+            - critical_issues: List of critical security issues
+            - last_assessment: Timestamp of last full security assessment
+            - metrics: Key security metrics and scores
+        """
+        posture = {
+            'overall_status': 'unknown',
+            'integrity_status': {},
+            'vulnerability_status': {},
+            'critical_issues': [],
+            'last_assessment': None,
+            'metrics': {
+                'critical_vulnerabilities': 0,
+                'high_vulnerabilities': 0,
+                'integrity_violations': 0,
+                'security_score': 100
+            }
+        }
+
+        try:
+            # Get file integrity status
+            integrity_status = SecurityService.get_integrity_status()
+            posture['integrity_status'] = integrity_status
+
+            if integrity_status.get('critical_changes'):
+                posture['critical_issues'].extend([
+                    {
+                        'type': 'integrity_violation',
+                        'severity': 'critical',
+                        'description': f"Critical file changes detected: {len(integrity_status['critical_changes'])}",
+                        'details': integrity_status['critical_changes']
+                    }
+                ])
+                posture['metrics']['integrity_violations'] = len(integrity_status['critical_changes'])
+
+            # Try to get vulnerability data from cache/database
+            try:
+                from extensions import get_redis_client
+                redis_client = get_redis_client()
+                if redis_client:
+                    vuln_data = redis_client.get('security:vulnerability_summary')
+                    if vuln_data:
+                        vuln_summary = json.loads(vuln_data.decode('utf-8'))
+                        posture['vulnerability_status'] = vuln_summary
+                        posture['metrics']['critical_vulnerabilities'] = vuln_summary.get('critical_count', 0)
+                        posture['metrics']['high_vulnerabilities'] = vuln_summary.get('high_count', 0)
+                        posture['last_assessment'] = vuln_summary.get('last_scan_time')
+            except (ImportError, Exception) as e:
+                logger.debug(f"Could not access vulnerability data: {e}")
+
+            # Calculate overall security score and status
+            score_deductions = {
+                'critical_vulnerability': 20,  # -20 points per critical vulnerability
+                'high_vulnerability': 10,      # -10 points per high vulnerability
+                'integrity_violation': 15      # -15 points per critical integrity violation
+            }
+
+            score = 100
+            score -= (posture['metrics']['critical_vulnerabilities'] * score_deductions['critical_vulnerability'])
+            score -= (posture['metrics']['high_vulnerabilities'] * score_deductions['high_vulnerability'])
+            score -= (posture['metrics']['integrity_violations'] * score_deductions['integrity_violation'])
+            posture['metrics']['security_score'] = max(0, score)
+
+            # Determine overall status
+            if score < 40:
+                posture['overall_status'] = 'critical'
+            elif score < 70:
+                posture['overall_status'] = 'degraded'
+            else:
+                posture['overall_status'] = 'healthy'
+
+            # Track metrics
+            metrics.gauge('security.posture.score', score)
+            metrics.gauge('security.critical_issues', len(posture['critical_issues']))
+
+            return posture
+
+        except Exception as e:
+            logger.error(f"Error getting security posture: {e}")
+            posture['overall_status'] = 'error'
+            posture['error_message'] = str(e)
+            return posture
+
+    @staticmethod
+    def run_vulnerability_scan(targets: List[str]) -> str:
+        """
+        Initiates a vulnerability scan on specified targets.
+
+        Args:
+            targets: List of targets to scan (URLs, IPs, or file paths)
+
+        Returns:
+            Scan ID that can be used to track scan progress
+
+        Raises:
+            ValueError: If targets list is empty or invalid
+            SecurityError: If scan cannot be initiated
+        """
+        if not targets:
+            raise ValueError("No scan targets specified")
+
+        try:
+            # Generate unique scan ID
+            scan_id = f"scan_{int(datetime.now(timezone.utc).timestamp())}_{os.urandom(4).hex()}"
+
+            # Validate scan limits
+            active_scans = 0
+            try:
+                from extensions import get_redis_client
+                redis_client = get_redis_client()
+                if redis_client:
+                    active_scans = int(redis_client.get('security:active_scans') or 0)
+                    if active_scans >= MAX_CONCURRENT_SCANS:
+                        raise SecurityError("Maximum concurrent scan limit reached")
+                    redis_client.incr('security:active_scans')
+            except (ImportError, Exception) as e:
+                logger.warning(f"Could not check scan limits: {e}")
+
+            # Log scan initiation
+            logger.info(f"Initiating vulnerability scan {scan_id} for {len(targets)} targets")
+            metrics.increment('security.scan.initiated')
+
+            # Store scan metadata
+            scan_data = {
+                'id': scan_id,
+                'status': SCAN_STATUS_PENDING,
+                'targets': targets,
+                'start_time': datetime.now(timezone.utc).isoformat(),
+                'scan_type': SCAN_TYPE_VULNERABILITY,
+                'profile': 'standard'
+            }
+
+            # Store scan data in cache
+            if redis_client:
+                redis_client.setex(
+                    f"scan:{scan_id}",
+                    DEFAULT_SCAN_TIMEOUT,
+                    json.dumps(scan_data)
+                )
+
+            # Log security event
+            log_security_event(
+                event_type='vulnerability_scan_initiated',
+                description=f"Vulnerability scan initiated for {len(targets)} targets",
+                severity="info",
+                details={'scan_id': scan_id, 'targets': targets}
+            )
+
+            # Schedule actual scan execution (implementation depends on scanning infrastructure)
+            # This is a placeholder - actual implementation would integrate with scanning tools
+            from core.tasks import schedule_task
+            schedule_task(
+                'security.tasks.run_vulnerability_scan',
+                scan_id=scan_id,
+                targets=targets,
+                timeout=DEFAULT_SCAN_TIMEOUT
+            )
+
+            return scan_id
+
+        except Exception as e:
+            logger.error(f"Failed to initiate vulnerability scan: {e}")
+            metrics.increment('security.scan.failed')
+            raise SecurityError(f"Failed to initiate scan: {str(e)}")
 
 
 # Example usage (for testing purposes, remove or guard in production)
