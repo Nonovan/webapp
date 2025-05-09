@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional, Tuple, List, Union
 from sqlalchemy.exc import SQLAlchemyError
 import psutil
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # Attempt to import core utilities and extensions
 try:
@@ -21,11 +21,13 @@ try:
     from extensions import db, cache, metrics
     from core.security.cs_utils import get_security_config
     from core.security.cs_audit import log_security_event, log_error, log_info, log_warning, log_debug
-    from models.security.audit_log import AuditLog
+    from models.security import AuditLog
     from services.notification_service import send_system_notification
     CORE_AVAILABLE = True
+    METRICS_AVAILABLE = True
 except ImportError as e:
     CORE_AVAILABLE = False
+    METRICS_AVAILABLE = False
     # Define dummy functions/classes if core components are missing
     def log_security_event(*args, **kwargs): pass
     def get_security_config(key: str, default: Any = None) -> Any: return default
@@ -38,15 +40,10 @@ except ImportError as e:
     class DummyMetrics:
         def increment(self, *args, **kwargs): pass
         def gauge(self, *args, **kwargs): pass
-        def summary(self, *args, **kwargs): pass
     metrics = DummyMetrics()
     current_app = None # type: ignore
     db = None # type: ignore
     cache = None # type: ignore
-    class AuditLog: # type: ignore
-        EVENT_MONITORING_ERROR = "monitoring_error"
-        EVENT_HEALTH_CHECK_FAILED = "health_check_failed"
-        EVENT_RESOURCE_THRESHOLD_EXCEEDED = "resource_threshold_exceeded"
 
 logger = logging.getLogger(__name__)
 
@@ -627,6 +624,249 @@ class MonitoringService:
             results['endpoints'][name] = endpoint_result
 
         return results
+
+    @staticmethod
+    def monitor_scan_operations(timeframe_hours: int = 24) -> Dict[str, Any]:
+        """
+        Monitors and reports on security scanning operations across the system.
+
+        This method gathers comprehensive metrics about scan operations including
+        success rates, performance, resource usage, and failure patterns. It helps
+        identify scanning issues, bottlenecks, and suspicious patterns.
+
+        Args:
+            timeframe_hours: Number of hours to look back for scan metrics (default: 24)
+
+        Returns:
+            Dictionary containing scan monitoring data and metrics
+        """
+        log_info(f"Collecting scan monitoring data for past {timeframe_hours} hours")
+
+        if not CORE_AVAILABLE:
+            return {"error": "Core components not available for scan monitoring"}
+
+        # Initialize results structure
+        results = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "timeframe_hours": timeframe_hours,
+            "scan_metrics": {
+                "total_scans": 0,
+                "completed": 0,
+                "failed": 0,
+                "pending": 0,
+                "running": 0,
+                "cancelled": 0,
+                "timed_out": 0,
+                "success_rate": 0.0,
+                "avg_duration_seconds": 0,
+                "findings_count": {
+                    "critical": 0,
+                    "high": 0,
+                    "medium": 0,
+                    "low": 0,
+                    "info": 0,
+                    "total": 0
+                }
+            },
+            "scan_types": {},
+            "recent_failures": [],
+            "resource_usage": {},
+            "recommendations": []
+        }
+
+        try:
+            # Import scan-related constants and services if available
+            try:
+                from services.scanning_service import ScanningService
+                from services.service_constants import (
+                    SCAN_STATUS_COMPLETED, SCAN_STATUS_FAILED,
+                    SCAN_STATUS_PENDING, SCAN_STATUS_RUNNING,
+                    SCAN_STATUS_CANCELLED, SCAN_STATUS_TIMEOUT
+                )
+                scanning_available = True
+            except ImportError:
+                log_warning("ScanningService not available for monitoring")
+                scanning_available = False
+                return {"error": "Scanning service not available", "timestamp": datetime.utcnow().isoformat()}
+
+            # Calculate time threshold
+            from_date = datetime.now(timezone.utc) - timedelta(hours=timeframe_hours)
+
+            # Get scan history using ScanningService functionality
+            filter_criteria = {
+                "from_date": from_date.isoformat(),
+                "to_date": datetime.now(timezone.utc).isoformat()
+            }
+
+            # Fetch scan history
+            scans, total_count = ScanningService.get_scan_history(
+                filter_criteria=filter_criteria,
+                page=1,
+                per_page=1000  # Get sufficient data for metrics
+            )
+
+            results["scan_metrics"]["total_scans"] = total_count
+
+            # If no scans found, return early with appropriate message
+            if not scans:
+                results["status"] = "No scan data available for specified timeframe"
+                return results
+
+            # Process scan data and calculate metrics
+            scan_status_counts = {
+                SCAN_STATUS_COMPLETED: 0,
+                SCAN_STATUS_FAILED: 0,
+                SCAN_STATUS_PENDING: 0,
+                SCAN_STATUS_RUNNING: 0,
+                SCAN_STATUS_CANCELLED: 0,
+                SCAN_STATUS_TIMEOUT: 0
+            }
+
+            scan_types = {}
+            durations = []
+            recent_failures = []
+
+            # Iterate through scans and collect metrics
+            for scan in scans:
+                # Count by status
+                status = scan.get("status", "unknown")
+                if status in scan_status_counts:
+                    scan_status_counts[status] += 1
+
+                # Count by scan type
+                scan_type = scan.get("scan_type", "unknown")
+                if scan_type not in scan_types:
+                    scan_types[scan_type] = {"count": 0, "completed": 0, "failed": 0}
+
+                scan_types[scan_type]["count"] += 1
+                if status == SCAN_STATUS_COMPLETED:
+                    scan_types[scan_type]["completed"] += 1
+                elif status == SCAN_STATUS_FAILED:
+                    scan_types[scan_type]["failed"] += 1
+
+                # Collect duration data for completed scans
+                if status == SCAN_STATUS_COMPLETED:
+                    # Calculate duration if timestamps available
+                    if scan.get("started_at") and scan.get("completed_at"):
+                        try:
+                            start_time = datetime.fromisoformat(scan["started_at"])
+                            end_time = datetime.fromisoformat(scan["completed_at"])
+                            duration = (end_time - start_time).total_seconds()
+                            durations.append(duration)
+                        except (ValueError, TypeError):
+                            # Skip invalid timestamps
+                            pass
+
+                    # Aggregate findings counts
+                    if "severity_counts" in scan:
+                        severity_counts = scan["severity_counts"]
+                        results["scan_metrics"]["findings_count"]["critical"] += severity_counts.get("critical", 0)
+                        results["scan_metrics"]["findings_count"]["high"] += severity_counts.get("high", 0)
+                        results["scan_metrics"]["findings_count"]["medium"] += severity_counts.get("medium", 0)
+                        results["scan_metrics"]["findings_count"]["low"] += severity_counts.get("low", 0)
+                        results["scan_metrics"]["findings_count"]["info"] += severity_counts.get("info", 0)
+
+                # Collect recent failures for analysis
+                if status in [SCAN_STATUS_FAILED, SCAN_STATUS_TIMEOUT] and len(recent_failures) < 5:
+                    failure_info = {
+                        "id": scan.get("id", "unknown"),
+                        "scan_type": scan_type,
+                        "profile": scan.get("profile", "unknown"),
+                        "failure_time": scan.get("completed_at") or scan.get("updated_at"),
+                        "error_message": scan.get("error_message", "Unknown error")
+                    }
+                    recent_failures.append(failure_info)
+
+            # Update scan metrics with collected data
+            results["scan_metrics"]["completed"] = scan_status_counts.get(SCAN_STATUS_COMPLETED, 0)
+            results["scan_metrics"]["failed"] = scan_status_counts.get(SCAN_STATUS_FAILED, 0)
+            results["scan_metrics"]["pending"] = scan_status_counts.get(SCAN_STATUS_PENDING, 0)
+            results["scan_metrics"]["running"] = scan_status_counts.get(SCAN_STATUS_RUNNING, 0)
+            results["scan_metrics"]["cancelled"] = scan_status_counts.get(SCAN_STATUS_CANCELLED, 0)
+            results["scan_metrics"]["timed_out"] = scan_status_counts.get(SCAN_STATUS_TIMEOUT, 0)
+
+            # Calculate success rate
+            completed_and_failed = results["scan_metrics"]["completed"] + results["scan_metrics"]["failed"]
+            if completed_and_failed > 0:
+                results["scan_metrics"]["success_rate"] = round(
+                    (results["scan_metrics"]["completed"] / completed_and_failed) * 100, 2
+                )
+
+            # Calculate average duration
+            if durations:
+                results["scan_metrics"]["avg_duration_seconds"] = round(sum(durations) / len(durations), 2)
+
+            # Update scan types metrics
+            results["scan_types"] = scan_types
+
+            # Calculate total findings
+            findings_total = sum(results["scan_metrics"]["findings_count"].values())
+            results["scan_metrics"]["findings_count"]["total"] = findings_total
+
+            # Add recent failures
+            results["recent_failures"] = recent_failures
+
+            # Get resource usage from cache if available
+            try:
+                from extensions import get_redis_client
+                redis_client = get_redis_client()
+                if redis_client:
+                    resource_data = redis_client.get('security:scan_resource_usage')
+                    if resource_data:
+                        results["resource_usage"] = json.loads(resource_data.decode('utf-8'))
+            except (ImportError, Exception) as e:
+                log_debug(f"Could not access scan resource usage data: {e}")
+
+            # Generate recommendations based on metrics
+            recommendations = []
+
+            # Check for high failure rate
+            if results["scan_metrics"]["success_rate"] < 80 and completed_and_failed > 10:
+                recommendations.append({
+                    "severity": "high",
+                    "issue": "High scan failure rate",
+                    "description": f"Scan success rate is {results['scan_metrics']['success_rate']}%, which is below the recommended 80% threshold.",
+                    "recommendation": "Investigate recent scan failures and address common failure patterns."
+                })
+
+            # Check for timeout issues
+            if results["scan_metrics"]["timed_out"] > 0:
+                timeout_percent = (results["scan_metrics"]["timed_out"] / total_count) * 100
+                if timeout_percent > 5:
+                    recommendations.append({
+                        "severity": "medium",
+                        "issue": "Excessive scan timeouts",
+                        "description": f"{timeout_percent:.1f}% of scans are timing out.",
+                        "recommendation": "Consider increasing scan timeout thresholds or optimizing scan profiles."
+                    })
+
+            # Check for critical findings
+            critical_findings = results["scan_metrics"]["findings_count"].get("critical", 0)
+            if critical_findings > 0:
+                recommendations.append({
+                    "severity": "high",
+                    "issue": "Critical security findings detected",
+                    "description": f"{critical_findings} critical security findings detected in the last {timeframe_hours} hours.",
+                    "recommendation": "Review and address critical security findings promptly."
+                })
+
+            results["recommendations"] = recommendations
+
+            # Track metrics
+            if METRICS_AVAILABLE:
+                metrics.gauge('security.scan_success_rate', results["scan_metrics"]["success_rate"])
+                metrics.gauge('security.scan_avg_duration', results["scan_metrics"]["avg_duration_seconds"])
+                metrics.gauge('security.scan_critical_findings', results["scan_metrics"]["findings_count"]["critical"])
+
+            return results
+
+        except Exception as e:
+            log_error(f"Error monitoring scan operations: {e}", exc_info=True)
+            return {
+                "error": f"Failed to collect scan monitoring data: {str(e)}",
+                "timestamp": datetime.utcnow().isoformat(),
+                "timeframe_hours": timeframe_hours
+            }
 
 
 # Example usage within the service file (for testing/dev)

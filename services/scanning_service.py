@@ -829,6 +829,209 @@ class ScanningService:
             if worker.is_alive():
                 logger.warning("Worker %s did not shut down gracefully", worker_name)
 
+    @staticmethod
+    def get_scan_history(
+        filter_criteria: Optional[Dict[str, Any]] = None,
+        page: int = 1,
+        per_page: int = 20,
+        sort_by: str = "created_at",
+        sort_order: str = "desc"
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        Get scan history with filtering, pagination and sorting options.
+
+        Args:
+            filter_criteria: Optional dictionary containing filter criteria:
+                - scan_type: List of scan types to include
+                - status: List of scan statuses to include
+                - target: Filter by specific target
+                - from_date: Start date for filtering
+                - to_date: End date for filtering
+                - has_findings: If True, only include scans with findings
+                - has_critical_or_high: If True, only include scans with critical/high findings
+            page: Page number (starting from 1)
+            per_page: Number of items per page
+            sort_by: Field to sort by (created_at, updated_at, status, findings_count)
+            sort_order: Sort order ("asc" or "desc")
+
+        Returns:
+            Tuple containing (scan_history_list, total_count)
+        """
+        if not MODELS_AVAILABLE:
+            logger.error("Cannot get scan history: Security models not available")
+            return [], 0
+
+        try:
+            filter_criteria = filter_criteria or {}
+
+            # Format and validate date filters if provided
+            for date_field in ['from_date', 'to_date']:
+                if date_field in filter_criteria and isinstance(filter_criteria[date_field], str):
+                    try:
+                        # Convert string date to datetime object
+                        filter_criteria[date_field] = datetime.fromisoformat(
+                            filter_criteria[date_field].replace('Z', '+00:00')
+                        )
+                    except (ValueError, TypeError):
+                        logger.warning("Invalid date format for %s filter, ignoring", date_field)
+                        filter_criteria.pop(date_field)
+
+            # Get paginated scan history from the model
+            scans, total_count = SecurityScan.get_paginated(
+                page=page,
+                per_page=per_page,
+                scan_type=filter_criteria.get('scan_type'),
+                status=filter_criteria.get('status'),
+                target=filter_criteria.get('target'),
+                from_date=filter_criteria.get('from_date'),
+                to_date=filter_criteria.get('to_date'),
+                has_findings=filter_criteria.get('has_findings'),
+                has_critical_or_high=filter_criteria.get('has_critical_or_high'),
+                sort_by=sort_by,
+                sort_order=sort_order
+            )
+
+            # Format scan results for API response
+            scan_history = []
+            for scan in scans:
+                # Extract core information
+                scan_data = {
+                    'id': scan.id,
+                    'scan_type': scan.scan_type,
+                    'status': scan.status,
+                    'profile': scan.profile,
+                    'created_at': scan.created_at.isoformat() if scan.created_at else None,
+                    'started_at': scan.start_time.isoformat() if scan.start_time else None,
+                    'completed_at': scan.end_time.isoformat() if scan.end_time else None,
+                    'target_count': len(scan.targets) if hasattr(scan, 'targets') else 0,
+                    'findings_count': scan.findings_count or 0,
+                    'severity_counts': {
+                        'critical': scan.critical_count or 0,
+                        'high': scan.high_count or 0,
+                        'medium': scan.medium_count or 0,
+                        'low': scan.low_count or 0,
+                        'info': scan.info_count or 0
+                    },
+                }
+
+                # Add additional information for completed scans
+                if scan.status == 'completed' and hasattr(scan, 'findings_summary'):
+                    scan_data['findings_summary'] = scan.findings_summary
+
+                # Add error information for failed scans
+                if scan.status == 'failed' and scan.error_message:
+                    scan_data['error_message'] = scan.error_message
+
+                scan_history.append(scan_data)
+
+            # Log metrics
+            metrics.info('security_scans_history_accessed', count=len(scan_history))
+
+            return scan_history, total_count
+
+        except Exception as e:
+            logger.error("Error retrieving scan history: %s", str(e), exc_info=True)
+            return [], 0
+
+    @staticmethod
+    def get_scan_statistics(
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
+        scan_types: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Get statistics about security scans for reporting and dashboards.
+
+        Args:
+            from_date: Optional start date for statistics period
+            to_date: Optional end date for statistics period
+            scan_types: Optional list of scan types to include in statistics
+
+        Returns:
+            Dictionary containing scan statistics
+        """
+        if not MODELS_AVAILABLE:
+            logger.error("Cannot get scan statistics: Security models not available")
+            return {
+                'error': 'Security models not available',
+                'status': 'error'
+            }
+
+        try:
+            # Default date range to last 30 days if not specified
+            if not to_date:
+                to_date = datetime.now(timezone.utc)
+
+            if not from_date:
+                from_date = to_date - timedelta(days=30)
+
+            # Get scan counts by status
+            status_counts = SecurityScan.count_by_type_and_status(
+                from_date=from_date,
+                to_date=to_date,
+                scan_types=scan_types
+            )
+
+            # Get recently failed scans for reporting
+            recent_failures = SecurityScan.get_recent_failed_scans(limit=5)
+            failed_scan_details = []
+
+            for scan in recent_failures:
+                failed_scan_details.append({
+                    'id': scan.id,
+                    'scan_type': scan.scan_type,
+                    'targets': scan.targets[:3] if hasattr(scan, 'targets') else [],  # Limit to first 3 targets
+                    'failure_time': scan.updated_at.isoformat() if scan.updated_at else None,
+                    'error_message': scan.error_message
+                })
+
+            # Calculate success rate
+            total_scans = sum(sum(type_stats.values()) for type_stats in status_counts.values())
+            failed_scans = sum(type_stats.get('failed', 0) for type_stats in status_counts.values())
+            success_rate = 0
+
+            if total_scans > 0:
+                success_rate = round(((total_scans - failed_scans) / total_scans) * 100, 2)
+
+            # Compile statistics
+            statistics = {
+                'period': {
+                    'from': from_date.isoformat(),
+                    'to': to_date.isoformat()
+                },
+                'total_scans': total_scans,
+                'success_rate': success_rate,
+                'status_counts': status_counts,
+                'recent_failures': failed_scan_details,
+                'scan_metrics': {
+                    'avg_duration_minutes': 0,  # Placeholder - would compute from actual data
+                    'findings_by_severity': {
+                        'critical': 0,
+                        'high': 0,
+                        'medium': 0,
+                        'low': 0,
+                        'info': 0
+                    }
+                }
+            }
+
+            # Log access to statistics
+            logger.info("Scan statistics accessed for period %s to %s",
+                       from_date.strftime('%Y-%m-%d'), to_date.strftime('%Y-%m-%d'))
+
+            return statistics
+
+        except Exception as e:
+            logger.error("Error retrieving scan statistics: %s", str(e), exc_info=True)
+            return {
+                'error': str(e),
+                'status': 'error',
+                'period': {
+                    'from': from_date.isoformat() if from_date else None,
+                    'to': to_date.isoformat() if to_date else None
+                }
+            }
+
 # Initialize scan workers on module import
 def _init_scan_workers():
     """Initialize the scan worker threads."""
