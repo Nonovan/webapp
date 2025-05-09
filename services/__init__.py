@@ -62,14 +62,20 @@ except ImportError as e:
     # Set fallback defaults
     __version__ = '0.2.0'
     __author__ = 'Cloud Infrastructure Platform Team'
+
+    # Notification channels - fallback definitions
     CHANNEL_IN_APP = 'in_app'
     CHANNEL_EMAIL = 'email'
     CHANNEL_SMS = 'sms'
     CHANNEL_WEBHOOK = 'webhook'
+
+    # File integrity constants - fallback definitions
     DEFAULT_HASH_ALGORITHM = 'sha256'
     DEFAULT_BASELINE_FILE_PATH = 'instance/security/baseline.json'
     AUTO_UPDATE_LIMIT = 10
     DEFAULT_BASELINE_BACKUP_COUNT = 5
+
+    # Scanning constants - fallback definitions
     DEFAULT_SCAN_PROFILES = {}
     MAX_CONCURRENT_SCANS = 5
     SCAN_STATUS_PENDING = 'pending'
@@ -78,7 +84,8 @@ except ImportError as e:
     SCAN_STATUS_FAILED = 'failed'
     SCAN_STATUS_CANCELLED = 'cancelled'
     SCAN_STATUS_TIMEOUT = 'timeout'
-    # Notification categories
+
+    # Notification categories - fallback definitions
     NOTIFICATION_CATEGORY_SYSTEM = 'system'
     NOTIFICATION_CATEGORY_SECURITY = 'security'
     NOTIFICATION_CATEGORY_USER = 'user'
@@ -111,24 +118,7 @@ try:
     from .notification import (
         NotificationManager,
         notification_manager,
-        notify_stakeholders,
-        CHANNEL_IN_APP,
-        CHANNEL_EMAIL,
-        CHANNEL_SMS,
-        CHANNEL_WEBHOOK,
-        # Notification categories
-        NOTIFICATION_CATEGORY_SYSTEM,
-        NOTIFICATION_CATEGORY_SECURITY,
-        NOTIFICATION_CATEGORY_USER,
-        NOTIFICATION_CATEGORY_ADMIN,
-        NOTIFICATION_CATEGORY_MAINTENANCE,
-        NOTIFICATION_CATEGORY_MONITORING,
-        NOTIFICATION_CATEGORY_COMPLIANCE,
-        NOTIFICATION_CATEGORY_INTEGRITY,
-        NOTIFICATION_CATEGORY_AUDIT,
-        NOTIFICATION_CATEGORY_SCAN,
-        NOTIFICATION_CATEGORY_VULNERABILITY,
-        NOTIFICATION_CATEGORY_INCIDENT
+        notify_stakeholders
     )
 
     # Import convenience functions if available
@@ -150,6 +140,7 @@ except ImportError as e:
     logger.warning(f"Notification module not available: {e}")
     HAS_INTEGRITY_NOTIFICATIONS = False
     HAS_SCAN_NOTIFICATIONS = False
+    NOTIFICATION_MODULE_AVAILABLE = False
 
 # Try to import original NotificationService (for backward compatibility)
 try:
@@ -159,11 +150,7 @@ try:
         send_security_alert,
         send_success_notification,
         send_warning_notification,
-        send_user_notification,
-        CHANNEL_IN_APP,
-        CHANNEL_EMAIL,
-        CHANNEL_SMS,
-        CHANNEL_WEBHOOK
+        send_user_notification
     )
     NOTIFICATION_SERVICE_AVAILABLE = True
 except ImportError:

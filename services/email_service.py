@@ -12,6 +12,7 @@ import os
 import re
 import smtplib
 import uuid
+import time
 from datetime import datetime, timezone
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
@@ -23,7 +24,7 @@ from urllib.parse import urlparse
 from flask import current_app, render_template, has_request_context, request
 from jinja2 import Template
 
-from core.security import sanitize_url
+from core.security import sanitize_url, log_security_event
 from extensions import db, metrics, cache
 
 logger = logging.getLogger(__name__)
@@ -122,7 +123,10 @@ class EmailService:
                    track_clicks: bool = False,
                    track_opens: bool = False,
                    message_id: Optional[str] = None,
-                   priority: str = "normal") -> bool:
+                   priority: str = "normal",
+                   tracking_id: Optional[str] = None,
+                   category: Optional[str] = None,
+                   respect_preferences: bool = True) -> bool:
         """
         Send an email with the configured settings.
 
@@ -144,6 +148,9 @@ class EmailService:
             track_opens: Whether to track email opens
             message_id: Custom message ID for tracking
             priority: Email priority (low, normal, high)
+            tracking_id: External tracking ID for cross-system correlation
+            category: Email category for filtering and preference management
+            respect_preferences: Whether to respect user communication preferences
 
         Returns:
             Boolean indicating if the email was sent successfully
@@ -153,6 +160,7 @@ class EmailService:
                       required configuration is missing
             EmailValidationException: If email addresses are invalid
         """
+        # Generate message ID if not provided
         message_id = message_id or f"msg_{uuid.uuid4().hex}"
 
         try:
@@ -177,6 +185,14 @@ class EmailService:
 
                 if not recipients:
                     raise EmailValidationException("No valid recipient email addresses provided")
+
+            # Filter recipients based on communication preferences if requested
+            if respect_preferences:
+                recipients = self._filter_by_preferences(recipients, category)
+                if not recipients:
+                    logger.info("No recipients remaining after preference filtering")
+                    metrics.increment('email.skipped_by_preferences')
+                    return True  # Consider this a success since we respected preferences
 
             # Get sender information
             sender_email = from_email or self.from_email or current_app.config.get('MAIL_DEFAULT_SENDER')
@@ -213,7 +229,9 @@ class EmailService:
                 reply_to=reply_to,
                 message_id=message_id,
                 priority=priority,
-                headers=headers
+                headers=headers,
+                tracking_id=tracking_id,
+                category=category
             )
 
             # Add content
@@ -255,7 +273,9 @@ class EmailService:
                 message_id=message_id,
                 to=recipients,
                 subject=subject,
-                categories=categories
+                categories=categories,
+                tracking_id=tracking_id,
+                category=category
             )
 
             # Send email with retry logic
@@ -299,6 +319,10 @@ class EmailService:
         try:
             # Generate message ID
             message_id = kwargs.pop('message_id', None) or f"template_{uuid.uuid4().hex}"
+
+            # Add tracking ID to template data if provided in kwargs
+            if 'tracking_id' in kwargs and 'tracking_id' not in template_data:
+                template_data['tracking_id'] = kwargs['tracking_id']
 
             # Add standard template data
             enriched_data = self._enrich_template_data(template_data)
@@ -358,7 +382,9 @@ class EmailService:
                          text_content: Optional[str] = None,
                          html_content: Optional[str] = None,
                          delay_between_sends: float = 0.1,
-                         batch_id: Optional[str] = None) -> Dict[str, Any]:
+                         batch_id: Optional[str] = None,
+                         respect_preferences: bool = True,
+                         category: Optional[str] = None) -> Dict[str, Any]:
         """
         Send emails to multiple recipients with personalized content.
 
@@ -370,6 +396,8 @@ class EmailService:
             html_content: HTML content template (optional)
             delay_between_sends: Delay between sends in seconds to avoid rate limiting
             batch_id: Unique identifier for this batch of emails
+            respect_preferences: Whether to respect user communication preferences
+            category: Email category for filtering and preference management
 
         Returns:
             Dictionary with counts of successful and failed emails and batch statistics
@@ -408,19 +436,21 @@ class EmailService:
             'total': len(recipients),
             'skipped': 0,
             'duplicates': duplicate_count,
+            'preference_filtered': 0,
             'batch_id': batch_id,
             'start_time': str(datetime.now()),
+            'category': category
         }
 
         # Track unique emails to avoid duplicates in the same batch
         processed_emails = set()
 
         # Log batch start
-        logger.info("Starting bulk email batch %s with %d recipients",
-                   batch_id, len(recipients))
+        logger.info("Starting bulk email batch %s with %d recipients (category: %s)",
+                   batch_id, len(recipients), category or "none")
 
         # Create a database record for the batch if available
-        self._record_email_batch(batch_id, results['total'])
+        self._record_email_batch(batch_id, results['total'], category=category)
 
         for recipient in recipients:
             email = recipient.get('email', '').lower().strip()
@@ -434,6 +464,12 @@ class EmailService:
             if email in processed_emails:
                 results['skipped'] += 1
                 continue
+
+            # Check communication preferences if requested
+            if respect_preferences:
+                if not self._check_recipient_preference(email, category):
+                    results['preference_filtered'] += 1
+                    continue
 
             processed_emails.add(email)
 
@@ -449,7 +485,8 @@ class EmailService:
                         subject=subject,
                         template_name=template_name,
                         template_data=recipient,
-                        message_id=message_id
+                        message_id=message_id,
+                        category=category
                     )
                 else:
                     # Replace placeholders in content using recipient data
@@ -461,7 +498,8 @@ class EmailService:
                         subject=subject,
                         text_content=final_text,
                         html_content=final_html,
-                        message_id=message_id
+                        message_id=message_id,
+                        category=category
                     )
 
                 if success:
@@ -494,8 +532,8 @@ class EmailService:
         results['end_time'] = str(datetime.now())
 
         # Log batch completion
-        logger.info("Completed bulk email batch %s: %d sent, %d failed, %d skipped",
-                   batch_id, results['successful'], results['failed'], results['skipped'])
+        logger.info("Completed bulk email batch %s: %d sent, %d failed, %d skipped (%d preference filtered)",
+                   batch_id, results['successful'], results['failed'], results['skipped'], results['preference_filtered'])
 
         return results
 
@@ -576,7 +614,9 @@ class EmailService:
                       reply_to: Optional[str] = None,
                       message_id: Optional[str] = None,
                       priority: str = "normal",
-                      headers: Optional[Dict[str, str]] = None) -> Tuple[MIMEMultipart, List[str]]:
+                      headers: Optional[Dict[str, str]] = None,
+                      tracking_id: Optional[str] = None,
+                      category: Optional[str] = None) -> Tuple[MIMEMultipart, List[str]]:
         """
         Create an email message with the specified headers.
 
@@ -591,6 +631,8 @@ class EmailService:
             message_id: Custom message ID
             priority: Email priority (low, normal, high)
             headers: Additional email headers
+            tracking_id: External tracking ID for cross-system correlation
+            category: Email category for filtering
 
         Returns:
             Tuple containing:
@@ -614,9 +656,15 @@ class EmailService:
         if priority == "high":
             msg['X-Priority'] = '1'
             msg['X-MSMail-Priority'] = 'High'
+            msg['Importance'] = 'High'  # RFC 1327 header
         elif priority == "low":
             msg['X-Priority'] = '5'
             msg['X-MSMail-Priority'] = 'Low'
+            msg['Importance'] = 'Low'   # RFC 1327 header
+        else:  # normal priority
+            msg['X-Priority'] = '3'
+            msg['X-MSMail-Priority'] = 'Normal'
+            msg['Importance'] = 'Normal'  # RFC 1327 header
 
         # Set headers
         if sender_name:
@@ -643,6 +691,14 @@ class EmailService:
         # Set reply-to if specified
         if reply_to:
             msg['Reply-To'] = reply_to
+
+        # Add tracking ID if provided
+        if tracking_id:
+            msg['X-Tracking-ID'] = tracking_id
+
+        # Add category if provided
+        if category:
+            msg['X-Category'] = category
 
         # Add custom headers if provided
         if headers:
@@ -758,23 +814,33 @@ class EmailService:
             if retries > 0:
                 logger.info("Retry %d/%d for email [%s]",
                           retries, max_retries, message_id or "unknown")
+                metrics.increment('email.retry')
 
             success = self._send_message(msg, sender_email, recipients, message_id)
 
             if success:
+                if retries > 0:
+                    metrics.increment('email.retry_success')
                 return True
 
             retries += 1
 
             if retries <= max_retries:
                 # Exponential backoff: 1s, 2s, 4s, etc.
-                import time
                 backoff = 2 ** (retries - 1)
                 time.sleep(backoff)
 
         # If we get here, all retries failed
         logger.error("All %d send attempts failed for email [%s]",
                    max_retries + 1, message_id or "unknown")
+
+        # Record failure details
+        self._record_delivery_failure(
+            message_id=message_id or "unknown",
+            recipient_count=len(recipients),
+            error="Maximum retry attempts reached"
+        )
+
         return False
 
     def _add_attachment(self, msg: MIMEMultipart, attachment: Dict[str, Any]) -> None:
@@ -1107,7 +1173,9 @@ class EmailService:
         return data
 
     def _log_email_attempt(self, message_id: str, to: List[str],
-                          subject: str, categories: Optional[List[str]] = None) -> None:
+                          subject: str, categories: Optional[List[str]] = None,
+                          tracking_id: Optional[str] = None,
+                          category: Optional[str] = None) -> None:
         """
         Log email sending attempt for audit and metrics.
 
@@ -1116,46 +1184,60 @@ class EmailService:
             to: Recipient list
             subject: Email subject
             categories: Email categories
+            tracking_id: External tracking ID
+            category: Email category
         """
         # Log to application logs
-        logger.info("Sending email [%s] to %d recipients, subject: %s",
-                   message_id, len(to), subject)
+        logger.info("Sending email [%s] to %d recipients, subject: %s, category: %s",
+                   message_id, len(to), subject, category or "none")
 
         # Track metrics
         metrics.increment('email.send_attempt')
 
         # Track by category if provided
+        if category:
+            metrics.increment(f'email.category.{category}')
+
         if categories:
-            for category in categories[:5]:  # Limit to 5 categories
-                metrics.increment(f'email.category.{category}')
+            for cat in categories[:5]:  # Limit to 5 categories
+                metrics.increment(f'email.category.{cat}')
 
         # If we're in a request context, record user info for audit
         if has_request_context():
             try:
                 # Record who sent the email for audit purposes
-                from core.security import log_security_event
+                details = {
+                    'message_id': message_id,
+                    'recipient_count': len(to),
+                    'subject': subject
+                }
+
+                if categories:
+                    details['categories'] = categories
+
+                if tracking_id:
+                    details['tracking_id'] = tracking_id
+
+                if category:
+                    details['category'] = category
 
                 log_security_event(
                     event_type="email_sent",
                     description=f"Email sent to {len(to)} recipients",
                     severity="info",
-                    details={
-                        'message_id': message_id,
-                        'recipient_count': len(to),
-                        'subject': subject,
-                        'categories': categories
-                    }
+                    details=details
                 )
             except Exception as e:
                 logger.warning("Failed to log email security event: %s", str(e))
 
-    def _record_email_batch(self, batch_id: str, total: int) -> bool:
+    def _record_email_batch(self, batch_id: str, total: int, category: Optional[str] = None) -> bool:
         """
         Record email batch in the database if available.
 
         Args:
             batch_id: Batch identifier
             total: Total number of emails in batch
+            category: Email category
 
         Returns:
             Boolean indicating if recording was successful
@@ -1171,7 +1253,8 @@ class EmailService:
                     total_count=total,
                     sent_count=0,
                     failed_count=0,
-                    status='started'
+                    status='started',
+                    category=category
                 )
 
                 db.session.add(batch)
@@ -1227,6 +1310,138 @@ class EmailService:
         except Exception as e:
             logger.warning("Failed to update email batch: %s", str(e))
             return False
+
+    def _filter_by_preferences(self, recipients: List[str], category: Optional[str] = None) -> List[str]:
+        """
+        Filter recipients based on their communication preferences.
+
+        Args:
+            recipients: List of recipient email addresses
+            category: Email category for preference matching
+
+        Returns:
+            Filtered list of recipient email addresses
+        """
+        # If no integration with preference models, return all recipients
+        try:
+            from models.communication.user_preference import CommunicationPreference
+            from models import User
+        except ImportError:
+            return recipients
+
+        filtered_recipients = []
+
+        # Group users by their preferences to minimize database queries
+        users = User.query.filter(User.email.in_(recipients)).all()
+
+        if not users:
+            return recipients  # No users found, return original list
+
+        user_emails = {user.email.lower(): user for user in users if user.email}
+
+        for email in recipients:
+            user = user_emails.get(email.lower())
+            if not user:
+                # Email doesn't match a user, include it anyway
+                filtered_recipients.append(email)
+                continue
+
+            # Check communication preferences
+            include_email = True
+
+            try:
+                pref = CommunicationPreference.get_for_user(user.id)
+                if pref:
+                    # Apply preference rules based on category
+                    if category == 'newsletter' and not pref.newsletter_enabled:
+                        include_email = False
+                    elif category == 'marketing' and not pref.marketing_enabled:
+                        include_email = False
+                    elif category == 'announcement' and not pref.announcement_enabled:
+                        include_email = False
+            except Exception as e:
+                logger.warning(f"Error checking communication preferences for user {user.id}: {e}")
+
+            if include_email:
+                filtered_recipients.append(email)
+
+        # Log how many recipients were filtered out
+        filtered_count = len(recipients) - len(filtered_recipients)
+        if filtered_count > 0:
+            logger.info(f"Filtered out {filtered_count} recipients based on communication preferences")
+            metrics.increment('email.preference_filtered', filtered_count)
+
+        return filtered_recipients
+
+    def _check_recipient_preference(self, email: str, category: Optional[str] = None) -> bool:
+        """
+        Check if a single recipient has opted in to receive emails of the specified category.
+
+        Args:
+            email: Recipient email address
+            category: Email category for preference matching
+
+        Returns:
+            Boolean indicating if recipient has opted in
+        """
+        # If no integration with preference models, assume opt-in
+        try:
+            from models.communication.user_preference import CommunicationPreference
+            from models import User
+        except ImportError:
+            return True
+
+        # Find user by email
+        user = User.query.filter(User.email.ilike(email)).first()
+        if not user:
+            return True  # No user found, assume opt-in
+
+        try:
+            # Check communication preferences
+            pref = CommunicationPreference.get_for_user(user.id)
+            if pref:
+                # Apply preference rules based on category
+                if category == 'newsletter' and not pref.newsletter_enabled:
+                    return False
+                elif category == 'marketing' and not pref.marketing_enabled:
+                    return False
+                elif category == 'announcement' and not pref.announcement_enabled:
+                    return False
+        except Exception as e:
+            logger.warning(f"Error checking communication preference for {email}: {e}")
+
+        return True
+
+    def _record_delivery_failure(self, message_id: str, recipient_count: int, error: str) -> None:
+        """
+        Record details about an email delivery failure.
+
+        Args:
+            message_id: Email message ID
+            recipient_count: Number of intended recipients
+            error: Error message
+        """
+        try:
+            # Check if we have access to the delivery failure model
+            try:
+                from models.communication.email import EmailDeliveryFailure
+
+                failure = EmailDeliveryFailure(
+                    message_id=message_id,
+                    recipient_count=recipient_count,
+                    error_message=error,
+                    occurred_at=datetime.now(timezone.utc)
+                )
+
+                db.session.add(failure)
+                db.session.commit()
+
+            except ImportError:
+                # Model not available, just log the failure
+                logger.error(f"Email delivery failure for ID {message_id}: {error}")
+
+        except Exception as e:
+            logger.warning(f"Failed to record email delivery failure: {e}")
 
 
 def send_email(to: Union[str, List[str]],
@@ -1380,7 +1595,7 @@ def test_email_configuration() -> Dict[str, Any]:
 
         # Check required configuration
         required_configs = ['SMTP_SERVER', 'SMTP_PORT', 'MAIL_DEFAULT_SENDER']
-        missing_configs = [config for config in required_configs if not config.get(config)]
+        missing_configs = [key for key in required_configs if not config.get(key)]
 
         if missing_configs:
             return {
@@ -1410,3 +1625,51 @@ def test_email_configuration() -> Dict[str, Any]:
             'status': 'error',
             'message': str(e)
         }
+
+
+def get_email_stats(period: str = 'last_24h') -> Dict[str, Any]:
+    """
+    Get email sending statistics for the specified period.
+
+    Args:
+        period: Time period for statistics ('today', 'last_24h', 'last_7d', 'last_30d')
+
+    Returns:
+        Dictionary with email statistics
+    """
+    try:
+        # This is a placeholder for implementing email stats collection
+        # In a real implementation, we'd query the database for metrics
+
+        # For now, return mock data
+        return {
+            'period': period,
+            'sent_count': 0,
+            'failed_count': 0,
+            'delivery_rate': 0,
+            'open_rate': 0,
+            'click_rate': 0,
+            'categories': {},
+            'status': 'success'
+        }
+    except Exception as e:
+        logger.error(f"Failed to retrieve email stats: {str(e)}")
+        return {
+            'period': period,
+            'error': str(e),
+            'status': 'error'
+        }
+
+
+# Add to exports
+__all__ = [
+    'EmailService',
+    'EmailDeliveryException',
+    'EmailRenderException',
+    'EmailValidationException',
+    'send_email',
+    'send_template_email',
+    'validate_email_address',
+    'test_email_configuration',
+    'get_email_stats'
+]
