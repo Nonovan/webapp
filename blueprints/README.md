@@ -4,18 +4,26 @@ This directory contains Flask blueprint modules that organize the Cloud Infrastr
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- Usage
-- Security Features
-- Testing
-- Common Patterns
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Usage](#usage)
+- [Security Features](#security-features)
+- [Blueprint Integrity](#blueprint-integrity)
+- [Common Patterns](#common-patterns)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
 The blueprints package organizes the application's routes and views into modular components using Flask's Blueprint functionality. Each blueprint encapsulates a specific feature area with its own routes, templates, static files, and error handlers. This modular structure improves maintainability through separation of concerns and enables independent testing of components.
+
+The centralized blueprint management system in this package performs:
+
+- Automatic blueprint registration with proper URL prefixes
+- Blueprint integrity verification to detect unauthorized code changes
+- Dependency tracking between blueprint modules
+- Comprehensive error handling for registration failures
+- Configuration verification to ensure proper implementation
 
 ## Key Components
 
@@ -25,6 +33,8 @@ The blueprints package organizes the application's routes and views into modular
   - Blueprint dictionary creation
   - Module initialization and exports
   - Blueprint organization utilities
+  - File integrity monitoring integration
+  - Dependency analysis capabilities
 
 - **`auth/`**: Authentication and authorization blueprint
   - User authentication flows
@@ -49,6 +59,14 @@ The blueprints package organizes the application's routes and views into modular
   - Metrics collection and reporting
   - Security monitoring features
   - System status endpoints
+
+- **`admin/`**: Administrative interface blueprint
+  - System configuration interface
+  - User management functionality
+  - Role and permission management
+  - Compliance reporting features
+  - System status dashboard
+  - Batch operations interface
 
 ## Directory Structure
 
@@ -76,7 +94,6 @@ blueprints/
 │   ├── errors.py           # Error handling implementation
 │   ├── routes.py           # Main route definitions
 │   ├── static/             # Blueprint-specific static files
-│   │   ├── README.md       # Static files documentation
 │   │   ├── css/            # Blueprint-specific stylesheets
 │   │   ├── images/         # Blueprint-specific images
 │   │   └── js/             # Blueprint-specific scripts
@@ -88,8 +105,7 @@ blueprints/
 │           ├── cloud.html  # Cloud dashboard template
 │           ├── home.html   # Homepage template
 │           ├── ics.html    # ICS application template
-│           ├── login.html  # Login page template
-│           └── register.html  # Registration page template
+│           └── profile.html # User profile template
 └── monitoring/             # Monitoring blueprint
     ├── README.md           # Monitoring documentation
     ├── __init__.py         # Monitoring blueprint initialization
@@ -156,18 +172,77 @@ def example():
     return render_template('example/example.html')
 ```
 
+### Blueprint Initialization Hook
+
+To initialize a blueprint with application context:
+
+```python
+@blueprint_name.record_once
+def on_blueprint_init(state):
+    """Initialize blueprint with application context."""
+    app = state.app
+
+    # Configure blueprint with application settings
+    blueprint_name.config = app.config.get('BLUEPRINT_CONFIG', {})
+
+    # Initialize any blueprint-specific extensions
+    if hasattr(blueprint_name, 'init_app'):
+        blueprint_name.init_app(app)
+```
+
+### Dependency Analysis
+
+To analyze blueprint dependencies:
+
+```python
+from blueprints import get_blueprint_dependency_graph
+
+def check_dependencies():
+    # Get dependency graph showing which blueprints depend on others
+    dependencies = get_blueprint_dependency_graph()
+
+    # Check for circular dependencies
+    for blueprint, deps in dependencies.items():
+        for dep in deps:
+            if blueprint in dependencies.get(dep, []):
+                print(f"Warning: Circular dependency between {blueprint} and {dep}")
+```
+
 ## Security Features
 
 - **Access Control**: Role-based access control for sensitive routes
 - **Authentication**: Token-based and session-based authentication
 - **CSRF Protection**: Cross-site request forgery protection for all forms
 - **Error Handling**: Consistent, security-focused error responses
+- **File Integrity**: Automatic file integrity monitoring for blueprint code
 - **Input Validation**: Thorough validation of all user inputs
 - **Output Sanitization**: Proper escaping of rendered content
 - **Rate Limiting**: Route-specific rate limiting to prevent abuse
 - **Session Management**: Secure session handling with timeout and renewal
 - **Secure Headers**: Security headers for XSS, clickjacking protection
 - **Subresource Integrity**: SRI hashes for external resources
+
+## Blueprint Integrity
+
+The blueprint system integrates with the platform's file integrity monitoring to:
+
+1. **Verify Code Integrity**: Detects unauthorized changes to blueprint code
+2. **Update Baselines**: Automatically updates integrity baselines during development
+3. **Security Alerting**: Logs security events when integrity violations are detected
+4. **Dependency Tracking**: Monitors blueprint dependencies for security implications
+5. **Configuration Verification**: Validates blueprint configuration against standards
+
+The integrity verification process runs:
+
+- During application startup
+- After blueprint registration
+- When specifically requested by diagnostic tools
+
+Configuration options for integrity monitoring:
+
+- `VERIFY_BLUEPRINT_INTEGRITY`: Enable/disable integrity verification
+- `AUTO_UPDATE_BLUEPRINT_BASELINE`: Auto-update baselines in development
+- `FILE_BASELINE_PATH`: Path to integrity baseline file
 
 ## Testing
 
@@ -221,13 +296,70 @@ def not_found_error(error):
     return render_template('errors/404.html'), 404
 ```
 
+### Blueprint-Specific Configuration
+
+```python
+from flask import Blueprint, current_app
+
+bp = Blueprint('example', __name__)
+
+@bp.before_app_first_request
+def setup_blueprint_config():
+    """Set up blueprint-specific configuration."""
+    config = current_app.config.get('EXAMPLE_BLUEPRINT', {})
+    bp.config = config
+
+    # Initialize features based on config
+    if config.get('FEATURE_ENABLED'):
+        # Set up feature
+        pass
+```
+
+### Request Preprocessing
+
+```python
+from flask import Blueprint, g, request
+import uuid
+
+bp = Blueprint('example', __name__)
+
+@bp.before_request
+def before_request():
+    """Preprocess requests to this blueprint."""
+    # Generate request ID for traceability
+    g.request_id = request.headers.get('X-Request-ID', str(uuid.uuid4()))
+    g.start_time = datetime.utcnow()
+
+    # Add security context
+    g.security_context = {
+        'ip_address': request.remote_addr,
+        'user_agent': request.user_agent.string
+    }
+```
+
+### Blueprint-Specific Static Files
+
+```python
+from flask import Blueprint, url_for
+
+# Create blueprint with static folder
+bp = Blueprint('example', __name__, static_folder='static')
+
+@bp.route('/with-custom-static')
+def with_custom_static():
+    # Access blueprint-specific static files
+    css_url = url_for('example.static', filename='css/style.css')
+    js_url = url_for('example.static', filename='js/script.js')
+    return render_template('example.html', css_url=css_url, js_url=js_url)
+```
+
 ## Related Documentation
 
 - Blueprint Architecture
 - Authentication Blueprint
-- Error Handling Guide
 - Main Blueprint
 - Monitoring Blueprint
+- Error Handling Guide
 - Blueprint Development Guide
 - Template Organization
 - Static File Management

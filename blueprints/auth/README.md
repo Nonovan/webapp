@@ -4,18 +4,27 @@ This blueprint provides authentication functionality for the Cloud Infrastructur
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- Routes
-- Configuration
-- Security Features
-- Usage Examples
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Routes](#routes)
+- [Configuration](#configuration)
+- [Security Features](#security-features)
+- [Usage Examples](#usage-examples)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
 The Authentication Blueprint implements comprehensive user authentication functionality including login, registration, password management, multi-factor authentication, and session control. The blueprint follows security best practices with proper input validation, rate limiting, suspicious activity detection, and comprehensive audit logging. All security-critical operations are protected against common threats including brute force attacks, session hijacking, and credential stuffing.
+
+The blueprint handles several key responsibilities:
+
+1. **User Authentication**: Secure login flows with multi-factor authentication support
+2. **Session Security**: Protected session management with proper timeout enforcement
+3. **Access Control**: Role-based access control for authorization
+4. **Security Monitoring**: Detection of suspicious activity and proper audit logging
+5. **Account Management**: Registration, password reset, and account recovery
+6. **Security Enforcement**: CSRF protection, input validation, and rate limiting
 
 ## Key Components
 
@@ -99,6 +108,10 @@ blueprints/auth/
 | `/auth/confirm-password` | GET, POST | Password re-verification | Authentication required |
 | `/auth/mfa-disable` | POST | MFA deactivation | Admin role required |
 | `/auth/access-denied` | GET | Forbidden access response | None |
+| `/auth/oauth/<provider>` | GET | OAuth login initiation | None |
+| `/auth/oauth-callback/<provider>` | GET | OAuth authentication callback | None |
+| `/auth/token` | POST | API token generation | Authentication required |
+| `/auth/verify-email/<token>` | GET | Email verification | Token validation |
 
 ## Configuration
 
@@ -168,9 +181,34 @@ ALLOWED_REDIRECT_DOMAINS = ["trusted-domain.com"]  # For social auth callbacks
 - **Suspicious Activity Detection**: Monitoring of unusual login patterns
 - **Two-Factor Authentication**: TOTP-based multi-factor authentication
 
+### Authentication Flow
+
+The blueprint implements a flexible authentication workflow with security features at each step:
+
+1. **Primary Authentication**:
+   - Username/password validation
+   - Brute force protection with rate limiting
+   - Account lockout after failed attempts
+   - Suspicious login detection
+
+2. **Secondary Authentication** (when MFA is enabled):
+   - TOTP verification with time-based codes
+   - Backup code recovery option
+   - Device trust options with secure tokens
+
+3. **Session Management**:
+   - Server-side session with secure cookies
+   - Session timeout for inactivity
+   - Geographic anomaly detection
+
+4. **Access Control**:
+   - Role-based access control
+   - Permission verification
+   - Privilege escalation protection
+
 ## Usage Examples
 
-### Authentication Flow
+### Primary Authentication
 
 ```python
 from flask import redirect, url_for, flash

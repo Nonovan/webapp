@@ -4,18 +4,27 @@ This blueprint provides the primary user interface and core application function
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- Routes
-- Templates
-- Security Features
-- Common Patterns
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Routes](#routes)
+- [Templates](#templates)
+- [Security Features](#security-features)
+- [Common Patterns](#common-patterns)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
 The Main blueprint serves as the central module for end-user interaction with the platform. It delivers the home page, about page, cloud services dashboard, ICS application interface, and user profile pages. The blueprint implements comprehensive security controls, performance monitoring, responsive design, and accessibility features throughout all user interfaces. It follows an MVC pattern with routes handling business logic and templates providing the presentation layer.
+
+The blueprint has several key responsibilities:
+
+1. **User Interface**: Providing responsive, accessible web pages for the platform's core functionality
+2. **Security Enforcement**: Implementing robust security measures to protect against common web vulnerabilities
+3. **Performance Optimization**: Monitoring and optimizing request/response handling for better user experience
+4. **File Integrity Monitoring**: Real-time verification of system integrity to detect potential compromises
+5. **Metric Collection**: Gathering and exposing performance and security metrics for monitoring
+6. **Content Delivery**: Providing optimized content with proper HTTP headers for caching and security
 
 ## Key Components
 
@@ -25,6 +34,8 @@ The Main blueprint serves as the central module for end-user interaction with th
   - Response header security enhancements
   - Request lifecycle hooks
   - Centralized error handling setup
+  - File integrity monitoring implementation
+  - Security context establishment
 
 - **`errors.py`**: Error handling functionality
   - Custom error pages for common HTTP status codes
@@ -40,6 +51,7 @@ The Main blueprint serves as the central module for end-user interaction with th
   - Profile management functionality
   - Administrative interface routing
   - Content pages (about, contact, etc.)
+  - Security status reporting
 
 - **`templates/`**: User interface templates
   - Base template with common layout elements
@@ -47,6 +59,14 @@ The Main blueprint serves as the central module for end-user interaction with th
   - Secure form implementations
   - Real-time dashboard interfaces
   - User profile and settings interfaces
+  - Security visualization components
+
+- **`static/`**: Blueprint-specific static assets
+  - Custom CSS styles
+  - JavaScript functionality
+  - Image assets
+  - Font files
+  - Security-related icons and graphics
 
 ## Directory Structure
 
@@ -69,7 +89,11 @@ blueprints/main/
         ├── home.html        # Platform landing page
         ├── ics.html         # Industrial control systems interface
         ├── login.html       # User authentication interface
-        └── register.html    # Account registration interface
+        ├── privacy.html     # Privacy policy page
+        ├── profile.html     # User profile management
+        ├── register.html    # Account registration interface
+        ├── security.html    # Security practices information
+        └── terms.html       # Terms of service page
 ```
 
 ## Routes
@@ -79,9 +103,10 @@ blueprints/main/
 | `/` | `home()` | Landing page | Rate limited: 60/minute, Cached: 5 minutes |
 | `/about` | `about()` | Company information | Rate limited: 30/minute, Cached: 1 hour |
 | admin | `admin()` | Administrative panel | Authentication required, Admin role required |
-| `/cloud` | `cloud()` | Cloud services dashboard | Authentication required, Admin role required |
+| `/cloud` | `cloud()` | Cloud services dashboard | Authentication required, Standard role required |
 | `/contact` | `contact()` | Contact form | Rate limited: 10/minute |
 | `/dashboard` | `dashboard()` | User dashboard | Authentication required |
+| `/file-integrity-status` | `file_integrity_status()` | File integrity monitor | Admin role required, Rate limited: 10/minute |
 | `/ics` | `ics()` | ICS application interface | Authentication required, Operator role required |
 | `/ics/environmental` | `environmental_data()` | Environmental monitoring | Authentication required, Operator role required |
 | `/privacy` | `privacy()` | Privacy policy | Rate limited: 30/minute, Cached: 24 hours |
@@ -89,11 +114,17 @@ blueprints/main/
 | `/security` | `security()` | Security information | Rate limited: 30/minute, Cached: 12 hours |
 | `/terms` | `terms()` | Terms of service | Rate limited: 30/minute, Cached: 24 hours |
 
+**Debug Route** (development environment only):
+
+| Route | Function | Purpose | Security |
+|-------|----------|---------|----------|
+| `/debug-info` | `debug_info()` | Debug information | Development environment only |
+
 ## Templates
 
 The templates implement responsive design using Bootstrap 5, proper accessibility attributes, security best practices, and consistent branding:
 
-- **`base.html`**: Core template with layout structure, navigation, and security features
+- **base.html**: Core template with layout structure, navigation, and security features
   - Common header and footer sections
   - Navigation menu with role-based visibility
   - Security headers and meta tags
@@ -101,21 +132,23 @@ The templates implement responsive design using Bootstrap 5, proper accessibilit
   - Theme switching functionality
   - Toast notification system
   - Session management with timeout alerts
+  - File integrity status indicators
+  - Real-time security alerts
 
 - **Content Pages**:
-  - `about.html`: Company information with contact form
-  - `home.html`: Landing page with feature highlights and security status
+  - about.html: Company information with contact form
+  - home.html: Landing page with feature highlights and security status
   - `privacy.html`: Privacy policy details
   - `terms.html`: Terms of service information
   - `security.html`: Security practices information
 
 - **Application Interfaces**:
-  - `cloud.html`: Real-time cloud infrastructure dashboard
+  - cloud.html: Real-time cloud infrastructure dashboard
   - `dashboard.html`: User-specific dashboard
   - `ics.html`: Industrial control systems interface
   - `profile.html`: User profile management
 
-- **Authentication Screens**:
+- **Authentication Screens** (redirects to auth blueprint):
   - `login.html`: User authentication interface
   - `register.html`: Account registration form
 
@@ -125,12 +158,33 @@ The templates implement responsive design using Bootstrap 5, proper accessibilit
 - **Authentication Controls**: Role-based access control for all routes
 - **Content Security Policy**: CSP headers with nonces for inline scripts
 - **CSRF Protection**: Token validation for all forms and AJAX requests
+- **File Integrity Monitoring**: Continuous monitoring for unauthorized file modifications
 - **Input Validation**: Client and server-side validation for user input
+- **Pattern Matching**: Detection of suspicious request patterns
 - **Rate Limiting**: Configurable request rate limits per endpoint
+- **Response Compression**: Automatic response compression for bandwidth optimization
 - **Response Headers**: Security headers (X-Frame-Options, CSP, etc.)
 - **Secure Cookies**: HTTPOnly, Secure, and SameSite cookie attributes
 - **Session Management**: Session timeout monitoring and secure refresh
+- **Subresource Integrity**: SRI validation for external resources
+- **Suspicious Pattern Detection**: Automated detection of potential attack patterns
 - **XSS Prevention**: HTML escaping and output sanitization
+
+### File Integrity Monitoring
+
+The blueprint integrates with the platform's file integrity monitoring system to:
+
+1. Provide admin-accessible status endpoints for monitoring
+2. Automatically verify file integrity after system errors
+3. Show integrity status indicators in the UI
+4. Generate alerts for integrity violations
+5. Track integrity metrics for security monitoring
+
+Integrity checking is performed:
+
+- After server errors (5xx status codes) to detect potential attacks
+- Through the `/file-integrity-status` endpoint (admin access only)
+- On application startup (through separate configuration)
 
 ## Common Patterns
 
@@ -198,6 +252,42 @@ async function performAction() {
 }
 ```
 
+### Role-Based Authorization
+
+Routes use the role-based authorization pattern:
+
+```python
+from core.security.cs_authorization import require_role
+
+@main_bp.route('/admin')
+@login_required
+@require_role('admin')
+def admin():
+    """Admin dashboard requiring admin role."""
+    return render_template('main/admin.html')
+```
+
+### Security Event Logging
+
+Security-relevant events are logged consistently:
+
+```python
+from core.security import log_security_event
+
+# Log the security event
+log_security_event(
+    event_type='file_integrity_violation',
+    description=f"File integrity violation detected: {file_path}",
+    severity='critical',
+    details={
+        'file': file_path,
+        'expected_hash': expected_hash,
+        'actual_hash': actual_hash,
+        'module': module_name
+    }
+)
+```
+
 ## Related Documentation
 
 - Authentication Blueprint
@@ -205,6 +295,7 @@ async function performAction() {
 - Content Security Policy
 - CSRF Protection
 - Error Handling
+- File Integrity Monitoring
 - Form Validation Guide
 - Rate Limiting
 - Response Headers
