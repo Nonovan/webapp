@@ -10,6 +10,7 @@ This blueprint provides the administrative interface for the Cloud Infrastructur
 - [Routes](#routes)
 - [Security Features](#security-features)
 - [Usage Examples](#usage-examples)
+- [File Integrity Management](#file-integrity-management)
 - [Related Documentation](#related-documentation)
 
 ## Overview
@@ -59,6 +60,14 @@ The blueprint handles several key responsibilities:
   - Security constraint enforcement
   - Compliance requirement checking
 
+- **`utils.py`**: Administrative utilities
+  - File integrity baseline management
+  - Configuration validation functions
+  - Administrative audit logging
+  - Secure file operations
+  - Permission verification
+  - Backup and recovery utilities
+
 - **`templates/`**: Administrative interface templates
   - Dashboard and monitoring interfaces
   - User and permission management screens
@@ -107,7 +116,7 @@ blueprints/admin/
 
 | Route | Function | Purpose | Security |
 |-------|----------|---------|----------|
-| `/admin/` | `dashboard()` | Admin dashboard | Admin role required, MFA required |
+| admin | `dashboard()` | Admin dashboard | Admin role required, MFA required |
 | `/admin/users` | `user_list()` | User management | Admin role required, MFA required |
 | `/admin/users/create` | `user_create()` | Create new users | Admin role required, MFA required |
 | `/admin/users/<id>` | `user_edit()` | Edit existing users | Admin role required, MFA required |
@@ -116,6 +125,9 @@ blueprints/admin/
 | `/admin/settings` | `system_settings()` | System configuration | Admin role required, MFA required |
 | `/admin/audit-logs` | `audit_logs()` | View security audit logs | Admin role required, MFA required |
 | `/admin/security/integrity` | `file_integrity()` | File integrity monitoring | Admin role required, MFA required |
+| `/admin/security/integrity/update` | `update_integrity_baseline()` | Update integrity baseline | Admin role required, MFA required |
+| `/admin/security/integrity/verify` | `verify_integrity()` | Verify file integrity | Admin role required, MFA required |
+| `/admin/security/integrity/restore` | `restore_integrity_baseline()` | Restore baseline from backup | Admin role required, MFA required |
 | `/admin/security/incidents` | `security_incidents()` | Security incident management | Admin role required, MFA required |
 | `/admin/reports/compliance` | `compliance_reports()` | Generate compliance reports | Admin role required, MFA required |
 | `/admin/reports/security` | `security_reports()` | Generate security reports | Admin role required, MFA required |
@@ -278,11 +290,28 @@ def update_settings():
     return render_template('admin/system/settings.html', form=form)
 ```
 
-### File Integrity Baseline Update
+## File Integrity Management
+
+The admin blueprint provides comprehensive file integrity monitoring capabilities to detect unauthorized file changes and ensure system integrity. This functionality has multiple implementation layers for enhanced reliability.
+
+### File Integrity Features
+
+- **Baseline Management**: Create, update, and restore integrity baselines
+- **Real-time Verification**: Verify file integrity against stored baselines
+- **Path-based Filtering**: Include/exclude specific file patterns
+- **Automatic Backups**: Create automatic backups before baseline updates
+- **Backup Rotation**: Maintain a configurable number of historical baselines
+- **Detailed Reporting**: Comprehensive reports for integrity violations
+- **Fallback Mechanisms**: Multiple implementation layers with graceful degradation
+- **Comprehensive Logging**: Detailed audit logs for all baseline operations
+- **Security Classification**: Severity classification for different file types
+- **Integrity Metrics**: Metrics tracking for baseline operations
+
+### Implementing File Integrity Baseline Updates
 
 ```python
 from flask import redirect, url_for, flash
-from services.file_integrity import update_file_integrity_baseline
+from blueprints.admin.utils import update_file_integrity_baseline
 from services.audit_service import audit_action
 
 @admin_bp.route('/security/integrity/update', methods=['POST'])
@@ -326,6 +355,102 @@ def update_integrity_baseline():
 
     return render_template('admin/security/file_integrity.html', form=form)
 ```
+
+### Verifying File Integrity
+
+```python
+from flask import jsonify, request
+from blueprints.admin.utils import verify_file_integrity
+
+@admin_bp.route('/security/integrity/verify', methods=['POST'])
+@login_required
+@require_role('admin')
+@require_mfa
+@audit_log_action('file_integrity_verify')
+def verify_integrity():
+    """Verify file integrity against baseline."""
+    data = request.json or {}
+    paths = data.get('paths', [])
+    include_patterns = data.get('include_patterns', [])
+    exclude_patterns = data.get('exclude_patterns', [])
+
+    # Verify integrity
+    result = verify_file_integrity(
+        paths=paths,
+        include_patterns=include_patterns,
+        exclude_patterns=exclude_patterns
+    )
+
+    # Log result for auditing
+    if not result['success'] or result.get('violations_count', 0) > 0:
+        log_security_event(
+            event_type='file_integrity_violation',
+            description=f"File integrity verification found {result.get('violations_count', 0)} violations",
+            severity='warning',
+            details={
+                'violations_count': result.get('violations_count', 0),
+                'paths_checked': paths,
+                'execution_time': result.get('execution_time', 0)
+            }
+        )
+
+    return jsonify(result)
+```
+
+### Restoring Baseline from Backup
+
+```python
+from flask import redirect, url_for, flash, request
+from blueprints.admin.utils import restore_baseline_from_backup
+
+@admin_bp.route('/security/integrity/restore', methods=['POST'])
+@login_required
+@require_role('admin')
+@require_mfa
+@audit_log_action('file_integrity_baseline_restore')
+def restore_integrity_baseline():
+    """Restore file integrity baseline from a backup."""
+    backup_id = request.form.get('backup_id')
+
+    if not backup_id:
+        flash("No backup ID provided", 'danger')
+        return redirect(url_for('admin.file_integrity'))
+
+    result = restore_baseline_from_backup(backup_id)
+
+    if result['success']:
+        flash(f"Baseline restored successfully from backup: {backup_id}", 'success')
+    else:
+        flash(f"Failed to restore baseline: {result.get('message')}", 'danger')
+
+    return redirect(url_for('admin.file_integrity'))
+```
+
+### Checking Baseline Status
+
+```python
+from flask import jsonify
+from blueprints.admin.utils import check_baseline_status
+
+@admin_bp.route('/security/integrity/status', methods=['GET'])
+@login_required
+@require_role('admin')
+def get_baseline_status():
+    """Get the status of the file integrity baseline."""
+    status = check_baseline_status()
+    return jsonify(status)
+```
+
+### File Integrity Administration Interface
+
+The file integrity management interface provides:
+
+1. **Status Dashboard**: Current baseline status and statistics
+2. **Baseline Management**: Update, verify, and restore baselines
+3. **File Selection**: Path and pattern-based file selection
+4. **Violation Reports**: Detailed reports of integrity violations
+5. **Backup Management**: View and restore from previous baselines
+6. **Activity Logging**: Comprehensive audit trail of all operations
 
 ## Related Documentation
 
