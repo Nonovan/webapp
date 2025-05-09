@@ -1153,3 +1153,210 @@ if SECURITY_INTEGRATION_AVAILABLE:
                 )
                 raise
         return wrapper
+
+
+def audit_action(
+    action: str,
+    description: str,
+    user_id: Optional[int] = None,
+    target_user_id: Optional[int] = None,
+    details: Optional[Dict[str, Any]] = None,
+    severity: str = "info"
+) -> bool:
+    """
+    Log an administrative action to the audit trail.
+
+    This function serves as a convenience wrapper around AuditService.log_event,
+    specifically designed for administrative actions.
+
+    Args:
+        action: The action type/name to log (e.g., 'user_created', 'config_updated')
+        description: Human-readable description of the action
+        user_id: ID of the user performing the action
+        target_user_id: ID of the user affected by the action (if applicable)
+        details: A dictionary containing additional context about the action
+        severity: The severity level of the action ('info', 'warning', 'error', 'critical')
+
+    Returns:
+        bool: True if the action was logged successfully, False otherwise
+    """
+    # Ensure details is a dictionary
+    if details is None:
+        details = {}
+
+    # Add target_user_id to details if provided
+    if target_user_id is not None:
+        details['target_user_id'] = target_user_id
+
+    # Determine target_resource and target_id based on action
+    target_resource = None
+    target_id = None
+
+    # Extract resource type from action if possible
+    if '_' in action:
+        parts = action.split('_', 1)
+        if len(parts) > 1:
+            resource_type = parts[0]
+            if resource_type in ['user', 'role', 'permission', 'config', 'file']:
+                target_resource = resource_type
+                # If target_user_id is provided and resource is user, use it as target_id
+                if target_resource == 'user' and target_user_id is not None:
+                    target_id = str(target_user_id)
+
+    # Log the event using AuditService
+    return AuditService.log_event(
+        user_id=user_id,
+        action=f"admin.{action}",
+        target_resource=target_resource,
+        target_id=target_id,
+        status="success",
+        details=details,
+        severity=severity
+    )
+
+def export_audit_data(
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+    event_types: Optional[List[str]] = None,
+    user_id: Optional[int] = None,
+    severity: Optional[str] = None,
+    format_type: str = 'csv',
+    max_records: int = 10000
+) -> Tuple[bool, str, Optional[str]]:
+    """
+    Export audit log data to a specified format.
+
+    Args:
+        start_time: Start date/time for filtering logs
+        end_time: End date/time for filtering logs
+        event_types: List of event types to include
+        user_id: Filter by specific user ID
+        severity: Filter by severity level
+        format_type: Export format ('csv', 'json')
+        max_records: Maximum number of records to export
+
+    Returns:
+        Tuple containing:
+        - Success flag (bool)
+        - Message describing the result
+        - Path to the generated file (if successful)
+    """
+    import os
+    import csv
+    import json
+    import tempfile
+    from datetime import datetime, timezone
+
+    try:
+        # Build query based on filters
+        query = None
+
+        if hasattr(AuditService, 'get_logs'):
+            # If get_logs method exists, use it
+            logs, total_count = AuditService.get_logs(
+                limit=max_records,
+                user_id=user_id,
+                action=event_types[0] if event_types and len(event_types) == 1 else None,
+                start_time=start_time,
+                end_time=end_time,
+                severity=severity,
+                order_by="timestamp",
+                order_direction="desc"
+            )
+
+            if total_count == 0:
+                return False, "No audit logs found matching the criteria", None
+        else:
+            # Fallback to direct model query if we don't have access to get_logs
+            logger.error("AuditService.get_logs method not available")
+            return False, "Export functionality unavailable", None
+
+        # Create temporary directory if it doesn't exist
+        temp_dir = tempfile.gettempdir()
+        export_dir = os.path.join(temp_dir, 'audit_exports')
+        os.makedirs(export_dir, exist_ok=True)
+
+        # Generate filename with timestamp
+        timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+        filename = f"audit_export_{timestamp}.{format_type}"
+        filepath = os.path.join(export_dir, filename)
+
+        # Export in the requested format
+        if format_type == 'csv':
+            with open(filepath, 'w', newline='') as f:
+                # Define CSV fields based on log structure
+                fieldnames = ['timestamp', 'action', 'user_id', 'status', 'severity',
+                              'target_resource', 'target_id', 'ip_address']
+
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+
+                for log in logs:
+                    # Convert log to dict if it's not already
+                    if not isinstance(log, dict):
+                        if hasattr(log, 'to_dict'):
+                            log = log.to_dict()
+                        else:
+                            # Skip if we can't convert
+                            continue
+
+                    # Write the log as a row
+                    row = {
+                        'timestamp': log.get('timestamp', ''),
+                        'action': log.get('action', ''),
+                        'user_id': log.get('user_id', ''),
+                        'status': log.get('status', ''),
+                        'severity': log.get('severity', ''),
+                        'target_resource': log.get('target_resource', ''),
+                        'target_id': log.get('target_id', ''),
+                        'ip_address': log.get('ip_address', '')
+                    }
+                    writer.writerow(row)
+
+        elif format_type == 'json':
+            # For JSON format, we export the entire log objects
+            export_data = {
+                'metadata': {
+                    'exported_at': datetime.now(timezone.utc).isoformat(),
+                    'record_count': len(logs),
+                    'filters': {
+                        'start_time': start_time.isoformat() if start_time else None,
+                        'end_time': end_time.isoformat() if end_time else None,
+                        'event_types': event_types,
+                        'user_id': user_id,
+                        'severity': severity
+                    }
+                },
+                'logs': logs
+            }
+
+            with open(filepath, 'w') as f:
+                json.dump(export_data, f, indent=2, default=str)
+        else:
+            return False, f"Unsupported export format: {format_type}", None
+
+        # Log the export action
+        AuditService.log_event(
+            user_id=user_id,
+            action="audit.logs.exported",
+            target_resource="audit_logs",
+            status="success",
+            details={
+                'format': format_type,
+                'record_count': len(logs),
+                'filters': {
+                    'start_time': start_time.isoformat() if start_time else None,
+                    'end_time': end_time.isoformat() if end_time else None,
+                    'event_types': event_types,
+                    'user_id': user_id,
+                    'severity': severity
+                }
+            },
+            severity="info"
+        )
+
+        return True, f"Successfully exported {len(logs)} audit logs", filepath
+
+    except Exception as e:
+        logger.error(f"Error exporting audit data: {str(e)}", exc_info=True)
+        return False, f"Error exporting audit data: {str(e)}", None

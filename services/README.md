@@ -19,6 +19,10 @@ This directory contains service classes that implement business logic and coordi
   - [Notifications](#notifications)
   - [Webhook Management](#webhook-management)
   - [File Integrity Management](#file-integrity-management)
+    - [Basic Operations](#basic-operations)
+    - [Enhanced Baseline Management](#enhanced-baseline-management)
+    - [Notifications Integration](#notifications-integration)
+    - [Baseline Verification and Export](#baseline-verification-and-export)
 - [Related Documentation](#related-documentation)
 - [Version History](#version-history)
 
@@ -40,7 +44,7 @@ The service layer centralizes business logic, ensuring consistent application of
     - Two-factor authentication support
 
 - **`AuditService`**: Logging and retrieval of audit trail information
-  - **Usage**: Use this service to log significant events and retrieve audit logs for compliance and analysis.
+  - **Usage**: Use this service to log significant events and retrieve audit logs for compliance and analysis
   - **Features**:
     - Event logging with user context, action, target, status, and details
     - Flexible log retrieval with filtering and pagination
@@ -67,8 +71,20 @@ The service layer centralizes business logic, ensuring consistent application of
     - Email delivery tracking
     - Batch email operations
 
+- **`FileIntegrityService`**: Comprehensive file integrity baseline management
+  - **Usage**: Use this service for advanced file integrity management with notifications and auditing
+  - **Features**:
+    - Enhanced baseline creation and updates with notifications
+    - File integrity verification with severity classification
+    - Automated backup management for baselines
+    - Integration with notification systems for alerts
+    - Comprehensive audit logging of baseline changes
+    - Baseline consistency verification and validation
+    - Export capabilities for compliance reporting
+    - Environment-specific security controls
+
 - **`MonitoringService`**: System health monitoring and metrics collection
-  - **Usage**: Use this service to check system health, gather metrics, and trigger alerts.
+  - **Usage**: Use this service to check system health, gather metrics, and trigger alerts
   - **Features**:
     - System resource monitoring (CPU, memory, disk)
     - Health checks for critical components (database, cache, filesystem)
@@ -87,7 +103,7 @@ The service layer centralizes business logic, ensuring consistent application of
     - Batch sending with configurable limits
 
 - **`NotificationService`**: Centralized notification delivery
-  - **Usage**: Use this service to send notifications via multiple channels (in-app, email).
+  - **Usage**: Use this service to send notifications via multiple channels (in-app, email, SMS)
   - **Features**:
     - Multi-channel notification dispatch (in-app, email, SMS)
     - User-specific notification targeting
@@ -96,7 +112,7 @@ The service layer centralizes business logic, ensuring consistent application of
     - Marking notifications as read
 
 - **`ScanningService`**: Security scanning management
-  - **Usage**: Use this service for managing security scans across different infrastructure components.
+  - **Usage**: Use this service for managing security scans across different infrastructure components
   - **Features**:
     - Multiple scan types (vulnerability, compliance, configuration, etc.)
     - Scan scheduling and execution
@@ -132,7 +148,7 @@ The service layer centralizes business logic, ensuring consistent application of
     - Message templating capabilities
 
 - **`WebhookService`**: Management of webhook subscriptions and deliveries
-  - **Usage**: Use this service to manage webhook subscriptions and trigger event deliveries.
+  - **Usage**: Use this service to manage webhook subscriptions and trigger event deliveries
   - **Features**:
     - Webhook subscription creation, update, and deletion
     - Secure secret generation for signature verification
@@ -152,6 +168,7 @@ services/
 ├── auth_service.py         # Authentication and authorization service
 ├── config_service.py       # Configuration management service
 ├── email_service.py        # Email sending and templating service
+├── file_integrity_service.py # File integrity management functions
 ├── monitoring_service.py   # System monitoring and health check service
 ├── newsletter_service.py   # Newsletter management service
 ├── notification_service.py # Multi-channel notification service
@@ -306,7 +323,7 @@ print(f"Files monitored: {status['file_count']}")
 print(f"Changes detected: {status['changes_detected']}")
 
 # Update file integrity baseline with enhanced notifications and audit logging
-success, message, stats = update_file_integrity_baseline_enhanced(
+success, message, stats = update_file_integrity_baseline_with_notifications(
     baseline_path="instance/security/baseline.json",
     changes=[
         {"path": "/path/to/file.py", "hash": "abc123...", "severity": "critical"},
@@ -315,10 +332,8 @@ success, message, stats = update_file_integrity_baseline_enhanced(
     remove_missing=True,
     notify=True,
     audit=True,
-    backup_before_update=True,
-    verify_after_update=True,
-    analyst="security.admin@example.com",
-    reason="Weekly scheduled update"
+    severity_threshold="medium",  # Send notifications for medium+ severity
+    message="Weekly scheduled update"  # Optional message for notifications/audit
 )
 print(f"Baseline update with notifications: {success}")
 print(f"Critical changes: {stats['critical_changes']}")
@@ -446,10 +461,10 @@ print(f"Last updated: {status['last_updated']}")
 For more sophisticated baseline management with comprehensive notifications, audit logging, and security controls:
 
 ```python
-from services import update_file_integrity_baseline_enhanced
+from services import update_file_integrity_baseline_with_notifications
 
 # Update baseline with enhanced features
-success, message, stats = update_file_integrity_baseline_enhanced(
+success, message, stats = update_file_integrity_baseline_with_notifications(
     baseline_path="instance/security/baseline.json",
     changes=[
         {
@@ -467,10 +482,7 @@ success, message, stats = update_file_integrity_baseline_enhanced(
     notify=True,                   # Send notifications about changes
     audit=True,                    # Log to audit trail
     severity_threshold="medium",   # Send notifications for medium+ severity
-    backup_before_update=True,     # Create backup before updating
-    verify_after_update=True,      # Verify integrity after updating
-    analyst="security-admin@example.com",  # Analyst making the change
-    reason="Monthly security review"       # Reason for the change
+    message="Monthly security review"   # Custom message for audit/notifications
 )
 
 # Access detailed statistics from the operation
@@ -480,9 +492,8 @@ print(f"Critical changes: {stats['critical_changes']}")
 print(f"High severity changes: {stats['high_severity_changes']}")
 print(f"Medium severity changes: {stats['medium_severity_changes']}")
 print(f"Low severity changes: {stats['low_severity_changes']}")
-print(f"Backup created: {stats['backup_created']}")
-print(f"Backup path: {stats.get('backup_path', 'N/A')}")
-print(f"Verification status: {stats['verification_status']}")
+print(f"Notification sent: {stats['notification_sent']}")
+print(f"Audit logged: {stats['audit_logged']}")
 print(f"Operation duration (ms): {stats['duration_ms']}")
 ```
 
@@ -513,6 +524,42 @@ if stats["notification_sent"]:
 # Check if audit log was created
 if stats["audit_logged"]:
     print("Changes were logged to the security audit trail")
+```
+
+#### Baseline Verification and Export
+
+Verify baseline consistency and export for compliance reporting:
+
+```python
+from services import verify_baseline_consistency, validate_baseline_consistency, export_baseline
+
+# Verify baseline consistency (checks for structural issues)
+is_consistent, issues = verify_baseline_consistency("instance/security/baseline.json")
+if not is_consistent:
+    print(f"Baseline has consistency issues: {len(issues)} problems found")
+    for issue in issues:
+        print(f"  • {issue['type']}: {issue['message']}")
+
+# Validate baseline against current filesystem (deeper validation)
+is_valid, validation_results = validate_baseline_consistency(
+    baseline_path="instance/security/baseline.json",
+    check_permissions=True,  # Also verify file permissions
+    verify_content=True      # Deep content verification
+)
+print(f"Baseline validation status: {'Valid' if is_valid else 'Invalid'}")
+print(f"Files validated: {validation_results['files_checked']}")
+print(f"Issues found: {validation_results['issues_found']}")
+
+# Export baseline for compliance reporting
+export_result = export_baseline(
+    baseline_path="instance/security/baseline.json",
+    export_format="csv",
+    output_path="reports/file_integrity_baseline.csv",
+    include_metadata=True
+)
+print(f"Baseline exported: {export_result['success']}")
+print(f"Records exported: {export_result['records_exported']}")
+print(f"Export location: {export_result['output_path']}")
 ```
 
 ## Related Documentation
