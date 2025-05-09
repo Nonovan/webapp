@@ -10,6 +10,15 @@ This directory contains service classes that implement business logic and coordi
 - [Best Practices & Security](#best-practices--security)
 - [Common Features](#common-features)
 - [Usage](#usage)
+  - [Authentication](#authentication)
+  - [Email Sending](#email-sending)
+  - [SMS Messaging](#sms-messaging)
+  - [Security Operations](#security-operations)
+  - [Security Scanning](#security-scanning)
+  - [Audit Logging](#audit-logging)
+  - [Notifications](#notifications)
+  - [Webhook Management](#webhook-management)
+  - [File Integrity Management](#file-integrity-management)
 - [Related Documentation](#related-documentation)
 - [Version History](#version-history)
 
@@ -37,6 +46,17 @@ The service layer centralizes business logic, ensuring consistent application of
     - Flexible log retrieval with filtering and pagination
     - Severity levels for events (info, warning, error, critical)
     - Integration with database models for persistent storage
+    - File integrity event tracking
+
+- **`ConfigService`**: System configuration management
+  - **Usage**: Use this service to read, update, and validate configuration settings
+  - **Features**:
+    - Secure configuration storage
+    - Environment-specific configuration
+    - Configuration validation
+    - Export/import capabilities
+    - Sensitive value protection through encryption
+    - Change audit tracking
 
 - **`EmailService`**: Email template rendering and delivery
   - **Usage**: Use this service to send emails using templates or raw content
@@ -48,7 +68,7 @@ The service layer centralizes business logic, ensuring consistent application of
     - Batch email operations
 
 - **`MonitoringService`**: System health monitoring and metrics collection
-  - **Usage**: Use this service to check system health, gather metrics, and potentially trigger alerts.
+  - **Usage**: Use this service to check system health, gather metrics, and trigger alerts.
   - **Features**:
     - System resource monitoring (CPU, memory, disk)
     - Health checks for critical components (database, cache, filesystem)
@@ -96,6 +116,8 @@ The service layer centralizes business logic, ensuring consistent application of
     - Secure baseline updates with validation
     - File integrity status reporting
     - Comprehensive security logging and metrics
+    - Severity-based change classification
+    - Backup creation and management
 
 - **`SMSService`**: SMS messaging and phone number validation
   - **Usage**: Use this service to send SMS messages and verify phone numbers
@@ -128,6 +150,7 @@ services/
 ├── __init__.py             # Package initialization with exported components
 ├── audit_service.py        # Audit logging service
 ├── auth_service.py         # Authentication and authorization service
+├── config_service.py       # Configuration management service
 ├── email_service.py        # Email sending and templating service
 ├── monitoring_service.py   # System monitoring and health check service
 ├── newsletter_service.py   # Newsletter management service
@@ -159,6 +182,9 @@ services/
 - Use secure connections for all SMS and webhook communications
 - Validate phone numbers before sending SMS messages
 - Apply appropriate throttling to prevent SMS and email abuse
+- Create backups before updating critical baselines
+- Implement proper permission checks for all security operations
+- Follow defense-in-depth strategy with multiple validation layers
 
 ## Common Features
 
@@ -175,6 +201,7 @@ services/
 - User preference integration for communication services
 - Multi-provider support with fallback mechanisms
 - Metrics collection for operational monitoring
+- Audit trail generation for compliance and security
 
 ## Usage
 
@@ -228,33 +255,22 @@ print(f"Template email sent: {result['success']}")
 ### SMS Messaging
 
 ```python
-from services import send_sms, send_bulk_sms, verify_phone_number, SMSProvider
+from services import send_sms, verify_phone_number, test_sms_configuration
+from services import SMSProvider
 
-# Verify a phone number
-verification = verify_phone_number("+12345678901")
-if verification['valid']:
-    print(f"Phone number is valid: {verification['formatted']}")
-else:
-    print(f"Invalid phone number: {verification['error']}")
-
-# Send a simple SMS message
+# Send an SMS message
 result = send_sms(
-    to="+12345678901",
-    message="Your verification code is: 123456",
+    to="+1234567890",
+    message="Your verification code is 123456. It expires in 10 minutes.",
     priority="high"
 )
-print(f"SMS sent: {result['success']}")
+print(f"SMS sent: {result['success']}, ID: {result['message_id']}")
 
-# Send bulk SMS messages
-recipients = ["+12345678901", "+19876543210"]
-result = send_bulk_sms(
-    recipients=recipients,
-    message="System maintenance scheduled for tomorrow at 2AM.",
-    respect_preferences=True  # Honor user communication preferences
-)
-print(f"Bulk SMS sent: {result['stats']['sent']}/{result['stats']['total']}")
+# Verify a phone number
+verified, formatted_number = verify_phone_number("+1234567890")
+print(f"Phone number verified: {verified}, Formatted: {formatted_number}")
 
-# Test SMS provider connectivity
+# Test SMS provider connection
 connection_test = test_sms_configuration(provider=SMSProvider.TWILIO)
 print(f"Connection test result: {connection_test['success']}")
 ```
@@ -290,7 +306,7 @@ print(f"Files monitored: {status['file_count']}")
 print(f"Changes detected: {status['changes_detected']}")
 
 # Update file integrity baseline with enhanced notifications and audit logging
-success, message, stats = update_file_integrity_baseline_with_notifications(
+success, message, stats = update_file_integrity_baseline_enhanced(
     baseline_path="instance/security/baseline.json",
     changes=[
         {"path": "/path/to/file.py", "hash": "abc123...", "severity": "critical"},
@@ -298,7 +314,11 @@ success, message, stats = update_file_integrity_baseline_with_notifications(
     ],
     remove_missing=True,
     notify=True,
-    audit=True
+    audit=True,
+    backup_before_update=True,
+    verify_after_update=True,
+    analyst="security.admin@example.com",
+    reason="Weekly scheduled update"
 )
 print(f"Baseline update with notifications: {success}")
 print(f"Critical changes: {stats['critical_changes']}")
@@ -330,25 +350,31 @@ print(f"Findings so far: {status['findings_count']} ({status['critical_count']} 
 from services import AuditService
 
 # Log a security event
-AuditService.log_security_event(
-    event_type="user.login_attempt",
-    description="Failed login attempt with incorrect password",
-    severity="warning",
-    user_id=None,  # Unknown user
-    ip_address="192.168.1.100",
-    details={"username": "admin", "method": "password", "failure_reason": "invalid_password"}
+AuditService.log_event(
+    action="user.login",
+    status="success",
+    target_id="user123",
+    target_type="user",
+    details={"ip_address": "192.168.1.1", "user_agent": "Mozilla/5.0..."}
 )
 
-# Search audit logs
-audit_logs = AuditService.search_logs(
-    event_types=["user.login_attempt", "user.password_change"],
-    severity_min="warning",
-    start_time="2023-01-01T00:00:00Z",
-    end_time="2023-12-31T23:59:59Z",
-    user_id=123,
-    limit=100
+# Retrieve audit logs
+logs = AuditService.get_logs(
+    actions=["user.login", "user.logout"],
+    start_date="2023-01-01",
+    end_date="2023-01-31",
+    user_id="user123",
+    limit=50
 )
-print(f"Found {len(audit_logs)} matching audit logs")
+
+# Log a file integrity event
+AuditService.log_file_integrity_event(
+    status="changed",
+    action="update",
+    changes=[{"path": "/etc/config.json", "status": "changed", "severity": "high"}],
+    details={"baseline_path": "/var/integrity/baseline.json"},
+    severity="high"
+)
 ```
 
 ### Notifications
@@ -369,54 +395,146 @@ notify_stakeholders(
 ### Webhook Management
 
 ```python
-from services import create_webhook_subscription, trigger_webhook_event
+from services import WebhookService
 
 # Create a webhook subscription
-subscription, secret, error = create_webhook_subscription(
-    user_id=123,
-    target_url="https://example.com/webhook",
-    event_types=["resource.created", "resource.updated"],
-    description="Production environment change notifications"
+subscription = WebhookService.create_subscription(
+    url="https://example.com/webhook",
+    events=["security.scan.completed", "security.incident.created"],
+    description="Security alerts webhook"
 )
-
-if subscription:
-    print(f"Webhook subscription created: {subscription.id}")
-    print(f"Secret for validation: {secret}")
-else:
-    print(f"Failed to create webhook subscription: {error}")
 
 # Trigger a webhook event
-delivery_count = trigger_webhook_event(
-    event_type="resource.created",
-    payload={
-        "resource_id": 456,
-        "resource_type": "instance",
-        "action": "created",
-        "timestamp": "2023-06-15T14:30:00Z"
-    }
+WebhookService.trigger_event(
+    event_type="security.scan.completed",
+    payload={"scan_id": "scan-123", "status": "completed", "findings": 5}
 )
-print(f"Event delivered to {delivery_count} subscribers")
+```
+
+### File Integrity Management
+
+The platform provides comprehensive file integrity monitoring capabilities to detect unauthorized changes to critical system files and ensure system integrity.
+
+#### Basic Operations
+
+```python
+from services import SecurityService
+
+# Check file integrity against the baseline
+status, changes = SecurityService.check_file_integrity()
+if not status:
+    print(f"Integrity violations detected: {len(changes)} files")
+    for change in changes:
+        print(f"File {change['path']}: {change['status']} (Severity: {change['severity']})")
+
+# Update the baseline for specific files
+success, message = SecurityService.update_baseline(
+    paths_to_update=["/path/to/file1.py", "/path/to/file2.py"],
+    remove_missing=False
+)
+print(f"Baseline update: {success}, {message}")
+
+# Get integrity status information
+status = SecurityService.get_integrity_status()
+print(f"Baseline exists: {status['baseline_exists']}")
+print(f"Files monitored: {status['file_count']}")
+print(f"Last updated: {status['last_updated']}")
+```
+
+#### Enhanced Baseline Management
+
+For more sophisticated baseline management with comprehensive notifications, audit logging, and security controls:
+
+```python
+from services import update_file_integrity_baseline_enhanced
+
+# Update baseline with enhanced features
+success, message, stats = update_file_integrity_baseline_enhanced(
+    baseline_path="instance/security/baseline.json",
+    changes=[
+        {
+            "path": "/etc/config/app.conf",
+            "current_hash": "a1b2c3d4e5f6...",
+            "severity": "critical"
+        },
+        {
+            "path": "/var/www/html/app.js",
+            "current_hash": "b2c3d4e5f6g7...",
+            "severity": "medium"
+        }
+    ],
+    remove_missing=True,           # Remove entries for missing files
+    notify=True,                   # Send notifications about changes
+    audit=True,                    # Log to audit trail
+    severity_threshold="medium",   # Send notifications for medium+ severity
+    backup_before_update=True,     # Create backup before updating
+    verify_after_update=True,      # Verify integrity after updating
+    analyst="security-admin@example.com",  # Analyst making the change
+    reason="Monthly security review"       # Reason for the change
+)
+
+# Access detailed statistics from the operation
+print(f"Update operation successful: {success}")
+print(f"Message: {message}")
+print(f"Critical changes: {stats['critical_changes']}")
+print(f"High severity changes: {stats['high_severity_changes']}")
+print(f"Medium severity changes: {stats['medium_severity_changes']}")
+print(f"Low severity changes: {stats['low_severity_changes']}")
+print(f"Backup created: {stats['backup_created']}")
+print(f"Backup path: {stats.get('backup_path', 'N/A')}")
+print(f"Verification status: {stats['verification_status']}")
+print(f"Operation duration (ms): {stats['duration_ms']}")
+```
+
+#### Notifications Integration
+
+File integrity baseline updates can be integrated with the notification system to alert stakeholders about important changes:
+
+```python
+from services import update_file_integrity_baseline_with_notifications
+
+# Update baseline with notifications for security stakeholders
+success, message, stats = update_file_integrity_baseline_with_notifications(
+    baseline_path="instance/security/baseline.json",
+    changes=[
+        {"path": "/etc/config/app.conf", "severity": "critical"},
+        {"path": "/var/www/html/js/app.js", "severity": "medium"}
+    ],
+    remove_missing=True,
+    notify=True,
+    audit=True,
+    severity_threshold="high"  # Only notify on high or critical changes
+)
+
+# Check if notification was sent
+if stats["notification_sent"]:
+    print("Security stakeholders were notified of the changes")
+
+# Check if audit log was created
+if stats["audit_logged"]:
+    print("Changes were logged to the security audit trail")
 ```
 
 ## Related Documentation
 
-- API Documentation (docs/api/README.md)
-- Authentication Guide (docs/security/authentication-standards.md)
-- Audit Log Reference (docs/api/reference/audit.md)
-- Email Templates Guide (admin/templates/email/README.md)
-- File Integrity Monitoring Guide (docs/security/file-integrity-monitoring.md)
-- Health Check Implementation (docs/operations/health-checks.md)
-- Monitoring Strategy (docs/operations/monitoring-overview.md)
-- Notification System Design (docs/api/notifications.md)
-- Security Baseline Management (admin/security/assessment_tools/config_files/security_baselines/README.md)
-- Security Policies (docs/security/README.md)
-- Security Scanning Framework (docs/security/scanning-framework.md)
-- SMS Integration Guide (docs/communications/sms-integration.md)
-- System Health Metrics (docs/operations/system-metrics.md)
-- Webhook Implementation Guide (docs/api/guides/webhooks.md)
+- API Documentation
+- Authentication Guide
+- Audit Log Reference
+- Email Templates Guide
+- File Integrity Monitoring Guide
+- Health Check Implementation
+- Monitoring Strategy
+- Notification System Design
+- Security Baseline Management
+- Security Policies
+- Security Scanning Framework
+- SMS Integration Guide
+- System Health Metrics
+- Webhook Implementation Guide
 
 ## Version History
 
+- **0.0.5 (2024-10-10)**: Enhanced file integrity management with backup, verification and notification integration
 - **0.0.4 (2024-09-01)**: Added SMS messaging service and enhanced file integrity baseline management
 - **0.0.3 (2024-08-15)**: Enhanced security monitoring and webhook management capabilities
 - **0.0.2 (2024-07-28)**: Added ScanningService for security vulnerability scanning
