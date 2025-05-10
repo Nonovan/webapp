@@ -9,7 +9,9 @@ This directory contains Flask blueprint modules that organize the Cloud Infrastr
 - [Directory Structure](#directory-structure)
 - [Usage](#usage)
 - [Security Features](#security-features)
+- [File Integrity Monitoring](#file-integrity-monitoring)
 - [Blueprint Integrity](#blueprint-integrity)
+- [Testing](#testing)
 - [Common Patterns](#common-patterns)
 - [Related Documentation](#related-documentation)
 
@@ -62,6 +64,13 @@ The centralized blueprint management system in this package performs:
 
 - **`admin/`**: Administrative interface blueprint
   - System configuration interface
+  - User and permission management
+  - Security control administration
+  - Audit log analysis interface
+  - Compliance reporting tools
+  - File integrity monitoring dashboard
+  - Security incident management
+  - System health monitoring interface
   - User management functionality
   - Role and permission management
   - Compliance reporting features
@@ -105,7 +114,11 @@ blueprints/
 │           ├── cloud.html  # Cloud dashboard template
 │           ├── home.html   # Homepage template
 │           ├── ics.html    # ICS application template
-│           └── profile.html # User profile template
+│           ├── privacy.html     # Privacy policy page
+│           ├── profile.html     # User profile management
+│           ├── register.html    # Account registration interface
+│           ├── security.html    # Security practices information
+│           └── terms.html       # Terms of service page
 └── monitoring/             # Monitoring blueprint
     ├── README.md           # Monitoring documentation
     ├── __init__.py         # Monitoring blueprint initialization
@@ -221,6 +234,200 @@ def check_dependencies():
 - **Session Management**: Secure session handling with timeout and renewal
 - **Secure Headers**: Security headers for XSS, clickjacking protection
 - **Subresource Integrity**: SRI hashes for external resources
+
+## File Integrity Monitoring
+
+The blueprint system integrates comprehensive file integrity monitoring to ensure the security and reliability of application code. This functionality is distributed across multiple blueprints:
+
+### Implementation Architecture
+
+The file integrity monitoring system uses a layered approach:
+
+1. **Core Implementation**: Provided by `core.security.cs_file_integrity` module
+2. **Admin Interface**: Management dashboard in the admin blueprint
+3. **Status Indicators**: Visual indicators in the main blueprint
+4. **Metrics Collection**: Monitoring metrics in the monitoring blueprint
+5. **Framework Integration**: Automated checks at application startup
+
+### Integrity Monitoring Features
+
+- **Baseline Management**: Creating and verifying integrity baselines
+- **Real-time Verification**: On-demand integrity checks
+- **Path Filtering**: Include/exclude specific file patterns
+- **Automatic Backups**: Versioned baseline backups
+- **Security Classification**: Severity-based file categorization
+- **Comprehensive Logging**: Detailed audit trail for all operations
+- **Integration Points**: Health checks, status monitoring, and alerts
+
+### Blueprint-Specific Implementations
+
+#### Main Blueprint
+
+The main blueprint integrates file integrity status into the user interface:
+
+```python
+@main_bp.route('/file-integrity-status')
+@login_required
+@require_role('admin')
+def file_integrity_status():
+    """Return file integrity status for monitoring."""
+    if not FILE_INTEGRITY_AVAILABLE:
+        return jsonify({'status': 'unavailable', 'message': 'File integrity monitoring not available'})
+
+    status = check_integrity()
+    return jsonify({
+        'status': 'valid' if status['valid'] else 'invalid',
+        'timestamp': status['timestamp'],
+        'violations': status['violations_count'],
+        'message': status['message']
+    })
+```
+
+The main template `base.html` displays integrity status in non-production environments:
+
+```html
+{% if config.ENVIRONMENT != 'production' %}
+<div class="integrity-status integrity-status-{{ file_integrity_status|default('valid') }}">
+    <i class="bi bi-shield-{{ file_integrity_status == 'valid' ? 'check' : 'exclamation' }}"
+       aria-hidden="true"></i>
+    File Integrity: {{ file_integrity_status|default('Valid')|capitalize }}
+</div>
+{% endif %}
+```
+
+#### Admin Blueprint
+
+The admin blueprint provides comprehensive management functions:
+
+```python
+@admin_bp.route('/security/integrity/update', methods=['POST'])
+@login_required
+@require_role('admin')
+@require_mfa
+@audit_log_action('file_integrity_baseline_update')
+def update_integrity_baseline():
+    """Update file integrity baseline with validation and security checks."""
+    form = FileIntegrityForm()
+
+    if form.validate_on_submit():
+        try:
+            # Update the integrity baseline
+            result = update_file_integrity_baseline(
+                paths=form.paths.data.split('\n'),
+                include_patterns=form.include_patterns.data.split('\n'),
+                exclude_patterns=form.exclude_patterns.data.split('\n'),
+                reason=form.reason.data
+            )
+
+            # Log detailed audit information
+            audit_action(
+                'file_integrity_baseline_updated',
+                f"Updated file integrity baseline: {result['files_processed']} files processed",
+                user_id=current_user.id,
+                details={
+                    'files_processed': result['files_processed'],
+                    'files_added': result['files_added'],
+                    'files_updated': result['files_updated'],
+                    'files_removed': result['files_removed'],
+                    'reason': form.reason.data
+                }
+            )
+
+            flash(f"File integrity baseline updated: {result['files_processed']} files processed", 'success')
+            return redirect(url_for('admin.file_integrity'))
+
+        except Exception as e:
+            flash(f"Error updating integrity baseline: {str(e)}", 'danger')
+
+    return render_template('admin/security/file_integrity.html', form=form)
+```
+
+#### Monitoring Blueprint
+
+The monitoring blueprint tracks integrity violations and exports metrics:
+
+```python
+@monitoring_bp.route('/metrics/prometheus')
+def prometheus_metrics():
+    """Export metrics in Prometheus format."""
+    # Other metrics collection...
+
+    # File integrity metrics
+    try:
+        if FILE_INTEGRITY_AVAILABLE:
+            integrity_status = check_integrity()
+            metrics.gauge(
+                'file_integrity_status',
+                1 if integrity_status['valid'] else 0
+            )
+            metrics.gauge(
+                'file_integrity_violations',
+                integrity_status['violations_count']
+            )
+            metrics.gauge(
+                'file_integrity_check_timestamp',
+                integrity_status['timestamp_epoch']
+            )
+    except Exception as e:
+        logger.warning(f"Error collecting integrity metrics: {e}")
+
+    # Return compiled metrics
+    return Response(metrics.export_prometheus(), mimetype='text/plain')
+```
+
+### Central Blueprint Registration
+
+The central blueprint registration integrates file integrity checks:
+
+```python
+def _update_blueprint_baseline(app: Flask) -> None:
+    """Update file integrity baseline for blueprints."""
+    if not app.config.get('AUTO_UPDATE_BLUEPRINT_BASELINE', False):
+        return
+
+    try:
+        # Get all blueprint files
+        blueprint_files = []
+        for bp_name, bp_module in blueprints.items():
+            bp_path = os.path.dirname(sys.modules[bp_module.__module__].__file__)
+            for root, _, files in os.walk(bp_path):
+                for file in files:
+                    if file.endswith('.py'):
+                        blueprint_files.append(os.path.join(root, file))
+
+        # Calculate hashes and prepare updates
+        updates = []
+        for file_path in blueprint_files:
+            if os.path.isfile(file_path):
+                # Calculate file hash
+                current_hash = calculate_file_hash(file_path)
+
+                # Get relative path for the baseline
+                rel_path = os.path.relpath(file_path, os.path.dirname(app.root_path))
+
+                # Set severity based on file path and type
+                severity = 'medium'  # Default severity
+                if '__init__.py' in file_path or 'routes.py' in file_path:
+                    severity = 'high'  # Higher severity for route definitions
+                if 'auth' in file_path:
+                    severity = 'high'  # Security-critical blueprint
+
+                # Add to updates list
+                updates.append({
+                    'path': rel_path,
+                    'current_hash': current_hash,
+                    'severity': severity
+                })
+
+        # Update baseline with notifications
+        if updates and hasattr(app, 'logger'):
+            app.logger.info(f"Updating file integrity baseline for {len(updates)} blueprint files")
+            update_file_integrity_baseline(updates=updates, source="blueprint_registration")
+
+    except Exception as e:
+        if hasattr(app, 'logger'):
+            app.logger.error(f"Error updating blueprint baseline: {e}")
+```
 
 ## Blueprint Integrity
 
@@ -365,3 +572,4 @@ def with_custom_static():
 - Static File Management
 - Security Controls Implementation
 - Flask Application Structure
+- File Integrity Monitoring Guide

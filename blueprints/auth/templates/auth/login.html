@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+
+{% block title %}Login{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card shadow-sm">
+                <div class="card-body p-md-4">
+                    <h1 class="card-title text-center h2 mb-4">Login</h1>
+
+                    {% with messages = get_flashed_messages(with_categories=true) %}
+                        {% if messages %}
+                            {% for category, message in messages %}
+                                <div class="alert alert-{{ category }} d-flex align-items-center" role="alert">
+                                    <i class="bi {% if category == 'danger' %}bi-exclamation-triangle-fill{% elif category == 'warning' %}bi-exclamation-circle-fill{% elif category == 'success' %}bi-check-circle-fill{% else %}bi-info-circle-fill{% endif %} me-2"></i>
+                                    <div>{{ message }}</div>
+                                </div>
+                            {% endfor %}
+                        {% endif %}
+                    {% endwith %}
+
+                    <form method="post" class="needs-validation" novalidate>
+                        <!--
+                        SECURITY NOTES:
+                        1. Rate limiting (5/minute) protects against brute force attacks
+                        2. Local login attempt tracking adds client-side brute force protection
+                        3. Form validation prevents empty submissions but server must validate
+                        4. reCAPTCHA prevents automated login attempts
+                        5. CSRF tokens prevent cross-site request forgery attacks
+                        6. Password visibility toggle improves UX while maintaining security
+                        7. Two-factor authentication adds strong protection when enabled
+                        8. Input sanitization protects against XSS/injection attempts
+                        -->
+
+                        <!-- CSRF protection -->
+                        {{ form.csrf_token }}
+
+                        <!-- Username/Email field -->
+                        <div class="mb-3">
+                            <label for="username" class="form-label">Username or Email</label>
+                            <div class="input-group">
+                                <span class="input-group-text" aria-hidden="true"><i class="bi bi-person"></i></span>
+                                <input type="text"
+                                       class="form-control {% if form.username.errors %}is-invalid{% endif %}"
+                                       id="username"
+                                       name="username"
+                                       autocomplete="username"
+                                       spellcheck="false"
+                                       autocapitalize="off"
+                                       required
+                                       aria-describedby="usernameHelp">
+                                <div class="invalid-feedback" id="usernameFeedback">
+                                    {% if form.username.errors %}
+                                        {{ form.username.errors[0] }}
+                                    {% else %}
+                                        Please enter your username or email address.
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div id="usernameHelp" class="form-text small">Enter your registered username or email address</div>
+                        </div>
+
+                        <!-- Password field with toggle visibility -->
+                        <div class="mb-3">
+                            <label for="password" class="form-label">Password</label>
+                            <div class="input-group">
+                                <span class="input-group-text" aria-hidden="true"><i class="bi bi-lock"></i></span>
+                                <input type="password"
+                                       class="form-control {% if form.password.errors %}is-invalid{% endif %}"
+                                       id="password"
+                                       name="password"
+                                       autocomplete="current-password"
+                                       required
+                                       aria-describedby="passwordHelp">
+                                <button class="btn btn-outline-secondary" type="button" id="togglePassword" aria-label="Toggle password visibility">
+                                    <i class="bi bi-eye" aria-hidden="true"></i>
+                                </button>
+                                <div class="invalid-feedback" id="passwordFeedback">
+                                    {% if form.password.errors %}
+                                        {{ form.password.errors[0] }}
+                                    {% else %}
+                                        Please enter your password.
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div id="passwordHelp" class="form-text small">Case-sensitive password</div>
+                        </div>
+
+                        <!-- Remember me and security options row -->
+                        <div class="row mb-3 align-items-center">
+                            <div class="col">
+                                <div class="form-check">
+                                    <input type="checkbox" class="form-check-input" id="remember" name="remember">
+                                    <label class="form-check-label" for="remember">Remember me</label>
+                                </div>
+                            </div>
+                            <div class="col text-end">
+                                <a href="{{ url_for('auth.forgot_password') }}" class="text-decoration-none small">Forgot password?</a>
+                            </div>
+                        </div>
+
+                        <!-- Rate limiting notification -->
+                        <div class="alert alert-info d-flex align-items-center py-2" role="alert">
+                            <i class="bi bi-info-circle me-2"></i>
+                            <div class="small">For security reasons, login attempts are limited to 5 per minute.</div>
+                        </div>
+
+                        <!-- reCAPTCHA if enabled -->
+                        {% if show_recaptcha %}
+                        <div class="mb-3">
+                            <div class="g-recaptcha" data-sitekey="{{ recaptcha_site_key }}" data-callback="onRecaptchaVerified"></div>
+                            <div class="invalid-feedback" id="recaptchaError">
+                                Please complete the reCAPTCHA verification.
+                            </div>
+                        </div>
+                        {% endif %}
+
+                        <!-- Submit button -->
+                        <div class="d-grid mt-4">
+                            <button type="submit" class="btn btn-primary" id="loginButton">
+                                <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                                Login
+                            </button>
+                        </div>
+
+                        <!-- Registration link -->
+                        <div class="mt-3 text-center">
+                            <span class="small">Don't have an account?</span>
+                            <a href="{{ url_for('auth.register') }}" class="text-decoration-none">Create an account</a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Session recovery information -->
+            <div class="card mt-3 border-light shadow-sm">
+                <div class="card-body p-3">
+                    <h5 class="card-title h6"><i class="bi bi-shield-lock me-2"></i>Account Security</h5>
+                    <p class="card-text small mb-0">Our system uses advanced security measures to protect your account. For any security concerns, please contact <a href="mailto:security@cloudplatform.com">security@cloudplatform.com</a>.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if lockout %}
+    <div class="alert alert-danger mt-3" data-lockout="true">
+        <h5><i class="bi bi-lock-fill me-2"></i>Account Temporarily Locked</h5>
+        <p>{{ lockout_message }}</p>
+        <p class="mb-0">For security reasons, this account has been temporarily locked due to multiple failed login attempts. Please try again later or contact support if you need immediate assistance.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+    {% if show_recaptcha %}
+    <script src="https://www.google.com/recaptcha/api.js" async defer></script>
+    {% endif %}
+
+    <script src="{{ url_for('static', filename='js/auth-common.js') }}"
+            integrity="{{ sri_hash('js/auth-common.js') }}"
+            crossorigin="anonymous"></script>
+
+    <script nonce="{{ csp_nonce }}">
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize auth components
+            togglePasswordVisibility('password', 'togglePassword');
+            setupFormValidation();
+            setupBruteForceProtection(document.querySelector('form'), 'loginButton');
+
+            // reCAPTCHA callback defined globally for Google API usage
+            window.onRecaptchaVerified = function() {
+                const loginButton = document.getElementById('loginButton');
+                if (loginButton) {
+                    loginButton.disabled = false;
+                }
+            };
+
+            // Add login button loading state
+            const submitBtn = document.getElementById("loginButton");
+            if (submitBtn) {
+                submitBtn.addEventListener("click", function() {
+                    if (document.querySelector('form').checkValidity()) {
+                        const spinner = this.querySelector(".spinner-border");
+                        if (spinner) {
+                            spinner.classList.remove("d-none");
+                        }
+                    }
+                });
+            }
+
+            // Show alert if account is locked due to brute force protection
+            const isAccountLocked = document.querySelector('.alert-danger[data-lockout="true"]') !== null;
+            if (isAccountLocked && submitBtn) {
+                submitBtn.disabled = true;
+                setTimeout(() => {
+                    submitBtn.disabled = false;
+                }, 5000); // Short delay to prevent rapid retries
+            }
+
+            // Auto-focus on username field for better UX
+            const usernameField = document.getElementById('username');
+            if (usernameField && !usernameField.value) {
+                setTimeout(() => usernameField.focus(), 100);
+            }
+        });
+    </script>
+{% endblock %}
