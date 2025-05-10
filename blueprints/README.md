@@ -83,6 +83,29 @@ The centralized blueprint management system in this package performs:
 blueprints/
 ├── README.md               # This documentation
 ├── __init__.py             # Blueprint registration and configuration
+├── admin/                  # Administrative interface blueprint
+│   ├── README.md           # Admin documentation
+│   ├── __init__.py         # Admin blueprint initialization
+│   ├── decorators.py       # Admin-specific decorators
+│   ├── forms.py            # Admin form definitions
+│   ├── reports.py          # Reporting functionality
+│   ├── routes.py           # Admin route definitions
+│   ├── utils.py            # Admin utility functions
+│   ├── validators.py       # Admin input validation
+│   ├── static/             # Admin-specific static files
+│   │   ├── css/            # Admin stylesheets
+│   │   ├── images/         # Admin images
+│   │   └── js/             # Admin scripts
+│   └── templates/          # Admin templates
+│       └── admin/          # Admin-specific templates
+│           ├── README.md   # Admin templates documentation
+│           ├── base.html   # Admin base template
+│           ├── dashboard.html # Admin dashboard
+│           ├── layout.html    # Admin layout template
+│           ├── reports/       # Report generation
+│           ├── security/      # Security administration
+│           ├── system/        # System configuration
+│           └── users/         # User management
 ├── auth/                   # Authentication blueprint
 │   ├── README.md           # Authentication documentation
 │   ├── __init__.py         # Authentication blueprint initialization
@@ -90,7 +113,7 @@ blueprints/
 │   ├── routes.py           # Authentication endpoint definitions
 │   ├── templates/          # Authentication templates
 │   │   └── auth/           # Auth-specific templates
-│   │       ├── README.md            # Templates documentation
+│   │       ├── README.md   # Templates documentation
 │   │       ├── change_password.html # Password change interface
 │   │       ├── login.html           # Login interface
 │   │       ├── mfa_setup.html       # MFA configuration interface
@@ -108,45 +131,22 @@ blueprints/
 │   │   └── js/             # Blueprint-specific scripts
 │   └── templates/          # Blueprint-specific templates
 │       └── main/           # Main interface templates
-│           ├── README.md     # Templates documentation
-│           ├── about.html    # About page template
-│           ├── base.html     # Base template with layout
-│           ├── cloud.html    # Cloud dashboard template
-│           ├── home.html     # Homepage template
-│           ├── ics.html      # ICS application template
+│           ├── README.md   # Templates documentation
+│           ├── about.html  # About page template
+│           ├── base.html   # Base template with layout
+│           ├── cloud.html  # Cloud dashboard template
+│           ├── home.html   # Homepage template
+│           ├── ics.html    # ICS application template
 │           ├── privacy.html  # Privacy policy page
 │           ├── profile.html  # User profile management
 │           ├── register.html # Account registration interface
 │           ├── security.html # Security practices information
 │           └── terms.html    # Terms of service page
-├── monitoring/             # Monitoring blueprint
-│   ├── README.md           # Monitoring documentation
-│   ├── __init__.py         # Monitoring blueprint initialization
-│   ├── metrics.py          # Metrics collection functionality
-│   └── routes.py           # Monitoring endpoint definitions
-└── admin/                  # Administrative interface blueprint
-    ├── README.md           # Admin documentation
-    ├── __init__.py         # Admin blueprint initialization
-    ├── decorators.py       # Admin-specific decorators
-    ├── forms.py            # Admin form definitions
-    ├── reports.py          # Reporting functionality
-    ├── routes.py           # Admin route definitions
-    ├── utils.py            # Admin utility functions
-    ├── validators.py       # Admin input validation
-    ├── static/             # Admin-specific static files
-    │   ├── css/            # Admin stylesheets
-    │   ├── images/         # Admin images
-    │   └── js/             # Admin scripts
-    └── templates/          # Admin templates
-        └── admin/          # Admin-specific templates
-            ├── README.md      # Admin templates documentation
-            ├── base.html      # Admin base template
-            ├── dashboard.html # Admin dashboard
-            ├── layout.html    # Admin layout template
-            ├── users/         # User management
-            ├── security/      # Security administration
-            ├── system/        # System configuration
-            └── reports/       # Report generation
+└── monitoring/             # Monitoring blueprint
+    ├── README.md           # Monitoring documentation
+    ├── __init__.py         # Monitoring blueprint initialization
+    ├── metrics.py          # Metrics collection functionality
+    └── routes.py           # Monitoring endpoint definitions
 ```
 
 ## Usage
