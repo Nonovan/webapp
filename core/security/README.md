@@ -1,6 +1,6 @@
 # Security Module for Cloud Infrastructure Platform
 
-This directory contains the security module for the Cloud Infrastructure Platform, providing comprehensive security capabilities including authentication, authorization, encryption, integrity checking, audit logging, monitoring, and metrics collection.
+This directory contains the security module for the Cloud Infrastructure Platform, providing comprehensive security capabilities including authentication, authorization, encryption, integrity checking, audit logging, monitoring, metrics collection, and validation.
 
 ## Overview
 
@@ -20,7 +20,7 @@ The security module implements a defense-in-depth security approach with multipl
   - Session management functions
   - IP validation utilities
   - URL validation and security checks
-  - Secure token generation (migrated from core/utils.py)
+  - Secure token generation
 
 - **`cs_authorization.py`**: Permission and access control
   - Role-based permission decorators
@@ -45,8 +45,8 @@ The security module implements a defense-in-depth security approach with multipl
   - AES-GCM encryption implementation
   - URL and filename sanitization
   - Secure key management
-  - Unified hash computation (merged from utils.py)
-  - SRI hash generation (migrated from utils.py)
+  - Unified hash computation
+  - SRI hash generation
   - File hash calculation with various output formats
   - Password hashing and verification
 
@@ -63,8 +63,8 @@ The security module implements a defense-in-depth security approach with multipl
   - Directory traversal prevention
   - Security event logging for violations
   - Redis-based caching of integrity status
-  - Baseline creation and management (migrated from utils.py)
-  - Detection of file changes (migrated from utils.py)
+  - Baseline creation and management
+  - Detection of file changes
   - Integrity status retrieval and reporting
   - Baseline update consideration functionality
   - Additional critical files checking
@@ -116,9 +116,24 @@ The security module implements a defense-in-depth security approach with multipl
   - Security headers management
   - CSP nonce generation
   - Sanitization utilities (path, file operations)
-  - Safe file operation validation (migrated from utils.py)
-  - Directory traversal prevention (migrated from utils.py)
+  - Safe file operation validation
+  - Directory traversal prevention
   - Sensitive data obfuscation
+
+- **`cs_validation.py`**: Input and configuration validation
+  - Password complexity validation
+  - Path security validation
+  - URL and domain validation
+  - Input format validation
+  - File permission validation
+  - Configuration security validation
+  - Email format validation
+  - User input sanitization
+  - Username validation
+  - Hash format validation
+  - IP address validation
+  - UUID format validation
+  - Request security validation
 
 ## Directory Structure
 
@@ -135,6 +150,7 @@ core/security/
 ├── cs_monitoring.py         # Security monitoring functions
 ├── cs_session.py            # Session security management
 ├── cs_utils.py              # Security utility functions
+├── cs_validation.py         # Input validation functions
 └── README.md                # This documentation
 ```
 
@@ -203,49 +219,45 @@ log_debug("Authentication process started")
 from core.security import encrypt_sensitive_data, decrypt_sensitive_data, compute_hash
 
 # Encrypt sensitive data
-encrypted = encrypt_sensitive_data(plaintext)
+encrypted = encrypt_sensitive_data({"ssn": "123-45-6789", "dob": "1980-01-01"})
 
-# Decrypt sensitive data
-plaintext = decrypt_sensitive_data(encrypted)
+# Decrypt previously encrypted data
+decrypted = decrypt_sensitive_data(encrypted)
 
-# Unified hash computation (new method)
-file_hash = compute_hash(file_path="/path/to/file.txt", algorithm="sha256")
-data_hash = compute_hash(data="String to hash", algorithm="sha384", output_format="base64")
-sri_hash = compute_hash(data="Integrity data", algorithm="sha384", output_format="sri")
+# Generate file hash
+file_hash = compute_hash(file_path="/path/to/file", algorithm="sha256")
+
+# Generate hash for data with specific format
+hash_value = compute_hash(
+    data="Text to hash",
+    algorithm="sha384",
+    output_format="base64"  # Options: hex, base64, sri
+)
 ```
 
 ### File Integrity Verification
 
 ```python
-from core.security import check_critical_file_integrity, get_last_integrity_status, update_file_integrity_baseline, create_file_hash_baseline
+from core.security import check_critical_file_integrity, update_file_integrity_baseline
 
-# Create initial baseline for file integrity monitoring
-baseline = create_file_hash_baseline(
-    directory="./",
-    patterns=["*.py", "config/*", "*.json"],
-    output_file="instance/file_baseline.json"
-)
+# Check integrity of critical files
+is_valid, changes = check_critical_file_integrity()
 
-# Check integrity of critical configuration files
-is_intact, changes = check_critical_file_integrity()
-if not is_intact:
-    # Handle integrity violation
+if not is_valid:
     for change in changes:
         if change['severity'] == 'critical':
-            # Handle critical change
-            notify_security_team(change)
-        elif change['status'] == 'world_writable':
-            # Handle permission issues
-            fix_file_permissions(change['path'])
+            # Handle critical changes
+            notify_security_team(f"Critical file changed: {change['path']}")
 
-# Get the latest integrity status report
-status = get_last_integrity_status()
-if status['has_violations']:
-    # Take appropriate action
-    if status['status'] == 'critical':
-        trigger_incident_response()
+        # Log all changes
+        log_security_event(
+            'file_integrity_violation',
+            f"File {change['path']} has been {change['status']}",
+            'warning',
+            details=change
+        )
 
-# Update the integrity baseline with approved changes
+# Update baseline with approved changes
 update_file_integrity_baseline(
     app,
     baseline_path="instance/file_baseline.json",
@@ -341,27 +353,31 @@ else:
 ### Security Metrics and Monitoring
 
 ```python
-from core.security import get_security_metrics, get_threat_intelligence_summary, calculate_risk_score, generate_security_recommendations
+from core.security import (
+    calculate_risk_score, get_security_metrics,
+    get_suspicious_ips, detect_suspicious_activity
+)
 
-# Get comprehensive security metrics
-metrics = get_security_metrics(hours=24)
-risk_score = metrics['risk_score']
+# Get current risk score for the system
+risk_score = calculate_risk_score()
+if risk_score > 70:
+    # High risk detected
+    notify_security_team("High security risk detected", risk_score)
 
-# Calculate risk score from custom metrics
-custom_risk_score = calculate_risk_score(custom_metrics)
+# Get security metrics for dashboard
+metrics = get_security_metrics()
 
-# Get actionable security recommendations
-recommendations = generate_security_recommendations(metrics)
-for rec in recommendations:
-    if rec['priority'] == 'high':
-        # Address high-priority recommendations first
-        create_task(rec['title'], rec['description'])
+# Check for suspicious IPs
+suspicious_ips = get_suspicious_ips(threshold=5)
+for ip in suspicious_ips:
+    # Block suspicious IP addresses
+    block_ip(ip, reason="Suspicious activity detected")
 
-# Get threat intelligence summary
-threat_summary = get_threat_intelligence_summary()
-if threat_summary['overall_threat_level'] == 'critical':
-    # Implement emergency security measures
-    activate_emergency_response(threat_summary['threats'])
+# Detect suspicious user activity
+suspicious_activity = detect_suspicious_activity(user_id=123)
+if suspicious_activity:
+    # Handle suspicious activity
+    require_additional_verification(user_id=123)
 ```
 
 ### Metrics Setup
@@ -379,6 +395,31 @@ def configure_metrics(app):
 
     # Additional metrics configuration
     # ...
+```
+
+### Input Validation
+
+```python
+from core.security import (
+    validate_password_complexity, validate_path_security,
+    is_valid_email, validate_input_against_pattern
+)
+
+# Validate password complexity
+if not validate_password_complexity(password):
+    raise ValueError("Password does not meet complexity requirements")
+
+# Validate file path security
+if not validate_path_security(user_path, base_dir="/app/data"):
+    raise ValueError("Invalid or unsafe file path")
+
+# Validate email format
+if not is_valid_email(email):
+    raise ValueError("Invalid email format")
+
+# Validate input against custom pattern
+if not validate_input_against_pattern(input_value, pattern=r'^[A-Za-z0-9\-_]+$'):
+    raise ValueError("Input contains invalid characters")
 ```
 
 ## Best Practices & Security
@@ -405,6 +446,10 @@ def configure_metrics(app):
 - Verify security dependencies are available during initialization
 - Include context data in security events for better correlation
 - Store only hashed/encrypted sensitive data in monitoring systems
+- Consolidate similar validation functions into `cs_validation.py`
+- Maintain backward compatibility when refactoring
+- Use standard patterns for handling redirects and URL validation
+- Ensure thread safety for shared resources
 
 ## Related Documentation
 
@@ -420,3 +465,5 @@ def configure_metrics(app):
 - Redis Security Cache Documentation
 - Security Monitoring Strategy
 - API Security Best Practices
+- Input Validation Framework
+- Security Constants Reference

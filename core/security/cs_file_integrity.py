@@ -67,6 +67,47 @@ def log_critical(message: str, *args, **kwargs) -> None:
     logger.critical(message, *args, **kwargs)
 
 
+def _create_validation_compatibility_wrapper(func_name: str):
+    """
+    Creates a backward compatibility wrapper that redirects to cs_validation functions.
+
+    This helper function dynamically creates wrapper functions for backward compatibility
+    with functions that have been moved to cs_validation.py. The wrapper issues a
+    deprecation warning and delegates the call to the appropriate function.
+
+    Args:
+        func_name: The name of the function to import from cs_validation
+
+    Returns:
+        A function that wraps the corresponding function from cs_validation
+    """
+    def wrapper(*args, **kwargs):
+        import warnings
+        warnings.warn(
+            f"The function {func_name}() has moved to cs_validation.py. "
+            "Import from core.security.cs_validation instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        # Dynamically import the specific function from cs_validation
+        from importlib import import_module
+        validation_module = import_module('.cs_validation', package='core.security')
+        actual_func = getattr(validation_module, func_name)
+
+        # Call the imported function with the provided arguments
+        return actual_func(*args, **kwargs)
+
+    return wrapper
+
+# Replace individual compatibility wrappers with generated ones
+verify_file_integrity = _create_validation_compatibility_wrapper('verify_file_integrity')
+verify_baseline_update = _create_validation_compatibility_wrapper('verify_baseline_update')
+
+# Add any other validation functions that have been moved
+validate_file_permissions = _create_validation_compatibility_wrapper('validate_file_permissions')
+is_valid_signature = _create_validation_compatibility_wrapper('is_valid_signature')
+
+
 def detect_file_changes(
         basedir: str,
         reference_hashes: Dict[str, str],
@@ -463,82 +504,6 @@ def verify_file_signature(filepath: str) -> bool:
         # If verification fails or is not supported, assume valid
         # to prevent false positives in environments without signature verification
         return True
-
-
-def verify_file_integrity(file_path: str, expected_hash: str, algorithm: str = None) -> Dict[str, Any]:
-    """
-    Verify the integrity of a file by comparing its hash with an expected value.
-
-    Extended version of check_file_integrity that returns more detailed results
-    for compatibility with incident response toolkit.
-
-    Args:
-        file_path: Path to the file to verify
-        expected_hash: Expected hash value to compare against
-        algorithm: Hash algorithm to use (default: based on security config)
-
-    Returns:
-        Dict with verification results containing:
-        - verified: bool - True if integrity check passed
-        - file_path: str - Path that was checked
-        - current_hash: str - Calculated hash of the file
-        - expected_hash: str - Hash that was expected
-        - algorithm: str - Algorithm that was used
-        - timestamp: str - ISO format timestamp when check was performed
-        - error: str - Any error that occurred (only present if there was an error)
-    """
-    result = {
-        "verified": False,
-        "file_path": file_path,
-        "expected_hash": expected_hash,
-        "timestamp": format_timestamp()
-    }
-
-    if not os.path.exists(file_path):
-        result["error"] = "File does not exist"
-        log_warning(f"File does not exist: {file_path}")
-        return result
-
-    try:
-        # Use default hash algorithm from SECURITY_CONFIG if none specified
-        if algorithm is None and has_app_context():
-            algorithm = current_app.config.get(
-                'FILE_HASH_ALGORITHM',
-                SECURITY_CONFIG.get('FILE_HASH_ALGORITHM', 'sha256')
-            )
-        elif algorithm is None:
-            algorithm = DEFAULT_HASH_ALGORITHM
-
-        result["algorithm"] = algorithm
-        current_hash = calculate_file_hash(file_path, algorithm)
-        result["current_hash"] = current_hash
-        result["verified"] = current_hash == expected_hash
-
-        if not result["verified"]:
-            log_warning(f"File integrity check failed for {file_path}")
-            metrics.increment('security.file_integrity.failed')
-        else:
-            log_info(f"File integrity verified for {file_path}")
-            metrics.increment('security.file_integrity.passed')
-
-        return result
-
-    except (IOError, OSError) as e:
-        result["error"] = f"Error reading file: {str(e)}"
-        log_error(f"Error checking file integrity for {file_path}: {e}")
-        metrics.increment('security.file_integrity.error')
-        return result
-
-    except ValueError as e:
-        result["error"] = f"Invalid hash algorithm '{algorithm}': {str(e)}"
-        log_error(f"Invalid hash algorithm '{algorithm}' for {file_path}: {e}")
-        metrics.increment('security.file_integrity.algorithm_error')
-        return result
-
-    except Exception as e:
-        result["error"] = f"Unexpected error: {str(e)}"
-        log_error(f"Unexpected error in verify_file_integrity for {file_path}: {e}")
-        return result
 
 
 def log_file_integrity_event(changes: List[Dict[str, Any]]) -> None:
@@ -1329,57 +1294,6 @@ def create_file_hash_baseline(directory: str, patterns: List[str] = None,
         log_error(f"Error creating file hash baseline: {e}")
         metrics.increment('security.baseline.error')
         return {}
-
-
-def verify_baseline_update(file_path: str, current_hash: str,
-                          expected_hash: str, max_age: int = 86400) -> bool:
-    """
-    Verify if a baseline update for a modified file should be authorized.
-
-    This function implements security checks to determine if an automatic
-    baseline update should be allowed for a file that has changed.
-
-    Args:
-        file_path: Path of the modified file
-        current_hash: Current hash of the file
-        expected_hash: Previously expected hash
-        max_age: Maximum age in seconds for file modifications to be considered
-
-    Returns:
-        bool: True if baseline update is safe, False otherwise
-    """
-    try:
-        # Don't update for certain critical files
-        file_name = os.path.basename(file_path).lower()
-        critical_prefixes = ['security', 'auth', 'crypto', 'password', 'secret', 'key']
-        critical_extensions = ['.key', '.pem', '.crt', '.pub', '.env']
-
-        # Check filename patterns
-        if any(file_name.startswith(prefix) for prefix in critical_prefixes):
-            return False
-
-        if any(file_name.endswith(ext) for ext in critical_extensions):
-            return False
-
-        # Check file modification time
-        try:
-            mtime = os.path.getmtime(file_path)
-            if (time.time() - mtime) > max_age:
-                # File was modified more than max_age ago, don't update automatically
-                return False
-        except OSError:
-            # If we can't get the modification time, be cautious
-            return False
-
-        # Additional checks could be added here:
-        # - Check if file is under version control (git)
-        # - Verify if app deployed from CI/CD pipeline recently
-        # - Check if file is owned by expected user
-
-        return True
-    except Exception as e:
-        log_error(f"Error verifying baseline update for {file_path}: {e}")
-        return False
 
 
 def initialize_file_monitoring(app, basedir: str = None,

@@ -12,6 +12,7 @@ This module provides security-related functionality including:
 - Baseline security management
 - Circuit breakers for failure resilience
 - Rate limiting for resource protection
+- Input and configuration validation
 """
 
 # Version information - increment for significant changes
@@ -154,6 +155,31 @@ from .cs_utils import (
     obfuscate_sensitive_data
 )
 
+# Import validation functions from the new cs_validation module
+from .cs_validation import (
+    validate_password_complexity,
+    validate_password_strength,
+    validate_path_security,
+    validate_path,
+    is_within_directory,
+    is_safe_file_operation,
+    sanitize_path,
+    validate_url,
+    is_valid_domain,
+    is_valid_ip,
+    validate_input_against_pattern,
+    validate_sanitized_input,
+    is_valid_username,
+    is_valid_hash,
+    validate_security_config,
+    validate_file_permissions,
+    verify_file_integrity,
+    verify_baseline_update,
+    is_valid_email,
+    is_valid_uuid,
+    validate_request_security
+)
+
 # Import risk assessment and security metrics functions
 from .cs_metrics import (
     get_security_metrics,
@@ -192,6 +218,7 @@ def init_security():
     - File integrity monitoring
     - Session security
     - Security metrics
+    - Input validation
 
     It should be called during application startup to ensure all security
     systems are properly initialized.
@@ -213,26 +240,6 @@ def init_security():
         INITIALIZED = True
     except Exception as e:
         logger.error(f"Failed to initialize security package: {e}")
-
-def validate_request_security(request=None):
-    """
-    Validate security aspects of an HTTP request.
-
-    This function performs various security checks on the provided request:
-    - CSRF token validation
-    - Content security
-    - Origin validation
-    - Input size and complexity checking
-
-    Args:
-        request: Flask request object, uses current request if None
-
-    Returns:
-        Tuple[bool, str]: (is_valid, reason_if_invalid)
-    """
-    # Implementation would contain validation logic
-    # This is a placeholder
-    return True, "Valid request"
 
 # Initialize automatically when imported
 init_security()
@@ -372,6 +379,19 @@ __all__ = [
     'revoke_all_user_sessions',
     'revoke_session',
     'initialize_session_security',
+
+    # Validation functions (from cs_validation)
+    'validate_password_complexity',
+    'validate_path_security',
+    'validate_path',
+    'validate_input_against_pattern',
+    'validate_sanitized_input',
+    'is_valid_username',
+    'is_valid_domain',
+    'is_valid_hash',
+    'is_valid_email',
+    'is_valid_uuid',
+    'validate_file_permissions',
 
     # Security utility functions
     'initialize_security_components',

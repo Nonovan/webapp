@@ -29,122 +29,42 @@ TokenPayload = Dict[str, Any]
 ValidationResult = Tuple[bool, List[str]]
 
 
-def is_valid_ip(ip: str) -> bool:
+def _create_validation_compatibility_wrapper(func_name: str):
     """
-    Validate if the given string is a valid IP address.
+    Creates a backward compatibility wrapper that redirects to cs_validation functions.
 
     Args:
-        ip: The IP address string to validate.
+        func_name: The name of the function to import from cs_validation
 
     Returns:
-        bool: True if valid, False otherwise.
+        A function that wraps the corresponding function from cs_validation
     """
-    try:
-        ip_address(ip)
-        return True
-    except ValueError:
-        return False
+    def wrapper(*args, **kwargs):
+        import warnings
+        warnings.warn(
+            f"The function {func_name}() has moved to cs_validation.py. "
+            "Import from core.security.cs_validation instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        # Dynamically import the specific function from cs_validation
+        from importlib import import_module
+        validation_module = import_module('.cs_validation', package='core.security')
+        actual_func = getattr(validation_module, func_name)
 
+        # Call the imported function with the provided arguments
+        return actual_func(*args, **kwargs)
 
-def is_valid_domain(domain: str) -> bool:
-    """
-    Validate if the given string is a valid domain name.
+    return wrapper
 
-    This function checks if a string represents a valid domain name
-    by verifying it follows DNS naming rules.
-
-    Args:
-        domain: The domain name string to validate
-
-    Returns:
-        bool: True if valid, False otherwise
-    """
-    if not domain or len(domain) > 253:
-        return False
-
-    # Domain validation pattern
-    # - Allows standard domain names with alphanumeric characters, hyphens, and dots
-    # - Requires at least one dot (for TLD)
-    # - Domain parts must start and end with alphanumeric characters
-    # - Domain parts must be 1-63 characters
-    pattern = r'^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9]$'
-
-    try:
-        if re.match(pattern, domain):
-            # Track successful validation
-            metrics.increment('security.domain_validation_success')
-            return True
-
-        # Track validation failure
-        metrics.increment('security.domain_validation_failure')
-        return False
-    except Exception as e:
-        log_error(f"Error validating domain: {e}")
-        metrics.increment('security.domain_validation_error')
-        return False
-
-
-def is_valid_hash(hash_value: str, algorithm: Optional[str] = None) -> bool:
-    """
-    Validate if the given string is a valid cryptographic hash.
-
-    This function verifies that a string matches the expected format
-    for common cryptographic hash algorithms.
-
-    Args:
-        hash_value: The hash string to validate
-        algorithm: Optional specific algorithm to validate against
-                  (md5, sha1, sha256, sha512)
-
-    Returns:
-        bool: True if valid, False otherwise
-    """
-    if not hash_value:
-        return False
-
-    # Define patterns for common hash algorithms
-    hash_patterns = {
-        'md5': r'^[a-fA-F0-9]{32}$',
-        'sha1': r'^[a-fA-F0-9]{40}$',
-        'sha256': r'^[a-fA-F0-9]{64}$',
-        'sha384': r'^[a-fA-F0-9]{96}$',
-        'sha512': r'^[a-fA-F0-9]{128}$',
-        'blake2b': r'^[a-fA-F0-9]{128}$',
-        'blake2s': r'^[a-fA-F0-9]{64}$'
-    }
-
-    try:
-        # If algorithm is specified, check only that pattern
-        if algorithm:
-            algorithm = algorithm.lower()
-            if algorithm not in hash_patterns:
-                log_warning(f"Unknown hash algorithm specified: {algorithm}")
-                metrics.increment('security.hash_validation_unknown_algorithm')
-                return False
-
-            is_valid = bool(re.match(hash_patterns[algorithm], hash_value))
-
-            if is_valid:
-                metrics.increment('security.hash_validation_success')
-            else:
-                metrics.increment('security.hash_validation_failure')
-
-            return is_valid
-
-        # If no algorithm specified, check against all known patterns
-        for algo, pattern in hash_patterns.items():
-            if re.match(pattern, hash_value):
-                metrics.increment('security.hash_validation_success')
-                return True
-
-        # No matches found
-        metrics.increment('security.hash_validation_failure')
-        return False
-
-    except Exception as e:
-        log_error(f"Error validating hash: {e}")
-        metrics.increment('security.hash_validation_error')
-        return False
+# Create backward compatibility functions
+is_valid_ip = _create_validation_compatibility_wrapper('is_valid_ip')
+is_valid_domain = _create_validation_compatibility_wrapper('is_valid_domain')
+is_valid_hash = _create_validation_compatibility_wrapper('is_valid_hash')
+is_valid_username = _create_validation_compatibility_wrapper('is_valid_username')
+validate_password_strength = _create_validation_compatibility_wrapper('validate_password_strength')
+validate_path = _create_validation_compatibility_wrapper('validate_path')
+validate_url = _create_validation_compatibility_wrapper('validate_url')
 
 
 def verify_token(token: str, secret_key: Optional[str] = None) -> Optional[TokenPayload]:
@@ -226,91 +146,6 @@ def verify_token(token: str, secret_key: Optional[str] = None) -> Optional[Token
         metrics.increment('security.token_verification_error')
         log_error(f'Error verifying token: {e}')
         return None
-
-
-def validate_password_strength(password: str) -> ValidationResult:
-    """
-    Validate password strength against security requirements.
-
-    This function checks passwords against multiple security criteria including
-    length, character types, common patterns, dictionary words, and context-specific
-    terms to ensure strong password selection.
-
-    Args:
-        password: Password to validate
-
-    Returns:
-        Tuple of (bool, List[str]): Success flag and list of failed requirements
-    """
-    min_length = SECURITY_CONFIG.get('MIN_PASSWORD_LENGTH', 12)
-    failed_requirements = []
-
-    # Check length
-    if len(password) < min_length:
-        failed_requirements.append(f"Password must be at least {min_length} characters long")
-
-    # Check for lowercase
-    if not re.search(r'[a-z]', password):
-        failed_requirements.append("Password must include lowercase letters")
-
-    # Check for uppercase
-    if not re.search(r'[A-Z]', password):
-        failed_requirements.append("Password must include uppercase letters")
-
-    # Check for numbers
-    if not re.search(r'[0-9]', password):
-        failed_requirements.append("Password must include numbers")
-
-    # Check for special characters
-    if not re.search(r'[^a-zA-Z0-9]', password):
-        failed_requirements.append("Password must include special characters")
-
-    # Check for common sequential patterns
-    sequential_patterns = ['123456', 'abcdef', 'qwerty', 'password', 'admin', '123123']
-    if any(pattern in password.lower() for pattern in sequential_patterns):
-        failed_requirements.append("Password contains common sequential patterns")
-
-    # Check for repeating characters (3+ in a row)
-    if re.search(r'(.)\1{2,}', password):
-        failed_requirements.append("Password contains repeating characters")
-
-    # Check for common passwords if available
-    if has_app_context() and current_app.config.get('COMMON_PASSWORDS_FILE'):
-        common_passwords_file = current_app.config.get('COMMON_PASSWORDS_FILE')
-        if os.path.exists(common_passwords_file):
-            try:
-                # Use hash to avoid loading the entire file into memory
-                password_hash = hashlib.sha256(password.lower().encode()).hexdigest()
-
-                with open(common_passwords_file, 'r') as f:
-                    for line in f:
-                        line_hash = line.strip()
-                        if line_hash == password_hash:
-                            failed_requirements.append("Password is too common or has been compromised")
-                            break
-            except Exception as e:
-                log_error(f"Error checking common passwords: {e}")
-
-    # Check for common password patterns based on app name or domain
-    if has_app_context():
-        app_name = current_app.config.get('APP_NAME', '').lower()
-        domain = current_app.config.get('APP_DOMAIN', '').lower()
-
-        if app_name and app_name in password.lower():
-            failed_requirements.append("Password contains the application name")
-
-        if domain and domain in password.lower():
-            failed_requirements.append("Password contains the domain name")
-
-    is_valid = len(failed_requirements) == 0
-
-    # Track metrics
-    if is_valid:
-        metrics.increment('security.password_validation_success')
-    else:
-        metrics.increment('security.password_validation_failure')
-
-    return is_valid, failed_requirements
 
 
 def generate_secure_token(length: int = 64, url_safe: bool = True) -> str:
@@ -731,180 +566,6 @@ def _is_api_request() -> bool:
     return False
 
 
-def validate_path(path: str, base_dir: Optional[str] = None, allow_absolute: bool = False) -> bool:
-    """
-    Validate a file path for security concerns like path traversal attacks.
-
-    This function verifies that a file path is secure by checking for directory
-    traversal attempts, ensuring proper path format, and optionally verifying
-    the path stays within a specified base directory.
-
-    Args:
-        path: The file path to validate
-        base_dir: Optional base directory that the path must be within
-        allow_absolute: Whether to allow absolute paths (default: False)
-
-    Returns:
-        bool: True if the path is valid and secure, False otherwise
-
-    Example:
-        >>> validate_path("uploads/file.txt")
-        True
-        >>> validate_path("../etc/passwd")
-        False
-        >>> validate_path("subdir/file.txt", base_dir="/var/uploads")
-        True
-    """
-    if not path:
-        log_warning("Empty path provided for validation")
-        metrics.increment('security.path_validation_failure')
-        return False
-
-    try:
-        # Check for directory traversal attempts
-        if '..' in path.split('/') or '..' in path.split('\\'):
-            log_warning(f"Path traversal attempt detected: {path}")
-            metrics.increment('security.path_traversal_attempt')
-            return False
-
-        # Check for tilde (home directory) expansion
-        if '~' in path:
-            log_warning(f"Home directory expansion attempt detected: {path}")
-            metrics.increment('security.path_validation_failure')
-            return False
-
-        # Check if path is absolute but not allowed
-        if not allow_absolute and (path.startswith('/') or path.startswith('\\')):
-            log_warning(f"Absolute path not allowed: {path}")
-            metrics.increment('security.path_validation_failure')
-            return False
-
-        # If base directory is specified, ensure path stays within it
-        if base_dir:
-            import os
-            # Normalize paths for consistent comparison
-            norm_base = os.path.normpath(os.path.abspath(base_dir))
-
-            # Handle both absolute and relative paths
-            if os.path.isabs(path):
-                norm_path = os.path.normpath(path)
-            else:
-                norm_path = os.path.normpath(os.path.join(norm_base, path))
-
-            # Check if the normalized path starts with the base directory
-            if not norm_path.startswith(norm_base):
-                log_warning(f"Path would escape base directory: {path}")
-                metrics.increment('security.path_validation_failure')
-                return False
-
-        # Path validation passed
-        metrics.increment('security.path_validation_success')
-        return True
-
-    except Exception as e:
-        log_error(f"Error validating path: {e}")
-        metrics.increment('security.path_validation_error')
-        return False
-
-
-def validate_url(url: str, required_schemes: Optional[List[str]] = None) -> Tuple[bool, Optional[str]]:
-    """
-    Validate if the given string is a valid and safe URL.
-
-    This function checks URLs for security concerns including proper format,
-    unsafe schemes, and optionally restricts to specific URI schemes.
-
-    Args:
-        url: The URL string to validate
-        required_schemes: List of allowed schemes (e.g., ['http', 'https'])
-                         If None, common safe schemes are allowed
-
-    Returns:
-        Tuple[bool, Optional[str]]: (is_valid, error_message)
-        - First element is True if valid, False if invalid
-        - Second element contains error message if invalid, None if valid
-
-    Example:
-        >>> validate_url("https://example.com/page")
-        (True, None)
-        >>> validate_url("javascript:alert(1)")
-        (False, "URL uses unsafe scheme: javascript")
-        >>> validate_url("ftp://example.com", required_schemes=["http", "https"])
-        (False, "URL scheme must be one of: http, https")
-    """
-    if not url:
-        metrics.increment('security.url_validation_failure')
-        return False, "URL cannot be empty"
-
-    try:
-        # Try to parse the URL to validate its format
-        from urllib.parse import urlparse
-        parsed = urlparse(url)
-
-        # Check if URL has both scheme and netloc for absolute URLs, or path for relative
-        if not parsed.scheme and not parsed.netloc and not parsed.path:
-            metrics.increment('security.url_validation_failure')
-            return False, "URL is malformed"
-
-        # Block unsafe schemes
-        unsafe_schemes = ['javascript', 'data', 'vbscript', 'file']
-        if parsed.scheme and parsed.scheme.lower() in unsafe_schemes:
-            metrics.increment('security.unsafe_url_blocked')
-            log_warning(f"Blocked unsafe URL scheme: {parsed.scheme}")
-
-            # Log security event if in request context
-            if has_request_context():
-                try:
-                    log_security_event(
-                        event_type="unsafe_url_blocked",
-                        description=f"Blocked unsafe URL scheme: {parsed.scheme}",
-                        severity="warning",
-                        ip_address=request.remote_addr,
-                        details={"url": url[:100]}  # Limit URL length in logs
-                    )
-                except Exception as e:
-                    log_warning(f"Failed to log security event for unsafe URL: {e}")
-
-            return False, f"URL uses unsafe scheme: {parsed.scheme}"
-
-        # If specific schemes are required, enforce them
-        if required_schemes and parsed.scheme:
-            if parsed.scheme.lower() not in [s.lower() for s in required_schemes]:
-                metrics.increment('security.url_validation_failure')
-                schemes_str = ", ".join(required_schemes)
-                return False, f"URL scheme must be one of: {schemes_str}"
-
-        # Check for relative URLs
-        if not parsed.scheme and not parsed.netloc:
-            # For relative URLs, enforce they start with / to prevent path traversal
-            if not parsed.path.startswith('/'):
-                metrics.increment('security.unsafe_path_blocked')
-                return False, "Relative URL must start with /"
-
-        # Additional validation based on project's security policies
-        if SECURITY_CONFIG.get('STRICT_URL_VALIDATION', False):
-            # In strict mode, apply additional rules from config
-            allowed_domains = []
-            if has_app_context():
-                allowed_domains = current_app.config.get('ALLOWED_REDIRECT_DOMAINS', [])
-
-            # If URL has host and we have domain restrictions
-            if parsed.netloc and allowed_domains:
-                host = parsed.netloc.lower()
-                if not any(host == domain.lower() or host.endswith('.' + domain.lower()) for domain in allowed_domains):
-                    metrics.increment('security.url_validation_failure')
-                    return False, "Domain not in allowed list"
-
-        # URL validation passed
-        metrics.increment('security.url_validation_success')
-        return True, None
-
-    except Exception as e:
-        log_error(f"Error validating URL: {e}")
-        metrics.increment('security.url_validation_error')
-        return False, f"Error validating URL: {str(e)}"
-
-
 def is_safe_redirect_url(url: str, allowed_hosts: List[str] = None) -> bool:
     """
     Check if a URL is safe for redirection to prevent open redirects.
@@ -934,59 +595,6 @@ def is_safe_redirect_url(url: str, allowed_hosts: List[str] = None) -> bool:
 
     # If no allowed hosts specified, only allow relative URLs
     return False
-
-
-def is_valid_username(username: str) -> bool:
-    """
-    Validate username format according to security requirements.
-
-    Enforces username rules:
-    - Contains only alphanumerics, dots, hyphens, and underscores
-    - Between 3 and 64 characters
-    - Doesn't consist entirely of non-alphanumeric characters
-    - Not a reserved system name
-
-    Args:
-        username: The username to validate
-
-    Returns:
-        bool: True if valid, False otherwise
-    """
-    if not username or not isinstance(username, str):
-        return False
-
-    # Check length constraints
-    if len(username) < 3 or len(username) > 64:
-        return False
-
-    # Check character constraints - allow letters, numbers, dots, hyphens, underscores
-    pattern = r'^[a-zA-Z0-9._-]+$'
-    if not re.match(pattern, username):
-        return False
-
-    # Don't allow usernames starting or ending with dots or hyphens
-    if username.startswith(('.', '-', '_')) or username.endswith(('.', '-', '_')):
-        return False
-
-    # Check if username consists entirely of non-alphanumeric characters
-    if not any(c.isalnum() for c in username):
-        return False
-
-    # Check for reserved or potentially dangerous usernames
-    reserved_names = ['admin', 'administrator', 'system', 'root', 'superuser',
-                      'anonymous', 'user', 'support', 'security', 'guest',
-                      'test', 'postgres', 'mysql', 'oracle', 'sa', 'sys',
-                      'config', 'default', 'account', 'staff']
-
-    if username.lower() in reserved_names:
-        # Note: In an actual implementation, you might want to have a configuration
-        # option to control whether reserved usernames are allowed
-        # But for validation within a schema, we'll just reject them
-        return False
-
-    # Track successful validation
-    metrics.increment('security.username_validation_success')
-    return True
 
 
 def is_request_secure() -> bool:

@@ -8,7 +8,7 @@ and file integrity settings.
 """
 
 import os
-from typing import Dict, Any, List, Optional, Set
+from typing import Dict, Any, List, Optional, Set, FrozenSet
 
 # Security configuration settings
 SECURITY_CONFIG: Dict[str, Any] = {
@@ -31,6 +31,10 @@ SECURITY_CONFIG: Dict[str, Any] = {
     'PASSWORD_EXPIRY_DAYS': 90,  # Password expiry in days
     'PASSWORD_COMPLEXITY_REQUIRED': True,  # Require complex passwords with mixed characters
     'PASSWORD_BREACH_CHECK': True,  # Check passwords against known breach databases
+    'PASSWORD_COMPLEXITY_UPPERCASE': True,  # Require uppercase characters
+    'PASSWORD_COMPLEXITY_LOWERCASE': True,  # Require lowercase characters
+    'PASSWORD_COMPLEXITY_DIGITS': True,  # Require numeric digits
+    'PASSWORD_COMPLEXITY_SPECIAL': True,  # Require special characters
 
     # Account security
     'MAX_LOGIN_ATTEMPTS': 5,  # Maximum failed login attempts before lockout
@@ -108,6 +112,7 @@ SECURITY_CONFIG: Dict[str, Any] = {
     'API_KEY_LENGTH': 64,  # Length of generated API keys
     'CORS_MAX_AGE': 600,  # Max age for CORS preflight requests (10 minutes)
     'API_REQUIRE_TLS': True,  # Require TLS for all API requests
+    'STRICT_URL_VALIDATION': True,  # Enable strict URL validation
 
     # HTTP security headers
     'SECURITY_HEADERS': {
@@ -153,7 +158,7 @@ SECURITY_CONFIG: Dict[str, Any] = {
     'BREAK_GLASS_ENABLED': True,  # Enable break-glass emergency access
     'BREAK_GLASS_EXPIRY': 4 * 3600,  # Break-glass access expires after 4 hours
 
-    # Request tracking (moved from utils.py)
+    # Request tracking and monitoring
     'REQUEST_ID_LENGTH': 16,  # Length of generated request IDs
     'REQUEST_ID_PREFIX': 'req-',  # Prefix for request IDs
     'REQUEST_ID_INCLUDE_TIMESTAMP': True,  # Include timestamp in request IDs
@@ -161,8 +166,9 @@ SECURITY_CONFIG: Dict[str, Any] = {
     'REQUEST_ID_INCLUDE_PID': True,  # Include process ID in request IDs
     'TRACK_SLOW_REQUESTS': True,  # Track slow requests
     'SLOW_REQUEST_THRESHOLD': 2.0,  # Threshold for slow requests in seconds
+    'MAX_CONTENT_LENGTH': 10 * 1024 * 1024,  # Max content length for requests (10MB)
 
-    # Circuit breaker settings (for external service calls)
+    # Circuit breaker settings
     'CIRCUIT_BREAKER_ENABLED': True,  # Enable circuit breaker pattern
     'CIRCUIT_BREAKER_THRESHOLD': 5,  # Number of failures before opening circuit
     'CIRCUIT_BREAKER_TIMEOUT': 30,  # Time (seconds) before retrying after circuit opens
@@ -175,17 +181,75 @@ FILE_HASH_ALGORITHM = SECURITY_CONFIG.get('FILE_HASH_ALGORITHM')
 MAX_LOGIN_ATTEMPTS = SECURITY_CONFIG.get('MAX_LOGIN_ATTEMPTS')
 REQUEST_ID_PREFIX = SECURITY_CONFIG.get('REQUEST_ID_PREFIX')
 
+#-------------------------------------------------------------------------
+# VALIDATION CONSTANTS - Shared with cs_validation.py
+#-------------------------------------------------------------------------
+
 # Security-sensitive fields for automatic redaction in logs
-SENSITIVE_FIELDS: Set[str] = {
+SENSITIVE_FIELDS: FrozenSet[str] = frozenset({
     'password', 'token', 'secret', 'key', 'auth', 'cred', 'private',
-    'cookie', 'session', 'hash', 'sign', 'certificate', 'salt'
-}
+    'cookie', 'session', 'hash', 'sign', 'certificate', 'salt', 'api_key',
+    'access_token', 'refresh_token', 'id_token', 'csrf', 'ssn', 'account'
+})
+
+# Path validation
+DEFAULT_RESTRICTED_PATHS: List[str] = [
+    '/etc/shadow', '/etc/passwd', '/etc/sudoers',
+    '/etc/ssl/private', '/root', '/var/lib/secrets',
+    '/boot', '/proc', '/sys', '/run', '/dev'
+]
+
+# Path traversal patterns
+PATH_TRAVERSAL_PATTERNS: List[str] = [
+    r'\.\.',        # Directory traversal
+    r'~/',          # Home directory expansion
+    r'\$\{.*\}',    # Variable expansion
+    r'/%00',        # Null byte injection
+    r'/\./',        # Hidden directory access
+]
+
+# Regular expression patterns for common validations
+HOSTNAME_PATTERN = r'^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$'
+IP_ADDRESS_PATTERN = r'^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$'
+EMAIL_PATTERN = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+UUID_PATTERN = r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+SAFE_FILENAME_PATTERN = r'^[a-zA-Z0-9][a-zA-Z0-9\._\-]+$'
+
+# Common security constants
+MIN_PASSWORD_LENGTH = 12
+ALLOWED_JWT_ALGORITHMS = ['HS256', 'RS256', 'ES256']
+UNSAFE_URL_SCHEMES = ['javascript', 'data', 'vbscript', 'file']
+
+# File upload security
+ALLOWED_FILE_EXTENSIONS: FrozenSet[str] = frozenset([
+    '.jpg', '.jpeg', '.png', '.gif', '.pdf', '.txt', '.csv', '.xlsx',
+    '.docx', '.pptx', '.md', '.json', '.xml', '.html', '.css', '.js'
+])
+
+DANGEROUS_FILE_EXTENSIONS: FrozenSet[str] = frozenset([
+    '.exe', '.dll', '.bat', '.cmd', '.ps1', '.sh', '.py', '.php',
+    '.jar', '.vbs', '.msi', '.app', '.dmg', '.deb', '.rpm',
+    '.apk', '.bin', '.pl', '.scr', '.so'
+])
 
 # Default security events severity mapping
 SECURITY_EVENT_SEVERITIES: Dict[str, str] = {
     'authentication_success': 'info',
     'authentication_failure': 'warning',
     'authorization_failure': 'warning',
+    'admin_action': 'info',
+    'configuration_change': 'info',
+    'password_change': 'info',
+    'sensitive_data_access': 'warning',
+    'mfa_required': 'info',
+    'mfa_enabled': 'info',
+    'mfa_disabled': 'warning',
+    'account_locked': 'warning',
+    'session_expired': 'info',
+    'session_regenerated': 'info',
+    'ip_blocked': 'warning',
+    'api_key_created': 'info',
+    'api_key_revoked': 'info',
     'file_integrity_violation': 'error',
     'system_configuration_change': 'info',
     'security_baseline_violation': 'error',
@@ -196,7 +260,11 @@ SECURITY_EVENT_SEVERITIES: Dict[str, str] = {
     'system_startup': 'info',
     'system_shutdown': 'info',
     'baseline_updated': 'info',
-    'baseline_update_failed': 'warning'
+    'baseline_update_failed': 'warning',
+    'unsafe_url_blocked': 'warning',
+    'circuit_breaker_open': 'warning',
+    'path_traversal_attempt': 'error',
+    'security_validation_failure': 'warning'
 }
 
 # Map of services requiring integrity monitoring
@@ -204,10 +272,12 @@ INTEGRITY_MONITORED_SERVICES: Dict[str, List[str]] = {
     'web': ['app.py', 'wsgi.py', 'core/security/*.py', 'core/middleware.py'],
     'api': ['api/*', 'core/security/*.py'],
     'worker': ['worker.py', 'tasks/*', 'core/security/*.py'],
-    'config': ['config/*', 'core/config.py', 'settings.py']
+    'config': ['config/*', 'core/config.py', 'settings.py'],
+    'security': ['core/security/*', 'models/security/*', 'blueprints/admin/*'],
+    'database': ['models/*.py', 'migrations/*']
 }
 
-# File integrity severity classifications (new)
+# File integrity severity classifications
 FILE_INTEGRITY_SEVERITY: Dict[str, str] = {
     'missing': 'high',
     'modified': 'high',
@@ -218,10 +288,13 @@ FILE_INTEGRITY_SEVERITY: Dict[str, str] = {
     'signature_invalid': 'high',
     'recent_change': 'medium',
     'permission_changed': 'medium',
-    'suspicious_content': 'high'
+    'suspicious_content': 'high',
+    'invalid_ownership': 'high',
+    'unexpected_execution_bit': 'high',
+    'timestamp_manipulation': 'high'
 }
 
-# File integrity monitoring priorities (new)
+# File integrity monitoring priorities
 FILE_INTEGRITY_PRIORITIES: Dict[str, int] = {
     'critical': 1,    # Security-critical system files
     'high': 2,        # Important application files
@@ -230,12 +303,14 @@ FILE_INTEGRITY_PRIORITIES: Dict[str, int] = {
     'informational': 5 # Files that only generate informational events
 }
 
-# File extensions considered sensitive from a security perspective (new)
+# File extensions considered sensitive from a security perspective
 SENSITIVE_EXTENSIONS: List[str] = [
-    '.key', '.pem', '.p12', '.pfx', '.keystore', '.jks', '.env', '.secret'
+    '.key', '.pem', '.p12', '.pfx', '.keystore', '.jks', '.env', '.secret',
+    '.cer', '.crt', '.der', '.p7b', '.p7c', '.pkcs12', '.pfx', '.rsa',
+    '.passwd', '.password', '.credentials', '.creds', '.id_rsa', '.id_dsa'
 ]
 
-# Monitored file patterns by priority (new)
+# Monitored file patterns by priority
 MONITORED_FILES_BY_PRIORITY: Dict[str, List[str]] = {
     'critical': [
         'core/security/*.py',
@@ -244,7 +319,9 @@ MONITORED_FILES_BY_PRIORITY: Dict[str, List[str]] = {
         'models/security/*.py',
         'config/security.ini',
         'app.py',
-        'wsgi.py'
+        'wsgi.py',
+        'config/security/*.py',
+        'deployment/security/*.sh'
     ],
     'high': [
         'api/*.py',
@@ -252,17 +329,65 @@ MONITORED_FILES_BY_PRIORITY: Dict[str, List[str]] = {
         'core/*.py',
         'config/*.ini',
         'config/*.json',
-        'config/*.yaml'
+        'config/*.yaml',
+        'blueprints/admin/*.py',
+        'services/security/*.py'
     ],
     'medium': [
         'blueprints/*.py',
         'services/*.py',
         'templates/*.html',
-        'static/js/*.js'
+        'static/js/*.js',
+        'core/utils/*.py',
+        'docs/security/*.md'
     ],
     'low': [
         'static/css/*.css',
         'static/img/*',
-        'docs/*'
+        'docs/*',
+        'tests/unit/*.py',
+        'README.md'
     ]
 }
+
+# Testing related constants
+class TestType:
+    SECURITY = 'security'
+    PERFORMANCE = 'performance'
+    COMPLIANCE = 'compliance'
+    FUNCTIONAL = 'functional'
+    INTEGRATION = 'integration'
+
+class AuthTestType:
+    LOGIN = 'login'
+    LOGOUT = 'logout'
+    REGISTER = 'register'
+    RESET_PASSWORD = 'reset_password'
+    MFA = 'mfa'
+    SESSION = 'session'
+    TOKEN = 'token'
+
+class AccessControlTestType:
+    RBAC = 'rbac'
+    PERMISSION = 'permission'
+    RESOURCE_ACCESS = 'resource_access'
+    OWNER_CHECK = 'owner_check'
+
+class APISecurityTestType:
+    RATE_LIMIT = 'rate_limit'
+    INPUT_VALIDATION = 'input_validation'
+    AUTH_TOKEN = 'auth_token'
+    PARAMETER_TAMPERING = 'parameter_tampering'
+
+class HeaderTestType:
+    CSP = 'content_security_policy'
+    HSTS = 'strict_transport_security'
+    XFRAME = 'x_frame_options'
+    XSS_PROTECTION = 'xss_protection'
+
+class VerificationType:
+    HASH = 'hash'
+    SIGNATURE = 'signature'
+    CHECKSUM = 'checksum'
+    DIGITAL_SIGNATURE = 'digital_signature'
+    HMAC = 'hmac'
