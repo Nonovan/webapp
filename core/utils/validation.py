@@ -17,7 +17,7 @@ import re
 import uuid
 import ipaddress
 from typing import Any, Dict, List, Optional, Tuple, Union, Pattern, Callable
-from bs4 import BeautifulSoup
+from marshmallow import ValidationError
 
 # Common regex patterns for validation
 EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
@@ -25,12 +25,220 @@ URL_REGEX = re.compile(
     r'^https?://'  # http:// or https://
     r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain
     r'localhost|'  # localhost
-    r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # or ipv4
+    r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ip
     r'(?::\d+)?'  # optional port
-    r'(?:/?|[/?]\S+)$', re.IGNORECASE
+    r'(?:/?|[/?]\S+)$'  # optional path, query string
 )
-SLUG_REGEX = re.compile(r'^[a-z0-9]+(?:-[a-z0-9]+)*$')
-UUID_REGEX = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+UUID_REGEX = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
+HOSTNAME_REGEX = re.compile(r'^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$')
+PORT_REGEX = re.compile(r'^([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$')
+
+# Resource ID validation patterns
+AWS_RESOURCE_ID_PATTERN = re.compile(r'^(i-[a-f0-9]{8,17}|vpc-[a-f0-9]{8,17}|subnet-[a-f0-9]{8,17}|ami-[a-f0-9]{8,17}|vol-[a-f0-9]{8,17}|sg-[a-f0-9]{8,17}|rtb-[a-f0-9]{8,17}|igw-[a-f0-9]{8,17}|eni-[a-f0-9]{8,17}|acl-[a-f0-9]{8,17})$')
+AZURE_RESOURCE_ID_PATTERN = re.compile(r'^/subscriptions/[^/]+(/resourceGroups/[^/]+)?(/providers/[^/]+(/[^/]+/[^/]+)?)?$')
+GCP_RESOURCE_ID_PATTERN = re.compile(r'^projects/[^/]+(/[^/]+/[^/]+)*$')
+
+# Service name validation pattern: allow alphanumeric, dashes, underscores, and dots
+SERVICE_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9\-_\.]{1,63}$')
+
+# Region validation patterns for different cloud providers
+AWS_REGION_PATTERN = re.compile(r'^(us|eu|ap|sa|ca|me|af|cn)-(north|south|east|west|central|northeast|northwest|southeast|southwest)-\d+$')
+AZURE_REGION_PATTERN = re.compile(r'^(eastus|eastus2|westus|westus2|centralus|northcentralus|southcentralus|northeurope|westeurope|eastasia|southeastasia|japaneast|japanwest|australiaeast|australiasoutheast|southindia|centralindia|westindia|canadacentral|canadaeast|uksouth|ukwest|westcentralus|westus2|koreacentral|koreasouth|francecentral|francesouth|australiacentral|australiacentral2|uaecentral|uaenorth|southafricanorth|southafricawest|switzerlandnorth|switzerlandwest|germanynorth|germanywestcentral|norwaywest|norwayeast|brazilsouth|brazilsoutheast)$')
+GCP_REGION_PATTERN = re.compile(r'^(asia|europe|us|northamerica|southamerica|australia)-(east|west|north|south|central|northeast|northwest|southeast|southwest)\d+$')
+ONPREM_REGION_PATTERN = re.compile(r'^(datacenter|colo|edge)-[a-zA-Z0-9\-]+$')
+
+
+def is_valid_email(email: str) -> bool:
+    """
+    Check if the provided email address is valid.
+
+    Args:
+        email: Email address to validate
+
+    Returns:
+        True if email is valid, False otherwise
+    """
+    if not email or not isinstance(email, str):
+        return False
+    return bool(EMAIL_REGEX.match(email))
+
+
+def is_valid_url(url: str) -> bool:
+    """
+    Check if the provided URL is valid.
+
+    Args:
+        url: URL to validate
+
+    Returns:
+        True if URL is valid, False otherwise
+    """
+    if not url or not isinstance(url, str):
+        return False
+    return bool(URL_REGEX.match(url))
+
+
+def is_valid_ip_address(ip: str, version: Optional[int] = None) -> bool:
+    """
+    Validate if a string is a valid IPv4 or IPv6 address.
+
+    Args:
+        ip: IP address to validate
+        version: IP version to validate against (4, 6, or None for both)
+
+    Returns:
+        True if valid IP address, False otherwise
+    """
+    if not ip or not isinstance(ip, str):
+        return False
+
+    try:
+        # Try to create an IP address object
+        if version == 4:
+            ipaddress.IPv4Address(ip)
+        elif version == 6:
+            ipaddress.IPv6Address(ip)
+        else:
+            # If no version specified, try both
+            ipaddress.ip_address(ip)
+
+        return True
+    except ValueError:
+        # Invalid IP format
+        return False
+
+
+def is_valid_uuid(value: str, version: int = 4) -> bool:
+    """
+    Check if a string is a valid UUID.
+
+    Args:
+        value: String to check
+        version: UUID version to validate (1, 3, 4, 5)
+
+    Returns:
+        True if valid UUID, False otherwise
+    """
+    if not value or not isinstance(value, str):
+        return False
+
+    try:
+        uuid_obj = uuid.UUID(value, version=version)
+        return str(uuid_obj) == value
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
+def validate_resource_id(resource_id: str) -> str:
+    """
+    Validate that a resource ID matches expected formats for cloud providers.
+
+    This function validates resource IDs against common patterns for AWS, Azure, and GCP.
+
+    Args:
+        resource_id: Resource ID to validate
+
+    Returns:
+        The validated resource ID
+
+    Raises:
+        ValidationError: If resource_id is invalid
+    """
+    if not resource_id:
+        return resource_id
+
+    if not isinstance(resource_id, str):
+        raise ValidationError("Resource ID must be a string")
+
+    # Check if resource ID matches any of the supported patterns
+    if (AWS_RESOURCE_ID_PATTERN.match(resource_id) or
+            AZURE_RESOURCE_ID_PATTERN.match(resource_id) or
+            GCP_RESOURCE_ID_PATTERN.match(resource_id) or
+            is_valid_uuid(resource_id)):
+        return resource_id
+
+    # Allow custom resource IDs with some basic validation
+    if len(resource_id) > 128:
+        raise ValidationError("Resource ID exceeds maximum length of 128 characters")
+
+    if re.search(r'[<>&;]', resource_id):
+        raise ValidationError("Resource ID contains invalid characters")
+
+    return resource_id
+
+
+def validate_service_name(service_name: str) -> str:
+    """
+    Validate that a service name follows the expected naming conventions.
+
+    Args:
+        service_name: Service name to validate
+
+    Returns:
+        The validated service name
+
+    Raises:
+        ValidationError: If service_name is invalid
+    """
+    if not service_name:
+        raise ValidationError("Service name cannot be empty")
+
+    if not isinstance(service_name, str):
+        raise ValidationError("Service name must be a string")
+
+    # Check service name against pattern
+    if not SERVICE_NAME_PATTERN.match(service_name):
+        raise ValidationError("Service name must start with alphanumeric character and contain only alphanumeric characters, hyphens, underscores, and dots")
+
+    # Check for reserved names
+    reserved_names = {"system", "admin", "internal", "security", "platform", "global"}
+    if service_name.lower() in reserved_names:
+        raise ValidationError(f"Service name '{service_name}' is reserved")
+
+    return service_name
+
+
+def validate_region(region: str) -> str:
+    """
+    Validate that a region matches expected formats for cloud providers.
+
+    This function validates regions against common patterns for AWS, Azure, GCP,
+    and on-premises deployments.
+
+    Args:
+        region: Region name to validate
+
+    Returns:
+        The validated region name
+
+    Raises:
+        ValidationError: If region is invalid
+    """
+    if not region:
+        return region
+
+    if not isinstance(region, str):
+        raise ValidationError("Region must be a string")
+
+    # Check if region matches any of the supported patterns
+    if (AWS_REGION_PATTERN.match(region) or
+            AZURE_REGION_PATTERN.match(region) or
+            GCP_REGION_PATTERN.match(region) or
+            ONPREM_REGION_PATTERN.match(region)):
+        return region
+
+    # Allow for global region
+    if region.lower() == "global":
+        return region
+
+    # For custom regions, enforce some basic validation
+    if len(region) > 64:
+        raise ValidationError("Region exceeds maximum length of 64 characters")
+
+    if re.search(r'[<>&;]', region):
+        raise ValidationError("Region contains invalid characters")
+
+    return region
 
 
 def is_valid_dict_keys(obj: Dict, required_keys: List[str]) -> Tuple[bool, Optional[str]]:
@@ -134,59 +342,6 @@ def is_valid_choice(value: Any, choices: List[Any]) -> bool:
         True if valid choice, False otherwise
     """
     return value in choices
-
-
-def is_valid_email(email: str) -> bool:
-    """
-    Check if string is a valid email address.
-
-    Args:
-        email: String to validate as email address
-
-    Returns:
-        True if valid email, False otherwise
-    """
-    if not email or not isinstance(email, str):
-        return False
-
-    return bool(EMAIL_REGEX.match(email))
-
-
-def is_valid_url(url: str) -> bool:
-    """
-    Check if string is a valid URL.
-
-    Args:
-        url: String to validate as URL
-
-    Returns:
-        True if valid URL, False otherwise
-    """
-    if not url or not isinstance(url, str):
-        return False
-
-    return bool(URL_REGEX.match(url))
-
-
-def is_valid_uuid(value: str, version: int = 4) -> bool:
-    """
-    Check if a string is a valid UUID.
-
-    Args:
-        value: String to check
-        version: UUID version to validate (1, 3, 4, 5)
-
-    Returns:
-        True if valid UUID, False otherwise
-    """
-    if not value or not isinstance(value, str):
-        return False
-
-    try:
-        uuid_obj = uuid.UUID(value, version=version)
-        return str(uuid_obj) == value
-    except (ValueError, AttributeError, TypeError):
-        return False
 
 
 def is_valid_numeric(value: str, allow_negative: bool = False, allow_decimal: bool = False) -> bool:
@@ -361,6 +516,8 @@ def sanitize_html(html: str, allowed_tags: List[str] = None) -> str:
     """
     # Import here to avoid requiring these libraries when not needed
     try:
+        from bs4 import BeautifulSoup
+
         if allowed_tags is None:
             # Strip all tags if None provided
             soup = BeautifulSoup(html, "html.parser")
@@ -446,36 +603,6 @@ def validate_dict(data: Dict, schema: Dict[str, Any]) -> Tuple[bool, List[str]]:
         return False, ["Input must be a dictionary"]
 
     return validate_with_schema(data, schema)
-
-
-def is_valid_ip_address(ip: str, version: Optional[int] = None) -> bool:
-    """
-    Validate if a string is a valid IPv4 or IPv6 address.
-
-    Args:
-        ip: IP address to validate
-        version: IP version to validate against (4, 6, or None for both)
-
-    Returns:
-        True if valid IP address, False otherwise
-    """
-    if not ip or not isinstance(ip, str):
-        return False
-
-    try:
-        # Try to create an IP address object
-        if version == 4:
-            ipaddress.IPv4Address(ip)
-        elif version == 6:
-            ipaddress.IPv6Address(ip)
-        else:
-            # If no version specified, try both
-            ipaddress.ip_address(ip)
-
-        return True
-    except ValueError:
-        # Invalid IP format
-        return False
 
 
 def is_valid_hostname(hostname: str, allow_ip: bool = False) -> bool:
@@ -600,15 +727,9 @@ def is_numeric(obj: Any) -> bool:
         return False
 
 
-# Ensure all functions are included in __all__
+# Define the list of exported symbols
 __all__ = [
-    # Regular expression constants
-    'EMAIL_REGEX',
-    'URL_REGEX',
-    'SLUG_REGEX',
-    'UUID_REGEX',
-
-    # Validation functions
+    # Existing functions
     'is_valid_email',
     'is_valid_url',
     'is_valid_ip_address',
@@ -618,10 +739,40 @@ __all__ = [
 
     # Schema validation
     'validate_with_schema',
+    'validate_dict',
+    'validate_password_strength',
 
     # Type checking functions
     'is_iterable',
     'is_mapping',
     'is_sequence',
-    'is_numeric'
+    'is_numeric',
+    'is_valid_numeric',
+    'is_in_range',
+    'is_valid_length',
+    'is_valid_pattern',
+    'is_valid_choice',
+    'is_valid_dict_keys',
+    'normalize_boolean',
+
+    # New functions for alerts module
+    'validate_resource_id',
+    'validate_service_name',
+    'validate_region',
+    'sanitize_html',
+
+    # Regex patterns
+    'EMAIL_REGEX',
+    'URL_REGEX',
+    'UUID_REGEX',
+    'HOSTNAME_REGEX',
+    'PORT_REGEX',
+    'AWS_RESOURCE_ID_PATTERN',
+    'AZURE_RESOURCE_ID_PATTERN',
+    'GCP_RESOURCE_ID_PATTERN',
+    'SERVICE_NAME_PATTERN',
+    'AWS_REGION_PATTERN',
+    'AZURE_REGION_PATTERN',
+    'GCP_REGION_PATTERN',
+    'ONPREM_REGION_PATTERN',
 ]
