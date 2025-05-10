@@ -504,56 +504,137 @@
             const SESSION_TIMEOUT = {{ config.ADMIN_SESSION_TIMEOUT|default (900)
         }}; // 15 minutes
         const WARNING_THRESHOLD = 300; // Show warning 5 minutes before expiry
+        const SESSION_CHECK_INTERVAL = 10000; // Check every 10 seconds
 
-        let sessionTimer;
-        let warningTimer;
-        let lastActivity = Date.now();
+        // Get DOM elements
+        const warningElement = document.getElementById('sessionTimeoutWarning');
+        const timeLeftElement = document.getElementById('sessionTimeLeft');
+        const extendSessionBtn = document.getElementById('extendSessionBtn');
 
-        function resetActivityTimer() {
-            lastActivity = Date.now();
+        // Validate required elements exist
+        if (!warningElement || !timeLeftElement || !extendSessionBtn) {
+            console.error('Session timeout warning elements not found');
+            return;
         }
 
+        let sessionTimer = null;
+        let warningTimer = null;
+        let lastActivity = Date.now();
+        let isWarningDisplayed = false;
+
+        // Reset the activity timer
+        function resetActivityTimer() {
+            lastActivity = Date.now();
+
+            // If warning is displayed, hide it
+            if (isWarningDisplayed) {
+                hideSessionWarning();
+            }
+        }
+
+        // Check session status and show warning if needed
         function checkSessionStatus() {
             const idle = Math.floor((Date.now() - lastActivity) / 1000);
             const remaining = SESSION_TIMEOUT - idle;
 
-            if (remaining <= WARNING_THRESHOLD && remaining > 0) {
+            // Show warning if within warning threshold
+            if (remaining <= WARNING_THRESHOLD && remaining > 0 && !isWarningDisplayed) {
                 showSessionWarning(remaining);
             }
 
+            // Handle session timeout
             if (remaining <= 0) {
-                window.location.href = "{{ url_for('auth.logout') }}?reason=timeout";
+                // Clean up before redirecting
+                clearAllTimers();
+
+                // Redirect to logout with reason parameter
+                try {
+                    window.location.href = "{{ url_for('auth.logout') }}?reason=timeout";
+                } catch (e) {
+                    console.error('Failed to redirect to logout page:', e);
+                    // Fallback logout URL if url_for fails
+                    window.location.href = "/auth/logout?reason=timeout";
+                }
             }
         }
 
+        // Display the session warning with countdown
         function showSessionWarning(secondsRemaining) {
-            const minutes = Math.floor(secondsRemaining / 60);
-            const seconds = secondsRemaining % 60;
+            if (!warningElement || !timeLeftElement) return;
 
-            document.getElementById('sessionTimeLeft').textContent =
-                `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
-            document.getElementById('sessionTimeoutWarning').classList.remove('d-none');
+            isWarningDisplayed = true;
 
-            if (warningTimer) clearInterval(warningTimer);
+            // Format initial time display
+            updateTimeDisplay(secondsRemaining);
+
+            // Show the warning element
+            warningElement.classList.remove('d-none');
+
+            // Clear existing warning timer if any
+            if (warningTimer) {
+                clearInterval(warningTimer);
+                warningTimer = null;
+            }
+
+            // Start countdown timer
             warningTimer = setInterval(function () {
                 const secsLeft = Math.max(0, Math.floor((SESSION_TIMEOUT * 1000 - (Date.now() - lastActivity)) / 1000));
+
+                // Update time display
+                updateTimeDisplay(secsLeft);
+
+                // Stop timer if countdown reached zero
                 if (secsLeft <= 0) {
-                    clearInterval(warningTimer);
-                    return;
+                    if (warningTimer) {
+                        clearInterval(warningTimer);
+                        warningTimer = null;
+                    }
                 }
-                const mins = Math.floor(secsLeft / 60);
-                const secs = secsLeft % 60;
-                document.getElementById('sessionTimeLeft').textContent =
-                    `${mins}:${secs < 10 ? '0' : ''}${secs}`;
             }, 1000);
         }
 
-        function hideSessionWarning() {
-            document.getElementById('sessionTimeoutWarning').classList.add('d-none');
-            if (warningTimer) clearInterval(warningTimer);
+        // Update the time display in mm:ss format
+        function updateTimeDisplay(seconds) {
+            if (!timeLeftElement) return;
+
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            timeLeftElement.textContent = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
         }
 
-        function extendSession() {
+        // Hide the session warning
+        function hideSessionWarning() {
+            if (!warningElement) return;
+
+            warningElement.classList.add('d-none');
+            isWarningDisplayed = false;
+
+            // Clear warning timer
+            if (warningTimer) {
+                clearInterval(warningTimer);
+                warningTimer = null;
+            }
+        }
+
+        // Clear all timers to prevent memory leaks
+        function clearAllTimers() {
+            if (sessionTimer) {
+                clearInterval(sessionTimer);
+                sessionTimer = null;
+            }
+
+            if (warningTimer) {
+                clearInterval(warningTimer);
+                warningTimer = null;
+            }
+        }
+
+        // Extend the session via API call
+        function extendSession(event) {
+            if (event) {
+                event.preventDefault();
+            }
+
             resetActivityTimer();
             hideSessionWarning();
 
@@ -561,40 +642,50 @@
                 method: 'POST'
             })
                 .then(response => {
-                    if (!response.ok) throw new Error('Session extension failed');
+                    if (!response.ok) {
+                        throw new Error('Session extension failed');
+                    }
                     return response.json();
                 })
                 .then(data => {
-                    if (data.success) {
+                    if (data && data.success) {
                         showToast('Session Extended', 'Your session has been extended.', 'success');
                     } else {
-                        showToast('Session Error', data.message || 'Could not extend your session.', 'danger');
+                        const message = data && data.message ? data.message : 'Could not extend your session.';
+                        showToast('Session Error', message, 'danger');
                     }
                 })
                 .catch(error => {
                     console.error('Error extending session:', error);
+                    // Avoid showing error for expected error types
                     if (error.message !== 'Session expired' && error.message !== 'Permission denied') {
                         showToast('Session Error', 'Could not extend your session due to an unexpected issue.', 'danger');
                     }
                 });
         }
 
+        // Register activity listeners with passive flag for better performance
         ['mousemove', 'keydown', 'mousedown', 'touchstart', 'scroll', 'click'].forEach(event => {
             document.addEventListener(event, resetActivityTimer, { passive: true });
         });
 
-        sessionTimer = setInterval(checkSessionStatus, 10000);
+        // Start session timeout checking
+        sessionTimer = setInterval(checkSessionStatus, SESSION_CHECK_INTERVAL);
 
-        document.getElementById('extendSessionBtn').addEventListener('click', function (e) {
-            e.preventDefault();
-            extendSession();
-        });
+        // Add click handler for the extend session button
+        if (extendSessionBtn) {
+            extendSessionBtn.addEventListener('click', extendSession);
+        }
 
+        // Check session when tab becomes visible
         document.addEventListener('visibilitychange', function () {
             if (document.visibilityState === 'visible') {
                 checkSessionStatus();
             }
         });
+
+        // Clean up before page unload to prevent memory leaks
+        window.addEventListener('beforeunload', clearAllTimers);
         });
     </script>
 

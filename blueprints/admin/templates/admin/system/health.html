@@ -39,11 +39,11 @@
                     <div class="card-body text-center">
                         <h6 class="card-title mb-2">System Status</h6>
                         <div class="display-4 mb-2">
-                            <i class="bi bi-{{ health_data.system_status == 'operational' ? 'check-circle-fill text-success' : health_data.system_status == 'degraded' ? 'exclamation-triangle-fill text-warning' : 'x-circle-fill text-danger' }}"
+                            <i class="bi bi-{% if health_data.system_status == 'operational' %}check-circle-fill text-success{% elif health_data.system_status == 'degraded' %}exclamation-triangle-fill text-warning{% else %}x-circle-fill text-danger{% endif %}"
                                 aria-hidden="true"></i>
                         </div>
                         <span
-                            class="badge bg-{{ health_data.system_status == 'operational' ? 'success' : health_data.system_status == 'degraded' ? 'warning' : 'danger' }}">
+                            class="badge bg-{% if health_data.system_status == 'operational' %}success{% elif health_data.system_status == 'degraded' %}warning{% else %}danger{% endif %}">
                             {{ health_data.system_status|default('Unknown')|capitalize }}
                         </span>
                     </div>
@@ -70,8 +70,10 @@
                         <div class="display-6 mb-2">
                             {{ health_data.active_issues|default(0) }}
                         </div>
-                        <span class="badge bg-{{ health_data.active_issues > 0 ? 'warning' : 'success' }}">
-                            {{ health_data.active_issues > 0 ? 'Attention Required' : 'No Issues' }}
+                        <span
+                            class="badge bg-{% if health_data.active_issues|default(0) > 0 %}warning{% else %}success{% endif %}">
+                            {% if health_data.active_issues|default(0) > 0 %}Attention Required{% else %}No Issues{%
+                            endif %}
                         </span>
                     </div>
                 </div>
@@ -81,10 +83,11 @@
                     <div class="card-body text-center">
                         <h6 class="card-title mb-2">Security Status</h6>
                         <div class="display-4 mb-2">
-                            <i class="bi bi-{{ health_data.security_status == 'secure' ? 'shield-check text-success' : 'shield-exclamation text-warning' }}"
+                            <i class="bi bi-{% if health_data.security_status == 'secure' %}shield-check text-success{% else %}shield-exclamation text-warning{% endif %}"
                                 aria-hidden="true"></i>
                         </div>
-                        <span class="badge bg-{{ health_data.security_status == 'secure' ? 'success' : 'warning' }}">
+                        <span
+                            class="badge bg-{% if health_data.security_status == 'secure' %}success{% else %}warning{% endif %}">
                             {{ health_data.security_status|default('Unknown')|capitalize }}
                         </span>
                     </div>
@@ -106,18 +109,18 @@
                 <h6 class="text-muted">CPU Utilization</h6>
                 <div class="d-flex align-items-center">
                     <div style="width: 80%" class="me-3">
-                        <div class="progress" style="height: 20px;">
-                            <div class="progress-bar bg-{{ health_data.cpu_usage > 80 ? 'danger' : health_data.cpu_usage > 60 ? 'warning' : 'success' }}"
+                        <div class="progress" style="height: 20px;" aria-label="CPU usage">
+                            <div class="progress-bar bg-{% if health_data.cpu_usage|default(0) > 80 %}danger{% elif health_data.cpu_usage|default(0) > 60 %}warning{% else %}success{% endif %}"
                                 role="progressbar" style="width: {{ health_data.cpu_usage|default(0) }}%;"
                                 aria-valuenow="{{ health_data.cpu_usage|default(0) }}" aria-valuemin="0"
-                                aria-valuemax="100">
+                                aria-valuemax="100" aria-label="CPU usage: {{ health_data.cpu_usage|default(0) }}%">
                                 {{ health_data.cpu_usage|default(0) }}%
                             </div>
                         </div>
                     </div>
                     <div>
                         <span
-                            class="badge bg-{{ health_data.cpu_usage > 80 ? 'danger' : health_data.cpu_usage > 60 ? 'warning' : 'success' }}">
+                            class="badge bg-{% if health_data.cpu_usage|default(0) > 80 %}danger{% elif health_data.cpu_usage|default(0) > 60 %}warning{% else %}success{% endif %}">
                             {{ health_data.cpu_usage_trend|default('stable') }}
                         </span>
                     </div>
@@ -128,18 +131,19 @@
                 <h6 class="text-muted">Memory Utilization</h6>
                 <div class="d-flex align-items-center">
                     <div style="width: 80%" class="me-3">
-                        <div class="progress" style="height: 20px;">
-                            <div class="progress-bar bg-{{ health_data.memory_usage > 80 ? 'danger' : health_data.memory_usage > 60 ? 'warning' : 'success' }}"
+                        <div class="progress" style="height: 20px;" aria-label="Memory usage">
+                            <div class="progress-bar bg-{% if health_data.memory_usage|default(0) > 80 %}danger{% elif health_data.memory_usage|default(0) > 60 %}warning{% else %}success{% endif %}"
                                 role="progressbar" style="width: {{ health_data.memory_usage|default(0) }}%;"
                                 aria-valuenow="{{ health_data.memory_usage|default(0) }}" aria-valuemin="0"
-                                aria-valuemax="100">
+                                aria-valuemax="100"
+                                aria-label="Memory usage: {{ health_data.memory_usage|default(0) }}%">
                                 {{ health_data.memory_usage|default(0) }}%
                             </div>
                         </div>
                     </div>
                     <div>
                         <span
-                            class="badge bg-{{ health_data.memory_usage > 80 ? 'danger' : health_data.memory_usage > 60 ? 'warning' : 'success' }}">
+                            class="badge bg-{% if health_data.memory_usage|default(0) > 80 %}danger{% elif health_data.memory_usage|default(0) > 60 %}warning{% else %}success{% endif %}">
                             {{ health_data.memory_usage_trend|default('stable') }}
                         </span>
                     </div>
@@ -152,18 +156,18 @@
                 <h6 class="text-muted">Disk Utilization</h6>
                 <div class="d-flex align-items-center">
                     <div style="width: 80%" class="me-3">
-                        <div class="progress" style="height: 20px;">
-                            <div class="progress-bar bg-{{ health_data.disk_usage > 85 ? 'danger' : health_data.disk_usage > 70 ? 'warning' : 'success' }}"
+                        <div class="progress" style="height: 20px;" aria-label="Disk usage">
+                            <div class="progress-bar bg-{% if health_data.disk_usage|default(0) > 85 %}danger{% elif health_data.disk_usage|default(0) > 70 %}warning{% else %}success{% endif %}"
                                 role="progressbar" style="width: {{ health_data.disk_usage|default(0) }}%;"
                                 aria-valuenow="{{ health_data.disk_usage|default(0) }}" aria-valuemin="0"
-                                aria-valuemax="100">
+                                aria-valuemax="100" aria-label="Disk usage: {{ health_data.disk_usage|default(0) }}%">
                                 {{ health_data.disk_usage|default(0) }}%
                             </div>
                         </div>
                     </div>
                     <div>
                         <span
-                            class="badge bg-{{ health_data.disk_usage > 85 ? 'danger' : health_data.disk_usage > 70 ? 'warning' : 'success' }}">
+                            class="badge bg-{% if health_data.disk_usage|default(0) > 85 %}danger{% elif health_data.disk_usage|default(0) > 70 %}warning{% else %}success{% endif %}">
                             {{ health_data.disk_usage_trend|default('stable') }}
                         </span>
                     </div>
@@ -218,12 +222,12 @@
                     </td>
                     <td>
                         <span
-                            class="badge bg-{{ service.status == 'operational' ? 'success' : service.status == 'degraded' ? 'warning' : 'danger' }}">
+                            class="badge bg-{% if service.status == 'operational' %}success{% elif service.status == 'degraded' %}warning{% else %}danger{% endif %}">
                             {{ service.status|capitalize }}
                         </span>
                     </td>
                     <td>
-                        <span class="{{ service.response_time > service.threshold ? 'text-danger' : '' }}">
+                        <span class="{% if service.response_time > service.threshold %}text-danger{% endif %}">
                             {{ service.response_time }} ms
                         </span>
                     </td>
@@ -266,10 +270,11 @@
                         <div class="d-flex align-items-center">
                             <div class="me-3">
                                 <i
-                                    class="bi bi-{{ health_data.db_status == 'healthy' ? 'database-check text-success' : 'database-exclamation text-warning' }} fs-1"></i>
+                                    class="bi bi-{% if health_data.db_status == 'healthy' %}database-check text-success{% else %}database-exclamation text-warning{% endif %} fs-1"></i>
                             </div>
                             <div>
-                                <span class="badge bg-{{ health_data.db_status == 'healthy' ? 'success' : 'warning' }}">
+                                <span
+                                    class="badge bg-{% if health_data.db_status == 'healthy' %}success{% else %}warning{% endif %}">
                                     {{ health_data.db_status|capitalize }}
                                 </span>
                                 <div class="small text-muted">
@@ -287,11 +292,12 @@
                         <div class="text-center">
                             <span class="d-block">{{ health_data.db_active_connections|default(0) }} / {{
                                 health_data.db_max_connections|default(0) }}</span>
-                            <div class="progress my-2">
-                                <div class="progress-bar bg-{{ health_data.db_connection_ratio > 80 ? 'danger' : health_data.db_connection_ratio > 60 ? 'warning' : 'success' }}"
+                            <div class="progress my-2" aria-label="Database connection pool usage">
+                                <div class="progress-bar bg-{% if health_data.db_connection_ratio|default(0) > 80 %}danger{% elif health_data.db_connection_ratio|default(0) > 60 %}warning{% else %}success{% endif %}"
                                     role="progressbar" style="width: {{ health_data.db_connection_ratio|default(0) }}%;"
                                     aria-valuenow="{{ health_data.db_connection_ratio|default(0) }}" aria-valuemin="0"
-                                    aria-valuemax="100">
+                                    aria-valuemax="100"
+                                    aria-label="Connection pool: {{ health_data.db_connection_ratio|default(0) }}%">
                                 </div>
                             </div>
                             <small class="text-muted">Active Connections</small>
@@ -306,7 +312,7 @@
                         <div class="text-center">
                             <span class="d-block">{{ health_data.db_avg_query_time|default(0) }} ms</span>
                             <span
-                                class="badge bg-{{ health_data.db_avg_query_time > 500 ? 'danger' : health_data.db_avg_query_time > 200 ? 'warning' : 'success' }}">
+                                class="badge bg-{% if health_data.db_avg_query_time|default(0) > 500 %}danger{% elif health_data.db_avg_query_time|default(0) > 200 %}warning{% else %}success{% endif %}">
                                 {{ health_data.db_query_performance|default('Good') }}
                             </span>
                             <div class="mt-2 small text-muted">
@@ -323,7 +329,7 @@
                         <div class="text-center">
                             <div class="mb-2">{{ health_data.db_last_backup|default('Never') }}</div>
                             <span
-                                class="badge bg-{{ health_data.db_backup_status == 'current' ? 'success' : 'danger' }}">
+                                class="badge bg-{% if health_data.db_backup_status == 'current' %}success{% else %}danger{% endif %}">
                                 {{ health_data.db_backup_status|capitalize|default('Unknown') }}
                             </span>
                             <div class="mt-2 small text-muted">
@@ -365,7 +371,7 @@
                     <td>{{ event.description }}</td>
                     <td>
                         <span
-                            class="badge rounded-pill bg-{{ event.severity == 'critical' ? 'danger' : event.severity == 'warning' ? 'warning' : event.severity == 'notice' ? 'info' : 'secondary' }}">
+                            class="badge rounded-pill bg-{% if event.severity == 'critical' %}danger{% elif event.severity == 'warning' %}warning{% elif event.severity == 'notice' %}info{% else %}secondary{% endif %}">
                             {{ event.severity|capitalize }}
                         </span>
                     </td>
@@ -402,7 +408,7 @@
                                 {{ check.name }}
                             </h6>
                             <span
-                                class="badge bg-{{ check.status == 'pass' ? 'success' : check.status == 'warn' ? 'warning' : 'danger' }}">
+                                class="badge bg-{% if check.status == 'pass' %}success{% elif check.status == 'warn' %}warning{% else %}danger{% endif %}">
                                 {{ check.status|capitalize }}
                             </span>
                         </div>
@@ -633,8 +639,6 @@
                 showLoading();
                 const response = await secureFetch('/api/admin/system/health/refresh', {
                     method: 'POST'
-                    // Manual headers for 'Content-Type' and 'X-CSRFToken' removed,
-                    // as secureFetch handles them.
                 });
 
                 if (!response.ok) {
@@ -664,7 +668,6 @@
                 try {
                     const response = await secureFetch(`/api/admin/system/health/service-check/${serviceId}`, {
                         method: 'POST'
-                        // Manual headers for 'Content-Type' and 'X-CSRFToken' removed
                     });
 
                     if (!response.ok) {
@@ -711,11 +714,7 @@
                     const serviceData = await response.json();
 
                     // You would typically show this data in a modal
-                    // For now, we'll just show a toast with basic info
                     showToast('Service Details', `${serviceData.name} - ${serviceData.description}`, 'info');
-
-                    // In a real implementation, you'd show a modal with the details
-                    // Example: openServiceDetailsModal(serviceData);
                 } catch (error) {
                     console.error('Error fetching service details:', error);
                     hideLoading();
@@ -736,7 +735,6 @@
                 try {
                     const response = await secureFetch(`/api/admin/system/health/check/${checkId}/run`, {
                         method: 'POST'
-                        // Manual headers for 'Content-Type' and 'X-CSRFToken' removed
                     });
 
                     if (!response.ok) {
@@ -774,7 +772,6 @@
                 showLoading();
                 const response = await secureFetch('/api/admin/system/health/check/run-all', {
                     method: 'POST'
-                    // Manual headers for 'Content-Type' and 'X-CSRFToken' removed
                 });
 
                 if (!response.ok) {
