@@ -4,14 +4,14 @@ This directory contains specialized utility modules that provide reusable functi
 
 ## Contents
 
-- Overview
-- Key Modules
-- Directory Structure
-- Usage Examples
-- Best Practices & Security
-- Common Features
-- Related Documentation
-- Version Information
+- [Overview](#overview)
+- [Key Modules](#key-modules)
+- [Directory Structure](#directory-structure)
+- [Usage Examples](#usage-examples)
+- [Best Practices & Security](#best-practices--security)
+- [Common Features](#common-features)
+- [Related Documentation](#related-documentation)
+- [Version Information](#version-information)
 
 ## Overview
 
@@ -53,6 +53,9 @@ The utility modules provide standardized implementations of common operations ne
   - Format validation (emails, URLs, etc.)
   - Validation pipeline composition
   - Collection type verification
+  - Cloud resource validation (IDs, regions, service names)
+  - HTML content sanitization
+  - Password strength validation
 
 - **`date_time.py`**: Date and time handling utilities
   - Timezone-aware datetime operations
@@ -79,6 +82,9 @@ The utility modules provide standardized implementations of common operations ne
   - File integrity event logging
   - Logger creation and management
   - Module logging initialization
+  - Secure log message handling
+  - Sensitive data masking
+  - Structured logging formatters
 
 ## Directory Structure
 
@@ -152,38 +158,28 @@ metadata = get_file_metadata("/path/to/file.txt")
 ### Collection Utilities
 
 ```python
-from core.utils.collection import (
-    deep_get, deep_set, flatten_dict, group_by, filter_none,
-    unique_by, find_duplicates, chunk_list, filter_empty,
-    filter_dict_by_keys, transform_keys, transform_values,
-    safe_json_serialize
-)
+from core.utils.collection import deep_get, deep_set, merge_dicts, flatten_dict, unflatten_dict
 
-# Safely navigate nested dictionaries
+# Safely access nested dictionary values
 user_name = deep_get(data, "user.profile.name", default="Unknown User")
 
 # Set value in nested structure
 deep_set(config, "security.headers.content_security_policy.enabled", True)
 
-# Flatten nested dictionary to single level
-flat_data = flatten_dict(nested_data, separator=".")
+# Merge multiple dictionaries with customizable behavior
+merged = merge_dicts(dict1, dict2, dict3, deep=True)
 
-# Group items by attribute
-users_by_role = group_by(users, key=lambda user: user.role)
-for role, users in users_by_role.items():
-    print(f"{role}: {len(users)} users")
+# Flatten nested dictionary into dot-notation keys
+flat = flatten_dict(nested_dict)  # {"user.profile.name": "John"}
 
-# Filter out None values from dictionary
-clean_data = filter_none(user_input)
+# Convert flat dictionary back to nested structure
+nested = unflatten_dict(flat_dict)
 
-# Filter out empty values (None, '', [], {}, ()) from dictionary
-clean_data = filter_empty(user_input)
+# Filter dictionary by specific keys
+filtered = filter_dict_by_keys(data, ["id", "name", "email"])
 
-# Filter dictionary to include only specific keys
-filtered_data = filter_dict_by_keys(data, ['id', 'name', 'email'], include=True)
-
-# Safe JSON serialization for complex objects
-json_string = safe_json_serialize(complex_object)
+# Transform dictionary keys
+snake_case_dict = transform_keys(camel_case_dict, camel_to_snake)
 ```
 
 ### Validation Utilities
@@ -192,7 +188,8 @@ json_string = safe_json_serialize(complex_object)
 from core.utils.validation import (
     validate_with_schema, is_valid_email, is_valid_ip_address,
     is_valid_uuid, is_valid_port, is_iterable, is_mapping,
-    is_sequence, is_numeric
+    is_sequence, is_numeric, validate_resource_id,
+    validate_service_name, validate_region
 )
 
 # Validate email format
@@ -218,6 +215,17 @@ if not is_valid:
 if is_valid_ip_address(client_ip):
     # Process valid IP
     pass
+
+# Validate cloud resource identifiers
+try:
+    resource_id = validate_resource_id(input_resource_id)
+    service = validate_service_name(input_service_name)
+    region = validate_region(input_region)
+
+    # Create alert for the validated cloud resource
+    create_resource_alert(resource_id, service, region, alert_details)
+except ValidationError as e:
+    handle_validation_error(e)
 ```
 
 ### Date/Time Utilities
@@ -314,6 +322,10 @@ log_security_event(
 - **Secure Defaults**: Conservative defaults that prioritize security
 - **Atomic Operations**: File operations use atomic patterns to prevent partial writes
 - **Separation of Concerns**: Security-related functions moved to security module
+- **Regex Pattern Constants**: Reusable regex patterns as module constants
+- **Cross-platform Support**: Utilities work on different operating systems
+- **Comprehensive Error Messages**: Clear, detailed error messages for debugging
+- **Reserved Name Validation**: Check for reserved names in service naming
 
 ## Common Features
 
@@ -349,3 +361,12 @@ All utility modules share these common features:
 - Configuration Management Guide
 - Error Handling Standards
 - Coding Standards
+- Cloud Resource Naming Conventions
+- Input Validation Best Practices
+- API Security Guidelines
+
+## Version Information
+
+- v0.0.3: Added cloud resource validation functions (resource_id, service_name, region)
+- v0.0.2: Major restructuring with improved security measures
+- v0.0.1: Initial stable release

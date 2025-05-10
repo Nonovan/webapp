@@ -154,12 +154,18 @@ from .validation import (
     # Schema validation
     validate_with_schema,
     validate_dict,
+    validate_password_strength,
 
     # Input validation
     is_valid_ip_address,
     is_valid_hostname,
     is_valid_port,
     is_valid_uuid,
+
+    # Resource validation functions - needed by API schemas
+    validate_resource_id,
+    validate_service_name,
+    validate_region,
 
     # Range and constraint checking
     is_in_range,
@@ -174,7 +180,27 @@ from .validation import (
     is_iterable,
     is_mapping,
     is_sequence,
-    is_numeric
+    is_numeric,
+    is_valid_numeric,
+    normalize_boolean,
+
+    # HTML sanitization
+    sanitize_html,
+
+    # Pattern constants
+    EMAIL_REGEX,
+    URL_REGEX,
+    UUID_REGEX,
+    HOSTNAME_REGEX,
+    PORT_REGEX,
+    AWS_RESOURCE_ID_PATTERN,
+    AZURE_RESOURCE_ID_PATTERN,
+    GCP_RESOURCE_ID_PATTERN,
+    SERVICE_NAME_PATTERN,
+    AWS_REGION_PATTERN,
+    AZURE_REGION_PATTERN,
+    GCP_REGION_PATTERN,
+    ONPREM_REGION_PATTERN
 )
 
 # Import system utilities
@@ -422,12 +448,18 @@ __all__ = [
     # Validation utilities - schema
     'validate_with_schema',
     'validate_dict',
+    'validate_password_strength',
 
     # Validation utilities - input
     'is_valid_ip_address',
     'is_valid_hostname',
     'is_valid_port',
     'is_valid_uuid',
+    'validate_resource_id',
+    'validate_service_name',
+    'validate_region',
+
+    # Validation utilities - constraints
     'is_in_range',
     'is_valid_length',
     'is_valid_pattern',
@@ -439,6 +471,8 @@ __all__ = [
     'is_mapping',
     'is_sequence',
     'is_numeric',
+    'is_valid_numeric',
+    'normalize_boolean',
 
     # System utilities
     'get_system_resources',
@@ -488,5 +522,19 @@ __all__ = [
     'sanitize_path',
     'is_within_directory',
     'is_safe_file_operation',
-    'obfuscate_sensitive_data',
+
+    # Validation regex patterns
+    'EMAIL_REGEX',
+    'URL_REGEX',
+    'UUID_REGEX',
+    'HOSTNAME_REGEX',
+    'PORT_REGEX',
+    'AWS_RESOURCE_ID_PATTERN',
+    'AZURE_RESOURCE_ID_PATTERN',
+    'GCP_RESOURCE_ID_PATTERN',
+    'SERVICE_NAME_PATTERN',
+    'AWS_REGION_PATTERN',
+    'AZURE_REGION_PATTERN',
+    'GCP_REGION_PATTERN',
+    'ONPREM_REGION_PATTERN',
 ]
