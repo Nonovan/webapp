@@ -26,6 +26,16 @@ The CLI package delivers a comprehensive set of command-line tools for managing 
   - Version information and tracking
   - Core CLI functionality exports
 
+- **`cli_constants.py`**: Centralized constants for CLI operations
+  - Environment definitions
+  - Exit code standards
+  - File and directory paths
+  - Security configuration
+  - Format standards
+  - Command group naming
+  - Default configuration values
+  - Version information
+
 - **`app/`**: Core application management commands
   - Command group organization
   - Database management operations
@@ -55,6 +65,8 @@ The CLI package delivers a comprehensive set of command-line tools for managing 
   - GCP integration commands
   - Kubernetes deployment utilities
   - Provider-agnostic deployment tools
+  - Infrastructure status monitoring
+  - Deployment verification and rollback
 
 ## Directory Structure
 
@@ -62,6 +74,7 @@ The CLI package delivers a comprehensive set of command-line tools for managing 
 cli/
 ├── README.md                # This documentation
 ├── __init__.py              # Package initialization
+├── cli_constants.py         # Centralized CLI constants
 ├── app/                     # Application management commands
 │   ├── README.md            # Application CLI documentation
 │   ├── __init__.py          # Application CLI initialization
@@ -258,47 +271,59 @@ def command_name(option):
 ```python
 try:
     # Operation that might fail
-    result = perform_operation()
+    result = perform_operation(args)
 
-    # Verify operation success
-    if not verify_result(result):
-        raise ValueError("Operation failed verification")
+    # Handle expected failure conditions
+    if not result.success:
+        if result.reason == 'permission_denied':
+            logger.error("Permission denied: %s", result.details)
+            return EXIT_PERMISSION_ERROR
+        elif result.reason == 'resource_not_found':
+            logger.error("Resource not found: %s", result.details)
+            return EXIT_RESOURCE_ERROR
+        else:
+            logger.error("Operation failed: %s", result.details)
+            return EXIT_ERROR
 
+    return EXIT_SUCCESS
+
+except ConnectionError as e:
+    logger.error("Connection error: %s", e)
+    return EXIT_CONNECTIVITY_ERROR
+except TimeoutError as e:
+    logger.error("Operation timed out: %s", e)
+    return EXIT_TIMEOUT_ERROR
 except Exception as e:
-    # Log error with details
-    logger.error("Operation failed: %s", e)
-
-    # Perform necessary cleanup
-    cleanup_resources()
-
-    # Provide user-friendly error message
-    raise click.ClickException(f"Failed to complete operation: {str(e)}")
+    logger.error("Unexpected error: %s", e)
+    return EXIT_ERROR
 ```
 
 ### Authentication Check
 
 ```python
-@require_auth
-def command_requiring_auth():
-    """Command that requires authentication."""
-    # Implementation
-    return EXIT_SUCCESS
-
-# Or explicit check
-if not is_authenticated():
-    click.echo("Authentication required")
-    click.echo("Please login using: flask auth login")
-    return EXIT_AUTH_ERROR
+def requires_auth(f):
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        if not is_authenticated():
+            logger.error("Authentication required")
+            raise click.ClickException("Authentication required")
+        return f(*args, **kwargs)
+    return decorated
 ```
 
 ### Permission Verification
 
 ```python
-@require_permission('resource:action')
-def command_requiring_permission():
-    """Command that requires specific permission."""
-    # Implementation protected by permission decorator
-    return EXIT_SUCCESS
+def require_permission(permission_name):
+    def decorator(f):
+        @functools.wraps(f)
+        def decorated(*args, **kwargs):
+            if not has_permission(permission_name):
+                logger.error("Permission denied: %s required", permission_name)
+                raise click.ClickException(f"Permission denied: {permission_name} required")
+            return f(*args, **kwargs)
+        return decorated
+    return decorator
 ```
 
 ### Confirmation Prompts
