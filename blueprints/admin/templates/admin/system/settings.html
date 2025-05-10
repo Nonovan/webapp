@@ -1,0 +1,429 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}System Settings{% endblock %}
+{% block page_title %}System Configuration{% endblock %}
+
+{% block breadcrumbs %}
+<li class="breadcrumb-item">
+    <a href="{{ url_for('admin.dashboard') }}">Dashboard</a>
+</li>
+<li class="breadcrumb-item active" aria-current="page">System Settings</li>
+{% endblock %}
+
+{% block content %}
+<div class="card shadow-sm">
+    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+        <h5 class="card-title mb-0">Configuration Settings</h5>
+        <span class="badge bg-primary">Environment: {{ config.ENVIRONMENT|default('development')|upper }}</span>
+    </div>
+    <div class="card-body">
+        <form method="post" class="needs-validation" id="systemSettingsForm" novalidate>
+            <!-- CSRF Protection -->
+            {{ form.csrf_token }}
+
+            <!-- Core Settings Section -->
+            <div class="settings-section mb-4">
+                <h6 class="settings-section-header border-bottom pb-2 mb-3">
+                    <i class="bi bi-gear me-2"></i>Core Settings
+                </h6>
+                <div class="row g-3">
+                    <!-- System Name -->
+                    <div class="col-md-6">
+                        <label for="system_name" class="form-label">System Name</label>
+                        <input type="text" class="form-control {% if form.system_name.errors %}is-invalid{% endif %}"
+                            id="system_name" name="system_name" value="{{ form.system_name.data or '' }}" required>
+                        <div class="invalid-feedback">
+                            {% if form.system_name.errors %}
+                            {{ form.system_name.errors[0] }}
+                            {% else %}
+                            System name is required.
+                            {% endif %}
+                        </div>
+                        <div class="form-text">Display name used throughout the application</div>
+                    </div>
+
+                    <!-- System URL -->
+                    <div class="col-md-6">
+                        <label for="system_url" class="form-label">System URL</label>
+                        <input type="url" class="form-control {% if form.system_url.errors %}is-invalid{% endif %}"
+                            id="system_url" name="system_url" value="{{ form.system_url.data or '' }}" required>
+                        <div class="invalid-feedback">
+                            {% if form.system_url.errors %}
+                            {{ form.system_url.errors[0] }}
+                            {% else %}
+                            Please enter a valid URL.
+                            {% endif %}
+                        </div>
+                        <div class="form-text">Public base URL for this application</div>
+                    </div>
+
+                    <!-- Administrator Email -->
+                    <div class="col-md-6">
+                        <label for="admin_email" class="form-label">Administrator Email</label>
+                        <input type="email" class="form-control {% if form.admin_email.errors %}is-invalid{% endif %}"
+                            id="admin_email" name="admin_email" value="{{ form.admin_email.data or '' }}" required>
+                        <div class="invalid-feedback">
+                            {% if form.admin_email.errors %}
+                            {{ form.admin_email.errors[0] }}
+                            {% else %}
+                            Please enter a valid email address.
+                            {% endif %}
+                        </div>
+                        <div class="form-text">Primary contact for system issues</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Security Settings Section -->
+            <div class="settings-section mb-4">
+                <h6 class="settings-section-header border-bottom pb-2 mb-3">
+                    <i class="bi bi-shield-lock me-2"></i>Security Settings
+                </h6>
+                <div class="row g-3">
+                    <!-- Multi-Factor Authentication -->
+                    <div class="col-md-6">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" id="enable_mfa"
+                                name="enable_mfa" value="true" {% if form.enable_mfa.data %}checked{% endif %}>
+                            <label class="form-check-label" for="enable_mfa">Enable Multi-Factor Authentication</label>
+                        </div>
+                        <div class="form-text">Require MFA for all user accounts</div>
+                    </div>
+
+                    <!-- Password Expiry -->
+                    <div class="col-md-6">
+                        <label for="password_expiry_days" class="form-label">Password Expiry (days)</label>
+                        <input type="number"
+                            class="form-control {% if form.password_expiry_days.errors %}is-invalid{% endif %}"
+                            id="password_expiry_days" name="password_expiry_days"
+                            value="{{ form.password_expiry_days.data or '' }}" min="0" max="365">
+                        <div class="invalid-feedback">
+                            {% if form.password_expiry_days.errors %}
+                            {{ form.password_expiry_days.errors[0] }}
+                            {% else %}
+                            Value must be between 0 and 365 (0 disables expiry).
+                            {% endif %}
+                        </div>
+                        <div class="form-text">Set to 0 to disable password expiry</div>
+                    </div>
+
+                    <!-- Session Timeout -->
+                    <div class="col-md-6">
+                        <label for="session_timeout_minutes" class="form-label">Session Timeout (minutes)</label>
+                        <input type="number"
+                            class="form-control {% if form.session_timeout_minutes.errors %}is-invalid{% endif %}"
+                            id="session_timeout_minutes" name="session_timeout_minutes"
+                            value="{{ form.session_timeout_minutes.data or '' }}" min="1" max="1440" required>
+                        <div class="invalid-feedback">
+                            {% if form.session_timeout_minutes.errors %}
+                            {{ form.session_timeout_minutes.errors[0] }}
+                            {% else %}
+                            Value must be between 1 and 1440 (24 hours).
+                            {% endif %}
+                        </div>
+                        <div class="form-text">User session inactivity timeout in minutes</div>
+                    </div>
+
+                    <!-- Admin Session Timeout -->
+                    <div class="col-md-6">
+                        <label for="admin_session_timeout" class="form-label">Admin Session Timeout (minutes)</label>
+                        <input type="number"
+                            class="form-control {% if form.admin_session_timeout.errors %}is-invalid{% endif %}"
+                            id="admin_session_timeout" name="admin_session_timeout"
+                            value="{{ form.admin_session_timeout.data or '' }}" min="1" max="180" required>
+                        <div class="invalid-feedback">
+                            {% if form.admin_session_timeout.errors %}
+                            {{ form.admin_session_timeout.errors[0] }}
+                            {% else %}
+                            Value must be between 1 and 180 minutes.
+                            {% endif %}
+                        </div>
+                        <div class="form-text">Admin interface session timeout (shorter for security)</div>
+                    </div>
+
+                    <!-- Login Attempts -->
+                    <div class="col-md-6">
+                        <label for="login_attempts" class="form-label">Maximum Login Attempts</label>
+                        <input type="number"
+                            class="form-control {% if form.login_attempts.errors %}is-invalid{% endif %}"
+                            id="login_attempts" name="login_attempts" value="{{ form.login_attempts.data or '' }}"
+                            min="1" max="10" required>
+                        <div class="invalid-feedback">
+                            {% if form.login_attempts.errors %}
+                            {{ form.login_attempts.errors[0] }}
+                            {% else %}
+                            Value must be between 1 and 10.
+                            {% endif %}
+                        </div>
+                        <div class="form-text">Number of failed attempts before account lockout</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- File Integrity Section -->
+            <div class="settings-section mb-4">
+                <h6 class="settings-section-header border-bottom pb-2 mb-3">
+                    <i class="bi bi-shield-check me-2"></i>File Integrity
+                </h6>
+                <div class="row g-3">
+                    <!-- File Integrity Check Frequency -->
+                    <div class="col-md-6">
+                        <label for="file_integrity_check_frequency" class="form-label">Check Frequency (minutes)</label>
+                        <input type="number"
+                            class="form-control {% if form.file_integrity_check_frequency.errors %}is-invalid{% endif %}"
+                            id="file_integrity_check_frequency" name="file_integrity_check_frequency"
+                            value="{{ form.file_integrity_check_frequency.data or '' }}" min="5" max="1440" required>
+                        <div class="invalid-feedback">
+                            {% if form.file_integrity_check_frequency.errors %}
+                            {{ form.file_integrity_check_frequency.errors[0] }}
+                            {% else %}
+                            Value must be between 5 and 1440 minutes.
+                            {% endif %}
+                        </div>
+                        <div class="form-text">How often to check critical files for changes</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Notification Settings Section -->
+            <div class="settings-section mb-4">
+                <h6 class="settings-section-header border-bottom pb-2 mb-3">
+                    <i class="bi bi-bell me-2"></i>Notifications
+                </h6>
+                <div class="row g-3">
+                    <!-- Alert Email -->
+                    <div class="col-md-6">
+                        <label for="alert_email" class="form-label">Security Alert Email</label>
+                        <input type="email" class="form-control {% if form.alert_email.errors %}is-invalid{% endif %}"
+                            id="alert_email" name="alert_email" value="{{ form.alert_email.data or '' }}" required>
+                        <div class="invalid-feedback">
+                            {% if form.alert_email.errors %}
+                            {{ form.alert_email.errors[0] }}
+                            {% else %}
+                            Please enter a valid email address.
+                            {% endif %}
+                        </div>
+                        <div class="form-text">Address for critical security notifications</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Audit Settings Section -->
+            <div class="settings-section mb-4">
+                <h6 class="settings-section-header border-bottom pb-2 mb-3">
+                    <i class="bi bi-journal-text me-2"></i>Audit Settings
+                </h6>
+                <div class="row g-3">
+                    <!-- Audit Log Retention -->
+                    <div class="col-md-6">
+                        <label for="audit_retention_days" class="form-label">Audit Log Retention (days)</label>
+                        <input type="number"
+                            class="form-control {% if form.audit_retention_days.errors %}is-invalid{% endif %}"
+                            id="audit_retention_days" name="audit_retention_days"
+                            value="{{ form.audit_retention_days.data or '' }}" min="30" max="3650" required>
+                        <div class="invalid-feedback">
+                            {% if form.audit_retention_days.errors %}
+                            {{ form.audit_retention_days.errors[0] }}
+                            {% else %}
+                            Value must be between 30 and 3650 days.
+                            {% endif %}
+                        </div>
+                        <div class="form-text">How long to keep security audit logs</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Change Reason -->
+            <div class="settings-section mb-4 pt-3 border-top">
+                <div class="row">
+                    <div class="col-12">
+                        <label for="reason" class="form-label">Reason for Change</label>
+                        <textarea class="form-control {% if form.reason.errors %}is-invalid{% endif %}" id="reason"
+                            name="reason" rows="3"
+                            placeholder="Please document your reasons for these configuration changes"
+                            required>{{ form.reason.data or '' }}</textarea>
+                        <div class="invalid-feedback">
+                            {% if form.reason.errors %}
+                            {{ form.reason.errors[0] }}
+                            {% else %}
+                            Please provide a reason for these changes.
+                            {% endif %}
+                        </div>
+                        <div class="form-text">This will be recorded in the audit log</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Security Warning -->
+            <div class="alert alert-warning d-flex align-items-center" role="alert">
+                <i class="bi bi-exclamation-triangle-fill me-2 flex-shrink-0"></i>
+                <div>
+                    <strong>Security Notice:</strong> Changes to system configuration may impact all users and security
+                    controls.
+                    All changes are logged with your administrator credentials in the audit trail.
+                </div>
+            </div>
+
+            <!-- Form Controls -->
+            <div class="d-flex justify-content-between mt-4">
+                <button type="button" class="btn btn-outline-secondary" id="resetForm">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i> Reset Changes
+                </button>
+                <button type="submit" class="btn btn-primary" id="saveSettingsBtn">
+                    <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                    <i class="bi bi-save me-1"></i> Save Configuration
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Configuration History Card -->
+<div class="card shadow-sm mt-4">
+    <div class="card-header bg-light">
+        <h5 class="card-title mb-0">Configuration Change History</h5>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Timestamp</th>
+                    <th>Admin</th>
+                    <th>Changes</th>
+                    <th>Reason</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if config_history %}
+                {% for entry in config_history %}
+                <tr>
+                    <td>{{ entry.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                    <td>{{ entry.admin_username }}</td>
+                    <td>
+                        {% for key in entry.changes %}
+                        <span class="badge bg-info me-1">{{ key }}</span>
+                        {% endfor %}
+                    </td>
+                    <td>{{ entry.reason }}</td>
+                </tr>
+                {% endfor %}
+                {% else %}
+                <tr>
+                    <td colspan="4" class="text-center py-3">No configuration changes recorded</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+    document.addEventListener('DOMContentLoaded', function () {
+        // Store initial form values to detect changes
+        const initialFormValues = new FormData(document.getElementById('systemSettingsForm'));
+        let formChanged = false;
+
+        // Form validation and submission handling
+        const form = document.getElementById('systemSettingsForm');
+        const submitButton = document.getElementById('saveSettingsBtn');
+
+        // Check for form changes
+        form.addEventListener('input', function () {
+            const currentFormValues = new FormData(form);
+            formChanged = false;
+
+            // Compare current values with initial values
+            for (const [key, value] of currentFormValues.entries()) {
+                if (initialFormValues.get(key) !== value) {
+                    formChanged = true;
+                    break;
+                }
+            }
+
+            // Visual indicator for changed form
+            if (formChanged) {
+                submitButton.classList.add('btn-success');
+                submitButton.classList.remove('btn-primary');
+            } else {
+                submitButton.classList.add('btn-primary');
+                submitButton.classList.remove('btn-success');
+            }
+        });
+
+        // Handle form submission with validation
+        form.addEventListener('submit', function (event) {
+            if (!form.checkValidity()) {
+                event.preventDefault();
+                event.stopPropagation();
+            } else if (!formChanged) {
+                event.preventDefault();
+                showToast('No Changes', 'No configuration changes detected.', 'info');
+            } else {
+                // Show loading spinner
+                const spinner = submitButton.querySelector('.spinner-border');
+                if (spinner) {
+                    spinner.classList.remove('d-none');
+                }
+                submitButton.setAttribute('disabled', 'disabled');
+            }
+
+            form.classList.add('was-validated');
+        }, false);
+
+        // Reset form to initial values
+        document.getElementById('resetForm').addEventListener('click', function () {
+            // Confirm reset if there are changes
+            if (formChanged) {
+                if (confirm('Are you sure you want to reset all changes?')) {
+                    form.reset();
+
+                    // Reset form validation state
+                    form.classList.remove('was-validated');
+
+                    // Reset form change indicators
+                    formChanged = false;
+                    submitButton.classList.add('btn-primary');
+                    submitButton.classList.remove('btn-success');
+
+                    showToast('Form Reset', 'Configuration form has been reset.', 'info');
+                }
+            } else {
+                showToast('No Changes', 'No changes to reset.', 'info');
+            }
+        });
+
+        // Confirm before leaving page if there are unsaved changes
+        window.addEventListener('beforeunload', function (event) {
+            if (formChanged) {
+                event.preventDefault();
+                event.returnValue = '';
+            }
+        });
+
+        // Custom toast function (uses existing toast functionality in main template)
+        function showToast(title, message, type) {
+            if (window.showToast) {
+                window.showToast(title, message, type);
+            } else {
+                // Fallback if global function isn't available
+                alert(`${title}: ${message}`);
+            }
+        }
+    });
+</script>
+{% endblock %}
+
+{% block styles %}
+<style>
+    .settings-section-header {
+        color: var(--admin-primary);
+        font-weight: 500;
+    }
+
+    .form-text {
+        font-size: 0.75rem;
+    }
+</style>
+{% endblock %}

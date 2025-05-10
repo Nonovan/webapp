@@ -1,0 +1,999 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}Security Reports{% endblock %}
+{% block page_title %}Security Reporting{% endblock %}
+
+{% block breadcrumbs %}
+<li class="breadcrumb-item">
+    <a href="{{ url_for('admin.dashboard') }}">Dashboard</a>
+</li>
+<li class="breadcrumb-item">
+    <a href="#">Reports</a>
+</li>
+<li class="breadcrumb-item active" aria-current="page">Security</li>
+{% endblock %}
+
+{% block page_actions %}
+<div class="btn-group" role="group">
+    <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="modal"
+        data-bs-target="#generateReportModal">
+        <i class="bi bi-plus-circle me-1"></i> Generate Report
+    </button>
+    <button class="btn btn-sm btn-outline-secondary" type="button" id="refreshReports">
+        <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+    </button>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Security Overview -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light">
+        <h5 class="card-title mb-0">Security Overview</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6 col-lg-3 mb-3">
+                <div class="card h-100 bg-light">
+                    <div class="card-body text-center">
+                        <h6 class="card-title mb-2">Security Score</h6>
+                        <div class="display-6 mb-2">
+                            {% set score = security_metrics.security_score|default(0) %}
+                            <span class="text-{{ score >= 80 ? 'success' : score >= 60 ? 'warning' : 'danger' }}">
+                                {{ score }}%
+                            </span>
+                        </div>
+                        <div class="progress" style="height: 5px;">
+                            <div class="progress-bar bg-{{ score >= 80 ? 'success' : score >= 60 ? 'warning' : 'danger' }}"
+                                role="progressbar" style="width: {{ score }}%;" aria-valuenow="{{ score }}"
+                                aria-valuemin="0" aria-valuemax="100"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-3 mb-3">
+                <div class="card h-100 bg-light">
+                    <div class="card-body text-center">
+                        <h6 class="card-title mb-2">Active Incidents</h6>
+                        <div class="mb-2">
+                            <span
+                                class="badge bg-{{ security_metrics.active_incidents|default(0) > 0 ? 'warning' : 'success' }}">
+                                {{ security_metrics.active_incidents|default(0) }}
+                            </span>
+                        </div>
+                        <small class="text-muted">{{ security_metrics.active_incidents|default(0) > 0 ? 'Action
+                            Required' : 'No Active Incidents' }}</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-3 mb-3">
+                <div class="card h-100 bg-light">
+                    <div class="card-body text-center">
+                        <h6 class="card-title mb-2">Failed Logins (24h)</h6>
+                        <div class="display-6 mb-2">{{ security_metrics.failed_logins|default(0) }}</div>
+                        <span
+                            class="badge bg-{{ security_metrics.failed_logins|default(0) > 50 ? 'danger' : security_metrics.failed_logins|default(0) > 20 ? 'warning' : 'success' }}">
+                            {{ security_metrics.failed_logins|default(0) > 50 ? 'Critical' :
+                            security_metrics.failed_logins|default(0) > 20 ? 'Warning' : 'Normal' }}
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-3 mb-3">
+                <div class="card h-100 bg-light">
+                    <div class="card-body text-center">
+                        <h6 class="card-title mb-2">MFA Adoption</h6>
+                        <div class="mb-2">{{ security_metrics.mfa_adoption|default(0) }}%</div>
+                        <div class="progress" style="height: 5px;">
+                            <div class="progress-bar
+                                bg-{{ security_metrics.mfa_adoption|default(0) >= 80 ? 'success' : security_metrics.mfa_adoption|default(0) >= 60 ? 'warning' : 'danger' }}"
+                                role="progressbar" style="width: {{ security_metrics.mfa_adoption|default(0) }}%;"
+                                aria-valuenow="{{ security_metrics.mfa_adoption|default(0) }}" aria-valuemin="0"
+                                aria-valuemax="100"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-3">
+            <div class="col-md-12">
+                <h6>Key Metrics</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 30%">Metric</th>
+                                <th style="width: 15%">Current Value</th>
+                                <th style="width: 15%">Previous Period</th>
+                                <th style="width: 15%">Change</th>
+                                <th style="width: 25%">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% if security_metrics.key_metrics %}
+                            {% for metric in security_metrics.key_metrics %}
+                            <tr>
+                                <td>
+                                    <strong>{{ metric.name }}</strong>
+                                    <div class="small text-muted">{{ metric.description }}</div>
+                                </td>
+                                <td>{{ metric.current_value }}</td>
+                                <td>{{ metric.previous_value }}</td>
+                                <td>
+                                    {% set change = metric.current_value - metric.previous_value %}
+                                    {% set change_percent = (change / metric.previous_value * 100)|round(1) if
+                                    metric.previous_value else 0 %}
+                                    {% set is_positive = metric.higher_is_better and change > 0 or not
+                                    metric.higher_is_better and change < 0 %} <span
+                                        class="text-{{ is_positive ? 'success' : 'danger' }}">
+                                        {% if change > 0 %}+{% endif %}{{ change_percent }}%
+                                        <i class="bi bi-{{ is_positive ? 'arrow-up' : 'arrow-down' }}"></i>
+                                        </span>
+                                </td>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <div class="progress flex-grow-1" style="height: 5px;">
+                                            <div class="progress-bar
+                                                bg-{{ metric.status == 'good' ? 'success' : metric.status == 'warning' ? 'warning' : 'danger' }}"
+                                                role="progressbar" style="width: {{ metric.completion_percentage }}%;"
+                                                aria-valuenow="{{ metric.completion_percentage }}" aria-valuemin="0"
+                                                aria-valuemax="100"></div>
+                                        </div>
+                                        <span
+                                            class="ms-2 badge bg-{{ metric.status == 'good' ? 'success' : metric.status == 'warning' ? 'warning' : 'danger' }}">
+                                            {{ metric.status|capitalize }}
+                                        </span>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                            {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center py-3">No metrics configured</td>
+                            </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Security Reports -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+        <h5 class="card-title mb-0">Recent Security Reports</h5>
+        <span class="badge bg-secondary">{{ reports.total|default(0) }} Reports</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th scope="col">Report Name</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Period</th>
+                    <th scope="col">Created</th>
+                    <th scope="col">Status</th>
+                    <th scope="col" class="text-center">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if reports and reports.items %}
+                {% for report in reports.items %}
+                <tr>
+                    <td>{{ report.name }}</td>
+                    <td>
+                        <span class="badge text-bg-light">{{ report.report_type }}</span>
+                    </td>
+                    <td class="text-nowrap">
+                        {{ report.period_start.strftime('%Y-%m-%d') }} to {{ report.period_end.strftime('%Y-%m-%d') }}
+                    </td>
+                    <td class="text-nowrap">{{ report.created_at|datetime }}</td>
+                    <td>
+                        <span class="badge rounded-pill
+                            {% if report.status == 'completed' %}bg-success
+                            {% elif report.status == 'generating' %}bg-info
+                            {% elif report.status == 'failed' %}bg-danger
+                            {% elif report.status == 'scheduled' %}bg-warning
+                            {% else %}bg-secondary{% endif %}">
+                            {{ report.status|capitalize }}
+                        </span>
+                    </td>
+                    <td class="text-center">
+                        <div class="btn-group btn-group-sm">
+                            {% if report.is_available %}
+                            <a href="{{ url_for('admin.download_security_report', report_id=report.id) }}"
+                                class="btn btn-outline-primary" title="Download Report">
+                                <i class="bi bi-download"></i>
+                            </a>
+                            {% endif %}
+                            <button type="button" class="btn btn-outline-secondary view-report-details"
+                                data-report-id="{{ report.id }}" data-bs-toggle="modal"
+                                data-bs-target="#reportDetailsModal">
+                                <i class="bi bi-info-circle"></i>
+                            </button>
+                            {% if report.status != 'generating' %}
+                            <button type="button" class="btn btn-outline-danger delete-report-btn"
+                                data-report-id="{{ report.id }}" title="Delete Report">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% else %}
+                <tr>
+                    <td colspan="6" class="text-center py-3">
+                        <i class="bi bi-shield fs-2 text-muted d-block mb-2"></i>
+                        <p class="mb-0">No security reports have been generated yet.</p>
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Pagination -->
+    <div class="card-footer bg-white d-flex justify-content-between align-items-center">
+        <div class="text-muted small">
+            Showing {{ reports.items|length if reports else 0 }} of {{ reports.total if reports else 0 }} reports
+            {% if reports and reports.total > 0 %}
+            (Page {{ reports.page }} of {{ reports.pages }})
+            {% endif %}
+        </div>
+
+        {% if reports and reports.pages > 1 %}
+        <nav aria-label="Report pagination">
+            <ul class="pagination mb-0">
+                <!-- First Page -->
+                <li class="page-item {{ 'disabled' if reports.page == 1 else '' }}">
+                    <a class="page-link" href="{{ url_for('admin.security_reports', page=1, **request.args) }}"
+                        aria-label="First">
+                        <span aria-hidden="true">&laquo;&laquo;</span>
+                    </a>
+                </li>
+
+                <!-- Previous Page -->
+                <li class="page-item {{ 'disabled' if not reports.has_prev else '' }}">
+                    <a class="page-link"
+                        href="{{ url_for('admin.security_reports', page=reports.prev_num, **request.args) if reports.has_prev else '#' }}"
+                        aria-label="Previous">
+                        <span aria-hidden="true">&laquo;</span>
+                    </a>
+                </li>
+
+                <!-- Page Numbers -->
+                {% for page_num in reports.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                {% if page_num %}
+                <li class="page-item {{ 'active' if page_num == reports.page else '' }}">
+                    <a class="page-link" href="{{ url_for('admin.security_reports', page=page_num, **request.args) }}">
+                        {{ page_num }}
+                    </a>
+                </li>
+                {% else %}
+                <li class="page-item disabled">
+                    <span class="page-link">…</span>
+                </li>
+                {% endif %}
+                {% endfor %}
+
+                <!-- Next Page -->
+                <li class="page-item {{ 'disabled' if not reports.has_next else '' }}">
+                    <a class="page-link"
+                        href="{{ url_for('admin.security_reports', page=reports.next_num, **request.args) if reports.has_next else '#' }}"
+                        aria-label="Next">
+                        <span aria-hidden="true">&raquo;</span>
+                    </a>
+                </li>
+
+                <!-- Last Page -->
+                <li class="page-item {{ 'disabled' if reports.page == reports.pages else '' }}">
+                    <a class="page-link"
+                        href="{{ url_for('admin.security_reports', page=reports.pages, **request.args) }}"
+                        aria-label="Last">
+                        <span aria-hidden="true">&raquo;&raquo;</span>
+                    </a>
+                </li>
+            </ul>
+        </nav>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Scheduled Reports -->
+<div class="card shadow-sm">
+    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+        <h5 class="card-title mb-0">Scheduled Reports</h5>
+        <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="modal"
+            data-bs-target="#scheduleReportModal">
+            <i class="bi bi-calendar-plus me-1"></i> Schedule Report
+        </button>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Type</th>
+                    <th scope="col">Frequency</th>
+                    <th scope="col">Last Run</th>
+                    <th scope="col">Next Run</th>
+                    <th scope="col">Status</th>
+                    <th scope="col" class="text-center">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if scheduled_reports %}
+                {% for report in scheduled_reports %}
+                <tr>
+                    <td>{{ report.name }}</td>
+                    <td>
+                        <span class="badge text-bg-light">{{ report.report_type }}</span>
+                    </td>
+                    <td>{{ report.schedule_frequency|capitalize }}</td>
+                    <td class="text-nowrap">{{ report.last_generated_at|datetime|default('Never') }}</td>
+                    <td class="text-nowrap">{{ report.next_run_at|datetime }}</td>
+                    <td>
+                        <span class="badge rounded-pill
+                            {% if report.is_active %}bg-success{% else %}bg-secondary{% endif %}">
+                            {{ 'Active' if report.is_active else 'Inactive' }}
+                        </span>
+                    </td>
+                    <td class="text-center">
+                        <div class="btn-group btn-group-sm">
+                            <button type="button" class="btn btn-outline-secondary edit-schedule-btn"
+                                data-schedule-id="{{ report.id }}" title="Edit Schedule">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary run-now-btn"
+                                data-schedule-id="{{ report.id }}" title="Run Now">
+                                <i class="bi bi-play-fill"></i>
+                            </button>
+                            <button type="button" class="btn btn-outline-danger delete-schedule-btn"
+                                data-schedule-id="{{ report.id }}" title="Delete Schedule">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% else %}
+                <tr>
+                    <td colspan="7" class="text-center py-3">
+                        <i class="bi bi-calendar fs-2 text-muted d-block mb-2"></i>
+                        <p class="mb-0">No scheduled security reports configured.</p>
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Generate Report Modal -->
+<div class="modal fade" id="generateReportModal" tabindex="-1" aria-labelledby="generateReportModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="generateReportModalLabel">Generate Security Report</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post" action="{{ url_for('admin.security_reports') }}" id="generateReportForm">
+                <div class="modal-body">
+                    {{ form.csrf_token }}
+                    <div class="alert alert-info d-flex align-items-center">
+                        <i class="bi bi-info-circle-fill flex-shrink-0 me-2"></i>
+                        <div>
+                            Report generation may take several minutes depending on the data volume and time period
+                            selected.
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Report Name</label>
+                        <input type="text" class="form-control" id="name" name="name"
+                            placeholder="E.g. Monthly Security Posture Report" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="report_type" class="form-label">Report Type</label>
+                        <select class="form-select" id="report_type" name="report_type" required>
+                            <option value="" selected disabled>Select report type</option>
+                            <option value="security_posture">Security Posture</option>
+                            <option value="threat_analysis">Threat Analysis</option>
+                            <option value="access_control">Access Control Review</option>
+                            <option value="authentication">Authentication Events</option>
+                            <option value="incident_summary">Incident Summary</option>
+                            <option value="vulnerability">Vulnerability Assessment</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="period_days" class="form-label">Time Period</label>
+                        <select class="form-select" id="period_days" name="period_days" required>
+                            <option value="7">Last 7 days</option>
+                            <option value="30" selected>Last 30 days</option>
+                            <option value="90">Last 90 days</option>
+                            <option value="180">Last 6 months</option>
+                            <option value="365">Last 12 months</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="format" class="form-label">Report Format</label>
+                        <select class="form-select" id="format" name="format" required>
+                            <option value="pdf" selected>PDF Document</option>
+                            <option value="html">HTML Document</option>
+                            <option value="json">JSON Data</option>
+                            <option value="csv">CSV Data</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="include_metrics" name="include_metrics"
+                                checked>
+                            <label class="form-check-label" for="include_metrics">Include Security Metrics</label>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="include_incidents"
+                                name="include_incidents" checked>
+                            <label class="form-check-label" for="include_incidents">Include Security Incidents</label>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="include_trends" name="include_trends"
+                                checked>
+                            <label class="form-check-label" for="include_trends">Include Trend Analysis</label>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="include_recommendations"
+                                name="include_recommendations" checked>
+                            <label class="form-check-label" for="include_recommendations">Include
+                                Recommendations</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="generateBtn">
+                        <i class="bi bi-file-earmark-bar-graph me-1"></i> Generate Report
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Schedule Report Modal -->
+<div class="modal fade" id="scheduleReportModal" tabindex="-1" aria-labelledby="scheduleReportModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="scheduleReportModalLabel">Schedule Recurring Report</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post" action="{{ url_for('admin.schedule_security_report') }}" id="scheduleReportForm">
+                <div class="modal-body">
+                    {{ form.csrf_token }}
+                    <div class="mb-3">
+                        <label for="schedule_name" class="form-label">Schedule Name</label>
+                        <input type="text" class="form-control" id="schedule_name" name="schedule_name"
+                            placeholder="E.g. Weekly Security Posture Report" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="schedule_report_type" class="form-label">Report Type</label>
+                        <select class="form-select" id="schedule_report_type" name="schedule_report_type" required>
+                            <option value="security_posture" selected>Security Posture</option>
+                            <option value="threat_analysis">Threat Analysis</option>
+                            <option value="access_control">Access Control Review</option>
+                            <option value="authentication">Authentication Events</option>
+                            <option value="incident_summary">Incident Summary</option>
+                            <option value="vulnerability">Vulnerability Assessment</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="schedule_frequency" class="form-label">Frequency</label>
+                        <select class="form-select" id="schedule_frequency" name="schedule_frequency" required>
+                            <option value="daily">Daily</option>
+                            <option value="weekly" selected>Weekly</option>
+                            <option value="monthly">Monthly</option>
+                            <option value="quarterly">Quarterly</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3" id="weekdaySelectContainer">
+                        <label for="schedule_weekday" class="form-label">Day of Week</label>
+                        <select class="form-select" id="schedule_weekday" name="schedule_weekday">
+                            <option value="0">Monday</option>
+                            <option value="1">Tuesday</option>
+                            <option value="2">Wednesday</option>
+                            <option value="3">Thursday</option>
+                            <option value="4">Friday</option>
+                            <option value="5">Saturday</option>
+                            <option value="6">Sunday</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3" id="monthlyDaySelectContainer" style="display: none;">
+                        <label for="schedule_day" class="form-label">Day of Month</label>
+                        <select class="form-select" id="schedule_day" name="schedule_day">
+                            {% for day in range(1, 29) %}
+                            <option value="{{ day }}" {{ 'selected' if day==1 else '' }}>{{ day }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="schedule_period" class="form-label">Reporting Period</label>
+                        <select class="form-select" id="schedule_period" name="schedule_period" required>
+                            <option value="7" selected>Last 7 days</option>
+                            <option value="30">Last 30 days</option>
+                            <option value="90">Last 90 days</option>
+                            <option value="last">Last day</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="schedule_format" class="form-label">Report Format</label>
+                        <select class="form-select" id="schedule_format" name="schedule_format" required>
+                            <option value="pdf" selected>PDF Document</option>
+                            <option value="html">HTML Document</option>
+                            <option value="json">JSON Data</option>
+                            <option value="csv">CSV Data</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="schedule_active" name="schedule_active"
+                                checked>
+                            <label class="form-check-label" for="schedule_active">Active</label>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="schedule_notification"
+                                name="schedule_notification" checked>
+                            <label class="form-check-label" for="schedule_notification">Send email notification</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="scheduleBtn">
+                        <i class="bi bi-calendar-check me-1"></i> Schedule Report
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Report Details Modal -->
+<div class="modal fade" id="reportDetailsModal" tabindex="-1" aria-labelledby="reportDetailsModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="reportDetailsModalLabel">Report Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <strong>Report Name:</strong> <span id="detail-name"></span>
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Report Type:</strong> <span id="detail-type"></span>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <strong>Created Date:</strong> <span id="detail-created"></span>
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Completed Date:</strong> <span id="detail-completed"></span>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <strong>Period:</strong> <span id="detail-period"></span>
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Format:</strong> <span id="detail-format"></span>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <strong>Status:</strong> <span id="detail-status"></span>
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Download Count:</strong> <span id="detail-downloads"></span>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-12">
+                        <strong>Notes:</strong>
+                        <p id="detail-notes" class="mb-0"></p>
+                    </div>
+                </div>
+
+                <div class="mt-3" id="error-container" style="display: none;">
+                    <h6 class="text-danger">Error Information</h6>
+                    <div class="alert alert-danger">
+                        <p id="detail-error" class="mb-0"></p>
+                    </div>
+                </div>
+
+                <div class="mt-3" id="summary-container" style="display: none;">
+                    <h6>Report Summary</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Category</th>
+                                    <th>Total Issues</th>
+                                    <th>Critical</th>
+                                    <th>High</th>
+                                    <th>Medium/Low</th>
+                                </tr>
+                            </thead>
+                            <tbody id="summary-table-body">
+                                <!-- Dynamically populated -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <a href="#" id="detail-download-link" class="btn btn-primary" style="display: none;">
+                    <i class="bi bi-download me-1"></i> Download Report
+                </a>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Report Confirmation Modal -->
+<div class="modal fade" id="deleteReportModal" tabindex="-1" aria-labelledby="deleteReportModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deleteReportModalLabel">Confirm Delete</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning d-flex align-items-center">
+                    <i class="bi bi-exclamation-triangle-fill flex-shrink-0 me-2"></i>
+                    <div>
+                        Are you sure you want to delete this report? This action cannot be undone.
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form method="post" action="{{ url_for('admin.delete_security_report') }}" id="deleteReportForm">
+                    {{ form.csrf_token }}
+                    <input type="hidden" name="report_id" id="delete_report_id">
+                    <button type="submit" class="btn btn-danger">Delete Report</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Schedule Confirmation Modal -->
+<div class="modal fade" id="deleteScheduleModal" tabindex="-1" aria-labelledby="deleteScheduleModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="deleteScheduleModalLabel">Confirm Delete</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning d-flex align-items-center">
+                    <i class="bi bi-exclamation-triangle-fill flex-shrink-0 me-2"></i>
+                    <div>
+                        Are you sure you want to delete this scheduled report? This action cannot be undone.
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form method="post" action="{{ url_for('admin.delete_security_schedule') }}" id="deleteScheduleForm">
+                    {{ form.csrf_token }}
+                    <input type="hidden" name="schedule_id" id="delete_schedule_id">
+                    <button type="submit" class="btn btn-danger">Delete Schedule</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+    document.addEventListener('DOMContentLoaded', function () {
+        // Refresh button
+        document.getElementById('refreshReports').addEventListener('click', function () {
+            showLoading();
+            window.location.reload();
+        });
+
+        // Handle frequency change in schedule form
+        document.getElementById('schedule_frequency').addEventListener('change', function () {
+            const weekdayContainer = document.getElementById('weekdaySelectContainer');
+            const monthlyContainer = document.getElementById('monthlyDaySelectContainer');
+
+            switch (this.value) {
+                case 'daily':
+                    weekdayContainer.style.display = 'none';
+                    monthlyContainer.style.display = 'none';
+                    break;
+                case 'weekly':
+                    weekdayContainer.style.display = 'block';
+                    monthlyContainer.style.display = 'none';
+                    break;
+                case 'monthly':
+                case 'quarterly':
+                    weekdayContainer.style.display = 'none';
+                    monthlyContainer.style.display = 'block';
+                    break;
+            }
+        });
+
+        // Generate report form submission
+        const generateReportForm = document.getElementById('generateReportForm');
+        if (generateReportForm) {
+            generateReportForm.addEventListener('submit', function () {
+                const generateBtn = document.getElementById('generateBtn');
+                generateBtn.disabled = true;
+                generateBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Generating...';
+            });
+        }
+
+        // Schedule report form submission
+        const scheduleReportForm = document.getElementById('scheduleReportForm');
+        if (scheduleReportForm) {
+            scheduleReportForm.addEventListener('submit', function () {
+                const scheduleBtn = document.getElementById('scheduleBtn');
+                scheduleBtn.disabled = true;
+                scheduleBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Scheduling...';
+            });
+        }
+
+        // View report details
+        document.querySelectorAll('.view-report-details').forEach(button => {
+            button.addEventListener('click', async function () {
+                const reportId = this.getAttribute('data-report-id');
+                try {
+                    showLoading();
+                    const response = await secureFetch(`/api/admin/reports/security/${reportId}`);
+                    hideLoading();
+
+                    if (response.ok) {
+                        const report = await response.json();
+
+                        // Populate modal with report details
+                        document.getElementById('detail-name').textContent = report.name;
+                        document.getElementById('detail-type').textContent = report.report_type.replace('_', ' ')
+                            .split(' ')
+                            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                            .join(' ');
+                        document.getElementById('detail-created').textContent = new Date(report.created_at).toLocaleString();
+                        document.getElementById('detail-completed').textContent = report.completed_at ?
+                            new Date(report.completed_at).toLocaleString() : 'Not completed';
+                        document.getElementById('detail-period').textContent =
+                            `${new Date(report.period_start).toLocaleDateString()} to ${new Date(report.period_end).toLocaleDateString()}`;
+                        document.getElementById('detail-format').textContent = report.format.toUpperCase();
+
+                        // Format status with badge
+                        let statusClass = '';
+                        switch (report.status) {
+                            case 'completed': statusClass = 'text-bg-success'; break;
+                            case 'generating': statusClass = 'text-bg-info'; break;
+                            case 'failed': statusClass = 'text-bg-danger'; break;
+                            default: statusClass = 'text-bg-secondary';
+                        }
+                        document.getElementById('detail-status').innerHTML =
+                            `<span class="badge ${statusClass}">${report.status.charAt(0).toUpperCase() + report.status.slice(1)}</span>`;
+
+                        document.getElementById('detail-downloads').textContent = report.download_count;
+                        document.getElementById('detail-notes').textContent = report.notes || 'No notes provided';
+
+                        // Handle errors if present
+                        const errorContainer = document.getElementById('error-container');
+                        if (report.status === 'failed' && report.completion_notes) {
+                            errorContainer.style.display = 'block';
+                            document.getElementById('detail-error').textContent = report.completion_notes;
+                        } else {
+                            errorContainer.style.display = 'none';
+                        }
+
+                        // Handle report summary if available
+                        const summaryContainer = document.getElementById('summary-container');
+                        if (report.status === 'completed' && report.metadata && report.metadata.summary) {
+                            summaryContainer.style.display = 'block';
+                            const summaryBody = document.getElementById('summary-table-body');
+                            summaryBody.innerHTML = '';
+
+                            // Add summary rows
+                            for (const category in report.metadata.summary) {
+                                const data = report.metadata.summary[category];
+                                const row = document.createElement('tr');
+
+                                row.innerHTML = `
+                                    <td>${category}</td>
+                                    <td>${data.total}</td>
+                                    <td class="text-danger">${data.critical}</td>
+                                    <td class="text-warning">${data.high}</td>
+                                    <td>${data.medium + data.low}</td>
+                                `;
+                                summaryBody.appendChild(row);
+                            }
+                        } else {
+                            summaryContainer.style.display = 'none';
+                        }
+
+                        // Show/hide download link
+                        const downloadLink = document.getElementById('detail-download-link');
+                        if (report.is_available) {
+                            downloadLink.style.display = 'inline-block';
+                            downloadLink.href = `/admin/reports/security/${reportId}/download`;
+                        } else {
+                            downloadLink.style.display = 'none';
+                        }
+                    } else {
+                        showToast('Error', 'Failed to load report details', 'danger');
+                    }
+                } catch (error) {
+                    hideLoading();
+                    console.error('Error loading report details:', error);
+                    showToast('Error', 'An unexpected error occurred', 'danger');
+                }
+            });
+        });
+
+        // Delete report button handling
+        document.querySelectorAll('.delete-report-btn').forEach(button => {
+            button.addEventListener('click', function () {
+                const reportId = this.getAttribute('data-report-id');
+                document.getElementById('delete_report_id').value = reportId;
+                const modal = new bootstrap.Modal(document.getElementById('deleteReportModal'));
+                modal.show();
+            });
+        });
+
+        // Delete schedule button handling
+        document.querySelectorAll('.delete-schedule-btn').forEach(button => {
+            button.addEventListener('click', function () {
+                const scheduleId = this.getAttribute('data-schedule-id');
+                document.getElementById('delete_schedule_id').value = scheduleId;
+                const modal = new bootstrap.Modal(document.getElementById('deleteScheduleModal'));
+                modal.show();
+            });
+        });
+
+        // Edit schedule button handling
+        document.querySelectorAll('.edit-schedule-btn').forEach(button => {
+            button.addEventListener('click', async function () {
+                const scheduleId = this.getAttribute('data-schedule-id');
+                try {
+                    showLoading();
+                    const response = await secureFetch(`/api/admin/reports/security/schedules/${scheduleId}`);
+                    hideLoading();
+
+                    if (response.ok) {
+                        const schedule = await response.json();
+
+                        // Populate form with schedule details
+                        document.getElementById('schedule_name').value = schedule.name;
+                        document.getElementById('schedule_report_type').value = schedule.report_type;
+                        document.getElementById('schedule_frequency').value = schedule.schedule_frequency;
+                        document.getElementById('schedule_period').value = schedule.period_days.toString();
+                        document.getElementById('schedule_format').value = schedule.format;
+                        document.getElementById('schedule_active').checked = schedule.is_active;
+                        document.getElementById('schedule_notification').checked = schedule.send_notification;
+
+                        // Handle frequency-specific controls
+                        if (schedule.schedule_frequency === 'weekly' && schedule.schedule_params.weekday !== undefined) {
+                            document.getElementById('weekdaySelectContainer').style.display = 'block';
+                            document.getElementById('monthlyDaySelectContainer').style.display = 'none';
+                            document.getElementById('schedule_weekday').value = schedule.schedule_params.weekday;
+                        } else if (['monthly', 'quarterly'].includes(schedule.schedule_frequency) &&
+                            schedule.schedule_params.day !== undefined) {
+                            document.getElementById('weekdaySelectContainer').style.display = 'none';
+                            document.getElementById('monthlyDaySelectContainer').style.display = 'block';
+                            document.getElementById('schedule_day').value = schedule.schedule_params.day;
+                        } else {
+                            document.getElementById('weekdaySelectContainer').style.display = 'none';
+                            document.getElementById('monthlyDaySelectContainer').style.display = 'none';
+                        }
+
+                        // Update form action to update endpoint
+                        const form = document.getElementById('scheduleReportForm');
+                        form.action = `/admin/reports/security/schedules/${scheduleId}/update`;
+
+                        // Update modal title and button
+                        document.getElementById('scheduleReportModalLabel').textContent = 'Edit Scheduled Report';
+                        document.getElementById('scheduleBtn').innerHTML = '<i class="bi bi-save me-1"></i> Update Schedule';
+
+                        // Show modal
+                        const modal = new bootstrap.Modal(document.getElementById('scheduleReportModal'));
+                        modal.show();
+                    } else {
+                        const data = await response.json();
+                        showToast('Error', data.message || 'Failed to load schedule details', 'danger');
+                    }
+                } catch (error) {
+                    console.error('Error fetching schedule details:', error);
+                    hideLoading();
+                    showToast('Error', 'An unexpected error occurred', 'danger');
+                }
+            });
+        });
+
+        // Run now button handling
+        document.querySelectorAll('.run-now-btn').forEach(button => {
+            button.addEventListener('click', async function () {
+                const scheduleId = this.getAttribute('data-schedule-id');
+                if (confirm('Run this scheduled report now?')) {
+                    try {
+                        showLoading();
+                        const response = await secureFetch(`/api/admin/reports/security/schedules/${scheduleId}/run-now`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                            }
+                        });
+                        hideLoading();
+
+                        if (response.ok) {
+                            showToast('Success', 'Report generation started', 'success');
+                            // Wait 2 seconds before refreshing to allow the backend to start processing
+                            setTimeout(() => {
+                                location.reload();
+                            }, 2000);
+                        } else {
+                            const data = await response.json();
+                            showToast('Error', data.message || 'Failed to run report', 'danger');
+                        }
+                    } catch (error) {
+                        hideLoading();
+                        console.error('Error running report:', error);
+                        showToast('Error', 'An unexpected error occurred', 'danger');
+                    }
+                }
+            });
+        });
+    });
+</script>
+
+<style>
+    /* Custom styles for this page */
+    .card-body .progress {
+        height: 5px;
+    }
+</style>
+{% endblock %}

@@ -1,0 +1,862 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}System Health{% endblock %}
+{% block page_title %}System Health Monitoring{% endblock %}
+
+{% block breadcrumbs %}
+<li class="breadcrumb-item">
+    <a href="{{ url_for('admin.dashboard') }}">Dashboard</a>
+</li>
+<li class="breadcrumb-item active" aria-current="page">System Health</li>
+{% endblock %}
+
+{% block page_actions %}
+<div class="btn-group" role="group">
+    <button id="refreshHealthData" class="btn btn-sm btn-outline-primary">
+        <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+    </button>
+    <button id="exportHealthReport" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal"
+        data-bs-target="#exportReportModal">
+        <i class="bi bi-download me-1"></i> Export Report
+    </button>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Overall Health Status -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light">
+        <div class="d-flex justify-content-between align-items-center">
+            <h5 class="card-title mb-0">System Health Summary</h5>
+            <span id="lastUpdated" class="text-muted small">Last updated: {{ last_updated|default('Now')|datetime
+                }}</span>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6 col-lg-3 mb-3">
+                <div class="card h-100 bg-light">
+                    <div class="card-body text-center">
+                        <h6 class="card-title mb-2">System Status</h6>
+                        <div class="display-4 mb-2">
+                            <i class="bi bi-{{ health_data.system_status == 'operational' ? 'check-circle-fill text-success' : health_data.system_status == 'degraded' ? 'exclamation-triangle-fill text-warning' : 'x-circle-fill text-danger' }}"
+                                aria-hidden="true"></i>
+                        </div>
+                        <span
+                            class="badge bg-{{ health_data.system_status == 'operational' ? 'success' : health_data.system_status == 'degraded' ? 'warning' : 'danger' }}">
+                            {{ health_data.system_status|default('Unknown')|capitalize }}
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-3 mb-3">
+                <div class="card h-100 bg-light">
+                    <div class="card-body text-center">
+                        <h6 class="card-title mb-2">Uptime</h6>
+                        <div class="mb-2">
+                            <span class="display-6">{{ health_data.uptime_days|default(0) }}</span>
+                            <small class="text-muted">days</small>
+                        </div>
+                        <div>
+                            <small>Since {{ health_data.last_restart|default('Unknown') }}</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-3 mb-3">
+                <div class="card h-100 bg-light">
+                    <div class="card-body text-center">
+                        <h6 class="card-title mb-2">Active Issues</h6>
+                        <div class="display-6 mb-2">
+                            {{ health_data.active_issues|default(0) }}
+                        </div>
+                        <span class="badge bg-{{ health_data.active_issues > 0 ? 'warning' : 'success' }}">
+                            {{ health_data.active_issues > 0 ? 'Attention Required' : 'No Issues' }}
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-3 mb-3">
+                <div class="card h-100 bg-light">
+                    <div class="card-body text-center">
+                        <h6 class="card-title mb-2">Security Status</h6>
+                        <div class="display-4 mb-2">
+                            <i class="bi bi-{{ health_data.security_status == 'secure' ? 'shield-check text-success' : 'shield-exclamation text-warning' }}"
+                                aria-hidden="true"></i>
+                        </div>
+                        <span class="badge bg-{{ health_data.security_status == 'secure' ? 'success' : 'warning' }}">
+                            {{ health_data.security_status|default('Unknown')|capitalize }}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Resource Utilization -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light">
+        <h5 class="card-title mb-0">Resource Utilization</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-4 mb-3">
+                <!-- CPU Usage -->
+                <h6 class="text-muted">CPU Utilization</h6>
+                <div class="d-flex align-items-center">
+                    <div style="width: 80%" class="me-3">
+                        <div class="progress" style="height: 20px;">
+                            <div class="progress-bar bg-{{ health_data.cpu_usage > 80 ? 'danger' : health_data.cpu_usage > 60 ? 'warning' : 'success' }}"
+                                role="progressbar" style="width: {{ health_data.cpu_usage|default(0) }}%;"
+                                aria-valuenow="{{ health_data.cpu_usage|default(0) }}" aria-valuemin="0"
+                                aria-valuemax="100">
+                                {{ health_data.cpu_usage|default(0) }}%
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <span
+                            class="badge bg-{{ health_data.cpu_usage > 80 ? 'danger' : health_data.cpu_usage > 60 ? 'warning' : 'success' }}">
+                            {{ health_data.cpu_usage_trend|default('stable') }}
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <!-- Memory Usage -->
+                <h6 class="text-muted">Memory Utilization</h6>
+                <div class="d-flex align-items-center">
+                    <div style="width: 80%" class="me-3">
+                        <div class="progress" style="height: 20px;">
+                            <div class="progress-bar bg-{{ health_data.memory_usage > 80 ? 'danger' : health_data.memory_usage > 60 ? 'warning' : 'success' }}"
+                                role="progressbar" style="width: {{ health_data.memory_usage|default(0) }}%;"
+                                aria-valuenow="{{ health_data.memory_usage|default(0) }}" aria-valuemin="0"
+                                aria-valuemax="100">
+                                {{ health_data.memory_usage|default(0) }}%
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <span
+                            class="badge bg-{{ health_data.memory_usage > 80 ? 'danger' : health_data.memory_usage > 60 ? 'warning' : 'success' }}">
+                            {{ health_data.memory_usage_trend|default('stable') }}
+                        </span>
+                    </div>
+                </div>
+                <small class="text-muted">{{ health_data.memory_used|default('0') }} GB / {{
+                    health_data.memory_total|default('0') }} GB</small>
+            </div>
+            <div class="col-md-4 mb-3">
+                <!-- Disk Usage -->
+                <h6 class="text-muted">Disk Utilization</h6>
+                <div class="d-flex align-items-center">
+                    <div style="width: 80%" class="me-3">
+                        <div class="progress" style="height: 20px;">
+                            <div class="progress-bar bg-{{ health_data.disk_usage > 85 ? 'danger' : health_data.disk_usage > 70 ? 'warning' : 'success' }}"
+                                role="progressbar" style="width: {{ health_data.disk_usage|default(0) }}%;"
+                                aria-valuenow="{{ health_data.disk_usage|default(0) }}" aria-valuemin="0"
+                                aria-valuemax="100">
+                                {{ health_data.disk_usage|default(0) }}%
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <span
+                            class="badge bg-{{ health_data.disk_usage > 85 ? 'danger' : health_data.disk_usage > 70 ? 'warning' : 'success' }}">
+                            {{ health_data.disk_usage_trend|default('stable') }}
+                        </span>
+                    </div>
+                </div>
+                <small class="text-muted">{{ health_data.disk_used|default('0') }} GB / {{
+                    health_data.disk_total|default('0') }} GB</small>
+            </div>
+        </div>
+        <div class="row mt-3">
+            <!-- Time-series chart for resource usage -->
+            <div class="col-12">
+                <div class="resource-chart-container">
+                    <canvas id="resourceChart" height="250"></canvas>
+                    <div id="chartLoading" class="chart-loading d-none">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Service Status -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+        <h5 class="card-title mb-0">Service Status</h5>
+        <span class="badge bg-primary">{{ health_data.total_services|default(0) }} Services</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Service</th>
+                    <th>Status</th>
+                    <th>Response Time</th>
+                    <th>Last Check</th>
+                    <th class="text-center">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if health_data.services %}
+                {% for service in health_data.services %}
+                <tr>
+                    <td>
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-{{ service.icon|default('gear') }} me-2 text-secondary"
+                                aria-hidden="true"></i>
+                            <span>{{ service.name }}</span>
+                        </div>
+                    </td>
+                    <td>
+                        <span
+                            class="badge bg-{{ service.status == 'operational' ? 'success' : service.status == 'degraded' ? 'warning' : 'danger' }}">
+                            {{ service.status|capitalize }}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="{{ service.response_time > service.threshold ? 'text-danger' : '' }}">
+                            {{ service.response_time }} ms
+                        </span>
+                    </td>
+                    <td>{{ service.last_check|datetime }}</td>
+                    <td class="text-center">
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-secondary service-check-btn"
+                                data-service-id="{{ service.id }}" title="Check Now">
+                                <i class="bi bi-arrow-repeat"></i>
+                            </button>
+                            <button class="btn btn-outline-secondary service-details-btn"
+                                data-service-id="{{ service.id }}" title="View Details">
+                                <i class="bi bi-info-circle"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% else %}
+                <tr>
+                    <td colspan="5" class="text-center py-3">No services configured</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Database Health -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light">
+        <h5 class="card-title mb-0">Database Health</h5>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6 col-lg-3 mb-3">
+                <div class="card h-100 bg-light">
+                    <div class="card-body">
+                        <h6 class="card-title">Status</h6>
+                        <div class="d-flex align-items-center">
+                            <div class="me-3">
+                                <i
+                                    class="bi bi-{{ health_data.db_status == 'healthy' ? 'database-check text-success' : 'database-exclamation text-warning' }} fs-1"></i>
+                            </div>
+                            <div>
+                                <span class="badge bg-{{ health_data.db_status == 'healthy' ? 'success' : 'warning' }}">
+                                    {{ health_data.db_status|capitalize }}
+                                </span>
+                                <div class="small text-muted">
+                                    {{ health_data.db_version }}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-3 mb-3">
+                <div class="card h-100 bg-light">
+                    <div class="card-body">
+                        <h6 class="card-title">Connection Pool</h6>
+                        <div class="text-center">
+                            <span class="d-block">{{ health_data.db_active_connections|default(0) }} / {{
+                                health_data.db_max_connections|default(0) }}</span>
+                            <div class="progress my-2">
+                                <div class="progress-bar bg-{{ health_data.db_connection_ratio > 80 ? 'danger' : health_data.db_connection_ratio > 60 ? 'warning' : 'success' }}"
+                                    role="progressbar" style="width: {{ health_data.db_connection_ratio|default(0) }}%;"
+                                    aria-valuenow="{{ health_data.db_connection_ratio|default(0) }}" aria-valuemin="0"
+                                    aria-valuemax="100">
+                                </div>
+                            </div>
+                            <small class="text-muted">Active Connections</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-3 mb-3">
+                <div class="card h-100 bg-light">
+                    <div class="card-body">
+                        <h6 class="card-title">Query Performance</h6>
+                        <div class="text-center">
+                            <span class="d-block">{{ health_data.db_avg_query_time|default(0) }} ms</span>
+                            <span
+                                class="badge bg-{{ health_data.db_avg_query_time > 500 ? 'danger' : health_data.db_avg_query_time > 200 ? 'warning' : 'success' }}">
+                                {{ health_data.db_query_performance|default('Good') }}
+                            </span>
+                            <div class="mt-2 small text-muted">
+                                {{ health_data.db_slow_queries|default(0) }} slow queries detected
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-3 mb-3">
+                <div class="card h-100 bg-light">
+                    <div class="card-body">
+                        <h6 class="card-title">Last Backup</h6>
+                        <div class="text-center">
+                            <div class="mb-2">{{ health_data.db_last_backup|default('Never') }}</div>
+                            <span
+                                class="badge bg-{{ health_data.db_backup_status == 'current' ? 'success' : 'danger' }}">
+                                {{ health_data.db_backup_status|capitalize|default('Unknown') }}
+                            </span>
+                            <div class="mt-2 small text-muted">
+                                Next: {{ health_data.db_next_backup|default('Not scheduled') }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent System Events -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+        <h5 class="card-title mb-0">Recent System Events</h5>
+        <a href="{{ url_for('admin.audit_logs') }}?category=system" class="btn btn-sm btn-link">View All</a>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Timestamp</th>
+                    <th>Event Type</th>
+                    <th>Component</th>
+                    <th>Description</th>
+                    <th>Severity</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if health_data.recent_events %}
+                {% for event in health_data.recent_events %}
+                <tr
+                    class="{% if event.severity == 'critical' %}table-danger{% elif event.severity == 'warning' %}table-warning{% endif %}">
+                    <td class="text-nowrap">{{ event.timestamp|datetime }}</td>
+                    <td>{{ event.event_type }}</td>
+                    <td>{{ event.component }}</td>
+                    <td>{{ event.description }}</td>
+                    <td>
+                        <span
+                            class="badge rounded-pill bg-{{ event.severity == 'critical' ? 'danger' : event.severity == 'warning' ? 'warning' : event.severity == 'notice' ? 'info' : 'secondary' }}">
+                            {{ event.severity|capitalize }}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% else %}
+                <tr>
+                    <td colspan="5" class="text-center py-3">No recent events</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Health Check Tests -->
+<div class="card shadow-sm">
+    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+        <h5 class="card-title mb-0">System Health Checks</h5>
+        <button id="runAllChecks" class="btn btn-sm btn-primary">
+            <i class="bi bi-play-fill me-1"></i> Run All Checks
+        </button>
+    </div>
+    <div class="card-body">
+        <div class="row" id="healthChecksContainer">
+            {% if health_data.health_checks %}
+            {% for check in health_data.health_checks %}
+            <div class="col-lg-6 mb-3">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h6 class="card-title mb-2">
+                                <i class="bi bi-{{ check.icon|default('check-circle') }} me-2"></i>
+                                {{ check.name }}
+                            </h6>
+                            <span
+                                class="badge bg-{{ check.status == 'pass' ? 'success' : check.status == 'warn' ? 'warning' : 'danger' }}">
+                                {{ check.status|capitalize }}
+                            </span>
+                        </div>
+                        <p class="card-text small text-muted">{{ check.description }}</p>
+                        <div class="d-flex justify-content-between align-items-center mt-3">
+                            <small class="text-muted">Last run: {{ check.last_run|datetime }}</small>
+                            <button class="btn btn-sm btn-outline-secondary run-check-btn"
+                                data-check-id="{{ check.id }}">
+                                <i class="bi bi-arrow-repeat me-1"></i> Run
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+            {% else %}
+            <div class="col-12 text-center py-4">
+                <i class="bi bi-clipboard-check fs-1 text-muted mb-3"></i>
+                <p>No health checks configured</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Export Report Modal -->
+<div class="modal fade" id="exportReportModal" tabindex="-1" aria-labelledby="exportReportModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="exportReportModalLabel">Export Health Report</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="exportReportForm" method="post" action="{{ url_for('admin.export_health_report') }}">
+                <div class="modal-body">
+                    {{ form.csrf_token }}
+                    <div class="mb-3">
+                        <label for="report_format" class="form-label">Report Format</label>
+                        <select class="form-select" id="report_format" name="report_format" required>
+                            <option value="pdf" selected>PDF Document</option>
+                            <option value="html">HTML Document</option>
+                            <option value="json">JSON Data</option>
+                            <option value="csv">CSV Data</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="data_period" class="form-label">Data Period</label>
+                        <select class="form-select" id="data_period" name="data_period">
+                            <option value="current">Current Status Only</option>
+                            <option value="day" selected>Last 24 Hours</option>
+                            <option value="week">Last 7 Days</option>
+                            <option value="month">Last 30 Days</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="report_sections" class="form-label">Include Sections</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="include_summary" name="report_sections"
+                                value="summary" checked>
+                            <label class="form-check-label" for="include_summary">
+                                System Summary
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="include_resources"
+                                name="report_sections" value="resources" checked>
+                            <label class="form-check-label" for="include_resources">
+                                Resource Utilization
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="include_services" name="report_sections"
+                                value="services" checked>
+                            <label class="form-check-label" for="include_services">
+                                Service Status
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="include_database" name="report_sections"
+                                value="database" checked>
+                            <label class="form-check-label" for="include_database">
+                                Database Health
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="include_events" name="report_sections"
+                                value="events" checked>
+                            <label class="form-check-label" for="include_events">
+                                System Events
+                            </label>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="report_reason" class="form-label">Reason for Export</label>
+                        <textarea class="form-control" id="report_reason" name="report_reason" rows="2"
+                            placeholder="Please provide a reason for exporting this report" required></textarea>
+                        <div class="form-text">This will be recorded in the audit log</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="downloadReportBtn">
+                        <i class="bi bi-download me-1"></i> Download Report
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"
+    integrity="sha384-7NrRHqlWUj2hJl3a/Sp2WXiDVsgLf6QoqBYWMLwK7wGQl9JI/Vd3NxgLKkq4Ol9r"
+    crossorigin="anonymous"></script>
+
+<script nonce="{{ csp_nonce }}">
+    document.addEventListener('DOMContentLoaded', function () {
+        // Resource utilization chart
+        const ctx = document.getElementById('resourceChart').getContext('2d');
+        let resourceChart;
+
+        function initResourceChart(data) {
+            if (resourceChart) {
+                resourceChart.destroy();
+            }
+
+            resourceChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.labels,
+                    datasets: [
+                        {
+                            label: 'CPU Usage (%)',
+                            data: data.cpu_values,
+                            borderColor: '#0d6efd',
+                            backgroundColor: 'rgba(13, 110, 253, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: true
+                        },
+                        {
+                            label: 'Memory Usage (%)',
+                            data: data.memory_values,
+                            borderColor: '#198754',
+                            backgroundColor: 'rgba(25, 135, 84, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: true
+                        },
+                        {
+                            label: 'Disk Usage (%)',
+                            data: data.disk_values,
+                            borderColor: '#fd7e14',
+                            backgroundColor: 'rgba(253, 126, 20, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            title: {
+                                display: true,
+                                text: 'Utilization (%)'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Time'
+                            }
+                        }
+                    },
+                    interaction: {
+                        mode: 'nearest',
+                        axis: 'x',
+                        intersect: false
+                    }
+                }
+            });
+        }
+
+        // Load initial chart data
+        async function loadChartData() {
+            document.getElementById('chartLoading').classList.remove('d-none');
+
+            try {
+                const response = await secureFetch('/api/admin/system/health/chart-data');
+                if (!response.ok) {
+                    throw new Error('Failed to fetch chart data');
+                }
+
+                const data = await response.json();
+                initResourceChart(data);
+            } catch (error) {
+                console.error('Error loading chart data:', error);
+                showToast('Error', 'Failed to load resource utilization data', 'danger');
+            } finally {
+                document.getElementById('chartLoading').classList.add('d-none');
+            }
+        }
+
+        loadChartData();
+
+        // Refresh health data
+        document.getElementById('refreshHealthData').addEventListener('click', async function () {
+            this.disabled = true;
+            this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Refreshing...';
+
+            try {
+                showLoading();
+                const response = await secureFetch('/api/admin/system/health/refresh', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to refresh health data');
+                }
+
+                window.location.reload();
+            } catch (error) {
+                console.error('Error refreshing health data:', error);
+                hideLoading();
+                showToast('Error', 'Failed to refresh health data', 'danger');
+
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i> Refresh';
+            }
+        });
+
+        // Service check buttons
+        document.querySelectorAll('.service-check-btn').forEach(btn => {
+            btn.addEventListener('click', async function () {
+                const serviceId = this.getAttribute('data-service-id');
+
+                this.disabled = true;
+                const originalHtml = this.innerHTML;
+                this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+
+                try {
+                    const response = await secureFetch(`/api/admin/system/health/service-check/${serviceId}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to check service');
+                    }
+
+                    const result = await response.json();
+
+                    // Update service row with new data without full page reload
+                    const row = this.closest('tr');
+                    const statusCell = row.querySelector('td:nth-child(2)');
+                    const responseTimeCell = row.querySelector('td:nth-child(3)');
+                    const lastCheckCell = row.querySelector('td:nth-child(4)');
+
+                    statusCell.innerHTML = `<span class="badge bg-${result.status === 'operational' ? 'success' : result.status === 'degraded' ? 'warning' : 'danger'}">${result.status.charAt(0).toUpperCase() + result.status.slice(1)}</span>`;
+                    responseTimeCell.innerHTML = `<span class="${result.response_time > result.threshold ? 'text-danger' : ''}">${result.response_time} ms</span>`;
+                    lastCheckCell.textContent = new Date(result.last_check).toLocaleString();
+
+                    showToast('Service Check', `${result.name} status checked successfully`, 'success');
+                } catch (error) {
+                    console.error('Error checking service:', error);
+                    showToast('Error', 'Failed to check service status', 'danger');
+                } finally {
+                    this.disabled = false;
+                    this.innerHTML = originalHtml;
+                }
+            });
+        });
+
+        // Service details buttons
+        document.querySelectorAll('.service-details-btn').forEach(btn => {
+            btn.addEventListener('click', async function () {
+                const serviceId = this.getAttribute('data-service-id');
+
+                try {
+                    showLoading();
+                    const response = await secureFetch(`/api/admin/system/health/service/${serviceId}`);
+                    hideLoading();
+
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch service details');
+                    }
+
+                    const serviceData = await response.json();
+
+                    // You would typically show this data in a modal
+                    // For now, we'll just show a toast with basic info
+                    showToast('Service Details', `${serviceData.name} - ${serviceData.description}`, 'info');
+
+                    // In a real implementation, you'd show a modal with the details
+                    // Example: openServiceDetailsModal(serviceData);
+                } catch (error) {
+                    console.error('Error fetching service details:', error);
+                    hideLoading();
+                    showToast('Error', 'Failed to fetch service details', 'danger');
+                }
+            });
+        });
+
+        // Run health check buttons
+        document.querySelectorAll('.run-check-btn').forEach(btn => {
+            btn.addEventListener('click', async function () {
+                const checkId = this.getAttribute('data-check-id');
+
+                this.disabled = true;
+                const originalHtml = this.innerHTML;
+                this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+
+                try {
+                    const response = await secureFetch(`/api/admin/system/health/check/${checkId}/run`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                        }
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to run health check');
+                    }
+
+                    const result = await response.json();
+
+                    // Update check card with new status
+                    const card = this.closest('.card');
+                    const statusBadge = card.querySelector('.badge');
+                    const lastRunText = card.querySelector('small.text-muted');
+
+                    statusBadge.className = `badge bg-${result.status === 'pass' ? 'success' : result.status === 'warn' ? 'warning' : 'danger'}`;
+                    statusBadge.textContent = result.status.charAt(0).toUpperCase() + result.status.slice(1);
+                    lastRunText.textContent = `Last run: ${new Date(result.last_run).toLocaleString()}`;
+
+                    showToast('Health Check', `${result.name} check completed: ${result.status.toUpperCase()}`, result.status === 'pass' ? 'success' : result.status === 'warn' ? 'warning' : 'danger');
+                } catch (error) {
+                    console.error('Error running health check:', error);
+                    showToast('Error', 'Failed to run health check', 'danger');
+                } finally {
+                    this.disabled = false;
+                    this.innerHTML = originalHtml;
+                }
+            });
+        });
+
+        // Run all health checks
+        document.getElementById('runAllChecks').addEventListener('click', async function () {
+            this.disabled = true;
+            this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Running...';
+
+            try {
+                showLoading();
+                const response = await secureFetch('/api/admin/system/health/check/run-all', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to run all health checks');
+                }
+
+                // Reload the page to show updated results
+                window.location.reload();
+            } catch (error) {
+                console.error('Error running all health checks:', error);
+                hideLoading();
+                showToast('Error', 'Failed to run all health checks', 'danger');
+
+                this.disabled = false;
+                this.innerHTML = '<i class="bi bi-play-fill me-1"></i> Run All Checks';
+            }
+        });
+
+        // Export report form validation
+        document.getElementById('exportReportForm').addEventListener('submit', function (e) {
+            const reason = document.getElementById('report_reason').value.trim();
+            if (reason.length < 5) {
+                e.preventDefault();
+                showToast('Validation Error', 'Please provide a valid reason for exporting the report', 'warning');
+                return false;
+            }
+
+            // At least one section must be selected
+            const sectionChecks = document.querySelectorAll('input[name="report_sections"]:checked');
+            if (sectionChecks.length === 0) {
+                e.preventDefault();
+                showToast('Validation Error', 'Please select at least one report section', 'warning');
+                return false;
+            }
+
+            // Show loading indicator when form is valid
+            showLoading();
+            return true;
+        });
+    });
+</script>
+{% endblock %}
+
+{% block styles %}
+<style>
+    .chart-container {
+        position: relative;
+        height: 250px;
+    }
+
+    .chart-loading {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255, 255, 255, 0.8);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 5;
+    }
+
+    .resource-chart-container {
+        position: relative;
+        height: 250px;
+    }
+
+    .progress-label {
+        line-height: 1;
+        font-size: 0.875rem;
+    }
+</style>
+{% endblock %}

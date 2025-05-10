@@ -1,0 +1,356 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}Admin Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block breadcrumbs %}
+<li class="breadcrumb-item active" aria-current="page">Dashboard</li>
+{% endblock %}
+
+{% block content %}
+<!-- System Status Overview -->
+<div class="row mb-4">
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-primary shadow-sm h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">System Status</div>
+                        <div class="h5 mb-0 font-weight-bold">
+                            <span
+                                class="badge {% if system_status == 'operational' %}bg-success{% elif system_status == 'degraded' %}bg-warning{% elif system_status == 'maintenance' %}bg-info{% else %}bg-danger{% endif %}">
+                                {{ system_status|capitalize }}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="bi bi-hdd-stack fs-2 text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-success shadow-sm h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-success text-uppercase mb-1">File Integrity</div>
+                        <div class="h5 mb-0 font-weight-bold">
+                            <span class="badge {% if integrity_status %}bg-success{% else %}bg-danger{% endif %}">
+                                {% if integrity_status %}Verified{% else %}Failed{% endif %}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="bi bi-shield-check fs-2 text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-info shadow-sm h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-info text-uppercase mb-1">Active Incidents</div>
+                        <div class="h5 mb-0 font-weight-bold">
+                            <span
+                                class="badge {% if active_incidents|length > 0 %}bg-danger{% else %}bg-success{% endif %}">
+                                {{ active_incidents|length }}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="bi bi-exclamation-triangle fs-2 text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-warning shadow-sm h-100 py-2">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">Security Score</div>
+                        <div class="h5 mb-0 font-weight-bold">
+                            {% set score = security_metrics.security_score|default(0) %}
+                            <span
+                                class="badge {% if score >= 80 %}bg-success{% elif score >= 60 %}bg-warning{% else %}bg-danger{% endif %}">
+                                {{ score }}%
+                            </span>
+                        </div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="bi bi-lock fs-2 text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Security Metrics and Incidents -->
+<div class="row mb-4">
+    <!-- Security Metrics -->
+    <div class="col-lg-6">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header py-3 d-flex align-items-center justify-content-between">
+                <h6 class="m-0 font-weight-bold">Security Metrics</h6>
+                <a href="{{ url_for('admin.security_reports') }}" class="btn btn-sm btn-outline-primary">View
+                    Details</a>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-borderless">
+                        <tbody>
+                            <tr>
+                                <td>Failed Login Attempts (24h)</td>
+                                <td class="text-end">
+                                    <span
+                                        class="badge {% if security_metrics.failed_logins|default(0) > 50 %}bg-danger{% elif security_metrics.failed_logins|default(0) > 20 %}bg-warning{% else %}bg-success{% endif %}">
+                                        {{ security_metrics.failed_logins|default(0) }}
+                                    </span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Blocked IP Addresses</td>
+                                <td class="text-end">
+                                    <span class="badge bg-secondary">{{ security_metrics.blocked_ips|default(0)
+                                        }}</span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>MFA Adoption</td>
+                                <td class="text-end">
+                                    <span
+                                        class="badge {% if security_metrics.mfa_adoption|default(0) < 60 %}bg-danger{% elif security_metrics.mfa_adoption|default(0) < 80 %}bg-warning{% else %}bg-success{% endif %}">
+                                        {{ security_metrics.mfa_adoption|default(0) }}%
+                                    </span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Password Policy Compliance</td>
+                                <td class="text-end">
+                                    <span
+                                        class="badge {% if security_metrics.password_compliance|default(0) < 90 %}bg-warning{% else %}bg-success{% endif %}">
+                                        {{ security_metrics.password_compliance|default(0) }}%
+                                    </span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>API Authentication Failures (24h)</td>
+                                <td class="text-end">
+                                    <span
+                                        class="badge {% if security_metrics.api_auth_failures|default(0) > 20 %}bg-danger{% elif security_metrics.api_auth_failures|default(0) > 5 %}bg-warning{% else %}bg-success{% endif %}">
+                                        {{ security_metrics.api_auth_failures|default(0) }}
+                                    </span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Security Incidents -->
+    <div class="col-lg-6">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header py-3 d-flex align-items-center justify-content-between">
+                <h6 class="m-0 font-weight-bold">Active Security Incidents</h6>
+                <a href="{{ url_for('admin.security_incidents') }}" class="btn btn-sm btn-outline-primary">View All</a>
+            </div>
+            <div class="card-body p-0">
+                {% if active_incidents %}
+                <div class="list-group list-group-flush">
+                    {% for incident in active_incidents %}
+                    <div class="list-group-item">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">
+                                <span
+                                    class="badge {% if incident.severity == 'critical' %}bg-danger{% elif incident.severity == 'high' %}bg-warning{% elif incident.severity == 'medium' %}bg-info{% else %}bg-secondary{% endif %} me-2">
+                                    {{ incident.severity|capitalize }}
+                                </span>
+                                {{ incident.title }}
+                            </h6>
+                            <small>{{ incident.timestamp|default(now.isoformat()) }}</small>
+                        </div>
+                        <p class="mb-1 text-muted small">{{ incident.description|truncate(100) }}</p>
+                        <div class="d-flex justify-content-between align-items-center mt-2">
+                            <small>Status: <span class="fw-bold">{{ incident.status|capitalize }}</span></small>
+                            <a href="{{ url_for('admin.security_incident_details', incident_id=incident.id) }}"
+                                class="btn btn-sm btn-outline-secondary">Details</a>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="bi bi-shield-check fs-2 text-success"></i>
+                    <p class="mt-2">No active security incidents</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Activity -->
+<div class="row mb-4">
+    <!-- Recent Security Events -->
+    <div class="col-lg-6">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header py-3 d-flex align-items-center justify-content-between">
+                <h6 class="m-0 font-weight-bold">Recent Security Events</h6>
+                <a href="{{ url_for('admin.audit_logs') }}" class="btn btn-sm btn-outline-primary">View All Logs</a>
+            </div>
+            <div class="card-body p-0">
+                {% if recent_events %}
+                <div class="list-group list-group-flush">
+                    {% for event in recent_events %}
+                    <div class="list-group-item">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">
+                                <span
+                                    class="badge {% if event.severity == 'critical' %}bg-danger{% elif event.severity == 'high' %}bg-warning{% else %}bg-info{% endif %} me-2">
+                                    {{ event.severity|capitalize }}
+                                </span>
+                                {{ event.event_type }}
+                            </h6>
+                            <small>{{ event.timestamp|default(now.isoformat()) }}</small>
+                        </div>
+                        <p class="mb-1 text-muted small">{{ event.message|truncate(100) }}</p>
+                        <small>IP: {{ event.source_ip }} | User: {{ event.user_id|default('System') }}</small>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="bi bi-shield-check fs-2 text-success"></i>
+                    <p class="mt-2">No recent security events</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin Activity -->
+    <div class="col-lg-6">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold">Recent Administrative Activity</h6>
+            </div>
+            <div class="card-body p-0">
+                {% if recent_activity %}
+                <div class="list-group list-group-flush">
+                    {% for activity in recent_activity %}
+                    <div class="list-group-item">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">{{ activity.event_type.replace('admin.', '')|replace('_', ' ')|capitalize
+                                }}</h6>
+                            <small>{{ activity.timestamp|default(now.isoformat()) }}</small>
+                        </div>
+                        <p class="mb-1 text-muted small">{{ activity.message|truncate(100) }}</p>
+                        <small>Admin: {{ activity.user_id }} | IP: {{ activity.source_ip }}</small>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="bi bi-activity fs-2 text-muted"></i>
+                    <p class="mt-2">No recent administrative activity</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- System Information -->
+<div class="row">
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold">System Information</h6>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4">
+                        <h6 class="fw-bold">Environment</h6>
+                        <p class="mb-3">{{ config.ENVIRONMENT|upper }}</p>
+
+                        <h6 class="fw-bold">Version</h6>
+                        <p class="mb-3">{{ config.VERSION|default('1.0.0') }}</p>
+                    </div>
+                    <div class="col-md-4">
+                        <h6 class="fw-bold">Last Deployment</h6>
+                        <p class="mb-3">{{ config.LAST_DEPLOYMENT_DATE|default('N/A') }}</p>
+
+                        <h6 class="fw-bold">Uptime</h6>
+                        <p class="mb-3">{{ security_metrics.system_uptime|default('Unknown') }}</p>
+                    </div>
+                    <div class="col-md-4">
+                        <h6 class="fw-bold">Database Status</h6>
+                        <p class="mb-3">
+                            <span
+                                class="badge {% if security_metrics.database_healthy|default(true) %}bg-success{% else %}bg-danger{% endif %}">
+                                {% if security_metrics.database_healthy|default(true) %}Healthy{% else %}Issues
+                                Detected{% endif %}
+                            </span>
+                        </p>
+
+                        <h6 class="fw-bold">Last Backup</h6>
+                        <p class="mb-3">{{ security_metrics.last_backup_time|default('Unknown') }}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer">
+                <small class="text-muted">Dashboard last updated: {{ timestamp|default(now.isoformat()) }}</small>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+    document.addEventListener('DOMContentLoaded', function () {
+        // Auto-refresh dashboard data every 5 minutes
+        const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+        function refreshDashboard() {
+            // Using fetch with proper security headers
+            secureFetch(window.location.href)
+                .then(response => {
+                    if (!response.ok) throw new Error('Refresh failed');
+                    return response.text();
+                })
+                .then(html => {
+                    // Use a DOMParser to extract just the content area
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const content = doc.getElementById('main-content').innerHTML;
+
+                    // Update just the content area
+                    document.getElementById('main-content').innerHTML = content;
+
+                    // Show notification
+                    showToast('Dashboard Refreshed', 'Dashboard data has been updated', 'info');
+                })
+                .catch(error => {
+                    console.error('Error refreshing dashboard:', error);
+                    showToast('Refresh Failed', 'Could not refresh dashboard data', 'danger');
+                });
+        }
+
+        // Set up auto-refresh timer
+        setInterval(refreshDashboard, REFRESH_INTERVAL);
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,492 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}Audit Logs{% endblock %}
+{% block page_title %}Security Audit Logs{% endblock %}
+
+{% block breadcrumbs %}
+<li class="breadcrumb-item">
+    <a href="{{ url_for('admin.dashboard') }}">Dashboard</a>
+</li>
+<li class="breadcrumb-item">
+    <a href="#">Security</a>
+</li>
+<li class="breadcrumb-item active" aria-current="page">Audit Logs</li>
+{% endblock %}
+
+{% block page_actions %}
+<div class="btn-group" role="group">
+    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal"
+        data-bs-target="#exportLogsModal">
+        <i class="bi bi-download me-1"></i> Export Logs
+    </button>
+    <button class="btn btn-sm btn-outline-secondary" id="refreshLogsBtn">
+        <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+    </button>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="card shadow-sm mb-4">
+    <div class="card-header py-3 d-flex align-items-center">
+        <h6 class="m-0 font-weight-bold">Audit Log Filters</h6>
+    </div>
+    <div class="card-body">
+        <form method="GET" action="{{ url_for('admin.audit_logs') }}" id="auditLogFilterForm">
+            <div class="row g-3">
+                <div class="col-md-3 col-sm-6">
+                    <label for="event_type" class="form-label">Event Type</label>
+                    <select class="form-select" id="event_type" name="event_type">
+                        <option value="">All Events</option>
+                        {% for event_type in event_types %}
+                        <option value="{{ event_type }}" {% if form.event_type.data==event_type %}selected{% endif %}>
+                            {{ event_type }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <label for="user_id" class="form-label">User</label>
+                    <select class="form-select" id="user_id" name="user_id">
+                        <option value="">All Users</option>
+                        {% for user in users %}
+                        <option value="{{ user.id }}" {% if form.user_id.data==user.id|string %}selected{% endif %}>
+                            {{ user.username }} ({{ user.id }})
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <label for="severity" class="form-label">Severity</label>
+                    <select class="form-select" id="severity" name="severity">
+                        <option value="">All Severities</option>
+                        <option value="info" {% if form.severity.data=='info' %}selected{% endif %}>Info</option>
+                        <option value="notice" {% if form.severity.data=='notice' %}selected{% endif %}>Notice</option>
+                        <option value="warning" {% if form.severity.data=='warning' %}selected{% endif %}>Warning
+                        </option>
+                        <option value="high" {% if form.severity.data=='high' %}selected{% endif %}>High</option>
+                        <option value="critical" {% if form.severity.data=='critical' %}selected{% endif %}>Critical
+                        </option>
+                    </select>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <label for="start_date" class="form-label">Start Date</label>
+                    <input type="date" class="form-control" id="start_date" name="start_date"
+                        value="{{ form.start_date.data.strftime('%Y-%m-%d') if form.start_date.data else '' }}">
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <label for="end_date" class="form-label">End Date</label>
+                    <input type="date" class="form-control" id="end_date" name="end_date"
+                        value="{{ form.end_date.data.strftime('%Y-%m-%d') if form.end_date.data else '' }}">
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <label for="per_page" class="form-label">Results Per Page</label>
+                    <select class="form-select" id="per_page" name="per_page">
+                        <option value="25" {% if request.args.get('per_page')=='25' %}selected{% endif %}>25</option>
+                        <option value="50" {% if request.args.get('per_page')=='50' %}selected{% endif %}>50</option>
+                        <option value="100" {% if request.args.get('per_page')=='100' %}selected{% endif %}>100</option>
+                        <option value="250" {% if request.args.get('per_page')=='250' %}selected{% endif %}>250</option>
+                    </select>
+                </div>
+                <div class="col-md-6 col-sm-12 d-flex align-items-end">
+                    <div class="btn-group" role="group">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-funnel me-1"></i> Apply Filters
+                        </button>
+                        <a href="{{ url_for('admin.audit_logs') }}" class="btn btn-outline-secondary">
+                            <i class="bi bi-x-circle me-1"></i> Clear Filters
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Log Results -->
+<div class="card shadow-sm">
+    <div class="card-header py-3 d-flex justify-content-between align-items-center">
+        <h6 class="m-0 font-weight-bold">Audit Log Entries</h6>
+        <span class="badge bg-secondary">{{ logs.total }} Records Found</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover audit-log-table mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th scope="col">Timestamp</th>
+                    <th scope="col">Event Type</th>
+                    <th scope="col">User</th>
+                    <th scope="col">Description</th>
+                    <th scope="col">Severity</th>
+                    <th scope="col">IP Address</th>
+                    <th scope="col" class="text-center">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if logs.items %}
+                {% for log in logs.items %}
+                <tr
+                    class="{% if log.severity == 'critical' %}table-danger{% elif log.severity == 'high' %}table-warning{% endif %}">
+                    <td class="text-nowrap">{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                    <td class="text-nowrap">
+                        <span class="badge text-bg-light">{{ log.event_type }}</span>
+                    </td>
+                    <td>{{ log.user_id|default('System') }}</td>
+                    <td>{{ log.description }}</td>
+                    <td>
+                        <span class="badge rounded-pill
+                                {% if log.severity == 'critical' %}text-bg-danger
+                                {% elif log.severity == 'high' %}text-bg-warning
+                                {% elif log.severity == 'warning' %}text-bg-info
+                                {% elif log.severity == 'notice' %}text-bg-secondary
+                                {% else %}text-bg-light{% endif %}">
+                            {{ log.severity|capitalize }}
+                        </span>
+                    </td>
+                    <td>{{ log.ip_address|default('-') }}</td>
+                    <td class="text-center">
+                        <button type="button" class="btn btn-sm btn-outline-secondary view-details-btn"
+                            data-log-id="{{ log.id }}" data-bs-toggle="modal" data-bs-target="#logDetailsModal">
+                            <i class="bi bi-info-circle"></i>
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% else %}
+                <tr>
+                    <td colspan="7" class="text-center py-4">
+                        <i class="bi bi-search fs-2 text-muted d-block mb-2"></i>
+                        <p class="mb-0">No audit logs found matching your criteria.</p>
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+    <div class="card-footer">
+        <div class="d-flex justify-content-between align-items-center">
+            <!-- Pagination Info -->
+            <div class="text-muted small">
+                Showing {{ logs.items|length }} of {{ logs.total }} entries
+                {% if logs.total > 0 %}
+                (Page {{ logs.page }} of {{ logs.pages }})
+                {% endif %}
+            </div>
+
+            <!-- Pagination Links -->
+            {% if logs.pages > 1 %}
+            <nav aria-label="Audit log pagination">
+                <ul class="pagination mb-0">
+                    <!-- First Page -->
+                    <li class="page-item {{ 'disabled' if logs.page == 1 else '' }}">
+                        <a class="page-link" href="{{ url_for('admin.audit_logs', page=1, **request.args) }}"
+                            aria-label="First">
+                            <span aria-hidden="true">&laquo;&laquo;</span>
+                        </a>
+                    </li>
+
+                    <!-- Previous Page -->
+                    <li class="page-item {{ 'disabled' if not logs.has_prev else '' }}">
+                        <a class="page-link"
+                            href="{{ url_for('admin.audit_logs', page=logs.prev_num, **request.args) if logs.has_prev else '#' }}"
+                            aria-label="Previous">
+                            <span aria-hidden="true">&laquo;</span>
+                        </a>
+                    </li>
+
+                    <!-- Page Numbers -->
+                    {% for page_num in range(max(1, logs.page - 2), min(logs.pages + 1, logs.page + 3)) %}
+                    <li class="page-item {{ 'active' if page_num == logs.page else '' }}">
+                        <a class="page-link" href="{{ url_for('admin.audit_logs', page=page_num, **request.args) }}">
+                            {{ page_num }}
+                        </a>
+                    </li>
+                    {% endfor %}
+
+                    <!-- Next Page -->
+                    <li class="page-item {{ 'disabled' if not logs.has_next else '' }}">
+                        <a class="page-link"
+                            href="{{ url_for('admin.audit_logs', page=logs.next_num, **request.args) if logs.has_next else '#' }}"
+                            aria-label="Next">
+                            <span aria-hidden="true">&raquo;</span>
+                        </a>
+                    </li>
+
+                    <!-- Last Page -->
+                    <li class="page-item {{ 'disabled' if logs.page == logs.pages else '' }}">
+                        <a class="page-link" href="{{ url_for('admin.audit_logs', page=logs.pages, **request.args) }}"
+                            aria-label="Last">
+                            <span aria-hidden="true">&raquo;&raquo;</span>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Log Details Modal -->
+<div class="modal fade" id="logDetailsModal" tabindex="-1" aria-labelledby="logDetailsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="logDetailsModalLabel">Log Entry Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <strong>Event ID:</strong> <span id="detail-id"></span>
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Timestamp:</strong> <span id="detail-timestamp"></span>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <strong>Event Type:</strong> <span id="detail-event-type"></span>
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Severity:</strong> <span id="detail-severity"></span>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <strong>User:</strong> <span id="detail-user"></span>
+                    </div>
+                    <div class="col-md-6">
+                        <strong>IP Address:</strong> <span id="detail-ip-address"></span>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-12">
+                        <strong>Description:</strong>
+                        <p class="mb-0" id="detail-description"></p>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-12">
+                        <strong>Details:</strong>
+                        <pre class="bg-light p-3 rounded" id="detail-json"></pre>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Export Logs Modal -->
+<div class="modal fade" id="exportLogsModal" tabindex="-1" aria-labelledby="exportLogsModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="exportLogsModalLabel">Export Audit Logs</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post" action="{{ url_for('admin.export_audit_logs') }}" id="exportLogsForm">
+                <div class="modal-body">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+
+                    <div class="alert alert-info d-flex align-items-center">
+                        <i class="bi bi-info-circle-fill me-2"></i>
+                        <div>
+                            Exports are limited to 10,000 records for performance reasons.
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="export_format" class="form-label">Export Format</label>
+                        <select class="form-select" id="export_format" name="export_format" required>
+                            <option value="csv" selected>CSV (Comma Separated Values)</option>
+                            <option value="json">JSON (JavaScript Object Notation)</option>
+                        </select>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="export_start_date" class="form-label">Start Date</label>
+                            <input type="date" class="form-control" id="export_start_date" name="export_start_date"
+                                value="{{ form.start_date.data.strftime('%Y-%m-%d') if form.start_date.data else '' }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label for="export_end_date" class="form-label">End Date</label>
+                            <input type="date" class="form-control" id="export_end_date" name="export_end_date"
+                                value="{{ form.end_date.data.strftime('%Y-%m-%d') if form.end_date.data else '' }}">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="export_event_type" class="form-label">Event Type (Optional)</label>
+                        <select class="form-select" id="export_event_type" name="export_event_type">
+                            <option value="">All Events</option>
+                            {% for event_type in event_types %}
+                            <option value="{{ event_type }}" {% if form.event_type.data==event_type %}selected{% endif
+                                %}>
+                                {{ event_type }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="export_severity" class="form-label">Severity (Optional)</label>
+                        <select class="form-select" id="export_severity" name="export_severity">
+                            <option value="">All Severities</option>
+                            <option value="info" {% if form.severity.data=='info' %}selected{% endif %}>Info</option>
+                            <option value="notice" {% if form.severity.data=='notice' %}selected{% endif %}>Notice
+                            </option>
+                            <option value="warning" {% if form.severity.data=='warning' %}selected{% endif %}>Warning
+                            </option>
+                            <option value="high" {% if form.severity.data=='high' %}selected{% endif %}>High</option>
+                            <option value="critical" {% if form.severity.data=='critical' %}selected{% endif %}>Critical
+                            </option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="export_user_id" class="form-label">User (Optional)</label>
+                        <select class="form-select" id="export_user_id" name="export_user_id">
+                            <option value="">All Users</option>
+                            {% for user in users %}
+                            <option value="{{ user.id }}" {% if form.user_id.data==user.id|string %}selected{% endif %}>
+                                {{ user.username }} ({{ user.id }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="export_reason" class="form-label">Reason for Export</label>
+                        <textarea class="form-control" id="export_reason" name="export_reason" rows="2" required
+                            placeholder="Please provide a reason for this log export (e.g., compliance review, incident investigation)"></textarea>
+                        <div class="form-text">This will be recorded in the audit log.</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-download me-1"></i> Export Logs
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+    document.addEventListener('DOMContentLoaded', function () {
+        // Keep form values after submission
+        const urlParams = new URLSearchParams(window.location.search);
+
+        // Refresh logs button
+        document.getElementById('refreshLogsBtn').addEventListener('click', function () {
+            showLoading();
+            window.location.reload();
+        });
+
+        // View details button handling
+        document.querySelectorAll('.view-details-btn').forEach(btn => {
+            btn.addEventListener('click', async function () {
+                const logId = this.getAttribute('data-log-id');
+                try {
+                    showLoading();
+                    const response = await secureFetch(`/api/security/audit-logs/${logId}`);
+                    hideLoading();
+
+                    if (!response.ok) throw new Error('Failed to fetch log details');
+
+                    const logData = await response.json();
+
+                    // Populate modal with log data
+                    document.getElementById('detail-id').textContent = logData.id;
+                    document.getElementById('detail-timestamp').textContent = new Date(logData.timestamp).toLocaleString();
+                    document.getElementById('detail-event-type').textContent = logData.event_type;
+                    document.getElementById('detail-severity').textContent = logData.severity;
+                    document.getElementById('detail-user').textContent = logData.user_id || 'System';
+                    document.getElementById('detail-ip-address').textContent = logData.ip_address || '-';
+                    document.getElementById('detail-description').textContent = logData.description;
+
+                    // Format JSON with syntax highlighting
+                    const jsonStr = JSON.stringify(logData.details || {}, null, 2);
+                    document.getElementById('detail-json').textContent = jsonStr;
+
+                    // Set severity indicator in the modal
+                    let severityClass = '';
+                    switch (logData.severity) {
+                        case 'critical': severityClass = 'text-danger'; break;
+                        case 'high': severityClass = 'text-warning'; break;
+                        case 'warning': severityClass = 'text-info'; break;
+                        default: severityClass = 'text-muted'; break;
+                    }
+
+                    document.getElementById('detail-severity').className = severityClass;
+
+                } catch (error) {
+                    console.error('Error fetching log details:', error);
+                    hideLoading();
+                    showToast('Error', 'Failed to load log details. Please try again.', 'danger');
+                }
+            });
+        });
+
+        // Export form validation
+        document.getElementById('exportLogsForm').addEventListener('submit', function (e) {
+            const startDate = document.getElementById('export_start_date').value;
+            const endDate = document.getElementById('export_end_date').value;
+            const reason = document.getElementById('export_reason').value.trim();
+
+            // Validate export reason
+            if (reason.length < 10) {
+                e.preventDefault();
+                showToast('Validation Error', 'Please provide a detailed reason for this export (minimum 10 characters).', 'warning');
+                return false;
+            }
+
+            // Validate date range if both are provided
+            if (startDate && endDate) {
+                const start = new Date(startDate);
+                const end = new Date(endDate);
+
+                // Add one day to end date for inclusive comparison
+                end.setDate(end.getDate() + 1);
+
+                // Check date range (max 90 days)
+                const daysDiff = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+                if (daysDiff > 90) {
+                    e.preventDefault();
+                    showToast('Validation Error', 'Date range cannot exceed 90 days.', 'warning');
+                    return false;
+                }
+            }
+
+            // Show loading indicator
+            showLoading();
+            return true;
+        });
+    });
+</script>
+
+<style>
+    .audit-log-table {
+        font-size: 0.9rem;
+    }
+
+    .audit-log-table td {
+        vertical-align: middle;
+    }
+
+    @media (max-width: 767.98px) {
+        .audit-log-table {
+            width: 100%;
+            margin-bottom: 1rem;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+    }
+</style>
+{% endblock %}

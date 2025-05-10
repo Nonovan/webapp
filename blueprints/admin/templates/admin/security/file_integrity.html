@@ -1,0 +1,618 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}File Integrity{% endblock %}
+{% block page_title %}File Integrity Monitoring{% endblock %}
+
+{% block breadcrumbs %}
+<li class="breadcrumb-item">
+    <a href="{{ url_for('admin.dashboard') }}">Dashboard</a>
+</li>
+<li class="breadcrumb-item">
+    <a href="#">Security</a>
+</li>
+<li class="breadcrumb-item active" aria-current="page">File Integrity</li>
+{% endblock %}
+
+{% block page_actions %}
+<div class="btn-group" role="group">
+    <button class="btn btn-sm btn-outline-primary" type="button" id="verifyIntegrity">
+        <i class="bi bi-check-circle me-1"></i> Verify Integrity
+    </button>
+    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal"
+        data-bs-target="#updateBaselineModal">
+        <i class="bi bi-arrow-clockwise me-1"></i> Update Baseline
+    </button>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Baseline Status -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+        <h5 class="card-title mb-0">Baseline Status</h5>
+        <span class="integrity-status integrity-status-{{ baseline_status.status|default('unknown') }}">
+            <i class="bi bi-shield-{{ baseline_status.status == 'valid' ? 'check' : baseline_status.status == 'unknown' ? 'slash' : 'exclamation' }} me-1"
+                aria-hidden="true"></i>
+            {{ baseline_status.status|default('Unknown')|capitalize }}
+        </span>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-6 col-lg-3 mb-3">
+                <div class="card h-100 bg-light">
+                    <div class="card-body text-center">
+                        <h6 class="card-title mb-2">Protected Files</h6>
+                        <div class="display-6 mb-2">{{ baseline_status.files_count|default(0) }}</div>
+                        <small class="text-muted">Files in baseline</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-3 mb-3">
+                <div class="card h-100 bg-light">
+                    <div class="card-body text-center">
+                        <h6 class="card-title mb-2">Last Update</h6>
+                        <div class="mb-2">{{ baseline_status.last_updated|default('Never')|datetime }}</div>
+                        <small class="text-muted">
+                            {{ 'Updated by ' + baseline_status.updated_by if baseline_status.updated_by else 'No updates
+                            recorded' }}
+                        </small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-3 mb-3">
+                <div class="card h-100 bg-light">
+                    <div class="card-body text-center">
+                        <h6 class="card-title mb-2">Last Verification</h6>
+                        <div class="mb-2">{{ baseline_status.last_verified|default('Never')|datetime }}</div>
+                        <small class="text-muted">
+                            {{ baseline_status.verification_duration|default(0) }} seconds
+                        </small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg-3 mb-3">
+                <div class="card h-100 bg-light">
+                    <div class="card-body text-center">
+                        <h6 class="card-title mb-2">Backup Status</h6>
+                        <div class="mb-2">
+                            <span
+                                class="badge bg-{{ baseline_status.backup_available|default(false) ? 'success' : 'secondary' }}">
+                                {{ baseline_status.backup_available|default(false) ? 'Available' : 'Not Available' }}
+                            </span>
+                        </div>
+                        <small class="text-muted">{{ baseline_status.backup_count|default(0) }} backups stored</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-3">
+            <h6>Configuration Summary</h6>
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <tbody>
+                        <tr>
+                            <th style="width: 25%">Monitored Directories</th>
+                            <td>
+                                <ul class="list-unstyled mb-0">
+                                    {% for path in baseline_status.monitored_paths|default([]) %}
+                                    <li><code>{{ path }}</code></li>
+                                    {% else %}
+                                    <li class="text-muted">No directories configured</li>
+                                    {% endfor %}
+                                </ul>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Include Patterns</th>
+                            <td>
+                                <ul class="list-unstyled mb-0">
+                                    {% for pattern in baseline_status.include_patterns|default([]) %}
+                                    <li><code>{{ pattern }}</code></li>
+                                    {% else %}
+                                    <li class="text-muted">No include patterns configured</li>
+                                    {% endfor %}
+                                </ul>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Exclude Patterns</th>
+                            <td>
+                                <ul class="list-unstyled mb-0">
+                                    {% for pattern in baseline_status.exclude_patterns|default([]) %}
+                                    <li><code>{{ pattern }}</code></li>
+                                    {% else %}
+                                    <li class="text-muted">No exclude patterns configured</li>
+                                    {% endfor %}
+                                </ul>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th>Check Frequency</th>
+                            <td>
+                                Every {{ baseline_status.check_frequency_minutes|default(15) }} minutes
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Integrity Violations -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+        <h5 class="card-title mb-0">Recent Integrity Violations</h5>
+        <a href="{{ url_for('admin.audit_logs') }}?event_type=file_integrity_violation" class="btn btn-sm btn-link">View
+            All</a>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Timestamp</th>
+                    <th>Files Affected</th>
+                    <th>Description</th>
+                    <th>Severity</th>
+                    <th class="text-center">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if violations %}
+                {% for violation in violations %}
+                <tr>
+                    <td class="text-nowrap">{{ violation.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                    <td>{{ (violation.details.affected_files|length) if violation.details.affected_files else 0 }}</td>
+                    <td>{{ violation.description }}</td>
+                    <td>
+                        <span class="badge rounded-pill
+                            {% if violation.severity == 'critical' %}bg-danger
+                            {% elif violation.severity == 'high' %}bg-warning
+                            {% else %}bg-info{% endif %}">
+                            {{ violation.severity|capitalize }}
+                        </span>
+                    </td>
+                    <td class="text-center">
+                        <button class="btn btn-sm btn-outline-secondary view-violation-btn"
+                            data-log-id="{{ violation.id }}" title="View Details">
+                            <i class="bi bi-eye"></i>
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% else %}
+                <tr>
+                    <td colspan="5" class="text-center py-3">No recent violations detected</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Baseline Update History -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header bg-light">
+        <h5 class="card-title mb-0">Baseline Update History</h5>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Timestamp</th>
+                    <th>User</th>
+                    <th>Action</th>
+                    <th>Files</th>
+                    <th>Reason</th>
+                    <th class="text-center">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if updates %}
+                {% for update in updates %}
+                <tr>
+                    <td class="text-nowrap">{{ update.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                    <td>{{ update.user_id }}</td>
+                    <td>{{ 'Baseline Restored' if 'restore' in update.event_type else 'Baseline Updated' }}</td>
+                    <td>
+                        {% if update.details %}
+                        {% set files_processed = update.details.files_processed|default(0) %}
+                        {% set files_added = update.details.files_added|default(0) %}
+                        {% set files_updated = update.details.files_updated|default(0) %}
+                        {% set files_removed = update.details.files_removed|default(0) %}
+
+                        <span title="Total: {{ files_processed }}">{{ files_processed }} total</span>
+                        {% if files_added or files_updated or files_removed %}
+                        <small class="text-muted">
+                            ({{ files_added }} added, {{ files_updated }} updated, {{ files_removed }} removed)
+                        </small>
+                        {% endif %}
+                        {% else %}
+                        -
+                        {% endif %}
+                    </td>
+                    <td>{{ update.details.reason|default('-') }}</td>
+                    <td class="text-center">
+                        {% if 'restore' not in update.event_type and baseline_status.backup_available %}
+                        <button class="btn btn-sm btn-outline-secondary restore-baseline-btn"
+                            data-backup-id="{{ update.details.backup_id|default('') }}" title="Restore to this version"
+                            {{ '' if update.details and update.details.backup_id else 'disabled' }}>
+                            <i class="bi bi-clock-history"></i>
+                        </button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                {% else %}
+                <tr>
+                    <td colspan="6" class="text-center py-3">No baseline updates recorded</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Update Baseline Modal -->
+<div class="modal fade" id="updateBaselineModal" tabindex="-1" aria-labelledby="updateBaselineModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="updateBaselineModalLabel">Update File Integrity Baseline</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post" action="{{ url_for('admin.update_integrity_baseline') }}" id="updateBaselineForm">
+                <div class="modal-body">
+                    {{ form.csrf_token }}
+                    <div class="alert alert-warning" role="alert">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-exclamation-triangle-fill me-2 flex-shrink-0"></i>
+                            <div>
+                                <strong>Warning:</strong> Updating the file integrity baseline will create a new
+                                reference point for all monitored files. Changes made to the system after this point
+                                will be detected as potential violations.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="paths" class="form-label">Directories to Monitor</label>
+                        <textarea class="form-control font-monospace" id="paths" name="paths" rows="3"
+                            placeholder="One directory path per line (e.g., /app/core, /app/config)"
+                            required>{{ form.paths.data or '\n'.join(baseline_status.monitored_paths|default([])) }}</textarea>
+                        <div class="form-text">Enter one directory path per line. These paths will be recursively
+                            scanned.</div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="include_patterns" class="form-label">Include Patterns (Optional)</label>
+                                <textarea class="form-control font-monospace" id="include_patterns"
+                                    name="include_patterns" rows="3"
+                                    placeholder="*.py\n*.config\n*.json">{{ form.include_patterns.data or '\n'.join(baseline_status.include_patterns|default([])) }}</textarea>
+                                <div class="form-text">Include only files matching these patterns. One pattern per line.
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="exclude_patterns" class="form-label">Exclude Patterns (Optional)</label>
+                                <textarea class="form-control font-monospace" id="exclude_patterns"
+                                    name="exclude_patterns" rows="3"
+                                    placeholder="*.pyc\n__pycache__\n*.tmp">{{ form.exclude_patterns.data or '\n'.join(baseline_status.exclude_patterns|default([])) }}</textarea>
+                                <div class="form-text">Exclude files matching these patterns. One pattern per line.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="reason" class="form-label">Reason for Update</label>
+                        <textarea class="form-control" id="reason" name="reason" rows="2"
+                            placeholder="Please provide a reason for updating the baseline"
+                            required>{{ form.reason.data or '' }}</textarea>
+                        <div class="form-text">This will be recorded in the audit log</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="updateBaselineBtn">
+                        <span class="spinner-border spinner-border-sm d-none me-1" role="status"
+                            aria-hidden="true"></span>
+                        Update Baseline
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- View Violation Details Modal -->
+<div class="modal fade" id="violationDetailsModal" tabindex="-1" aria-labelledby="violationDetailsModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="violationDetailsModalLabel">Integrity Violation Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <strong>ID:</strong> <span id="violation-id"></span>
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Timestamp:</strong> <span id="violation-timestamp"></span>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <strong>Severity:</strong> <span id="violation-severity"></span>
+                    </div>
+                    <div class="col-md-6">
+                        <strong>Detected By:</strong> <span id="violation-detected-by"></span>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-12">
+                        <strong>Description:</strong>
+                        <p class="mb-0" id="violation-description"></p>
+                    </div>
+                </div>
+
+                <h6 class="mt-3 mb-2">Affected Files</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover" id="affected-files-table">
+                        <thead>
+                            <tr>
+                                <th>Path</th>
+                                <th>Change Type</th>
+                                <th>Expected Hash</th>
+                                <th>Current Hash</th>
+                            </tr>
+                        </thead>
+                        <tbody id="affected-files-body">
+                            <!-- Dynamically populated -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Restore Baseline Modal -->
+<div class="modal fade" id="restoreBaselineModal" tabindex="-1" aria-labelledby="restoreBaselineModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="restoreBaselineModalLabel">Restore Baseline</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning" role="alert">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                    <strong>Warning:</strong> Restoring a previous baseline will revert to a saved snapshot and replace
+                    the current baseline. This may affect file integrity monitoring.
+                </div>
+                <p>Are you sure you want to restore the baseline from <strong id="restore-backup-date"></strong>?</p>
+                <form method="post" action="{{ url_for('admin.restore_integrity_baseline') }}" id="restoreBaselineForm">
+                    <input type="hidden" id="backup_id" name="backup_id" value="">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmRestoreBtn">
+                    <i class="bi bi-clock-history me-1"></i> Restore Baseline
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+    document.addEventListener('DOMContentLoaded', function () {
+        // Manual integrity verification
+        document.getElementById('verifyIntegrity').addEventListener('click', async function () {
+            this.disabled = true;
+            const originalHtml = this.innerHTML;
+            this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Verifying...';
+
+            try {
+                const paths = document.getElementById('paths') ?
+                    document.getElementById('paths').value.split('\n').filter(p => p.trim()) :
+                    [];
+
+                const includePatterns = document.getElementById('include_patterns') ?
+                    document.getElementById('include_patterns').value.split('\n').filter(p => p.trim()) :
+                    [];
+
+                const excludePatterns = document.getElementById('exclude_patterns') ?
+                    document.getElementById('exclude_patterns').value.split('\n').filter(p => p.trim()) :
+                    [];
+
+                const response = await secureFetch('/api/admin/security/integrity/verify', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                    },
+                    body: JSON.stringify({
+                        paths: paths,
+                        include_patterns: includePatterns,
+                        exclude_patterns: excludePatterns
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to verify integrity');
+                }
+
+                const result = await response.json();
+
+                if (result.success) {
+                    if (result.violations_count > 0) {
+                        showToast('Integrity Verification', `${result.violations_count} integrity violations detected`, 'warning');
+                    } else {
+                        showToast('Integrity Verification', 'File integrity verified successfully', 'success');
+                    }
+
+                    // Reload the page to show updated status
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
+                } else {
+                    showToast('Verification Failed', result.message || 'An error occurred during verification', 'danger');
+                }
+            } catch (error) {
+                console.error('Error verifying file integrity:', error);
+                showToast('Error', 'Failed to verify file integrity', 'danger');
+            } finally {
+                this.disabled = false;
+                this.innerHTML = originalHtml;
+            }
+        });
+
+        // Update baseline form submission
+        const updateBaselineForm = document.getElementById('updateBaselineForm');
+        if (updateBaselineForm) {
+            updateBaselineForm.addEventListener('submit', function () {
+                const updateBtn = document.getElementById('updateBaselineBtn');
+                const spinner = updateBtn.querySelector('.spinner-border');
+                spinner.classList.remove('d-none');
+                updateBtn.disabled = true;
+            });
+        }
+
+        // View violation details
+        document.querySelectorAll('.view-violation-btn').forEach(btn => {
+            btn.addEventListener('click', async function () {
+                const logId = this.getAttribute('data-log-id');
+
+                try {
+                    showLoading();
+                    const response = await secureFetch(`/api/security/audit-logs/${logId}`);
+                    hideLoading();
+
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch violation details');
+                    }
+
+                    const violationData = await response.json();
+
+                    // Populate modal with violation data
+                    document.getElementById('violation-id').textContent = violationData.id;
+                    document.getElementById('violation-timestamp').textContent = new Date(violationData.timestamp).toLocaleString();
+
+                    // Set severity with appropriate badge
+                    const severitySpan = document.getElementById('violation-severity');
+                    let severityClass = '';
+                    switch (violationData.severity) {
+                        case 'critical': severityClass = 'bg-danger'; break;
+                        case 'high': severityClass = 'bg-warning'; break;
+                        case 'warning': severityClass = 'bg-info'; break;
+                        default: severityClass = 'bg-secondary'; break;
+                    }
+                    severitySpan.innerHTML = `<span class="badge ${severityClass}">${violationData.severity.charAt(0).toUpperCase() + violationData.severity.slice(1)}</span>`;
+
+                    document.getElementById('violation-detected-by').textContent = violationData.details.detected_by || 'System';
+                    document.getElementById('violation-description').textContent = violationData.description;
+
+                    // Populate affected files table
+                    const affectedFilesBody = document.getElementById('affected-files-body');
+                    affectedFilesBody.innerHTML = '';
+
+                    const affectedFiles = violationData.details.affected_files || [];
+                    affectedFiles.forEach(file => {
+                        const row = document.createElement('tr');
+
+                        // Add appropriate row styling based on change type
+                        if (file.change_type === 'added') {
+                            row.className = 'table-success';
+                        } else if (file.change_type === 'modified') {
+                            row.className = 'table-warning';
+                        } else if (file.change_type === 'deleted') {
+                            row.className = 'table-danger';
+                        }
+
+                        row.innerHTML = `
+                            <td><code>${file.path}</code></td>
+                            <td>${file.change_type.charAt(0).toUpperCase() + file.change_type.slice(1)}</td>
+                            <td><small class="text-muted">${file.expected_hash || '-'}</small></td>
+                            <td><small class="text-muted">${file.current_hash || '-'}</small></td>
+                        `;
+                        affectedFilesBody.appendChild(row);
+                    });
+
+                    // If no affected files, show message
+                    if (affectedFiles.length === 0) {
+                        const row = document.createElement('tr');
+                        row.innerHTML = '<td colspan="4" class="text-center">No file details available</td>';
+                        affectedFilesBody.appendChild(row);
+                    }
+
+                    // Show the modal
+                    const modal = new bootstrap.Modal(document.getElementById('violationDetailsModal'));
+                    modal.show();
+                } catch (error) {
+                    console.error('Error fetching violation details:', error);
+                    hideLoading();
+                    showToast('Error', 'Failed to fetch violation details', 'danger');
+                }
+            });
+        });
+
+        // Restore baseline buttons
+        document.querySelectorAll('.restore-baseline-btn').forEach(btn => {
+            btn.addEventListener('click', function () {
+                const backupId = this.getAttribute('data-backup-id');
+                if (!backupId) {
+                    showToast('Error', 'No backup ID available for restore operation', 'danger');
+                    return;
+                }
+
+                // Find the timestamp for this backup from the table
+                const row = this.closest('tr');
+                const timestamp = row.querySelector('td:first-child').textContent;
+
+                document.getElementById('backup_id').value = backupId;
+                document.getElementById('restore-backup-date').textContent = timestamp;
+
+                const modal = new bootstrap.Modal(document.getElementById('restoreBaselineModal'));
+                modal.show();
+            });
+        });
+
+        // Confirm restore baseline
+        document.getElementById('confirmRestoreBtn').addEventListener('click', function () {
+            showLoading();
+            document.getElementById('restoreBaselineForm').submit();
+        });
+    });
+</script>
+
+<style>
+    .file-table {
+        font-size: 0.875rem;
+    }
+
+    .file-table code {
+        font-size: 0.8125rem;
+    }
+
+    #updateBaselineModal textarea,
+    #updateBaselineModal input[type="text"] {
+        font-size: 0.875rem;
+    }
+</style>
+{% endblock %}

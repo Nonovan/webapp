@@ -1,0 +1,441 @@
+{% extends "admin/layout.html" %}
+
+{% block title %}Edit User{% endblock %}
+{% block page_title %}Edit User{% endblock %}
+
+{% block breadcrumbs %}
+<li class="breadcrumb-item">
+    <a href="{{ url_for('admin.user_list') }}">Users</a>
+</li>
+<li class="breadcrumb-item active" aria-current="page">Edit</li>
+{% endblock %}
+
+{% block content %}
+<div class="card shadow-sm">
+    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+        <h5 class="card-title mb-0">Edit User: {{ user.username }}</h5>
+        <span class="badge {% if user.active %}bg-success{% else %}bg-secondary{% endif %}">
+            {% if user.active %}Active{% else %}Inactive{% endif %}
+        </span>
+    </div>
+    <div class="card-body">
+        <form method="post" class="needs-validation" novalidate id="editUserForm">
+            <!-- CSRF Protection -->
+            {{ form.csrf_token }}
+
+            <div class="row g-3">
+                <!-- Username Field -->
+                <div class="col-md-6">
+                    <label for="username" class="form-label">Username</label>
+                    <div class="input-group has-validation">
+                        <span class="input-group-text">
+                            <i class="bi bi-person"></i>
+                        </span>
+                        <input type="text" class="form-control {% if form.username.errors %}is-invalid{% endif %}"
+                            id="username" name="username" value="{{ form.username.data or '' }}" required
+                            pattern="[a-zA-Z0-9_.-]{3,20}" autocomplete="username" spellcheck="false"
+                            aria-describedby="usernameHelp">
+                        <div class="invalid-feedback">
+                            {% if form.username.errors %}
+                            {{ form.username.errors[0] }}
+                            {% else %}
+                            Please provide a valid username.
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div id="usernameHelp" class="form-text small">3-20 characters, letters, numbers, underscore or dash
+                        only</div>
+                </div>
+
+                <!-- Email Field -->
+                <div class="col-md-6">
+                    <label for="email" class="form-label">Email</label>
+                    <div class="input-group has-validation">
+                        <span class="input-group-text">
+                            <i class="bi bi-envelope"></i>
+                        </span>
+                        <input type="email" class="form-control {% if form.email.errors %}is-invalid{% endif %}"
+                            id="email" name="email" value="{{ form.email.data or '' }}" required autocomplete="email"
+                            aria-describedby="emailHelp">
+                        <div class="invalid-feedback">
+                            {% if form.email.errors %}
+                            {{ form.email.errors[0] }}
+                            {% else %}
+                            Please provide a valid email address.
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div id="emailHelp" class="form-text small">User will receive notifications at this address</div>
+                </div>
+
+                <!-- Password Field -->
+                <div class="col-md-6">
+                    <label for="password" class="form-label">New Password (leave blank to keep current)</label>
+                    <div class="input-group has-validation">
+                        <span class="input-group-text">
+                            <i class="bi bi-lock"></i>
+                        </span>
+                        <input type="password" class="form-control {% if form.password.errors %}is-invalid{% endif %}"
+                            id="password" name="password" autocomplete="new-password" aria-describedby="passwordHelp">
+                        <button class="btn btn-outline-secondary" type="button" id="togglePassword"
+                            aria-label="Toggle password visibility">
+                            <i class="bi bi-eye" aria-hidden="true"></i>
+                        </button>
+                        <div class="invalid-feedback">
+                            {% if form.password.errors %}
+                            {{ form.password.errors[0] }}
+                            {% else %}
+                            Password must meet all requirements.
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="password-strength mt-2">
+                        <div class="progress" style="height: 5px;">
+                            <div class="progress-bar" role="progressbar" style="width: 0%" aria-valuenow="0"
+                                aria-valuemin="0" aria-valuemax="100"></div>
+                        </div>
+                        <div class="form-text small d-flex justify-content-between">
+                            <span id="passwordStrengthText">Password strength: Not set</span>
+                        </div>
+                    </div>
+                    <div id="passwordHelp" class="form-text small">
+                        <ul id="password-requirements" class="small ps-3 mb-0">
+                            <li data-requirement="length">Must be at least 12 characters</li>
+                            <li data-requirement="lowercase">Must include lowercase letter</li>
+                            <li data-requirement="uppercase">Must include uppercase letter</li>
+                            <li data-requirement="number">Must include a number</li>
+                            <li data-requirement="special">Must include special character</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Confirm Password Field -->
+                <div class="col-md-6">
+                    <label for="confirm_password" class="form-label">Confirm Password</label>
+                    <div class="input-group has-validation">
+                        <span class="input-group-text">
+                            <i class="bi bi-lock-fill"></i>
+                        </span>
+                        <input type="password"
+                            class="form-control {% if form.confirm_password.errors %}is-invalid{% endif %}"
+                            id="confirm_password" name="confirm_password" autocomplete="new-password">
+                        <button class="btn btn-outline-secondary" type="button" id="toggleConfirmPassword"
+                            aria-label="Toggle password visibility">
+                            <i class="bi bi-eye" aria-hidden="true"></i>
+                        </button>
+                        <div class="invalid-feedback">
+                            {% if form.confirm_password.errors %}
+                            {{ form.confirm_password.errors[0] }}
+                            {% else %}
+                            Passwords do not match.
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="form-text small">Only needed if changing password</div>
+                </div>
+
+                <!-- Roles Selection -->
+                <div class="col-12 mt-4">
+                    <label class="form-label">Roles</label>
+                    <div class="role-selection border rounded p-3">
+                        {% for role_id, role_name in form.roles.choices %}
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" value="{{ role_id }}" id="role{{ role_id }}"
+                                name="roles" {% if role_id in (form.roles.data or []) %}checked{% endif %}>
+                            <label class="form-check-label d-flex align-items-center" for="role{{ role_id }}">
+                                {{ role_name }}
+                                {% if role_name == 'admin' %}
+                                <span class="badge bg-danger ms-2">Administrator</span>
+                                {% elif role_name == 'operator' %}
+                                <span class="badge bg-warning ms-2">Operator</span>
+                                {% else %}
+                                <span class="badge bg-secondary ms-2">{{ role_name|capitalize }}</span>
+                                {% endif %}
+                            </label>
+                        </div>
+                        {% endfor %}
+                        {% if not form.roles.choices %}
+                        <div class="text-muted">No roles available. Please create roles first.</div>
+                        {% endif %}
+                        <div class="invalid-feedback {% if form.roles.errors %}d-block{% endif %}">
+                            {% if form.roles.errors %}
+                            {{ form.roles.errors[0] }}
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="form-text small">Select at least one role for the user</div>
+                </div>
+
+                <!-- Account Status -->
+                <div class="col-12 mt-3">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" id="active" name="active"
+                            value="true" {% if form.active.data %}checked{% endif %}>
+                        <label class="form-check-label" for="active">Active Account</label>
+                    </div>
+                    <div class="form-text small">Inactive accounts cannot log in</div>
+                </div>
+
+                <!-- User Activity Information -->
+                <div class="col-12 mt-4">
+                    <div class="card bg-light">
+                        <div class="card-body">
+                            <h6 class="card-subtitle mb-2 text-muted">User Information</h6>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <p class="mb-1"><strong>User ID:</strong> {{ user.id }}</p>
+                                    <p class="mb-1"><strong>Created:</strong> {{ user.created_at.strftime('%Y-%m-%d
+                                        %H:%M') if user.created_at else 'Unknown' }}</p>
+                                </div>
+                                <div class="col-md-6">
+                                    <p class="mb-1"><strong>Last Login:</strong> {{
+                                        user.last_login_at.strftime('%Y-%m-%d %H:%M') if user.last_login_at else 'Never'
+                                        }}</p>
+                                    <p class="mb-1"><strong>MFA Status:</strong>
+                                        <span
+                                            class="badge {% if user.mfa_enabled %}bg-success{% else %}bg-secondary{% endif %}">
+                                            {% if user.mfa_enabled %}Enabled{% else %}Disabled{% endif %}
+                                        </span>
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Security Notice -->
+                <div class="col-12 mt-4">
+                    <div class="alert alert-info d-flex" role="alert">
+                        <i class="bi bi-info-circle-fill me-2 flex-shrink-0"></i>
+                        <div>
+                            <strong>Security Information:</strong> User modifications will be logged in the audit trail
+                            with
+                            your administrator credentials.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-between mt-4">
+                <a href="{{ url_for('admin.user_list') }}" class="btn btn-outline-secondary">
+                    <i class="bi bi-arrow-left me-1"></i> Back to Users
+                </a>
+                <button type="submit" class="btn btn-primary" id="saveUserBtn">
+                    <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                    <i class="bi bi-save me-1"></i> Save Changes
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+    document.addEventListener('DOMContentLoaded', function () {
+        // Toggle password visibility
+        function togglePasswordVisibility(inputId, toggleButtonId) {
+            const input = document.getElementById(inputId);
+            const button = document.getElementById(toggleButtonId);
+
+            if (input && button) {
+                button.addEventListener('click', function () {
+                    const type = input.getAttribute('type') === 'password' ? 'text' : 'password';
+                    input.setAttribute('type', type);
+
+                    const icon = this.querySelector('i');
+                    if (type === 'text') {
+                        icon.classList.remove('bi-eye');
+                        icon.classList.add('bi-eye-slash');
+                    } else {
+                        icon.classList.remove('bi-eye-slash');
+                        icon.classList.add('bi-eye');
+                    }
+                });
+            }
+        }
+
+        // Initialize password visibility toggles
+        togglePasswordVisibility('password', 'togglePassword');
+        togglePasswordVisibility('confirm_password', 'toggleConfirmPassword');
+
+        // Password strength meter
+        function setupPasswordStrengthMeter() {
+            const passwordInput = document.getElementById('password');
+            const progressBar = document.querySelector('.password-strength .progress-bar');
+            const strengthText = document.getElementById('passwordStrengthText');
+            const requirements = document.querySelectorAll('#password-requirements li');
+
+            if (!passwordInput || !progressBar || !strengthText) return;
+
+            passwordInput.addEventListener('input', function () {
+                const password = this.value;
+                let strength = 0;
+
+                // Skip validation if password field is empty (keeping current password)
+                if (!password) {
+                    progressBar.style.width = '0%';
+                    progressBar.className = 'progress-bar';
+                    strengthText.textContent = 'Password strength: Not set';
+                    requirements.forEach(req => {
+                        req.classList.remove('text-success');
+                        req.classList.add('text-muted');
+                        req.innerHTML = req.innerHTML.replace('✓ Must', 'Must');
+                    });
+                    return;
+                }
+
+                // Check each requirement and update UI
+                const hasLength = password.length >= 12;
+                const hasLower = /[a-z]/.test(password);
+                const hasUpper = /[A-Z]/.test(password);
+                const hasNumber = /\d/.test(password);
+                const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+
+                // Update requirement indicators
+                requirements.forEach(req => {
+                    const requirement = req.getAttribute('data-requirement');
+                    if ((requirement === 'length' && hasLength) ||
+                        (requirement === 'lowercase' && hasLower) ||
+                        (requirement === 'uppercase' && hasUpper) ||
+                        (requirement === 'number' && hasNumber) ||
+                        (requirement === 'special' && hasSpecial)) {
+                        req.classList.add('text-success');
+                        req.classList.remove('text-muted');
+                        req.innerHTML = req.innerHTML.replace('Must', '✓ Must');
+                    } else {
+                        req.classList.remove('text-success');
+                        req.classList.add('text-muted');
+                        req.innerHTML = req.innerHTML.replace('✓ Must', 'Must');
+                    }
+                });
+
+                // Calculate strength
+                if (hasLength) strength += 20;
+                if (hasLower) strength += 20;
+                if (hasUpper) strength += 20;
+                if (hasNumber) strength += 20;
+                if (hasSpecial) strength += 20;
+
+                // Update progress bar
+                progressBar.style.width = `${strength}%`;
+
+                // Update color based on strength
+                if (strength < 40) {
+                    progressBar.className = 'progress-bar bg-danger';
+                    strengthText.textContent = 'Password strength: Weak';
+                } else if (strength < 80) {
+                    progressBar.className = 'progress-bar bg-warning';
+                    strengthText.textContent = 'Password strength: Moderate';
+                } else {
+                    progressBar.className = 'progress-bar bg-success';
+                    strengthText.textContent = 'Password strength: Strong';
+                }
+            });
+        }
+
+        // Password match validation
+        function validatePasswordMatch() {
+            const password = document.getElementById('password');
+            const confirmPassword = document.getElementById('confirm_password');
+
+            if (!password || !confirmPassword) return;
+
+            // Only validate if password field has content
+            confirmPassword.addEventListener('input', function () {
+                if (!password.value) {
+                    this.classList.remove('is-invalid');
+                    this.classList.remove('is-valid');
+                    return;
+                }
+
+                if (this.value === password.value) {
+                    this.classList.remove('is-invalid');
+                    this.classList.add('is-valid');
+                } else {
+                    this.classList.add('is-invalid');
+                    this.classList.remove('is-valid');
+                }
+            });
+
+            password.addEventListener('input', function () {
+                if (confirmPassword.value && this.value !== confirmPassword.value) {
+                    confirmPassword.classList.add('is-invalid');
+                    confirmPassword.classList.remove('is-valid');
+                } else if (confirmPassword.value) {
+                    confirmPassword.classList.remove('is-invalid');
+                    confirmPassword.classList.add('is-valid');
+                }
+            });
+        }
+
+        // Form validation
+        function setupFormValidation() {
+            const form = document.getElementById('editUserForm');
+            const saveButton = document.getElementById('saveUserBtn');
+
+            if (!form || !saveButton) return;
+
+            form.addEventListener('submit', function (event) {
+                // Check password fields - if password is filled, confirm must match
+                const passwordField = document.getElementById('password');
+                const confirmField = document.getElementById('confirm_password');
+
+                if (passwordField.value && passwordField.value !== confirmField.value) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    confirmField.classList.add('is-invalid');
+                    return false;
+                }
+
+                // Role validation - at least one role must be selected
+                const roleCheckboxes = form.querySelectorAll('input[name="roles"]:checked');
+                if (roleCheckboxes.length === 0) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    document.querySelector('.role-selection').classList.add('border-danger');
+                    document.querySelector('.role-selection + .form-text').classList.add('text-danger');
+                    return false;
+                }
+
+                if (!form.checkValidity()) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                } else {
+                    // Show loading spinner
+                    const spinner = saveButton.querySelector('.spinner-border');
+                    if (spinner) {
+                        spinner.classList.remove('d-none');
+                    }
+                    saveButton.setAttribute('disabled', 'disabled');
+                }
+
+                form.classList.add('was-validated');
+            }, false);
+        }
+
+        // Initialize all validation functions
+        setupPasswordStrengthMeter();
+        validatePasswordMatch();
+        setupFormValidation();
+    });
+</script>
+{% endblock %}
+
+{% block styles %}
+<style>
+    .role-selection {
+        max-height: 200px;
+        overflow-y: auto;
+    }
+
+    #password-requirements {
+        margin-top: 0.5rem;
+        padding-left: 1.5rem;
+    }
+
+    #password-requirements li {
+        margin-bottom: 0.25rem;
+    }
+</style>
+{% endblock %}

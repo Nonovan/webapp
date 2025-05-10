@@ -1,0 +1,750 @@
+<!doctype html>
+<html lang="en" dir="ltr" data-bs-theme="light">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- Security headers -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta http-equiv="X-Frame-Options" content="DENY" />
+    <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+    <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin" />
+    <meta http-equiv="Permissions-Policy" content="geolocation=(), camera=(), microphone=(), payment=()" />
+    <!-- CSRF Token -->
+    <meta name="csrf-token" content="{{ csrf_token() }}" />
+
+    <!-- Application metadata -->
+    <meta name="description" content="Cloud Infrastructure Platform - Administrative Interface" />
+    <meta name="theme-color" content="#0066cc" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="application-name" content="Cloud Infrastructure Platform Admin" />
+    <meta name="author" content="Cloud Infrastructure Platform Team" />
+
+    <title>{% block title %}Admin Dashboard{% endblock %} | Cloud Infrastructure Platform</title>
+
+    <!-- Bootstrap CSS with SRI -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM" crossorigin="anonymous" />
+
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous" />
+
+    <!-- Admin specific CSS -->
+    <link rel="stylesheet" href="{{ url_for('admin.static', filename='css/admin.css') }}"
+        integrity="{{ sri_hash('admin/css/admin.css') }}" crossorigin="anonymous" />
+
+    <!-- Application assets -->
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='images/favicon.ico') }}" />
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}" />
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/apple-touch-icon.png') }}" />
+
+    <!-- Critical inline styles -->
+    <style>
+        :root {
+            --admin-primary: #0d6efd;
+            --admin-secondary: #6c757d;
+            --admin-success: #198754;
+            --admin-info: #0dcaf0;
+            --admin-warning: #ffc107;
+            --admin-danger: #dc3545;
+            --admin-background: #f8f9fa;
+            --admin-sidebar: #343a40;
+            --admin-text: #212529;
+            --admin-menu-text: rgba(255, 255, 255, 0.85);
+        }
+
+        [data-bs-theme="dark"] {
+            --admin-background: #212529;
+            --admin-sidebar: #101418;
+            --admin-text: #f8f9fa;
+            --admin-menu-text: rgba(255, 255, 255, 0.85);
+        }
+
+        body {
+            background-color: var(--admin-background);
+            color: var(--admin-text);
+            min-height: 100vh;
+        }
+
+        /* Admin sidebar */
+        .admin-sidebar {
+            background-color: var(--admin-sidebar);
+            min-height: 100vh;
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            z-index: 100;
+            padding: 0;
+            box-shadow: inset -1px 0 0 rgba(0, 0, 0, .1);
+        }
+
+        .admin-sidebar .nav-link {
+            color: var(--admin-menu-text);
+            font-weight: 500;
+            padding: .75rem 1rem;
+        }
+
+        .admin-sidebar .nav-link:hover,
+        .admin-sidebar .nav-link.active {
+            color: #fff;
+            background-color: rgba(255, 255, 255, .1);
+        }
+
+        .admin-sidebar .nav-link.active {
+            border-left: 4px solid var(--admin-primary);
+        }
+
+        .admin-sidebar .nav-link i {
+            margin-right: .5rem;
+            width: 1.25rem;
+            text-align: center;
+        }
+
+        .admin-sidebar-header {
+            padding: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, .1);
+        }
+
+        .admin-sidebar-footer {
+            padding: .75rem 1rem;
+            border-top: 1px solid rgba(255, 255, 255, .1);
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+        }
+
+        .admin-content {
+            margin-left: 250px;
+            padding: 1.5rem;
+        }
+
+        /* Security status indicators */
+        .integrity-status {
+            display: inline-block;
+            padding: .25rem .5rem;
+            font-size: 0.875rem;
+            border-radius: .25rem;
+        }
+
+        .integrity-status-valid {
+            background-color: rgba(25, 135, 84, 0.15);
+            color: #198754;
+        }
+
+        .integrity-status-unknown {
+            background-color: rgba(108, 117, 125, 0.15);
+            color: #6c757d;
+        }
+
+        .integrity-status-warning {
+            background-color: rgba(255, 193, 7, 0.15);
+            color: #fd7e14;
+        }
+
+        .integrity-status-invalid {
+            background-color: rgba(220, 53, 69, 0.15);
+            color: #dc3545;
+        }
+
+        /* Accessibility skip link */
+        .skip-link {
+            position: absolute;
+            top: -40px;
+            left: 0;
+            background: var(--admin-primary);
+            color: white;
+            padding: 8px;
+            z-index: 100;
+            transition: top 0.1s;
+        }
+
+        .skip-link:focus {
+            top: 0;
+        }
+
+        /* Loading overlay */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            visibility: hidden;
+            opacity: 0;
+            transition: visibility 0s, opacity 0.3s;
+        }
+
+        .loading-overlay.show {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        /* Session timeout warning */
+        .session-timeout-warning {
+            position: fixed;
+            bottom: 0;
+            right: 0;
+            margin: 1rem;
+            z-index: 1050;
+            min-width: 300px;
+        }
+
+        /* Responsive adjustments for mobile */
+        @media (max-width: 767.98px) {
+            .admin-sidebar {
+                width: 100%;
+                height: auto;
+                position: relative;
+            }
+
+            .admin-content {
+                margin-left: 0;
+            }
+
+            .admin-sidebar-footer {
+                position: relative;
+            }
+        }
+    </style>
+
+    <!-- Page-specific styles -->
+    {% block styles %}{% endblock %}
+</head>
+
+<body class="d-flex flex-column">
+    <!-- Accessibility skip link -->
+    <a href="#main-content" class="skip-link visually-hidden-focusable">Skip to main content</a>
+
+    <!-- Admin interface layout -->
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-3 col-lg-2 d-md-block admin-sidebar">
+                <div class="admin-sidebar-header">
+                    <a href="{{ url_for('admin.dashboard') }}"
+                        class="d-flex align-items-center text-white text-decoration-none">
+                        <i class="bi bi-shield-lock fs-4 me-2"></i>
+                        <span class="fs-5 fw-semibold">Admin Panel</span>
+                    </a>
+                </div>
+
+                <div class="pt-3">
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'admin.dashboard' %}active{% endif %}"
+                                href="{{ url_for('admin.dashboard') }}" aria-current="page">
+                                <i class="bi bi-speedometer2"></i>
+                                Dashboard
+                            </a>
+                        </li>
+
+                        <!-- User Management -->
+                        <li class="nav-item">
+                            <a class="nav-link {% if 'admin.user' in request.endpoint %}active{% endif %}"
+                                href="{{ url_for('admin.user_list') }}">
+                                <i class="bi bi-people"></i>
+                                User Management
+                            </a>
+                        </li>
+
+                        <!-- Role Management -->
+                        <li class="nav-item">
+                            <a class="nav-link {% if 'admin.role' in request.endpoint %}active{% endif %}"
+                                href="{{ url_for('admin.role_list') }}">
+                                <i class="bi bi-key"></i>
+                                Role Management
+                            </a>
+                        </li>
+
+                        <!-- System Settings -->
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'admin.system_settings' %}active{% endif %}"
+                                href="{{ url_for('admin.system_settings') }}">
+                                <i class="bi bi-sliders"></i>
+                                System Settings
+                            </a>
+                        </li>
+
+                        <!-- Security Section -->
+                        <li class="nav-item">
+                            <hr class="dropdown-divider bg-secondary my-2">
+                            <h6 class="nav-heading px-3 mt-3 mb-1 text-muted">
+                                <i class="bi bi-lock"></i>
+                                Security
+                            </h6>
+                        </li>
+
+                        <!-- File Integrity -->
+                        <li class="nav-item">
+                            <a class="nav-link {% if 'admin.file_integrity' in request.endpoint %}active{% endif %}"
+                                href="{{ url_for('admin.file_integrity') }}">
+                                <i class="bi bi-shield-check"></i>
+                                File Integrity
+                            </a>
+                        </li>
+
+                        <!-- Audit Logs -->
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'admin.audit_logs' %}active{% endif %}"
+                                href="{{ url_for('admin.audit_logs') }}">
+                                <i class="bi bi-journal-text"></i>
+                                Audit Logs
+                            </a>
+                        </li>
+
+                        <!-- Security Incidents -->
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'admin.security_incidents' %}active{% endif %}"
+                                href="{{ url_for('admin.security_incidents') }}">
+                                <i class="bi bi-exclamation-triangle"></i>
+                                Security Incidents
+                            </a>
+                        </li>
+
+                        <!-- Reports Section -->
+                        <li class="nav-item">
+                            <hr class="dropdown-divider bg-secondary my-2">
+                            <h6 class="nav-heading px-3 mt-3 mb-1 text-muted">
+                                <i class="bi bi-graph-up"></i>
+                                Reports
+                            </h6>
+                        </li>
+
+                        <!-- Compliance Reports -->
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'admin.compliance_reports' %}active{% endif %}"
+                                href="{{ url_for('admin.compliance_reports') }}">
+                                <i class="bi bi-clipboard-check"></i>
+                                Compliance
+                            </a>
+                        </li>
+
+                        <!-- Security Reports -->
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'admin.security_reports' %}active{% endif %}"
+                                href="{{ url_for('admin.security_reports') }}">
+                                <i class="bi bi-shield"></i>
+                                Security
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Sidebar footer with user info -->
+                <div class="admin-sidebar-footer text-white small">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="bi bi-person-circle me-1"></i>
+                            {{ current_user.username|truncate(15) }}
+                        </div>
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-link text-white p-0" type="button" id="userActionsDropdown"
+                                data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="bi bi-three-dots-vertical"></i>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userActionsDropdown">
+                                <li>
+                                    <a class="dropdown-item" href="{{ url_for('main.profile') }}">
+                                        <i class="bi bi-person me-2"></i>Profile
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" href="{{ url_for('main.home') }}">
+                                        <i class="bi bi-house me-2"></i>Main Site
+                                    </a>
+                                </li>
+                                <li>
+                                    <hr class="dropdown-divider">
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" href="{{ url_for('auth.logout') }}">
+                                        <i class="bi bi-box-arrow-right me-2"></i>Logout
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main content area -->
+            <main id="main-content" class="col-md-9 ms-sm-auto col-lg-10 px-md-4 admin-content">
+                <!-- Header with breadcrumbs -->
+                <div
+                    class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <div>
+                        <h1 class="h2">{% block page_title %}Admin Dashboard{% endblock %}</h1>
+                        <nav aria-label="breadcrumb">
+                            <ol class="breadcrumb small mb-0">
+                                <li class="breadcrumb-item">
+                                    <a href="{{ url_for('admin.dashboard') }}">Admin</a>
+                                </li>
+                                {% block breadcrumbs %}{% endblock %}
+                            </ol>
+                        </nav>
+                    </div>
+
+                    <!-- Page actions -->
+                    <div class="btn-toolbar mb-2 mb-md-0">
+                        {% block page_actions %}
+                        <!-- Example: Add user button -->
+                        <!-- <a href="{{ url_for('admin.user_create') }}" class="btn btn-sm btn-primary">
+                            <i class="bi bi-plus-circle"></i> Add User
+                        </a> -->
+                        {% endblock %}
+                    </div>
+                </div>
+
+                <!-- Flash messages -->
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    <div class="d-flex align-items-center">
+                        {% if category == 'danger' %}
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                        {% elif category == 'warning' %}
+                        <i class="bi bi-exclamation-circle-fill me-2"></i>
+                        {% elif category == 'success' %}
+                        <i class="bi bi-check-circle-fill me-2"></i>
+                        {% else %}
+                        <i class="bi bi-info-circle-fill me-2"></i>
+                        {% endif %}
+                        <div>{{ message }}</div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+                {% endfor %}
+                {% endif %}
+                {% endwith %}
+
+                <!-- File integrity alert (if present) -->
+                {% if file_integrity_alert %}
+                <div class="alert alert-{{ file_integrity_alert.level }} d-flex align-items-center" role="alert">
+                    <i class="bi bi-shield-exclamation me-2"></i>
+                    <div>
+                        {{ file_integrity_alert.message }}
+                        {% if file_integrity_alert.details_url %}
+                        <a href="{{ file_integrity_alert.details_url }}" class="alert-link">View details</a>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Page content -->
+                <div class="content">
+                    {% block content %}
+                    <div class="card shadow-sm">
+                        <div class="card-body">
+                            <h5 class="card-title">Welcome to the Administration Panel</h5>
+                            <p class="card-text">Use the navigation on the left to manage platform settings and users.
+                            </p>
+                        </div>
+                    </div>
+                    {% endblock %}
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Toast container for notifications -->
+    <div class="toast-container position-fixed top-0 end-0 p-3" role="status" aria-live="polite" aria-atomic="true">
+    </div>
+
+    <!-- Session timeout warning -->
+    <div class="session-timeout-warning d-none" id="sessionTimeoutWarning">
+        <div class="alert alert-warning shadow">
+            <h5 class="alert-heading d-flex align-items-center">
+                <i class="bi bi-clock me-2"></i>
+                Session Expiring
+            </h5>
+            <p>Your session will expire in <strong id="sessionTimeLeft">5:00</strong> minutes.</p>
+            <hr>
+            <div class="d-flex justify-content-between">
+                <button class="btn btn-sm btn-outline-secondary" id="extendSessionBtn">
+                    <i class="bi bi-arrow-clockwise me-1"></i>
+                    Extend Session
+                </button>
+                <a href="{{ url_for('auth.logout') }}" class="btn btn-sm btn-outline-dark">
+                    <i class="bi bi-box-arrow-right me-1"></i>
+                    Logout
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner-border text-light" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+
+    <!-- External scripts with SRI -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-geWF76RCwLtnZ8qwWowPQNguL3RmwHVBC9FhGdlKrxdiJJigb/j/68SIy3Te4Bkz"
+        crossorigin="anonymous"></script>
+
+    <!-- Common admin functionality -->
+    <script src="{{ url_for('admin.static', filename='js/admin-common.js') }}"
+        integrity="{{ sri_hash('admin/js/admin-common.js') }}" crossorigin="anonymous"></script>
+
+    <!-- Session timeout management -->
+    <script nonce="{{ csp_nonce }}">
+        document.addEventListener('DOMContentLoaded', function () {
+            // Admin session timeout monitoring (shorter than regular sessions)
+            const SESSION_TIMEOUT = {{ config.ADMIN_SESSION_TIMEOUT|default (900)
+        }}; // 15 minutes by default
+        const WARNING_THRESHOLD = 300; // Show warning 5 minutes before expiry
+
+        let sessionTimer;
+        let warningTimer;
+        let lastActivity = Date.now();
+
+        function resetActivityTimer() {
+            lastActivity = Date.now();
+        }
+
+        function checkSessionStatus() {
+            const idle = Math.floor((Date.now() - lastActivity) / 1000);
+            const remaining = SESSION_TIMEOUT - idle;
+
+            // If session has less than WARNING_THRESHOLD seconds left, show warning
+            if (remaining <= WARNING_THRESHOLD && remaining > 0) {
+                showSessionWarning(remaining);
+            }
+
+            // If session has expired, redirect to login
+            if (remaining <= 0) {
+                window.location.href = "{{ url_for('auth.logout') }}?reason=timeout";
+            }
+        }
+
+        function showSessionWarning(secondsRemaining) {
+            const minutes = Math.floor(secondsRemaining / 60);
+            const seconds = secondsRemaining % 60;
+
+            document.getElementById('sessionTimeLeft').textContent =
+                `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+            document.getElementById('sessionTimeoutWarning').classList.remove('d-none');
+
+            // Update countdown every second
+            if (warningTimer) clearInterval(warningTimer);
+            warningTimer = setInterval(function () {
+                const secsLeft = Math.max(0, Math.floor((SESSION_TIMEOUT * 1000 - (Date.now() - lastActivity)) / 1000));
+
+                if (secsLeft <= 0) {
+                    clearInterval(warningTimer);
+                    return;
+                }
+
+                const mins = Math.floor(secsLeft / 60);
+                const secs = secsLeft % 60;
+                document.getElementById('sessionTimeLeft').textContent =
+                    `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+            }, 1000);
+        }
+
+        function hideSessionWarning() {
+            document.getElementById('sessionTimeoutWarning').classList.add('d-none');
+            if (warningTimer) clearInterval(warningTimer);
+        }
+
+        function extendSession() {
+            // Reset activity timer
+            resetActivityTimer();
+            hideSessionWarning();
+
+            // Call session extension endpoint
+            fetch("{{ url_for('auth.extend_session') }}", {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content
+                },
+                credentials: 'same-origin'
+            })
+                .then(response => {
+                    if (!response.ok) throw new Error('Session extension failed');
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        showToast('Session Extended', 'Your session has been extended.', 'success');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error extending session:', error);
+                    showToast('Session Error', 'Could not extend your session.', 'danger');
+                });
+        }
+
+        // Set up event listeners for user activity
+        ['mousemove', 'keydown', 'mousedown', 'touchstart', 'scroll', 'click'].forEach(event => {
+            document.addEventListener(event, resetActivityTimer, { passive: true });
+        });
+
+        // Set up session check timer
+        sessionTimer = setInterval(checkSessionStatus, 10000);
+
+        // Set up extend session button
+        document.getElementById('extendSessionBtn').addEventListener('click', function (e) {
+            e.preventDefault();
+            extendSession();
+        });
+
+        // Visibilitychange handling
+        document.addEventListener('visibilitychange', function () {
+            if (document.visibilityState === 'visible') {
+                // When tab becomes visible again, check session immediately
+                checkSessionStatus();
+            }
+        });
+        });
+    </script>
+
+    <!-- Secure fetch utility -->
+    <script nonce="{{ csp_nonce }}">
+        async function secureFetch(url, options = {}) {
+            // Default options with security headers
+            const defaultOptions = {
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content,
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            };
+
+            // Merge options
+            const mergedOptions = {
+                ...defaultOptions,
+                ...options,
+                headers: {
+                    ...defaultOptions.headers,
+                    ...(options.headers || {})
+                }
+            };
+
+            try {
+                const response = await fetch(url, mergedOptions);
+
+                // Handle 401 Unauthorized (session expired)
+                if (response.status === 401) {
+                    showToast('Session Expired', 'Your session has expired. Please log in again.', 'danger');
+                    setTimeout(() => {
+                        window.location.href = "{{ url_for('auth.login') }}";
+                    }, 2000);
+                    throw new Error('Session expired');
+                }
+
+                // Handle 403 Forbidden (permission denied)
+                if (response.status === 403) {
+                    showToast('Access Denied', 'You do not have permission to perform this action.', 'danger');
+                    throw new Error('Permission denied');
+                }
+
+                return response;
+            } catch (error) {
+                console.error('Fetch error:', error);
+                throw error;
+            }
+        }
+
+        // Toast notification system
+        function showToast(title, message, type = 'info') {
+            const toastContainer = document.querySelector('.toast-container');
+
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.setAttribute('role', 'alert');
+            toast.setAttribute('aria-live', 'assertive');
+            toast.setAttribute('aria-atomic', 'true');
+
+            toast.innerHTML = `
+                <div class="toast-header bg-${type} text-white">
+                    <strong class="me-auto">${title}</strong>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+                </div>
+                <div class="toast-body">${message}</div>
+            `;
+
+            toastContainer.appendChild(toast);
+
+            const bsToast = new bootstrap.Toast(toast, {
+                autohide: true,
+                delay: 5000
+            });
+
+            bsToast.show();
+
+            // Remove toast from DOM after hidden
+            toast.addEventListener('hidden.bs.toast', function () {
+                toast.remove();
+            });
+        }
+
+        // Form processing utilities
+        function showLoading() {
+            document.getElementById('loadingOverlay').classList.add('show');
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').classList.remove('show');
+        }
+
+        // Set up form submission handling with loading indicator
+        document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('form').forEach(form => {
+                form.addEventListener('submit', function () {
+                    // Only show loading if form is valid
+                    if (this.checkValidity()) {
+                        showLoading();
+                    }
+                });
+            });
+        });
+    </script>
+
+    <!-- File integrity monitoring for admins -->
+    <script nonce="{{ csp_nonce }}">
+        document.addEventListener("DOMContentLoaded", function () {
+            // Check file integrity status periodically for admins
+            async function checkFileIntegrityStatus() {
+                try {
+                    const response = await secureFetch("{{ url_for('api.security.file_integrity_status') }}");
+                    if (response.ok) {
+                        const data = await response.json();
+
+                        if (data.violations > 0) {
+                            showToast(
+                                "File Integrity Alert",
+                                `${data.violations} file integrity violations detected.`,
+                                "danger"
+                            );
+                        }
+                    }
+                } catch (error) {
+                    console.error("Error checking file integrity:", error);
+                }
+            }
+
+            // Run initial check and then every 5 minutes
+            checkFileIntegrityStatus();
+            setInterval(checkFileIntegrityStatus, 5 * 60 * 1000);
+        });
+    </script>
+
+    <!-- Page-specific scripts -->
+    {% block scripts %}{% endblock %}
+</body>
+
+</html>
