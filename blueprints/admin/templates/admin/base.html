@@ -502,7 +502,7 @@
         document.addEventListener('DOMContentLoaded', function () {
             // Admin session timeout monitoring (shorter than regular sessions)
             const SESSION_TIMEOUT = {{ config.ADMIN_SESSION_TIMEOUT|default (900)
-        }}; // 15 minutes by default
+        }}; // 15 minutes
         const WARNING_THRESHOLD = 300; // Show warning 5 minutes before expiry
 
         let sessionTimer;
