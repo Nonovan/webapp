@@ -517,12 +517,10 @@
             const idle = Math.floor((Date.now() - lastActivity) / 1000);
             const remaining = SESSION_TIMEOUT - idle;
 
-            // If session has less than WARNING_THRESHOLD seconds left, show warning
             if (remaining <= WARNING_THRESHOLD && remaining > 0) {
                 showSessionWarning(remaining);
             }
 
-            // If session has expired, redirect to login
             if (remaining <= 0) {
                 window.location.href = "{{ url_for('auth.logout') }}?reason=timeout";
             }
@@ -536,16 +534,13 @@
                 `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
             document.getElementById('sessionTimeoutWarning').classList.remove('d-none');
 
-            // Update countdown every second
             if (warningTimer) clearInterval(warningTimer);
             warningTimer = setInterval(function () {
                 const secsLeft = Math.max(0, Math.floor((SESSION_TIMEOUT * 1000 - (Date.now() - lastActivity)) / 1000));
-
                 if (secsLeft <= 0) {
                     clearInterval(warningTimer);
                     return;
                 }
-
                 const mins = Math.floor(secsLeft / 60);
                 const secs = secsLeft % 60;
                 document.getElementById('sessionTimeLeft').textContent =
@@ -559,18 +554,11 @@
         }
 
         function extendSession() {
-            // Reset activity timer
             resetActivityTimer();
             hideSessionWarning();
 
-            // Call session extension endpoint
-            fetch("{{ url_for('auth.extend_session') }}", {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content
-                },
-                credentials: 'same-origin'
+            secureFetch("{{ url_for('auth.extend_session') }}", {
+                method: 'POST'
             })
                 .then(response => {
                     if (!response.ok) throw new Error('Session extension failed');
@@ -579,32 +567,31 @@
                 .then(data => {
                     if (data.success) {
                         showToast('Session Extended', 'Your session has been extended.', 'success');
+                    } else {
+                        showToast('Session Error', data.message || 'Could not extend your session.', 'danger');
                     }
                 })
                 .catch(error => {
                     console.error('Error extending session:', error);
-                    showToast('Session Error', 'Could not extend your session.', 'danger');
+                    if (error.message !== 'Session expired' && error.message !== 'Permission denied') {
+                        showToast('Session Error', 'Could not extend your session due to an unexpected issue.', 'danger');
+                    }
                 });
         }
 
-        // Set up event listeners for user activity
         ['mousemove', 'keydown', 'mousedown', 'touchstart', 'scroll', 'click'].forEach(event => {
             document.addEventListener(event, resetActivityTimer, { passive: true });
         });
 
-        // Set up session check timer
         sessionTimer = setInterval(checkSessionStatus, 10000);
 
-        // Set up extend session button
         document.getElementById('extendSessionBtn').addEventListener('click', function (e) {
             e.preventDefault();
             extendSession();
         });
 
-        // Visibilitychange handling
         document.addEventListener('visibilitychange', function () {
             if (document.visibilityState === 'visible') {
-                // When tab becomes visible again, check session immediately
                 checkSessionStatus();
             }
         });
@@ -717,13 +704,11 @@
     <!-- File integrity monitoring for admins -->
     <script nonce="{{ csp_nonce }}">
         document.addEventListener("DOMContentLoaded", function () {
-            // Check file integrity status periodically for admins
             async function checkFileIntegrityStatus() {
                 try {
                     const response = await secureFetch("{{ url_for('api.security.file_integrity_status') }}");
                     if (response.ok) {
                         const data = await response.json();
-
                         if (data.violations > 0) {
                             showToast(
                                 "File Integrity Alert",
@@ -734,10 +719,12 @@
                     }
                 } catch (error) {
                     console.error("Error checking file integrity:", error);
+                    if (error.message !== 'Session expired' && error.message !== 'Permission denied') {
+                        showToast('Integrity Check Failed', 'Could not retrieve file integrity status.', 'warning');
+                    }
                 }
             }
 
-            // Run initial check and then every 5 minutes
             checkFileIntegrityStatus();
             setInterval(checkFileIntegrityStatus, 5 * 60 * 1000);
         });

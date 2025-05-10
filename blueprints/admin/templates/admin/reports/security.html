@@ -766,6 +766,7 @@
         const generateReportForm = document.getElementById('generateReportForm');
         if (generateReportForm) {
             generateReportForm.addEventListener('submit', function () {
+                showLoading(); // Added for consistent UX
                 const generateBtn = document.getElementById('generateBtn');
                 generateBtn.disabled = true;
                 generateBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Generating...';
@@ -776,6 +777,7 @@
         const scheduleReportForm = document.getElementById('scheduleReportForm');
         if (scheduleReportForm) {
             scheduleReportForm.addEventListener('submit', function () {
+                showLoading(); // Added for consistent UX
                 const scheduleBtn = document.getElementById('scheduleBtn');
                 scheduleBtn.disabled = true;
                 scheduleBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Scheduling...';
@@ -961,11 +963,7 @@
                     try {
                         showLoading();
                         const response = await secureFetch(`/api/admin/reports/security/schedules/${scheduleId}/run-now`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
-                            }
+                            method: 'POST'
                         });
                         hideLoading();
 
@@ -987,6 +985,43 @@
                 }
             });
         });
+
+        // Reset schedule modal on hide
+        const scheduleModalElement = document.getElementById('scheduleReportModal');
+        if (scheduleModalElement) {
+            scheduleModalElement.addEventListener('hidden.bs.modal', function () {
+                const form = document.getElementById('scheduleReportForm');
+                if (form) {
+                    form.reset(); // Resets form fields
+                    // Reset action URL to the create endpoint
+                    form.action = "{{ url_for('admin.schedule_security_report') }}";
+                }
+
+                // Reset modal title
+                const modalLabel = document.getElementById('scheduleReportModalLabel');
+                if (modalLabel) {
+                    modalLabel.textContent = 'Schedule Recurring Report';
+                }
+
+                // Reset button text
+                const scheduleBtn = document.getElementById('scheduleBtn');
+                if (scheduleBtn) {
+                    scheduleBtn.innerHTML = '<i class="bi bi-calendar-check me-1"></i> Schedule Report';
+                }
+
+                // Reset frequency-dependent select visibility to default (weekly)
+                const weekdayContainer = document.getElementById('weekdaySelectContainer');
+                const monthlyContainer = document.getElementById('monthlyDaySelectContainer');
+                if (weekdayContainer) weekdayContainer.style.display = 'block';
+                if (monthlyContainer) monthlyContainer.style.display = 'none';
+                // Ensure default selection for frequency if needed or rely on form.reset()
+                const scheduleFrequencySelect = document.getElementById('schedule_frequency');
+                if (scheduleFrequencySelect) {
+                    // If form.reset() doesn't set it to 'weekly' visually, you might need to do it explicitly
+                    // scheduleFrequencySelect.value = 'weekly';
+                }
+            });
+        }
     });
 </script>
 

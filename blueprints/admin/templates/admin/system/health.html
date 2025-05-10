@@ -632,11 +632,9 @@
             try {
                 showLoading();
                 const response = await secureFetch('/api/admin/system/health/refresh', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
-                    }
+                    method: 'POST'
+                    // Manual headers for 'Content-Type' and 'X-CSRFToken' removed,
+                    // as secureFetch handles them.
                 });
 
                 if (!response.ok) {
@@ -665,11 +663,8 @@
 
                 try {
                     const response = await secureFetch(`/api/admin/system/health/service-check/${serviceId}`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
-                        }
+                        method: 'POST'
+                        // Manual headers for 'Content-Type' and 'X-CSRFToken' removed
                     });
 
                     if (!response.ok) {
@@ -740,11 +735,8 @@
 
                 try {
                     const response = await secureFetch(`/api/admin/system/health/check/${checkId}/run`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
-                        }
+                        method: 'POST'
+                        // Manual headers for 'Content-Type' and 'X-CSRFToken' removed
                     });
 
                     if (!response.ok) {
@@ -781,11 +773,8 @@
             try {
                 showLoading();
                 const response = await secureFetch('/api/admin/system/health/check/run-all', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
-                    }
+                    method: 'POST'
+                    // Manual headers for 'Content-Type' and 'X-CSRFToken' removed
                 });
 
                 if (!response.ok) {

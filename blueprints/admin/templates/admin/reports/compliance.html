@@ -40,12 +40,12 @@
                         <div class="display-6 mb-2">
                             {% set compliance_percentage = compliance_metrics.overall_compliance|default(0) %}
                             <span
-                                class="text-{{ compliance_percentage >= 80 ? 'success' : compliance_percentage >= 60 ? 'warning' : 'danger' }}">
+                                class="text-{{ 'success' if compliance_percentage >= 80 else 'warning' if compliance_percentage >= 60 else 'danger' }}">
                                 {{ compliance_percentage }}%
                             </span>
                         </div>
                         <div class="progress" style="height: 5px;">
-                            <div class="progress-bar bg-{{ compliance_percentage >= 80 ? 'success' : compliance_percentage >= 60 ? 'warning' : 'danger' }}"
+                            <div class="progress-bar bg-{{ 'success' if compliance_percentage >= 80 else 'warning' if compliance_percentage >= 60 else 'danger' }}"
                                 role="progressbar" style="width: {{ compliance_percentage }}%;"
                                 aria-valuenow="{{ compliance_percentage }}" aria-valuemin="0" aria-valuemax="100"></div>
                         </div>
@@ -73,8 +73,9 @@
                         <h6 class="card-title mb-2">Critical Gaps</h6>
                         <div class="display-6 mb-2">{{ compliance_metrics.critical_gaps|default(0) }}</div>
                         <span
-                            class="badge bg-{{ compliance_metrics.critical_gaps|default(0) > 0 ? 'danger' : 'success' }}">
-                            {{ compliance_metrics.critical_gaps|default(0) > 0 ? 'Action Required' : 'None Detected' }}
+                            class="badge bg-{{ 'danger' if compliance_metrics.critical_gaps|default(0) > 0 else 'success' }}">
+                            {{ 'Action Required' if compliance_metrics.critical_gaps|default(0) > 0 else 'None Detected'
+                            }}
                         </span>
                     </div>
                 </div>
@@ -116,7 +117,7 @@
                                 <td>
                                     <div class="d-flex align-items-center">
                                         <div class="progress flex-grow-1" style="height: 5px;">
-                                            <div class="progress-bar bg-{{ framework.compliance_percentage >= 80 ? 'success' : framework.compliance_percentage >= 60 ? 'warning' : 'danger' }}"
+                                            <div class="progress-bar bg-{{ 'success' if framework.compliance_percentage >= 80 else 'warning' if framework.compliance_percentage >= 60 else 'danger' }}"
                                                 role="progressbar"
                                                 style="width: {{ framework.compliance_percentage }}%;"
                                                 aria-valuenow="{{ framework.compliance_percentage }}" aria-valuemin="0"
@@ -130,7 +131,7 @@
                                 </td>
                                 <td>
                                     <span
-                                        class="badge rounded-pill bg-{{ framework.critical_gaps > 0 ? 'danger' : 'success' }}">
+                                        class="badge rounded-pill bg-{{ 'danger' if framework.critical_gaps > 0 else 'success' }}">
                                         {{ framework.critical_gaps }} critical
                                     </span>
                                     <div class="small text-muted">{{ framework.total_gaps }} total</div>
@@ -890,11 +891,7 @@
                 try {
                     showLoading();
                     const response = await secureFetch(`/api/compliance/schedules/${scheduleId}/run`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content
-                        }
+                        method: 'POST'
                     });
                     hideLoading();
 
@@ -970,6 +967,36 @@
                 }
             });
         });
+
+        const scheduleModalElement = document.getElementById('scheduleReportModal');
+        if (scheduleModalElement) {
+            scheduleModalElement.addEventListener('hidden.bs.modal', function () {
+                const form = document.getElementById('scheduleReportForm');
+                if (form) {
+                    form.reset(); // Resets form fields to their initial values
+                    form.action = "{{ url_for('admin.schedule_compliance_report') }}"; // Reset action URL
+                }
+
+                const modalLabel = document.getElementById('scheduleReportModalLabel');
+                if (modalLabel) {
+                    modalLabel.textContent = 'Schedule Recurring Report'; // Reset title
+                }
+
+                const scheduleBtn = document.getElementById('scheduleBtn');
+                if (scheduleBtn) {
+                    scheduleBtn.innerHTML = '<i class="bi bi-calendar-check me-1"></i> Schedule Report'; // Reset button text
+                }
+
+                // Reset frequency-dependent select visibility
+                const weekdayContainer = document.getElementById('weekdaySelectContainer');
+                const monthlyContainer = document.getElementById('monthlyDaySelectContainer');
+                if (weekdayContainer) weekdayContainer.style.display = 'none';
+                if (monthlyContainer) monthlyContainer.style.display = 'block'; // Default for 'monthly'
+
+                const scheduleFrequencySelect = document.getElementById('schedule_frequency');
+                if (scheduleFrequencySelect) scheduleFrequencySelect.value = 'monthly'; // Reset frequency to default
+            });
+        }
     });
 </script>
 
