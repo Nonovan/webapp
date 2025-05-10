@@ -320,7 +320,7 @@
 
                 <div class="col-md-6 text-md-end">
                     <span class="integrity-status integrity-status-{{ file_integrity_status|default('valid') }}">
-                        <i class="bi bi-shield-{{ file_integrity_status == 'valid' ? 'check' : 'exclamation' }} me-1"
+                        <i class="bi bi-shield-{{ 'check' if file_integrity_status|default('valid') == 'valid' else 'exclamation' }} me-1"
                             aria-hidden="true"></i>
                         File Integrity: {{ file_integrity_status|default('Valid')|capitalize }}
                     </span>
