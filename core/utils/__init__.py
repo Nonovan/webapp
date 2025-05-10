@@ -13,10 +13,14 @@ Key modules:
 - validation: Input validation utilities
 - logging_utils: Logging configuration and utility functions
 - system: System resource and process information utilities
+- core_utils_constants: Centralized constants used across utility modules
 
 The utilities are designed to be imported individually or accessed via their
 parent modules. Functions are organized by category for ease of discovery and use.
 """
+
+import logging
+import sys
 
 # Import string manipulation utilities
 from .string import (
@@ -246,6 +250,52 @@ from .logging_utils import (
     FileIntegrityAwareHandler
 )
 
+# Import centralized constants
+from .core_utils_constants import (
+    # File operation constants
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_FILE_PERMS,
+    DEFAULT_DIR_PERMS,
+    SECURE_FILE_PERMS,
+    SECURE_DIR_PERMS,
+    LOG_FILE_PERMS,
+    LOG_DIR_PERMS,
+    TEMP_DIR_PERMS,
+    SMALL_FILE_THRESHOLD,
+    DEFAULT_MAX_FILE_SIZE,
+    MAX_CONFIG_FILE_SIZE,
+    DEFAULT_BACKUP_COUNT,
+    DEFAULT_LOG_ROTATION_SIZE,
+    BACKUP_TIMESTAMP_FORMAT,
+    MAX_BASELINE_BACKUPS,
+
+    # Cryptography constants
+    DEFAULT_HASH_ALGORITHM,
+    LEGACY_HASH_ALGORITHM,
+    SUPPORTED_HASH_ALGORITHMS,
+    HMAC_ALGORITHM,
+    HMAC_DIGEST_SIZE,
+    DEFAULT_ENTROPY_BITS,
+    DEFAULT_TOKEN_LENGTH,
+
+    # All other constants as needed by utility modules
+    DEFAULT_DATE_FORMAT,
+    DEFAULT_TIME_FORMAT,
+    DEFAULT_DATETIME_FORMAT,
+    ISO_DATETIME_FORMAT,
+    LOG_TIMESTAMP_FORMAT,
+    FILENAME_TIMESTAMP_FORMAT,
+    HUMAN_READABLE_FORMAT,
+    DEFAULT_TIMEZONE,
+    DEFAULT_MONITOR_INTERVAL,
+    DEFAULT_SLOW_THRESHOLD,
+    DEFAULT_TRUNCATE_LENGTH,
+    DEFAULT_EXCERPT_LENGTH,
+    DEFAULT_RANDOM_STRING_LENGTH,
+    DEFAULT_RANDOM_STRING_CHARS,
+    SECURE_RANDOM_STRING_CHARS
+)
+
 # Import file integrity functions from security module
 # These were migrated from utils.py to core.security.cs_file_integrity
 try:
@@ -266,7 +316,6 @@ try:
     )
 except ImportError:
     # Provide stubs if security module is not available
-    import logging
     logger = logging.getLogger(__name__)
     logger.warning("File integrity functions from core.security.cs_file_integrity not available")
 
@@ -523,6 +572,22 @@ __all__ = [
     'is_within_directory',
     'is_safe_file_operation',
 
+    # Core utility constants
+    'DEFAULT_CHUNK_SIZE',
+    'DEFAULT_FILE_PERMS',
+    'DEFAULT_DIR_PERMS',
+    'SECURE_FILE_PERMS',
+    'SECURE_DIR_PERMS',
+    'LOG_FILE_PERMS',
+    'LOG_DIR_PERMS',
+    'TEMP_DIR_PERMS',
+    'SMALL_FILE_THRESHOLD',
+    'DEFAULT_HASH_ALGORITHM',
+    'LEGACY_HASH_ALGORITHM',
+    'DEFAULT_DATE_FORMAT',
+    'ISO_DATETIME_FORMAT',
+    'DEFAULT_DATETIME_FORMAT',
+
     # Validation regex patterns
     'EMAIL_REGEX',
     'URL_REGEX',
@@ -538,3 +603,7 @@ __all__ = [
     'GCP_REGION_PATTERN',
     'ONPREM_REGION_PATTERN',
 ]
+
+# Initialize module logging when imported directly
+if __name__ != '__main__':
+    initialize_module_logging()
