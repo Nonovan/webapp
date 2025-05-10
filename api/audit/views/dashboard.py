@@ -17,7 +17,7 @@ from sqlalchemy import func, distinct, desc, and_, or_, case
 from sqlalchemy.sql.expression import text
 
 from extensions import db, cache
-from models.security.audit_log import AuditLog
+from models.security import AuditLog
 from models.auth.user import User
 from core.security.cs_audit import get_critical_event_categories
 from core.security.cs_utils import format_time_period, parse_time_period

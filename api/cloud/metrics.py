@@ -25,10 +25,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from flask_jwt_extended import jwt_required
 
 from extensions import metrics, cache, db, limiter
-from models.user_session import UserSession
-from models.audit_log import AuditLog
+from models import AuditLog, UserSession
 from blueprints.monitoring.metrics import SystemMetrics, get_all_metrics
-from core.security_utils import log_security_event
+from core.security import log_security_event
 
 # Create blueprint
 cloud_metrics_bp = Blueprint('cloud_metrics', __name__)
@@ -58,11 +57,11 @@ def format_response(data: Dict[str, Any], status: int = 200) -> Tuple[Dict[str, 
 def get_current_metrics():
     """
     Get current cloud infrastructure metrics.
-    
+
     Returns comprehensive metrics about cloud resources including
     CPU usage, memory utilization, disk usage, network I/O,
     and active user counts.
-    
+
     Returns:
         JSON: Cloud metrics data
     """
@@ -126,11 +125,11 @@ def get_current_metrics():
 def get_metrics_history():
     """
     Get historical cloud metrics for trend analysis.
-    
+
     Query parameters:
         hours (int): Number of hours of history to retrieve (default: 24)
         interval (str): Data interval ('minute', 'hour', 'day') (default: 'hour')
-        
+
     Returns:
         JSON: Historical metrics data points
     """
@@ -158,10 +157,10 @@ def get_metrics_history():
 def get_provider_metrics(provider: str):
     """
     Get metrics for a specific cloud provider.
-    
+
     Path parameters:
         provider (str): Cloud provider name ('aws', 'azure', 'gcp')
-        
+
     Returns:
         JSON: Provider-specific metrics
     """
@@ -188,7 +187,7 @@ def get_provider_metrics(provider: str):
 def get_metric_alerts():
     """
     Get active alerts related to cloud metrics.
-    
+
     Returns:
         JSON: List of active alerts with severity and descriptions
     """
@@ -226,12 +225,12 @@ def _calculate_cpu_trend() -> int:
         with db.engine.connect() as conn:
             result = conn.execute(
                 """
-                SELECT value FROM metrics_history 
-                WHERE metric_name = 'cpu_usage' 
-                AND timestamp < %s 
+                SELECT value FROM metrics_history
+                WHERE metric_name = 'cpu_usage'
+                AND timestamp < %s
                 ORDER BY timestamp ASC
                 LIMIT 1
-                """, 
+                """,
                 (one_hour_ago,)
             ).fetchone()
 
@@ -333,7 +332,7 @@ def _get_cloud_alerts() -> List[Dict[str, Any]]:
 def _get_historical_metrics(hours: int, interval: str) -> List[Dict[str, Any]]:
     """Get historical metrics data points."""
     history = []
-    
+
     try:
         # Calculate time intervals
         end_time = datetime.utcnow()
@@ -349,7 +348,7 @@ def _get_historical_metrics(hours: int, interval: str) -> List[Dict[str, Any]]:
         with db.engine.connect() as conn:
             result = conn.execute(
                 """
-                SELECT 
+                SELECT
                     time_bucket(%s, timestamp) AS interval_time,
                     AVG(CASE WHEN metric_name = 'cpu_usage' THEN value ELSE NULL END) as cpu,
                     AVG(CASE WHEN metric_name = 'memory_usage' THEN value ELSE NULL END) as memory,
@@ -392,13 +391,13 @@ def _get_provider_metrics() -> Dict[str, Any]:
 def _get_specific_provider_metrics(provider: str) -> Dict[str, Any]:
     """
     Get metrics for a specific cloud provider.
-    
+
     This function integrates with cloud provider APIs to retrieve
     real-time metrics about resources and their status.
-    
+
     Args:
         provider: The cloud provider name ('aws', 'azure', 'gcp')
-        
+
     Returns:
         Dict[str, Any]: Provider-specific metrics data
     """
@@ -406,16 +405,16 @@ def _get_specific_provider_metrics(provider: str) -> Dict[str, Any]:
     if has_request_context() and hasattr(g, 'cloud_provider'):
         g.cloud_provider = provider
         g.resource_type = 'all'
-    
+
     try:
         # In production, this would call actual provider APIs
         # Example: return aws_client.get_all_metrics() for AWS
-        
+
         # Provider-specific metrics mapping
         provider_metrics = {
             'aws': {
                 'ec2_instances': 12,
-                'running_instances': 8, 
+                'running_instances': 8,
                 'total_storage_gb': 2048,
                 'regions': ['us-east-1', 'us-west-2'],
                 'health': 'healthy'
@@ -435,10 +434,10 @@ def _get_specific_provider_metrics(provider: str) -> Dict[str, Any]:
                 'health': 'degraded'
             }
         }
-    
+
         # Return provider metrics or default error
         return provider_metrics.get(provider, {'error': 'Provider not configured'})
-        
+
     except (KeyError, ValueError) as e:
         current_app.logger.error(f"Error retrieving {provider} metrics: {str(e)}")
         return {

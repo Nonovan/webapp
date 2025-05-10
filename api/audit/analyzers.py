@@ -17,7 +17,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from flask import current_app, g, has_request_context
 
 from extensions import db, cache
-from models.security.audit_log import AuditLog
+from models.security import AuditLog
 from models.auth.user import User
 from core.security import log_security_event
 

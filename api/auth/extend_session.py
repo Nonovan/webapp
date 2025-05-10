@@ -33,7 +33,7 @@ from flask import current_app, request, has_request_context
 
 from extensions import db, metrics
 from models import UserSession
-from models.security.audit_log import AuditLog
+from models.security import AuditLog
 from core.security import is_suspicious_ip, log_security_event
 
 

@@ -25,7 +25,7 @@ from flask_socketio import emit
 from extensions import metrics, cache
 from core.metrics import track_metrics
 from core.security import log_security_event
-from models.security.rate_limiter import RateLimiter
+from models.security import RateLimiter
 
 # Initialize logger
 logger = logging.getLogger(__name__)

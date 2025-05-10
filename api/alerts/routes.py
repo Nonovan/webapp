@@ -25,7 +25,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from extensions import db, limiter
 from core.security import require_permission, log_security_event
 from models.alerts import Alert
-from models.security.audit_log import AuditLog
+from models.security import AuditLog
 from .schemas import (
     alert_schema,
     alerts_schema,

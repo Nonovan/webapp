@@ -12,7 +12,7 @@ import re
 
 from sqlalchemy import or_, and_
 from flask import current_app, g
-from models.security.audit_log import AuditLog
+from models.security import AuditLog
 from models.auth.user import User
 
 

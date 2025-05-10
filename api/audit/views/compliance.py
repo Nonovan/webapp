@@ -17,9 +17,9 @@ from sqlalchemy.sql.expression import text
 
 from extensions import db, cache
 from api.audit.views.reports import _generate_csv_report, _generate_html_report, _generate_pdf_report
-from models.security.audit_log import AuditLog
 from models.auth.user import User
-from models.security.compliance_check import ComplianceCheck, ComplianceStatus, ComplianceValidator
+from models.security import AuditLog
+from models.security.system import ComplianceCheck, ComplianceStatus, ComplianceValidator
 from core.security.cs_audit import log_security_event, get_critical_event_categories
 from core.security.cs_utils import format_time_period, parse_time_period
 

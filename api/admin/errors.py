@@ -22,6 +22,7 @@ import traceback
 from typing import Dict, Any, Optional, Tuple, List, Union, Type
 
 from flask import jsonify, g, request, current_app, Response
+from marshmallow.exceptions import ValidationError
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from werkzeug.exceptions import HTTPException, Forbidden, NotFound, BadRequest, Unauthorized
 from werkzeug.http import HTTP_STATUS_CODES

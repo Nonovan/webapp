@@ -33,7 +33,7 @@ from .schemas import (
 # Adjust import path based on actual model location
 try:
     from models.security.vulnerability import Vulnerability # Assuming this path
-    from models.security.audit_log import AuditLog # For event types
+    from models.security import AuditLog # For event types
     MODELS_AVAILABLE = True
 except ImportError:
     MODELS_AVAILABLE = False

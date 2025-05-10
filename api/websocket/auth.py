@@ -25,9 +25,8 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from extensions import db, metrics, cache
 from core.security import log_security_event, is_suspicious_ip
-from core.security.cs_general_sec import CircuitBreaker
-from models.auth.user import User
-from models.auth.user_session import UserSession
+from models.auth import User, UserSession
+from models.security import CircuitBreaker
 from services.auth_service import AuthService
 
 # Initialize logger

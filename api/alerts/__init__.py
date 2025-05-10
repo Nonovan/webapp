@@ -19,7 +19,7 @@ from prometheus_client import Counter, Histogram
 from core.security.cs_audit import log_security_event
 from extensions import db, limiter, metrics
 from models.alerts import Alert
-from models.security.audit_log import AuditLog
+from models.security import AuditLog
 
 # Create blueprint for alerts API
 alerts_api = Blueprint('alerts', __name__, url_prefix='/alerts')

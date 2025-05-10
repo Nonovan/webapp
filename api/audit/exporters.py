@@ -20,7 +20,7 @@ from flask import Response, current_app
 from sqlalchemy import desc
 from sqlalchemy.exc import SQLAlchemyError
 
-from models.security.audit_log import AuditLog
+from models.security import AuditLog
 from models.auth.user import User
 from .filters import build_audit_query
 from core.security.cs_audit import log_security_event

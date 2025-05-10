@@ -25,7 +25,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.exceptions import NotFound, Forbidden, BadRequest
 
 from extensions import db, limiter, cache, metrics
-from models.security.audit_log import AuditLog
+from models.security import AuditLog
 from models.auth.user import User
 from core.security import require_permission, log_security_event
 from .schemas import (
