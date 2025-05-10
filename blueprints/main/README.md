@@ -124,7 +124,7 @@ blueprints/main/
 
 The templates implement responsive design using Bootstrap 5, proper accessibility attributes, security best practices, and consistent branding:
 
-- **base.html**: Core template with layout structure, navigation, and security features
+- **`base.html`**: Core template with layout structure, navigation, and security features
   - Common header and footer sections
   - Navigation menu with role-based visibility
   - Security headers and meta tags
@@ -136,14 +136,14 @@ The templates implement responsive design using Bootstrap 5, proper accessibilit
   - Real-time security alerts
 
 - **Content Pages**:
-  - about.html: Company information with contact form
-  - home.html: Landing page with feature highlights and security status
+  - `about.html`: Company information with contact form
+  - `home.html`: Landing page with feature highlights and security status
   - `privacy.html`: Privacy policy details
   - `terms.html`: Terms of service information
   - `security.html`: Security practices information
 
 - **Application Interfaces**:
-  - cloud.html: Real-time cloud infrastructure dashboard
+  - `cloud.html`: Real-time cloud infrastructure dashboard
   - `dashboard.html`: User-specific dashboard
   - `ics.html`: Industrial control systems interface
   - `profile.html`: User profile management
