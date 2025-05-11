@@ -26,6 +26,7 @@ import logging
 import os
 import secrets
 import socket
+import yaml
 from typing import Dict, Any, List, Optional, Union, Set, Callable, TypeVar, cast
 import subprocess
 from pathlib import Path
@@ -322,6 +323,209 @@ class Config:
                 "audit_logging_enabled": app.config.get('AUDIT_LOG_ENABLED')
             }
         )
+
+    @classmethod
+    def register_cli_commands(cls, app):
+        """
+        Register CLI commands for configuration management.
+
+        This method registers configuration-related CLI commands to the Flask application,
+        providing command-line tools for inspecting and managing application configuration.
+
+        Args:
+            app: Flask application instance
+
+        Example:
+            # Usage in app initialization
+            Config.register_cli_commands(app)
+        """
+        import click
+        from flask.cli import with_appcontext
+
+        @app.cli.group('config')
+        def config_cli():
+            """Configuration management commands."""
+            pass
+
+        @config_cli.command('show')
+        @click.option('--filter', '-f', help='Filter keys containing this string')
+        @click.option('--sensitive/--no-sensitive', default=False,
+                      help='Include sensitive values (default: masked)')
+        @click.option('--format', '-o', type=click.Choice(['text', 'json']),
+                      default='text', help='Output format')
+        @with_appcontext
+        def show_config(filter, sensitive, format):
+            """Display application configuration."""
+            from flask import current_app
+            from core.utils.collection import filter_dict_by_keys, safe_json_serialize
+            import json
+
+            # Get configuration dictionary
+            config_dict = {k: v for k, v in current_app.config.items()}
+
+            # Filter keys if requested
+            if filter:
+                config_dict = {k: v for k, v in config_dict.items()
+                               if filter.lower() in k.lower()}
+
+            # Mask sensitive values unless explicitly requested to show them
+            if not sensitive:
+                from core.utils.core_utils_constants import SENSITIVE_FIELDS
+                for key in config_dict:
+                    if any(sensitive_term in key.lower() for sensitive_term in SENSITIVE_FIELDS):
+                        config_dict[key] = '********* [MASKED] *********'
+
+            # Output in requested format
+            if format == 'json':
+                click.echo(json.dumps(safe_json_serialize(config_dict), indent=2))
+            else:
+                # Text format - sort by keys for consistent output
+                for key in sorted(config_dict.keys()):
+                    value = config_dict[key]
+                    # Format complex values for better readability
+                    if isinstance(value, (dict, list, tuple)):
+                        formatted_value = json.dumps(safe_json_serialize(value), indent=2)
+                        click.echo(f"{key}:")
+                        for line in formatted_value.split('\n'):
+                            click.echo(f"  {line}")
+                    else:
+                        click.echo(f"{key}: {value}")
+
+        @config_cli.command('check')
+        @with_appcontext
+        def check_config():
+            """Validate application configuration."""
+            from flask import current_app
+
+            environment = current_app.config.get('ENVIRONMENT', 'development')
+            click.echo(f"Environment: {environment}")
+
+            # Check for insecure settings
+            insecure_settings = []
+            if environment in cls.SECURE_ENVIRONMENTS:
+                # Check security-critical configurations
+                for setting in cls.PROD_REQUIREMENTS:
+                    if setting in current_app.config and not current_app.config[setting]:
+                        insecure_settings.append(setting)
+
+                # Check for development SECRET_KEY
+                if current_app.config.get('SECRET_KEY') in ('dev', 'development', 'secret', 'changeme'):
+                    insecure_settings.append('SECRET_KEY (using default/insecure value)')
+
+                # Check file integrity settings
+                if not current_app.config.get('ENABLE_FILE_INTEGRITY_MONITORING', True):
+                    insecure_settings.append('ENABLE_FILE_INTEGRITY_MONITORING (disabled)')
+
+                if current_app.config.get('AUTO_UPDATE_BASELINE', False):
+                    insecure_settings.append('AUTO_UPDATE_BASELINE (enabled in production)')
+
+            # Display results
+            if insecure_settings:
+                click.secho("⚠️  Warning: The following insecure settings were detected:", fg='yellow')
+                for setting in insecure_settings:
+                    click.secho(f"  - {setting}", fg='yellow')
+                return 1
+            else:
+                click.secho("✓ Configuration check passed", fg='green')
+                return 0
+
+        @config_cli.command('verify-integrity')
+        @click.option('--verbose', '-v', is_flag=True, help='Show detailed information')
+        @with_appcontext
+        def verify_integrity(verbose):
+            """Verify file integrity by checking file hashes."""
+            integrity_status = cls.verify_integrity()
+
+            if not integrity_status:
+                click.secho("⚠️  No file integrity information available.", fg='yellow')
+                return 1
+
+            violations = [path for path, status in integrity_status.items() if not status]
+
+            if violations:
+                click.secho(f"❌ Found {len(violations)} integrity violations:", fg='red')
+                for path in violations:
+                    click.secho(f"  - {path}", fg='red')
+
+                if verbose:
+                    from flask import current_app
+                    for path in violations:
+                        try:
+                            expected_hash = None
+                            if path in current_app.config.get('CONFIG_FILE_HASHES', {}):
+                                expected_hash = current_app.config['CONFIG_FILE_HASHES'][path]
+                            elif path in current_app.config.get('CRITICAL_FILE_HASHES', {}):
+                                expected_hash = current_app.config['CRITICAL_FILE_HASHES'][path]
+
+                            if expected_hash:
+                                algorithm = current_app.config.get('FILE_HASH_ALGORITHM', DEFAULT_HASH_ALGORITHM)
+                                current_hash = cls._calculate_file_hash(path, algorithm)
+                                click.echo(f"  {path}:")
+                                click.echo(f"    Expected: {expected_hash}")
+                                click.echo(f"    Current:  {current_hash}")
+                        except Exception as e:
+                            click.echo(f"  {path}: Error calculating hash - {str(e)}")
+
+                return 1
+            else:
+                total = len(integrity_status)
+                click.secho(f"✓ All {total} files passed integrity check", fg='green')
+
+                if verbose:
+                    click.echo("Files verified:")
+                    for path in sorted(integrity_status.keys()):
+                        click.echo(f"  - {path}")
+
+                return 0
+
+        @config_cli.command('export')
+        @click.argument('output_file', type=click.Path())
+        @click.option('--format', '-f', type=click.Choice(['json', 'yaml']),
+                      default='json', help='Output format')
+        @click.option('--include-sensitive', is_flag=True, help='Include sensitive values')
+        @with_appcontext
+        def export_config(output_file, format, include_sensitive):
+            """Export application configuration to a file."""
+            from flask import current_app
+            from core.utils.collection import safe_json_serialize
+
+            # Get configuration dictionary
+            config_dict = {k: v for k, v in current_app.config.items()
+                          if not k.startswith('_')}  # Skip internal Flask config
+
+            # Remove sensitive values unless explicitly requested
+            if not include_sensitive:
+                from core.utils.core_utils_constants import SENSITIVE_FIELDS
+                for key in list(config_dict.keys()):
+                    if any(sensitive_term in key.lower() for sensitive_term in SENSITIVE_FIELDS):
+                        config_dict[key] = '[MASKED]'
+
+            try:
+                # Create output directory if needed
+                output_dir = os.path.dirname(output_file)
+                if output_dir and not os.path.exists(output_dir):
+                    os.makedirs(output_dir, mode=0o750, exist_ok=True)
+
+                # Serialize and write to file
+                if format == 'yaml':
+                    with open(output_file, 'w') as f:
+                        yaml.dump(safe_json_serialize(config_dict), f, default_flow_style=False)
+                else:  # JSON is default
+                    import json
+                    with open(output_file, 'w') as f:
+                        json.dump(safe_json_serialize(config_dict), f, indent=2)
+
+                click.secho(f"✓ Configuration exported to {output_file}", fg='green')
+                return 0
+            except Exception as e:
+                click.secho(f"❌ Error exporting configuration: {str(e)}", fg='red')
+                return 1
+
+        # Register the commands
+        app.cli.add_command(config_cli)
+
+        # Log registration
+        cls.logger.debug("Registered configuration CLI commands")
 
     @classmethod
     def _register_template_context(cls, app: Flask) -> None:

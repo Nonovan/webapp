@@ -15,6 +15,7 @@ in the Flask application. It handles cross-cutting concerns such as:
 - File integrity verification
 - Access control enforcement
 - Audit logging for security events
+- Filesystem monitoring and metrics collection
 
 The middleware functions are registered with the Flask application during initialization
 and execute for every request/response cycle, ensuring consistent handling across
@@ -49,6 +50,13 @@ except ImportError:
     from core.security import log_security_event
     USE_SECURITY_MODULE = False
 
+# Import metrics modules
+try:
+    from core.metrics import FileSystemMetrics
+    HAS_FILESYSTEM_METRICS = True
+except ImportError:
+    HAS_FILESYSTEM_METRICS = False
+
 # Import audit log model
 try:
     from models.security import AuditLog
@@ -65,6 +73,7 @@ except ImportError:
             EVENT_FILE_INTEGRITY = "file_integrity"
             EVENT_SUSPICIOUS_ACTIVITY = "suspicious_activity"
             EVENT_API_ABUSE = "api_abuse"
+            EVENT_FILESYSTEM_ALERT = "filesystem_alert"
 
 
 # Precompile regular expressions for performance
@@ -95,6 +104,9 @@ PATH_TRAVERSAL_PATTERNS = [
     re.compile(r'(?i)\/proc\/(self|cpuinfo|meminfo)'),
     re.compile(r'(?i)\/dev\/(null|zero|random)')
 ]
+
+# Sample intervals for different checks (in requests)
+FILESYSTEM_METRICS_CHECK_INTERVAL = 500  # Check filesystem metrics every 500 requests
 
 
 def setup_security_headers(response: Response) -> Response:
@@ -613,6 +625,143 @@ def check_file_integrity() -> None:
             pass
 
 
+def check_filesystem_metrics() -> None:
+    """
+    Periodically collect and analyze filesystem metrics.
+
+    This middleware periodically gathers metrics about filesystem usage and performance,
+    detecting potential issues such as:
+    - Nearly full filesystems
+    - Excessive I/O operations
+    - Slow disk operations
+    - Inode exhaustion
+    - Unusual growth patterns
+
+    When issues are detected, they are logged and metrics are updated.
+    """
+    # Skip if filesystem metrics are disabled or metrics module not available
+    if not HAS_FILESYSTEM_METRICS:
+        return
+
+    # Skip for static files to reduce overhead
+    if request.path.startswith(('/static/', '/favicon.ico')):
+        return
+
+    # Skip for API calls and AJAX requests to reduce overhead
+    if getattr(g, 'is_api_request', False) or getattr(g, 'is_ajax', False):
+        return
+
+    # Only check every Nth request to reduce performance impact
+    request_id_int = int(getattr(g, 'request_id', uuid.uuid4()).hex[:8], 16)
+    if request_id_int % FILESYSTEM_METRICS_CHECK_INTERVAL != 0:
+        return
+
+    # Make sure we have app context
+    if not has_app_context():
+        return
+
+    try:
+        # Get filesystem metrics
+        fs_metrics = FileSystemMetrics.get_filesystem_metrics()
+
+        # Check for critical issues
+        critical_partitions = []
+        warning_partitions = []
+
+        for partition in fs_metrics.get('partitions', []):
+            if partition.get('status') == 'critical':
+                critical_partitions.append(partition)
+            elif partition.get('status') == 'warning':
+                warning_partitions.append(partition)
+
+        # Log critical filesystem issues
+        if critical_partitions:
+            log_security_event(
+                event_type=AuditLog.EVENT_FILESYSTEM_ALERT,
+                description=f"Critical filesystem space issues detected on {len(critical_partitions)} partitions",
+                severity="critical",
+                details={
+                    'partitions': [
+                        {
+                            'mountpoint': p['mountpoint'],
+                            'usage_percent': p['usage_percent'],
+                            'free_gb': p['free_gb']
+                        } for p in critical_partitions
+                    ]
+                }
+            )
+
+            # Update metrics if available
+            if hasattr(current_app, 'metrics'):
+                try:
+                    current_app.metrics.gauge('filesystem.critical_partitions', len(critical_partitions))
+                    current_app.metrics.gauge('filesystem.highest_usage_percent',
+                                              max([p['usage_percent'] for p in fs_metrics['partitions']]))
+                except Exception:
+                    pass
+
+        # Log warning level filesystem issues
+        elif warning_partitions:
+            log_security_event(
+                event_type=AuditLog.EVENT_FILESYSTEM_ALERT,
+                description=f"Warning: filesystem space issues detected on {len(warning_partitions)} partitions",
+                severity="warning",
+                details={
+                    'partitions': [
+                        {
+                            'mountpoint': p['mountpoint'],
+                            'usage_percent': p['usage_percent'],
+                            'free_gb': p['free_gb']
+                        } for p in warning_partitions
+                    ]
+                }
+            )
+
+        # Check for inode exhaustion if available
+        if 'inodes' in fs_metrics:
+            critical_inodes = []
+            for inode_info in fs_metrics['inodes']:
+                if inode_info.get('inode_usage_percent', 0) > 90:
+                    critical_inodes.append(inode_info)
+
+            if critical_inodes:
+                log_security_event(
+                    event_type=AuditLog.EVENT_FILESYSTEM_ALERT,
+                    description="Critical: inode exhaustion detected",
+                    severity="critical",
+                    details={
+                        'partitions': [
+                            {
+                                'mountpoint': i['mountpoint'],
+                                'inode_usage_percent': i['inode_usage_percent']
+                            } for i in critical_inodes
+                        ]
+                    }
+                )
+
+        # Check storage trend metrics if available
+        try:
+            trend_metrics = FileSystemMetrics.get_storage_trend_metrics(days=7)
+            if trend_metrics.get('trend_available') and trend_metrics.get('trend_status') == 'critical':
+                log_security_event(
+                    event_type=AuditLog.EVENT_FILESYSTEM_ALERT,
+                    description=f"Critical storage growth trend detected: disk will be full in {trend_metrics.get('days_until_critical', 'N/A')} days",
+                    severity="warning",
+                    details={
+                        'current_usage': trend_metrics.get('current_value'),
+                        'daily_growth_rate': trend_metrics.get('daily_growth_rate'),
+                        'days_until_critical': trend_metrics.get('days_until_critical')
+                    }
+                )
+        except Exception as e:
+            if current_app.logger:
+                current_app.logger.debug(f"Error checking storage trends: {e}")
+
+    except Exception as e:
+        if current_app.logger:
+            current_app.logger.error(f"Error during filesystem metrics check: {str(e)}")
+
+
 def log_request_completion(response: Response) -> Response:
     """
     Log request completion with timing information.
@@ -828,6 +977,9 @@ def init_middleware(app):
 
         # Periodically check file integrity
         check_file_integrity()
+
+        # Periodically check filesystem metrics
+        check_filesystem_metrics()
 
     @app.after_request
     def after_request_middleware(response):

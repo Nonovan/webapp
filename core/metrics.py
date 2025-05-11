@@ -23,7 +23,7 @@ from functools import wraps
 import time
 from typing import Callable, Any, TypeVar, cast, Dict, List, Optional, Union
 import psutil
-from flask import request, current_app, has_app_context
+from flask import request, current_app, has_app_context, g
 from sqlalchemy import text
 from extensions import metrics, db, cache
 from models.security import LoginAttempt
@@ -933,13 +933,281 @@ class FileIntegrityMetrics:
         return metrics_data
 
 
+class FileSystemMetrics:
+    """
+    Utility class for collecting file system metrics.
+
+    Provides methods to gather metrics about file system usage,
+    read/write performance, and storage health across the system.
+    """
+
+    @staticmethod
+    @cache.memoize(timeout=120)
+    def get_filesystem_metrics() -> Dict[str, Any]:
+        """
+        Collect comprehensive file system metrics.
+
+        Gathers metrics related to disk partitions, I/O performance, file system
+        usage, and storage health indicators. These metrics help identify storage
+        bottlenecks and capacity issues.
+
+        Returns:
+            Dict[str, Any]: Dictionary containing filesystem metrics including:
+                - partitions: Details about each mounted filesystem
+                - io_counters: Read/write statistics
+                - disk_io_time: Disk I/O time in milliseconds
+                - timestamp: Current UTC timestamp as ISO string
+
+        Example:
+            metrics = FileSystemMetrics.get_filesystem_metrics()
+            for partition in metrics['partitions']:
+                print(f"{partition['mountpoint']}: {partition['usage_percent']}% full")
+        """
+        try:
+            # Initialize the metrics structure
+            fs_metrics = {
+                'partitions': [],
+                'io_counters': {},
+                'timestamp': datetime.utcnow().isoformat()
+            }
+
+            # Get all available disk partitions
+            try:
+                partitions = psutil.disk_partitions(all=False)
+                for partition in partitions:
+                    # Skip optical and network drives on Windows
+                    if partition.fstype == '' or partition.mountpoint == '':
+                        continue
+
+                    try:
+                        usage = psutil.disk_usage(partition.mountpoint)
+                        partition_data = {
+                            'device': partition.device,
+                            'mountpoint': partition.mountpoint,
+                            'fstype': partition.fstype,
+                            'opts': partition.opts,
+                            'total_gb': round(usage.total / (1024**3), 2),
+                            'used_gb': round(usage.used / (1024**3), 2),
+                            'free_gb': round(usage.free / (1024**3), 2),
+                            'usage_percent': usage.percent
+                        }
+
+                        # Add warning level based on usage percentage
+                        if usage.percent >= 90:
+                            partition_data['status'] = 'critical'
+                        elif usage.percent >= 80:
+                            partition_data['status'] = 'warning'
+                        elif usage.percent >= 70:
+                            partition_data['status'] = 'degraded'
+                        else:
+                            partition_data['status'] = 'healthy'
+
+                        fs_metrics['partitions'].append(partition_data)
+                    except (PermissionError, OSError) as e:
+                        # Skip partitions we can't access
+                        if has_app_context() and hasattr(current_app, 'logger'):
+                            current_app.logger.debug(f"Skipping inaccessible partition {partition.mountpoint}: {str(e)}")
+                        continue
+            except Exception as e:
+                if has_app_context() and hasattr(current_app, 'logger'):
+                    current_app.logger.warning(f"Error collecting partition metrics: {str(e)}")
+
+            # Get disk I/O stats
+            try:
+                # Get disk I/O counters for all disks
+                io_counters = psutil.disk_io_counters(perdisk=True)
+                io_summary = psutil.disk_io_counters(perdisk=False)
+
+                fs_metrics['io_counters'] = {
+                    'read_count': io_summary.read_count if io_summary else 0,
+                    'write_count': io_summary.write_count if io_summary else 0,
+                    'read_bytes': io_summary.read_bytes if io_summary else 0,
+                    'write_bytes': io_summary.write_bytes if io_summary else 0,
+                    'read_time': io_summary.read_time if io_summary else 0,
+                    'write_time': io_summary.write_time if io_summary else 0
+                }
+
+                # Add detailed per-disk counters
+                fs_metrics['per_disk_io'] = {}
+                for disk_name, counters in io_counters.items():
+                    fs_metrics['per_disk_io'][disk_name] = {
+                        'read_count': counters.read_count,
+                        'write_count': counters.write_count,
+                        'read_bytes': counters.read_bytes,
+                        'write_bytes': counters.write_bytes,
+                        'read_time': counters.read_time,
+                        'write_time': counters.write_time
+                    }
+
+                    # Calculate average read/write speeds
+                    if counters.read_count > 0:
+                        fs_metrics['per_disk_io'][disk_name]['avg_read_speed_kb'] = round(
+                            counters.read_bytes / counters.read_count / 1024, 2)
+                    if counters.write_count > 0:
+                        fs_metrics['per_disk_io'][disk_name]['avg_write_speed_kb'] = round(
+                            counters.write_bytes / counters.write_count / 1024, 2)
+
+            except (AttributeError, OSError) as e:
+                if has_app_context() and hasattr(current_app, 'logger'):
+                    current_app.logger.warning(f"Error collecting disk I/O metrics: {str(e)}")
+
+            # Add inodes usage if on Unix-like systems
+            if hasattr(os, 'statvfs'):
+                try:
+                    fs_metrics['inodes'] = []
+                    for partition in fs_metrics['partitions']:
+                        mountpoint = partition['mountpoint']
+                        try:
+                            stats = os.statvfs(mountpoint)
+                            total_inodes = stats.f_files
+                            free_inodes = stats.f_ffree
+                            used_inodes = total_inodes - free_inodes
+                            inode_usage = 0 if total_inodes == 0 else (used_inodes / total_inodes) * 100
+
+                            fs_metrics['inodes'].append({
+                                'mountpoint': mountpoint,
+                                'total_inodes': total_inodes,
+                                'used_inodes': used_inodes,
+                                'free_inodes': free_inodes,
+                                'inode_usage_percent': round(inode_usage, 2)
+                            })
+                        except (PermissionError, OSError):
+                            # Skip partitions we can't check
+                            continue
+                except Exception as e:
+                    if has_app_context() and hasattr(current_app, 'logger'):
+                        current_app.logger.warning(f"Error collecting inode metrics: {str(e)}")
+
+            # Calculate overall health status
+            health_statuses = [p.get('status', 'healthy') for p in fs_metrics['partitions']]
+            if 'critical' in health_statuses:
+                fs_metrics['overall_status'] = 'critical'
+            elif 'warning' in health_statuses:
+                fs_metrics['overall_status'] = 'warning'
+            elif 'degraded' in health_statuses:
+                fs_metrics['overall_status'] = 'degraded'
+            else:
+                fs_metrics['overall_status'] = 'healthy'
+
+            return fs_metrics
+
+        except Exception as e:
+            if has_app_context() and hasattr(current_app, 'logger'):
+                current_app.logger.error(f"Error collecting filesystem metrics: {e}")
+            return {
+                'error': str(e),
+                'partitions': [],
+                'io_counters': {},
+                'timestamp': datetime.utcnow().isoformat(),
+                'overall_status': 'unknown'
+            }
+
+    @staticmethod
+    @cache.memoize(timeout=600)  # Cache for 10 minutes
+    def get_storage_trend_metrics(days: int = 7) -> Dict[str, Any]:
+        """
+        Get storage usage trend metrics.
+
+        Retrieves historical storage usage data to track growth rates and
+        identify potential capacity issues before they become critical.
+
+        Args:
+            days (int): Number of days of history to include
+
+        Returns:
+            Dict[str, Any]: Dictionary with storage trend information
+        """
+        try:
+            metrics_data = {
+                'timestamp': datetime.utcnow().isoformat(),
+                'period_days': days,
+                'trend_available': False
+            }
+
+            # Try to get historical storage data from the database
+            try:
+                from models.security.system_config import SystemConfig
+                cutoff = datetime.utcnow() - timedelta(days=days)
+
+                # Get historical disk usage entries
+                disk_entries = SystemConfig.query.filter(
+                    SystemConfig.key == 'disk_usage_percent',
+                    SystemConfig.updated_at >= cutoff
+                ).order_by(SystemConfig.updated_at.asc()).all()
+
+                if disk_entries:
+                    # Calculate storage growth trend
+                    values = []
+                    timestamps = []
+
+                    for entry in disk_entries:
+                        try:
+                            value = float(entry.value)
+                            values.append(value)
+                            timestamps.append(entry.updated_at.isoformat())
+                        except (ValueError, TypeError):
+                            continue
+
+                    if len(values) >= 2:
+                        metrics_data['trend_available'] = True
+                        metrics_data['values'] = values
+                        metrics_data['timestamps'] = timestamps
+
+                        # Calculate simple growth metrics
+                        first_value = values[0]
+                        last_value = values[-1]
+                        change = last_value - first_value
+
+                        metrics_data['first_value'] = first_value
+                        metrics_data['current_value'] = last_value
+                        metrics_data['absolute_change'] = round(change, 2)
+                        metrics_data['percent_change'] = round((change / first_value * 100) if first_value > 0 else 0, 2)
+
+                        # Calculate daily growth rate
+                        if len(values) > 2 and len(timestamps) > 2:
+                            first_date = datetime.fromisoformat(timestamps[0])
+                            last_date = datetime.fromisoformat(timestamps[-1])
+                            days_diff = (last_date - first_date).total_seconds() / 86400
+                            if days_diff > 0:
+                                metrics_data['daily_growth_rate'] = round(change / days_diff, 3)
+
+                                # Estimate days until full (90% is considered "full")
+                                if change > 0:  # Only if disk usage is increasing
+                                    days_until_full = (90 - last_value) / (change / days_diff)
+                                    metrics_data['days_until_critical'] = round(days_until_full, 1)
+
+                                    if days_until_full <= 7:
+                                        metrics_data['trend_status'] = 'critical'
+                                    elif days_until_full <= 30:
+                                        metrics_data['trend_status'] = 'warning'
+                                    else:
+                                        metrics_data['trend_status'] = 'healthy'
+                                else:
+                                    metrics_data['trend_status'] = 'healthy'
+            except (ImportError, AttributeError, Exception) as e:
+                if has_app_context() and hasattr(current_app, 'logger'):
+                    current_app.logger.debug(f"Could not calculate storage trends: {str(e)}")
+                # We'll return the metrics without the trend data
+
+            return metrics_data
+
+        except Exception as e:
+            if has_app_context() and hasattr(current_app, 'logger'):
+                current_app.logger.error(f"Error collecting storage trend metrics: {e}")
+            return {
+                'error': str(e),
+                'trend_available': False,
+                'timestamp': datetime.utcnow().isoformat()
+            }
+
+
 @cache.memoize(timeout=60)
 def get_all_metrics() -> Dict[str, Any]:
     """
     Collect all metrics in a single comprehensive report.
 
-    Aggregates system, database, application, security, and file integrity metrics
-    into a single dictionary for dashboard display or health monitoring.
+    Aggregates system, database, application, security, file integrity metrics,
+    and filesystem metrics into a single dictionary for dashboard display or health monitoring.
 
     Returns:
         Dict[str, Any]: Dictionary containing all metrics organized by category
@@ -948,6 +1216,7 @@ def get_all_metrics() -> Dict[str, Any]:
         all_metrics = get_all_metrics()
         print(f"CPU usage: {all_metrics['system']['cpu_usage']}%")
         print(f"Active users: {all_metrics['application']['active_users']}")
+        print(f"Disk usage: {all_metrics['filesystem']['overall_status']}")
     """
     try:
         metrics_data = {
@@ -957,6 +1226,7 @@ def get_all_metrics() -> Dict[str, Any]:
             'application': ApplicationMetrics.get_app_metrics(),
             'security': SecurityMetrics.get_security_metrics(),
             'file_integrity': FileIntegrityMetrics.get_file_integrity_metrics(),
+            'filesystem': FileSystemMetrics.get_filesystem_metrics(),
             'timestamp': datetime.utcnow().isoformat()
         }
 
@@ -1001,6 +1271,15 @@ def _calculate_health_status(metrics: Dict[str, Any]) -> str:
         status = "critical"
     elif system.get('disk_usage', 0) > 80:
         status = max(status, "warning")
+
+    # Check filesystem metrics
+    filesystem = metrics.get('filesystem', {})
+    if filesystem.get('overall_status') == 'critical':
+        status = "critical"
+    elif filesystem.get('overall_status') == 'warning':
+        status = max(status, "warning")
+    elif filesystem.get('overall_status') == 'degraded':
+        status = max(status, "degraded")
 
     # Check database health
     db_metrics = metrics.get('database', {})

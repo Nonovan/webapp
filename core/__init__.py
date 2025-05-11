@@ -169,7 +169,8 @@ from .metrics import (
     DatabaseMetrics,
     ApplicationMetrics,
     SecurityMetrics,
-    FileIntegrityMetrics
+    FileIntegrityMetrics,
+    FileSystemMetrics
 )
 
 # Import seeder functions
@@ -298,6 +299,7 @@ __all__ = [
     'ApplicationMetrics',
     'SecurityMetrics',
     'FileIntegrityMetrics',
+    'FileSystemMetrics',
 
     # Database seeding functions
     'seed_database',
