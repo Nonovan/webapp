@@ -179,6 +179,530 @@ def check(check_files: bool, check_config: bool, verbose: bool) -> int:
             return EXIT_ERROR
 
 
+# File integrity baseline management commands
+@cli.group()
+def integrity():
+    """
+    File integrity baseline management commands.
+
+    These commands allow you to create, update, and verify file integrity
+    baselines used for security monitoring and compliance.
+    """
+    pass
+
+
+@integrity.command('verify')
+@click.option('--baseline', help='Path to the baseline file to verify against')
+@click.option('--report-only/--update', default=True,
+              help='Only report issues, do not update baseline')
+@click.option('--verbose', '-v', count=True,
+              help='Verbose output (use multiple times for more detail)')
+@click.option('--exit-code/--no-exit-code', default=True,
+              help='Return non-zero exit code if integrity violations found')
+def verify_integrity(baseline: Optional[str], report_only: bool, verbose: int, exit_code: bool) -> int:
+    """
+    Verify file integrity against baseline.
+
+    Compares current file states with the stored baseline to detect unauthorized
+    modifications, permission changes, or missing files. Results are organized
+    by severity to highlight the most critical issues.
+
+    Examples:
+        # Basic verification
+        $ flask integrity verify
+
+        # Verbose output with detailed findings
+        $ flask integrity verify -vv
+
+        # Use custom baseline file
+        $ flask integrity verify --baseline=/path/to/baseline.json
+
+        # Update baseline with current file state
+        $ flask integrity verify --update
+    """
+    try:
+        app = create_app()
+        with app.app_context():
+            from core.seeder import verify_baseline_integrity
+
+            # Forward to core implementation
+            result = verify_baseline_integrity(
+                baseline_path=baseline,
+                report_only=report_only,
+                verbose=verbose > 0
+            )
+
+            if not result.get('success', False):
+                click.echo(click.style(f"✗ Verification failed: {result.get('error', 'Unknown error')}", fg='red'))
+                return EXIT_ERROR
+
+            changes = result.get('changes', [])
+            if not changes:
+                click.echo(click.style("✓ All files passed integrity check", fg='green'))
+                click.echo(f"  - Files checked: {result.get('files_checked', 0)}")
+                return EXIT_SUCCESS
+            else:
+                click.echo(click.style(f"✗ {len(changes)} integrity violations found!", fg='yellow'))
+
+                # Group changes by severity
+                by_severity = {}
+                for change in changes:
+                    severity = change.get('severity', 'unknown')
+                    by_severity.setdefault(severity, []).append(change)
+
+                # Display counts by severity
+                for severity in ['critical', 'high', 'medium', 'low']:
+                    if severity in by_severity:
+                        color = 'red' if severity == 'critical' else 'yellow'
+                        click.echo(click.style(
+                            f"  - {severity.upper()}: {len(by_severity[severity])} issues",
+                            fg=color
+                        ))
+
+                # Display critical and high severity issues
+                for severity in ['critical', 'high']:
+                    if severity in by_severity:
+                        click.echo(f"\n{severity.upper()} SEVERITY ISSUES:")
+                        for change in by_severity[severity]:
+                            status = change.get('status', 'unknown')
+                            path = change.get('path', 'unknown')
+                            click.echo(click.style(f"  • {status}: {path}", fg='red'))
+
+                # Display summary and baseline path
+                click.echo(f"\nSummary:")
+                click.echo(f"  - Files checked: {result.get('files_checked', 0)}")
+                click.echo(f"  - Issues found: {len(changes)}")
+
+                # Suggest action if in report-only mode
+                if report_only:
+                    click.echo("\nTo update the baseline with these changes, run:")
+                    click.echo(click.style("  flask integrity update-baseline --force", fg='blue'))
+
+                # Return appropriate exit code
+                return EXIT_VALIDATION_ERROR if exit_code else EXIT_SUCCESS
+
+    except Exception as e:
+        logger.exception("Integrity verification failed")
+        click.echo(click.style(f"✗ Integrity verification failed: {str(e)}", fg='red'))
+        return EXIT_ERROR
+
+
+@integrity.command('update-baseline')
+@click.option('--path', help='Path to the baseline file to update')
+@click.option('--force/--no-force', default=False,
+              help='Update baseline even for critical files')
+@click.option('--include', '-i', multiple=True,
+              help='Patterns to include (e.g., "*.py", "config/*.yaml")')
+@click.option('--exclude', '-e', multiple=True,
+              help='Patterns to exclude (e.g., "*.pyc", "tmp/*")')
+@click.option('--backup/--no-backup', default=True,
+              help='Create backup of existing baseline')
+@click.option('--verbose', '-v', count=True,
+              help='Verbose output (use multiple times for more detail)')
+def update_baseline(path: Optional[str], force: bool, include: tuple,
+                    exclude: tuple, backup: bool, verbose: int) -> int:
+    """
+    Update file integrity baseline with current file states.
+
+    Creates or updates a file integrity baseline with the current state of
+    files in the application, optionally filtering by include/exclude patterns.
+    A backup of the existing baseline can be automatically created.
+
+    Examples:
+        # Update baseline with default settings
+        $ flask integrity update-baseline
+
+        # Force update including critical files
+        $ flask integrity update-baseline --force
+
+        # Update only Python files
+        $ flask integrity update-baseline --include "*.py"
+
+        # Exclude temporary files
+        $ flask integrity update-baseline --exclude "*.temp" --exclude "tmp/*"
+
+        # Skip backup creation
+        $ flask integrity update-baseline --no-backup
+    """
+    try:
+        app = create_app()
+        with app.app_context():
+            from core.seeder import update_integrity_baseline
+
+            click.echo(f"Updating file integrity baseline{' (FORCE mode)' if force else ''}...")
+
+            # Convert tuples to lists
+            include_patterns = list(include) if include else None
+            exclude_patterns = list(exclude) if exclude else None
+
+            # Call implementation from core module
+            result = update_integrity_baseline(
+                baseline_path=path,
+                force=force,
+                include_pattern=include_patterns,
+                exclude_pattern=exclude_patterns,
+                backup=backup,
+                verbose=verbose > 0
+            )
+
+            if result.get('success', False):
+                stats = result.get('stats', {})
+                click.echo(click.style("✓ Baseline updated successfully", fg='green'))
+                click.echo(f"  - Files added:     {stats.get('added', 0)}")
+                click.echo(f"  - Files updated:   {stats.get('updated', 0)}")
+                click.echo(f"  - Files unchanged: {stats.get('unchanged', 0)}")
+                click.echo(f"  - Files skipped:   {stats.get('skipped', 0)}")
+                click.echo(f"  - Errors:          {stats.get('error', 0)}")
+                click.echo(f"  - Total files:     {result.get('total_files', 0)}")
+                click.echo(f"  - Baseline path:   {result.get('baseline_path')}")
+                return EXIT_SUCCESS
+            else:
+                click.echo(click.style(f"✗ Baseline update failed: {result.get('error', 'Unknown error')}", fg='red'))
+                return EXIT_ERROR
+
+    except Exception as e:
+        logger.exception("Baseline update failed")
+        click.echo(click.style(f"✗ Baseline update failed: {str(e)}", fg='red'))
+        return EXIT_ERROR
+
+
+@integrity.command('list')
+@click.option('--path', help='Path to the baseline file to list')
+@click.option('--filter', '-f', help='Filter files containing this string')
+@click.option('--format', type=click.Choice(['text', 'json']), default='text',
+              help='Output format (text or json)')
+@click.option('--sort', type=click.Choice(['path', 'hash']), default='path',
+              help='Sort by path or hash')
+def list_baseline(path: Optional[str], filter: Optional[str],
+                  format: str, sort: str) -> int:
+    """
+    List the contents of the integrity baseline file.
+
+    Displays the files and hashes stored in the integrity baseline,
+    with options for filtering, formatting, and sorting the output.
+
+    Examples:
+        # List all baseline entries
+        $ flask integrity list
+
+        # List only files in the core directory
+        $ flask integrity list --filter core/
+
+        # Output as JSON
+        $ flask integrity list --format json
+
+        # Sort by hash value
+        $ flask integrity list --sort hash
+    """
+    try:
+        app = create_app()
+        with app.app_context():
+            import json
+
+            # Get baseline path from config if not provided
+            if not path:
+                path = app.config.get('FILE_BASELINE_PATH')
+                if not path:
+                    click.echo("Error: No baseline path configured", err=True)
+                    return EXIT_ERROR
+
+            # Check if baseline exists
+            if not os.path.exists(path):
+                click.echo(f"Error: Baseline file not found: {path}", err=True)
+                return EXIT_ERROR
+
+            try:
+                # Load baseline
+                with open(path, 'r') as f:
+                    baseline = json.load(f)
+
+                # Count entries
+                total_entries = len(baseline)
+
+                # Filter if requested
+                if filter:
+                    baseline = {path: hash for path, hash in baseline.items() if filter in path}
+
+                # Sort entries
+                if sort == 'path':
+                    sorted_entries = sorted(baseline.items())
+                else:  # sort by hash
+                    sorted_entries = sorted(baseline.items(), key=lambda x: x[1])
+
+                # Output in requested format
+                if format == 'json':
+                    filtered_baseline = dict(sorted_entries)
+                    click.echo(json.dumps(filtered_baseline, indent=2))
+                else:
+                    click.echo(f"Baseline file: {path}")
+                    click.echo(f"Total entries: {total_entries}")
+                    if filter:
+                        click.echo(f"Filtered entries: {len(sorted_entries)} (filter: '{filter}')")
+
+                    for path, hash in sorted_entries:
+                        click.echo(f"{path}: {hash}")
+
+                return EXIT_SUCCESS
+            except json.JSONDecodeError:
+                click.echo(f"Error: Invalid baseline file format: {path}", err=True)
+                return EXIT_ERROR
+            except Exception as e:
+                click.echo(f"Error reading baseline file: {str(e)}", err=True)
+                return EXIT_ERROR
+
+    except Exception as e:
+        logger.exception("Failed to list baseline")
+        click.echo(f"Error listing baseline: {str(e)}", err=True)
+        return EXIT_ERROR
+
+
+@integrity.command('check-file')
+@click.argument('file_path', type=click.Path(exists=True))
+@click.option('--baseline', help='Path to the baseline file (uses configured path if not provided)')
+@click.option('--algorithm', type=click.Choice(['sha256', 'sha384', 'sha512', 'md5', 'sha1']),
+              default='sha256', help='Hash algorithm to use')
+def check_file_integrity(file_path: str, baseline: Optional[str], algorithm: str) -> int:
+    """
+    Check if a specific file's hash matches the baseline.
+
+    Calculates the hash of a specific file and compares it with
+    the value stored in the integrity baseline to verify its integrity.
+
+    Args:
+        file_path: Path to the file to check
+
+    Examples:
+        # Check a specific file
+        $ flask integrity check-file app.py
+
+        # Check with custom baseline and algorithm
+        $ flask integrity check-file config.py --baseline=/path/to/baseline.json --algorithm=sha512
+    """
+    try:
+        app = create_app()
+        with app.app_context():
+            import json
+            import os
+
+            # Get baseline path from config if not provided
+            if not baseline:
+                baseline = app.config.get('FILE_BASELINE_PATH')
+                if not baseline:
+                    click.echo("Error: No baseline path configured", err=True)
+                    return EXIT_ERROR
+
+            # Check if baseline exists
+            if not os.path.exists(baseline):
+                click.echo(f"Error: Baseline file not found: {baseline}", err=True)
+                return EXIT_ERROR
+
+            try:
+                # Load baseline
+                with open(baseline, 'r') as f:
+                    baseline_data = json.load(f)
+
+                # Get absolute path and then relative path for consistency
+                abs_path = os.path.abspath(file_path)
+                rel_path = os.path.relpath(abs_path, os.path.dirname(app.root_path))
+
+                # Calculate current hash
+                from core.security.cs_crypto import compute_hash
+                current_hash = compute_hash(file_path=file_path, algorithm=algorithm)
+
+                # Check if file exists in baseline
+                if rel_path in baseline_data:
+                    baseline_hash = baseline_data[rel_path]
+                    if baseline_hash == current_hash:
+                        click.echo(click.style("✓ File integrity verified", fg='green'))
+                        click.echo(f"  - Path: {rel_path}")
+                        click.echo(f"  - Hash: {current_hash}")
+                        return EXIT_SUCCESS
+                    else:
+                        click.echo(click.style("✗ File hash mismatch!", fg='red'))
+                        click.echo(f"  - Path: {rel_path}")
+                        click.echo(f"  - Current hash: {current_hash}")
+                        click.echo(f"  - Baseline hash: {baseline_hash}")
+                        return EXIT_VALIDATION_ERROR
+                else:
+                    click.echo(click.style("! File not in baseline", fg='yellow'))
+                    click.echo(f"  - Path: {rel_path}")
+                    click.echo(f"  - Current hash: {current_hash}")
+
+                    # Show command to add file to baseline
+                    click.echo("\nTo add this file to the baseline, run:")
+                    click.echo(click.style(f"  flask integrity update-baseline --include '{os.path.basename(file_path)}'", fg='blue'))
+                    return EXIT_VALIDATION_ERROR
+
+            except json.JSONDecodeError:
+                click.echo(f"Error: Invalid baseline file format: {baseline}", err=True)
+                return EXIT_ERROR
+            except Exception as e:
+                click.echo(f"Error checking file: {str(e)}", err=True)
+                return EXIT_ERROR
+
+    except Exception as e:
+        logger.exception(f"Failed to check file integrity: {e}")
+        click.echo(f"Error checking file integrity: {str(e)}", err=True)
+        return EXIT_ERROR
+
+
+@integrity.command('analyze')
+@click.option('--path', help='Path to directory to analyze')
+@click.option('--pattern', '-p', multiple=True, help='File patterns to include')
+@click.option('--limit', type=int, default=100, help='Limit number of files to analyze')
+def analyze_files(path: Optional[str], pattern: tuple, limit: int) -> int:
+    """
+    Analyze files for potential integrity risks.
+
+    Scans files in the specified directory (or application root if not provided)
+    to identify potential integrity risks such as:
+    - Files with suspicious permissions
+    - Recently modified files
+    - Unexpected executable files
+    - Files with suspicious hash values
+
+    Examples:
+        # Analyze files in the application directory
+        $ flask integrity analyze
+
+        # Analyze specific patterns in a custom directory
+        $ flask integrity analyze --path /etc/myapp --pattern "*.conf" --pattern "*.yaml"
+
+        # Analyze more files
+        $ flask integrity analyze --limit 500
+    """
+    try:
+        app = create_app()
+        with app.app_context():
+            import os
+            import fnmatch
+            import hashlib
+            from datetime import datetime
+
+            if not path:
+                path = os.path.dirname(app.root_path)
+
+            patterns = list(pattern) if pattern else ['*.py', '*.sh', '*.ini', '*.conf', '*.yaml', '*.yml']
+
+            click.echo(f"Analyzing files in {path} matching {', '.join(patterns)}")
+
+            # Find all matching files
+            matches = []
+            for root, _, filenames in os.walk(path):
+                for filename in filenames:
+                    for pattern_item in patterns:
+                        if fnmatch.fnmatch(filename, pattern_item):
+                            matches.append(os.path.join(root, filename))
+                            break
+
+                    if len(matches) >= limit:
+                        break
+
+                if len(matches) >= limit:
+                    click.echo(f"Reached analysis limit of {limit} files")
+                    break
+
+            # Analyze files
+            click.echo(f"Found {len(matches)} files to analyze")
+
+            analysis_results = {
+                'suspicious_permissions': [],
+                'recently_modified': [],
+                'unexpected_hash_values': [],
+                'executable_scripts': []
+            }
+
+            now = datetime.now()
+
+            for file_path in matches:
+                try:
+                    # Get file stats
+                    stats = os.stat(file_path)
+
+                    # Check permissions
+                    if stats.st_mode & 0o022:  # World-writable
+                        analysis_results['suspicious_permissions'].append(file_path)
+
+                    # Check modification time
+                    mod_time = datetime.fromtimestamp(stats.st_mtime)
+                    if (now - mod_time).days < 1:  # Modified in the last 24 hours
+                        analysis_results['recently_modified'].append(file_path)
+
+                    # Check if file is executable
+                    if os.access(file_path, os.X_OK) and not file_path.endswith(('.py', '.sh')):
+                        analysis_results['executable_scripts'].append(file_path)
+
+                    # Check content for suspicious patterns
+                    with open(file_path, 'rb') as f:
+                        content = f.read(8192)  # Read the first 8KB
+
+                        # Calculate hash
+                        file_hash = hashlib.sha256(content).hexdigest()
+
+                        # This list would typically come from a threat intelligence feed
+                        # or known-bad hash database
+                        known_bad_hashes = app.config.get('KNOWN_BAD_HASHES', [])
+
+                        if file_hash in known_bad_hashes:
+                            analysis_results['unexpected_hash_values'].append(file_path)
+
+                except Exception as e:
+                    click.echo(f"Error analyzing {file_path}: {str(e)}")
+
+            # Display results
+            click.echo("\nAnalysis Results:")
+
+            if analysis_results['suspicious_permissions']:
+                click.echo(click.style("\nFiles with suspicious permissions:", fg='yellow'))
+                for file_path in analysis_results['suspicious_permissions'][:10]:
+                    click.echo(f"  • {os.path.relpath(file_path, path)}")
+                if len(analysis_results['suspicious_permissions']) > 10:
+                    click.echo(f"  ... and {len(analysis_results['suspicious_permissions']) - 10} more")
+
+            if analysis_results['recently_modified']:
+                click.echo(click.style("\nRecently modified files:", fg='blue'))
+                for file_path in analysis_results['recently_modified'][:10]:
+                    click.echo(f"  • {os.path.relpath(file_path, path)}")
+                if len(analysis_results['recently_modified']) > 10:
+                    click.echo(f"  ... and {len(analysis_results['recently_modified']) - 10} more")
+
+            if analysis_results['executable_scripts']:
+                click.echo(click.style("\nUnexpected executable files:", fg='yellow'))
+                for file_path in analysis_results['executable_scripts'][:10]:
+                    click.echo(f"  • {os.path.relpath(file_path, path)}")
+                if len(analysis_results['executable_scripts']) > 10:
+                    click.echo(f"  ... and {len(analysis_results['executable_scripts']) - 10} more")
+
+            if analysis_results['unexpected_hash_values']:
+                click.echo(click.style("\nFiles with suspicious hash values:", fg='red'))
+                for file_path in analysis_results['unexpected_hash_values']:
+                    click.echo(f"  • {os.path.relpath(file_path, path)}")
+
+            # Provide a summary and recommendations
+            click.echo("\nSummary:")
+            total_issues = sum(len(items) for items in analysis_results.values())
+            if total_issues > 0:
+                click.echo(click.style(f"  • {total_issues} potential issues found", fg='yellow'))
+                click.echo("\nRecommendations:")
+                if analysis_results['suspicious_permissions']:
+                    click.echo("  • Review and correct file permissions")
+                    click.echo("    Run: chmod 640 [file] to set appropriate permissions")
+                if analysis_results['recently_modified']:
+                    click.echo("  • Verify recent file changes are expected")
+                    click.echo("    Run: flask integrity verify")
+                if analysis_results['unexpected_hash_values']:
+                    click.echo("  • Investigate files with suspicious hashes immediately")
+            else:
+                click.echo(click.style("  • No potential issues found", fg='green'))
+
+            return EXIT_SUCCESS if total_issues == 0 else EXIT_VALIDATION_ERROR
+
+    except Exception as e:
+        logger.exception("File analysis failed")
+        click.echo(f"Error analyzing files: {str(e)}", err=True)
+        return EXIT_ERROR
+
+
 @cli.command()
 @click.argument('username')
 @click.option('--reason', required=True, help='Reason for unlocking (for audit purposes)')

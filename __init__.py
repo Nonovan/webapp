@@ -40,7 +40,7 @@ from services import (
     update_file_integrity_baseline_with_notifications, validate_baseline_consistency
 )
 
-__version__ = '1.0.0'
+__version__ = '0.1.1'
 
 # Configure logger early for initialization errors
 logger = logging.getLogger(__name__)
@@ -366,7 +366,22 @@ def _create_initial_baseline(app: Flask, baseline_path: str) -> bool:
         except ImportError:
             app.logger.warning("Core security module not available for baseline creation, using fallback")
 
-        # Fallback implementation
+        # Try using the seeder module implementation
+        try:
+            from core.seeder import update_integrity_baseline
+            result = update_integrity_baseline(
+                baseline_path=baseline_path,
+                force=True,  # Force update for initial baseline
+                include_pattern=patterns,
+                exclude_pattern=["__pycache__/*", "*.pyc", "tmp/*"],
+                backup=False,  # No backup needed for initial creation
+                verbose=False
+            )
+            return result.get('success', False)
+        except ImportError:
+            app.logger.warning("Core seeder module not available for baseline creation, using fallback")
+
+        # Fallback implementation using services
         from services import SecurityService
 
         # Generate a basic structure for the baseline
@@ -384,6 +399,31 @@ def _create_initial_baseline(app: Flask, baseline_path: str) -> bool:
         with open(baseline_path, 'w') as f:
             json.dump(baseline_data, f, indent=2)
 
+        # Calculate hashes for critical files
+        base_dir = os.path.dirname(app.root_path)
+
+        # Recursively find all files matching patterns
+        for pattern in patterns:
+            matching_files = list(Path(base_dir).glob(pattern))
+            for file_path in matching_files:
+                if file_path.is_file():
+                    try:
+                        # Get relative path
+                        rel_path = os.path.relpath(str(file_path), base_dir)
+
+                        # Calculate hash
+                        file_hash = SecurityService.calculate_file_hash(str(file_path))
+
+                        # Update baseline
+                        baseline_data["files"][rel_path] = file_hash
+                    except Exception as e:
+                        app.logger.warning(f"Error hashing {file_path}: {e}")
+
+        # Write updated baseline
+        with open(baseline_path, 'w') as f:
+            json.dump(baseline_data, f, indent=2)
+
+        app.logger.info(f"Created initial baseline with {len(baseline_data['files'])} files")
         return True
 
     except Exception as e:
@@ -450,9 +490,31 @@ def _repair_baseline(app: Flask, baseline_path: str, issues: Dict[str, Any]) -> 
                     metadata["hash_algorithm"] = app.config.get('FILE_HASH_ALGORITHM', 'sha256')
 
             # Fix missing files section
-            if "files" not in baseline_data or not isinstance(baseline_data.get("files"), dict):
+            if "files" not in baseline_data:
                 baseline_data["files"] = {}
                 app.logger.info("Added missing files section to baseline")
+            elif not isinstance(baseline_data.get("files"), dict):
+                # If files exists but is not a dict, try to salvage or reset
+                if isinstance(baseline_data.get("files"), list) and baseline_data["files"]:
+                    # Try to convert list to dict if it's a list of dicts with path/hash
+                    try:
+                        converted = {}
+                        for item in baseline_data["files"]:
+                            if isinstance(item, dict) and "path" in item and "hash" in item:
+                                converted[item["path"]] = item["hash"]
+
+                        if converted:
+                            baseline_data["files"] = converted
+                            app.logger.info("Converted files list to dictionary format")
+                        else:
+                            baseline_data["files"] = {}
+                            app.logger.warning("Failed to convert files list, resetting files section")
+                    except Exception:
+                        baseline_data["files"] = {}
+                        app.logger.warning("Error converting files section, resetting it")
+                else:
+                    baseline_data["files"] = {}
+                    app.logger.warning("Invalid files section, resetting it")
 
             # Fix invalid file entries
             files = baseline_data["files"]
@@ -472,7 +534,44 @@ def _repair_baseline(app: Flask, baseline_path: str, issues: Dict[str, Any]) -> 
             if invalid_entries:
                 app.logger.info(f"Removed {len(invalid_entries)} invalid entries from baseline")
 
+            # Verify critical files are present
+            if app.config.get('VERIFY_CRITICAL_FILES_IN_BASELINE', True):
+                critical_files = app.config.get('CRITICAL_FILES_FOR_BASELINE', ['app.py', 'config.py'])
+                base_dir = os.path.dirname(app.root_path)
+
+                missing_criticals = []
+                for critical_file in critical_files:
+                    file_path = os.path.join(base_dir, critical_file)
+                    rel_path = os.path.relpath(file_path, base_dir)
+
+                    if os.path.exists(file_path) and rel_path not in files:
+                        missing_criticals.append((rel_path, file_path))
+
+                # Add missing critical files to baseline
+                if missing_criticals:
+                    app.logger.info(f"Adding {len(missing_criticals)} missing critical files to baseline")
+
+                    try:
+                        from services import SecurityService
+                        for rel_path, abs_path in missing_criticals:
+                            try:
+                                file_hash = SecurityService.calculate_file_hash(abs_path)
+                                files[rel_path] = file_hash
+                                app.logger.debug(f"Added missing critical file to baseline: {rel_path}")
+                            except Exception as e:
+                                app.logger.warning(f"Failed to hash critical file {rel_path}: {e}")
+                    except ImportError:
+                        app.logger.warning("SecurityService not available to add critical files")
+
             # Write repaired baseline
+            with open(baseline_path, 'w') as f:
+                json.dump(baseline_data, f, indent=2)
+
+            # Update metadata
+            baseline_data["metadata"]["last_updated_at"] = datetime.now(timezone.utc).isoformat()
+            baseline_data["metadata"]["repaired"] = True
+
+            # Write final baseline
             with open(baseline_path, 'w') as f:
                 json.dump(baseline_data, f, indent=2)
 
@@ -523,9 +622,13 @@ def _backup_baseline(app: Flask, baseline_path: str) -> Optional[str]:
         # Create backup directory if needed
         os.makedirs(os.path.dirname(backup_path), exist_ok=True)
 
-        # Copy baseline to backup
-        import shutil
-        shutil.copy2(baseline_path, backup_path)
+        # Copy baseline to backup using atomic write pattern for safety
+        temp_backup_path = f"{backup_path}.tmp"
+        with open(baseline_path, 'rb') as src, open(temp_backup_path, 'wb') as dst:
+            dst.write(src.read())
+
+        # Rename to final name (atomic operation on most systems)
+        os.replace(temp_backup_path, backup_path)
 
         app.logger.debug(f"Created baseline backup at {backup_path}")
 
@@ -597,7 +700,13 @@ def _send_additional_alerts(app: Flask, changes: List[Dict[str, Any]], severity:
         if 'email' in alert_channels:
             _send_email_alert(app, changes, severity)
 
-        # Add additional notification channels here as needed
+        # Add support for webhook notifications
+        if 'webhook' in alert_channels:
+            _send_webhook_alert(app, changes, severity)
+
+        # Support for service desk integration
+        if 'service_desk' in alert_channels:
+            _create_service_desk_ticket(app, changes, severity)
 
     except Exception as e:
         app.logger.error(f"Error sending additional integrity alerts: {e}")
@@ -669,3 +778,137 @@ def _send_email_alert(app: Flask, changes: List[Dict[str, Any]], severity: str) 
 
     except Exception as e:
         app.logger.error(f"Error sending email integrity alert: {e}")
+
+def _send_webhook_alert(app: Flask, changes: List[Dict[str, Any]], severity: str) -> None:
+    """
+    Send integrity violation notification via webhooks.
+
+    Args:
+        app: Flask application instance
+        changes: List of integrity violations
+        severity: Severity of the violations ('critical' or 'high')
+    """
+    try:
+        # Get webhook configuration
+        webhook_urls = app.config.get('INTEGRITY_WEBHOOK_URLS', {})
+        if not webhook_urls:
+            app.logger.debug("No webhook URLs configured for integrity alerts")
+            return
+
+        # Only send webhooks for the specified severity or higher
+        if severity == 'critical' and 'critical' in webhook_urls:
+            urls = webhook_urls['critical']
+        elif severity in ('critical', 'high') and 'high' in webhook_urls:
+            urls = webhook_urls['high']
+        else:
+            app.logger.debug(f"No webhooks configured for {severity} severity")
+            return
+
+        # Import webhook service
+        try:
+            from services.webhooks import send_webhook_notification
+        except ImportError:
+            app.logger.warning("Webhook service not properly configured")
+            return
+
+        # Prepare webhook payload
+        environment = app.config.get('ENVIRONMENT', 'unknown')
+        version = app.config.get('VERSION', 'unknown')
+
+        # Group changes by status
+        changes_by_status = {}
+        for change in changes:
+            status = change.get('status', 'modified')
+            if status not in changes_by_status:
+                changes_by_status[status] = []
+            changes_by_status[status].append(change)
+
+        payload = {
+            "alert_type": "file_integrity",
+            "severity": severity,
+            "environment": environment,
+            "version": version,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "total_changes": len(changes),
+            "summary": {status: len(files) for status, files in changes_by_status.items()},
+            "affected_files": [c.get('path') for c in changes[:20]]
+        }
+
+        # Send to all configured webhook URLs
+        for url in urls:
+            try:
+                send_webhook_notification(
+                    url=url,
+                    payload=payload,
+                    retry=True
+                )
+                app.logger.debug(f"Sent integrity webhook alert to {url}")
+            except Exception as webhook_err:
+                app.logger.error(f"Failed to send webhook alert to {url}: {webhook_err}")
+
+        app.logger.info(f"Sent integrity webhook alerts to {len(urls)} endpoints")
+
+    except Exception as e:
+        app.logger.error(f"Error sending webhook integrity alerts: {e}")
+
+def _create_service_desk_ticket(app: Flask, changes: List[Dict[str, Any]], severity: str) -> None:
+    """
+    Create a service desk ticket for integrity violations.
+
+    Args:
+        app: Flask application instance
+        changes: List of integrity violations
+        severity: Severity of the violations ('critical' or 'high')
+    """
+    try:
+        # Check if service desk integration is enabled
+        if not app.config.get('SERVICE_DESK_INTEGRATION_ENABLED', False):
+            app.logger.debug("Service desk integration not enabled")
+            return
+
+        # Only create tickets for high or critical severity
+        if severity not in ('critical', 'high'):
+            app.logger.debug(f"Service desk tickets only created for high/critical severity, not {severity}")
+            return
+
+        # Import service desk integration
+        try:
+            from services.integrations import create_service_desk_ticket
+        except ImportError:
+            app.logger.warning("Service desk integration not properly configured")
+            return
+
+        # Set ticket priority based on severity
+        priority = 'P1' if severity == 'critical' else 'P2'
+
+        # Format description with file changes
+        environment = app.config.get('ENVIRONMENT', 'unknown')
+        description = f"File integrity violations detected in {environment} environment.\n\n"
+        description += f"Severity: {severity.upper()}\n"
+        description += f"Files affected: {len(changes)}\n\n"
+        description += "Affected files:\n"
+
+        for change in changes[:15]:
+            path = change.get('path', 'unknown')
+            status = change.get('status', 'modified')
+            description += f"- {path} ({status})\n"
+
+        if len(changes) > 15:
+            description += f"... and {len(changes) - 15} more files\n"
+
+        # Create the ticket
+        ticket_id = create_service_desk_ticket(
+            summary=f"File Integrity Alert: {severity.upper()} - {len(changes)} files affected",
+            description=description,
+            priority=priority,
+            category="Security",
+            tags=["file-integrity", severity, environment]
+        )
+
+        if ticket_id:
+            app.logger.info(f"Created service desk ticket {ticket_id} for {severity} integrity alert")
+        else:
+            app.logger.warning("Failed to create service desk ticket")
+
+    except Exception as e:
+        app.logger.error(f"Error creating service desk ticket for integrity alert: {e}")

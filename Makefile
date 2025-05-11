@@ -9,7 +9,7 @@ ENV ?= development
 #
 # Security and Compliance Tasks
 #
-.PHONY: setup audit update-waf check-certificates security-baseline compliance-check
+.PHONY: setup audit update-waf check-certificates security-baseline compliance-check verify-integrity list-baseline backup-baseline compare-baselines check-file-integrity analyze-files
 
 setup:
     ./scripts/security/security_setup.sh $(ENV)
@@ -25,6 +25,25 @@ check-certificates:
 
 security-baseline:
     ./scripts/security/file_integrity_checker.sh --update-baseline
+
+# New file integrity management commands
+verify-integrity:
+    flask integrity verify $(BASELINE_PATH) $(VERBOSE)
+
+list-baseline:
+    flask integrity list-baseline $(BASELINE_PATH) $(FILTER) $(FORMAT) $(SORT)
+
+backup-baseline:
+    flask integrity backup-baseline $(BASELINE_PATH) $(BACKUP_DIR) $(COMMENT)
+
+compare-baselines:
+    flask integrity compare-baselines $(BASELINE1) $(BASELINE2) $(FORMAT)
+
+check-file-integrity:
+    flask integrity check-file $(FILE_PATH) $(BASELINE) $(ALGORITHM)
+
+analyze-files:
+    flask integrity analyze $(PATH) $(PATTERN) $(LIMIT)
 
 compliance-check:
     ./scripts/compliance/validate_compliance.sh --environment $(ENV) --report compliance-report.json
@@ -136,6 +155,12 @@ help:
     @echo "  make update-waf          - Update WAF rules"
     @echo "  make check-certificates  - Check certificate validity"
     @echo "  make security-baseline   - Update file integrity baseline"
+    @echo "  make verify-integrity    - Verify file integrity against baseline"
+    @echo "  make list-baseline       - List contents of integrity baseline file"
+    @echo "  make backup-baseline     - Create backup of integrity baseline"
+    @echo "  make compare-baselines BASELINE1=path1 BASELINE2=path2 - Compare two baseline files"
+    @echo "  make check-file-integrity FILE_PATH=path - Check specific file against baseline"
+    @echo "  make analyze-files       - Analyze files for potential integrity risks"
     @echo "  make compliance-check    - Validate compliance requirements"
     @echo ""
     @echo "Database:"
@@ -173,3 +198,8 @@ help:
     @echo ""
     @echo "Usage:"
     @echo "  ENV=production make deploy   - Deploy to production environment"
+    @echo "  make verify-integrity VERBOSE='-v'   - Run integrity verification with verbose output"
+    @echo "  make list-baseline FILTER='-f core/' - List baseline files in core directory"
+    @echo "  make backup-baseline COMMENT='pre-deployment' - Back up baseline with comment"
+    @echo "  make check-file-integrity FILE_PATH=app.py ALGORITHM='--algorithm sha256' - Check specific file"
+    @echo "  make compare-baselines BASELINE1=baseline1.json BASELINE2=baseline2.json - Compare baselines"
