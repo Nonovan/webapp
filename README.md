@@ -157,7 +157,7 @@ The architecture implements:
 - Horizontal scaling capabilities for high availability
 - Fault tolerance with circuit breakers and graceful degradation
 
-For detailed architecture information, see architecture-overview.md.
+For detailed architecture information, see `architecture-overview.md`.
 
 ## Project Structure
 
@@ -215,7 +215,7 @@ API features include:
 - Detailed documentation with examples
 - Secure authentication and authorization
 
-For detailed API documentation, see api-overview.md.
+For detailed API documentation, see `api-overview.md`.
 
 ## Security Features
 
@@ -233,7 +233,7 @@ The platform implements a defense-in-depth security approach with multiple layer
 - Comprehensive security event logging and monitoring
 - Automated security scanning integration
 
-For detailed security documentation, see security-overview.md.
+For detailed security documentation, see `security-overview.md`.
 
 ### File Integrity Monitoring
 
@@ -254,24 +254,71 @@ The platform provides sophisticated file integrity monitoring to detect unauthor
 
 #### Command-Line Interface
 
-The platform provides CLI commands for file integrity management:
+The platform provides comprehensive CLI commands for file integrity management:
 
 ```bash
-# Check file integrity against baseline
-flask integrity check
+# Verify file integrity against baseline
+flask integrity verify [--baseline PATH] [--report-only/--update] [-v]
 
 # Update the baseline with approved changes
-flask integrity update-baseline
+flask integrity update-baseline [--path PATH] [--force/--no-force] [--backup/--no-backup]
 
-# View integrity status
-flask integrity status
+# List contents of baseline file with filtering
+flask integrity list [--path PATH] [--filter PATTERN] [--format text|json] [--sort path|hash]
 
-# Initialize a new baseline
-flask integrity init-baseline
+# Check specific file against baseline
+flask integrity check-file FILE_PATH [--baseline PATH] [--algorithm ALGO]
 
-# Repair a corrupted or inconsistent baseline
-flask integrity repair-baseline
+# Analyze files for potential integrity risks
+flask integrity analyze [--path DIR] [--pattern PATTERN] [--limit NUM]
+
+# Create backup of baseline
+flask integrity backup [--path PATH] [--output DIR] [--comment TEXT]
+
+# Compare two baseline files
+flask integrity compare BASELINE1 BASELINE2 [--format text|json] [--output FILE]
+
+# Shortcut commands via Makefile
+make verify-integrity [BASELINE_PATH=path] [VERBOSE="-v"]
+make list-baseline [BASELINE_PATH=path] [FILTER="-f core/"] [FORMAT="--format json"]
+make backup-baseline [BASELINE_PATH=path] [COMMENT="pre-deployment"]
+make check-file-integrity FILE_PATH=app.py [ALGORITHM="--algorithm sha256"]
+make compare-baselines BASELINE1=baseline1.json BASELINE2=baseline2.json [FORMAT="--format json"]
 ```
+
+#### Baseline Management Features
+
+The enhanced baseline management includes:
+
+1. **Intelligent Backup System**:
+   - Automatically creates timestamped backups before updates
+   - Configurable backup retention policies
+   - Backup naming with optional comments for context
+   - Environment-specific backup locations
+
+2. **Enhanced Security Controls**:
+   - Role-based permissions for baseline updates
+   - Multi-approval workflow for production baselines
+   - Severity-based authorization requirements
+   - Comprehensive audit trail for all baseline operations
+
+3. **Fault Tolerance**:
+   - Automatic baseline corruption detection
+   - Self-healing capabilities for development environments
+   - Atomic file operations to prevent partial updates
+   - Rollback capabilities to previous baseline versions
+
+4. **Analysis Tools**:
+   - File permission analysis to detect security issues
+   - Recently modified file detection
+   - Suspicious content pattern recognition
+   - Unexpected executable file detection
+
+5. **Integration with Security Systems**:
+   - Automated incident creation for violations
+   - Integration with notification service for alerts
+   - Webhook support for external system notifications
+   - Integration with security monitoring dashboards
 
 #### API Access
 
@@ -297,6 +344,63 @@ curl -X PUT /api/security/baseline \
     "remove_missing": false,
     "notify": true
   }'
+
+# Export baseline comparison
+curl -X POST /api/security/baseline/compare \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "baseline1": "instance/security/baseline.json",
+    "baseline2": "instance/security/baseline_backups/20240710_production.json",
+    "format": "json"
+  }' > baseline_diff.json
+
+# Analyze file integrity risks
+curl -X POST /api/security/baseline/analyze \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "path": "/app",
+    "patterns": ["*.py", "*.conf"],
+    "limit": 200
+  }'
+```
+
+#### Using the File Integrity Service
+
+The platform provides a service layer for programmatically working with file integrity:
+
+```python
+from services import FileIntegrityService
+
+# Verify integrity
+result = FileIntegrityService.verify_integrity(
+    baseline_path="instance/security/baseline.json",
+    report_critical=True,    # Report critical violations to security team
+    check_permissions=True   # Also verify file permissions
+)
+
+if not result.is_valid:
+    print(f"Found {len(result.violations)} integrity violations")
+    for violation in result.violations:
+        print(f"File: {violation.file_path}, Severity: {violation.severity}")
+
+# Update baseline with enhanced notification and audit capabilities
+result = FileIntegrityService.update_baseline_with_notifications(
+    baseline_path="instance/security/baseline.json",
+    changes=[
+        {"path": "app.py", "current_hash": "abc123...", "severity": "medium"},
+        {"path": "config.py", "current_hash": "def456...", "severity": "high"}
+    ],
+    remove_missing=True,
+    notify=True,
+    audit=True,
+    severity_threshold="medium",
+    reason="Weekly security review"
+)
+
+print(f"Update result: {result.success}")
+print(f"Updated {result.stats.changes_applied} files, removed {result.stats.removed_entries} entries")
 ```
 
 For detailed file integrity documentation, see `file-integrity-monitoring.md`.
@@ -411,7 +515,7 @@ python -m pytest tests/security/test_file_integrity.py
 
 ### Code Style
 
-The project follows PEP 8 style guidelines with some exceptions defined in setup.cfg.
+The project follows PEP 8 style guidelines with some exceptions defined in `setup.cfg`.
 
 ```bash
 # Check code style
@@ -423,7 +527,7 @@ black .
 
 ## Contributing
 
-Please see CONTRIBUTING.md for details on our code of conduct and the process for submitting pull requests.
+Please see `CONTRIBUTING.md` for details on our code of conduct and the process for submitting pull requests.
 
 ## Support
 
