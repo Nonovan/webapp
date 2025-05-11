@@ -57,6 +57,10 @@ SESSION_TIMEOUT_MINUTES = 30
 SESSION_INACTIVE_MESSAGE = 'Your session has expired. Please log in again.'
 SESSION_SECURITY_MESSAGE = 'Your session has been terminated due to a security concern.'
 
+# Exit status codes
+EXIT_SUCCESS = 0
+EXIT_ERROR = 1
+
 def validate_environment() -> None:
     """
     Validate required environment variables are set.
@@ -395,6 +399,430 @@ def register_cli_commands(app: Flask) -> None:
         except (RuntimeError, ValueError, KeyError, ImportError) as e:
             app.logger.error("File integrity check failed", exc_info=e)
             click.echo(f'File integrity check failed: {e}', err=True)
+            sys.exit(1)
+
+    @app.cli.group('baseline')
+    def baseline_cli():
+        """File integrity baseline management commands."""
+        pass
+
+    @baseline_cli.command('update')
+    @click.option('--path', help='Path to the baseline file to update (uses configured path if not specified)')
+    @click.option('--force/--no-force', default=False,
+                help='Update baseline even for critical files')
+    @click.option('--include', '-i', multiple=True,
+                help='Patterns to include (e.g., "*.py", "config/*.yaml")')
+    @click.option('--exclude', '-e', multiple=True,
+                help='Patterns to exclude (e.g., "*.pyc", "tmp/*")')
+    @click.option('--backup/--no-backup', default=True,
+                help='Create backup of existing baseline')
+    @click.option('--reason', help='Reason for updating the baseline (for audit logs)')
+    def update_baseline(path: Optional[str], force: bool, include: tuple,
+                       exclude: tuple, backup: bool, reason: Optional[str]) -> None:
+        """
+        Update file integrity baseline with current file states.
+
+        This command creates or updates the file integrity baseline with the current
+        state of files in the application, optionally filtering by include/exclude patterns.
+        By default, a backup of the existing baseline is created for safety.
+        """
+        try:
+            from core.seeder import update_integrity_baseline
+
+            click.echo(f"Updating file integrity baseline{' (FORCE mode)' if force else ''}...")
+
+            # Convert tuples to lists
+            include_patterns = list(include) if include else None
+            exclude_patterns = list(exclude) if exclude else None
+
+            # Call implementation from core module
+            result = update_integrity_baseline(
+                baseline_path=path,
+                force=force,
+                include_pattern=include_patterns,
+                exclude_pattern=exclude_patterns,
+                backup=backup,
+                verbose=True
+            )
+
+            if result.get('success', False):
+                stats = result.get('stats', {})
+                click.echo(click.style("✓ Baseline updated successfully", fg='green'))
+                click.echo(f"  - Files added:     {stats.get('added', 0)}")
+                click.echo(f"  - Files updated:   {stats.get('updated', 0)}")
+                click.echo(f"  - Files unchanged: {stats.get('unchanged', 0)}")
+                click.echo(f"  - Files skipped:   {stats.get('skipped', 0)}")
+                click.echo(f"  - Errors:          {stats.get('error', 0)}")
+                click.echo(f"  - Total files:     {result.get('total_files', 0)}")
+                click.echo(f"  - Baseline path:   {result.get('baseline_path')}")
+
+                # Log to audit trail
+                try:
+                    log_security_event(
+                        event_type="baseline_manual_update",
+                        description=f"Manual baseline update via CLI",
+                        severity="info",
+                        details={
+                            'added': stats.get('added', 0),
+                            'updated': stats.get('updated', 0),
+                            'unchanged': stats.get('unchanged', 0),
+                            'skipped': stats.get('skipped', 0),
+                            'reason': reason or 'CLI manual update',
+                            'include_patterns': include_patterns,
+                            'exclude_patterns': exclude_patterns,
+                            'force_mode': force
+                        }
+                    )
+                except Exception as e:
+                    click.echo(f"Warning: Failed to log audit event: {e}", err=True)
+            else:
+                click.echo(click.style(f"✗ Baseline update failed: {result.get('error', 'Unknown error')}", fg='red'))
+                sys.exit(1)
+
+        except ImportError as e:
+            click.echo(f"Error: Required module not available - {e}", err=True)
+            sys.exit(1)
+        except Exception as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+
+    @baseline_cli.command('verify')
+    @click.option('--path', help='Path to the baseline file to verify against')
+    @click.option('--report-only/--update', default=True,
+                help='Only report issues, do not update baseline')
+    @click.option('--verbose', '-v', count=True,
+                help='Verbose output (use multiple times for more detail)')
+    @click.option('--exit-code/--no-exit-code', default=True,
+                help='Return non-zero exit code if integrity violations found')
+    def verify_baseline(path: Optional[str], report_only: bool, verbose: int, exit_code: bool) -> None:
+        """
+        Verify file integrity against baseline.
+
+        Compares current file states with the stored baseline to detect unauthorized
+        modifications, permission changes, or missing files. Results are organized
+        by severity to highlight the most critical issues.
+        """
+        try:
+            from core import verify_baseline_integrity
+
+            # Get result with detailed info
+            result = verify_baseline_integrity(
+                app,
+                baseline_path=path,
+                verbose=verbose > 0
+            )
+
+            if not result.get('success', False):
+                click.echo(click.style(f"✗ Verification failed: {result.get('error', 'Unknown error')}", fg='red'))
+                return EXIT_ERROR
+
+            changes = result.get('changes', [])
+            if not changes:
+                click.echo(click.style("✓ All files passed integrity check", fg='green'))
+                click.echo(f"  - Files checked: {result.get('files_checked', 0)}")
+                return EXIT_SUCCESS
+            else:
+                click.echo(click.style(f"✗ {len(changes)} integrity violations found!", fg='yellow'))
+
+                # Group changes by severity
+                by_severity = {}
+                for change in changes:
+                    severity = change.get('severity', 'unknown')
+                    by_severity.setdefault(severity, []).append(change)
+
+                # Display counts by severity
+                for severity in ['critical', 'high', 'medium', 'low']:
+                    if severity in by_severity:
+                        color = 'red' if severity == 'critical' else 'yellow'
+                        click.echo(click.style(
+                            f"  - {severity.upper()}: {len(by_severity[severity])} issues",
+                            fg=color
+                        ))
+
+                # Display critical and high severity issues
+                for severity in ['critical', 'high']:
+                    if severity in by_severity:
+                        click.echo(f"\n{severity.upper()} SEVERITY ISSUES:")
+                        for change in by_severity[severity]:
+                            status = change.get('status', 'unknown')
+                            path = change.get('path', 'unknown')
+                            click.echo(click.style(f"  • {status}: {path}", fg='red'))
+
+                # Suggest automatic update if not in report-only mode and automatic updates allowed
+                if not report_only and app.config.get('ENVIRONMENT', '') != 'production':
+                    if click.confirm("Would you like to update the baseline with these changes?", default=False):
+                        from core.security.cs_file_integrity import update_file_integrity_baseline
+
+                        # Update baseline excluding critical changes
+                        non_critical = [c for c in changes if c.get('severity', '') != 'critical']
+
+                        if non_critical:
+                            baseline_path = path or app.config.get('FILE_BASELINE_PATH')
+                            success = update_file_integrity_baseline(app, baseline_path, non_critical)
+                            if success:
+                                click.echo(click.style(
+                                    f"✓ Baseline updated with {len(non_critical)} non-critical changes",
+                                    fg='green'
+                                ))
+                            else:
+                                click.echo(click.style("✗ Baseline update failed", fg='red'))
+                        else:
+                            click.echo("No non-critical changes to apply.")
+
+                # Return appropriate exit code based on configuration
+                if exit_code:
+                    sys.exit(1)
+                return 1
+
+        except ImportError as e:
+            click.echo(f"Error: Required module not available - {e}", err=True)
+            sys.exit(1)
+        except Exception as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+
+    @baseline_cli.command('analyze')
+    @click.option('--path', help='Path to directory to analyze')
+    @click.option('--pattern', '-p', multiple=True, help='File patterns to include')
+    @click.option('--limit', type=int, default=100, help='Limit number of files to analyze')
+    def analyze_baseline(path: Optional[str], pattern: tuple, limit: int) -> None:
+        """
+        Analyze files for potential integrity risks.
+
+        Scans files in the specified directory (or application root if not provided)
+        to identify potential integrity risks such as:
+        - Files with suspicious permissions
+        - Recently modified files
+        - Unexpected executable files
+        - Files with suspicious patterns
+
+        This is useful for proactive security monitoring and forensic analysis.
+        """
+        try:
+            from core.security.cs_file_integrity import analyze_files_for_integrity_risks
+
+            patterns = list(pattern) if pattern else None
+
+            click.echo("Analyzing files for integrity risks...")
+
+            result = analyze_files_for_integrity_risks(
+                app,
+                directory=path,
+                patterns=patterns,
+                limit=limit
+            )
+
+            if not result.get('success', False):
+                click.echo(click.style(f"✗ Analysis failed: {result.get('error', 'Unknown error')}", fg='red'))
+                sys.exit(1)
+
+            findings = result.get('findings', {})
+
+            # Display results by category
+            click.echo("\nAnalysis Results:")
+
+            if findings.get('suspicious_permissions', []):
+                files = findings.get('suspicious_permissions', [])
+                click.echo(click.style(f"\nFiles with suspicious permissions: {len(files)}", fg='yellow'))
+                for file_info in files[:10]:
+                    filename = file_info.get('path', 'unknown')
+                    permission = file_info.get('permission', 'unknown')
+                    click.echo(f"  • {filename} - {permission}")
+                if len(files) > 10:
+                    click.echo(f"  ... and {len(files) - 10} more files")
+
+            if findings.get('recently_modified', []):
+                files = findings.get('recently_modified', [])
+                click.echo(click.style(f"\nRecently modified files: {len(files)}", fg='blue'))
+                for file_info in files[:10]:
+                    filename = file_info.get('path', 'unknown')
+                    modified = file_info.get('modified_time', 'unknown')
+                    click.echo(f"  • {filename} - {modified}")
+                if len(files) > 10:
+                    click.echo(f"  ... and {len(files) - 10} more files")
+
+            if findings.get('unexpected_executables', []):
+                files = findings.get('unexpected_executables', [])
+                click.echo(click.style(f"\nUnexpected executable files: {len(files)}", fg='yellow'))
+                for file_path in files[:10]:
+                    click.echo(f"  • {file_path}")
+                if len(files) > 10:
+                    click.echo(f"  ... and {len(files) - 10} more files")
+
+            if findings.get('suspicious_content', []):
+                files = findings.get('suspicious_content', [])
+                click.echo(click.style(f"\nFiles with suspicious content: {len(files)}", fg='red'))
+                for file_info in files:
+                    filename = file_info.get('path', 'unknown')
+                    reason = file_info.get('reason', 'unknown')
+                    click.echo(f"  • {filename} - {reason}")
+
+            total_issues = sum(len(findings.get(category, []))
+                              for category in ['suspicious_permissions', 'recently_modified',
+                                             'unexpected_executables', 'suspicious_content'])
+
+            if total_issues == 0:
+                click.echo(click.style("\nNo integrity risks detected.", fg='green'))
+            else:
+                click.echo(click.style(f"\nTotal potential integrity risks found: {total_issues}", fg='yellow'))
+
+                # Provide recommendations
+                click.echo("\nRecommendations:")
+                if findings.get('suspicious_permissions', []):
+                    click.echo("  • Review and fix file permissions for suspicious files")
+                    click.echo("    Run: chmod 640 [file] to set secure permissions")
+                if findings.get('recently_modified', []):
+                    click.echo("  • Verify that recent file changes were authorized")
+                    click.echo("    Run: flask baseline verify to check against baseline")
+                if findings.get('unexpected_executables', []):
+                    click.echo("  • Investigate unexpected executable files")
+                if findings.get('suspicious_content', []):
+                    click.echo("  • Examine files with suspicious content immediately")
+                    click.echo("    Consider: isolating these files for further analysis")
+
+        except ImportError as e:
+            click.echo(f"Error: Required module not available - {e}", err=True)
+            sys.exit(1)
+        except Exception as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+
+    @baseline_cli.command('backup')
+    @click.option('--path', help='Path to the baseline file to backup')
+    @click.option('--output', help='Output directory for backups')
+    @click.option('--comment', help='Comment to include with backup')
+    def backup_baseline(path: Optional[str], output: Optional[str], comment: Optional[str]) -> None:
+        """
+        Create a backup of the current file integrity baseline.
+
+        This command creates a timestamped backup of the current baseline file,
+        which is useful before making significant system changes.
+        """
+        try:
+            from core.security.cs_file_integrity import backup_baseline_file
+
+            result = backup_baseline_file(
+                app,
+                baseline_path=path,
+                backup_dir=output,
+                comment=comment
+            )
+
+            if result.get('success', False):
+                backup_path = result.get('backup_path', 'unknown')
+                click.echo(click.style("✓ Baseline backup created successfully", fg='green'))
+                click.echo(f"  - Backup saved to: {backup_path}")
+                if comment:
+                    click.echo(f"  - Comment: {comment}")
+            else:
+                click.echo(click.style(f"✗ Backup failed: {result.get('error', 'Unknown error')}", fg='red'))
+                sys.exit(1)
+
+        except ImportError as e:
+            click.echo(f"Error: Required module not available - {e}", err=True)
+            sys.exit(1)
+        except Exception as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+
+    @baseline_cli.command('compare')
+    @click.argument('baseline1')
+    @click.argument('baseline2')
+    @click.option('--format', type=click.Choice(['text', 'json']), default='text',
+                 help='Output format')
+    @click.option('--output', help='Output file (stdout if not specified)')
+    def compare_baselines(baseline1: str, baseline2: str, format: str, output: Optional[str]) -> None:
+        """
+        Compare two baseline files to identify differences.
+
+        This command is useful for reviewing changes between baseline versions
+        or comparing baselines between environments.
+
+        Examples:
+            flask baseline compare baseline.json baseline.backup.json
+            flask baseline compare prod_baseline.json staging_baseline.json --format json --output diff.json
+        """
+        try:
+            from core.security.cs_file_integrity import compare_baseline_files
+            import json
+            import sys
+
+            result = compare_baseline_files(
+                baseline1_path=baseline1,
+                baseline2_path=baseline2
+            )
+
+            if not result.get('success', False):
+                click.echo(click.style(f"✗ Comparison failed: {result.get('error', 'Unknown error')}", fg='red'))
+                sys.exit(1)
+
+            differences = result.get('differences', {})
+            added = differences.get('added', [])
+            removed = differences.get('removed', [])
+            changed = differences.get('changed', [])
+
+            # Prepare output
+            if format == 'json':
+                output_content = json.dumps({
+                    'summary': {
+                        'added': len(added),
+                        'removed': len(removed),
+                        'changed': len(changed),
+                        'total_differences': len(added) + len(removed) + len(changed)
+                    },
+                    'differences': differences,
+                    'baseline1': baseline1,
+                    'baseline2': baseline2,
+                    'timestamp': datetime.now().isoformat()
+                }, indent=2)
+            else:
+                # Text format
+                output_content = f"Baseline Comparison\n"
+                output_content += f"==================\n"
+                output_content += f"Baseline 1: {baseline1}\n"
+                output_content += f"Baseline 2: {baseline2}\n"
+                output_content += f"Time: {datetime.now()}\n\n"
+                output_content += f"Summary:\n"
+                output_content += f"  - Added:   {len(added)} files\n"
+                output_content += f"  - Removed: {len(removed)} files\n"
+                output_content += f"  - Changed: {len(changed)} files\n"
+                output_content += f"  - Total differences: {len(added) + len(removed) + len(changed)} files\n\n"
+
+                if added:
+                    output_content += f"Added Files:\n"
+                    for file_path in sorted(added):
+                        output_content += f"  + {file_path}\n"
+                    output_content += "\n"
+
+                if removed:
+                    output_content += f"Removed Files:\n"
+                    for file_path in sorted(removed):
+                        output_content += f"  - {file_path}\n"
+                    output_content += "\n"
+
+                if changed:
+                    output_content += f"Changed Files:\n"
+                    for file_path in sorted(changed):
+                        output_content += f"  * {file_path}\n"
+                    output_content += "\n"
+
+            # Write output
+            if output:
+                with open(output, 'w') as f:
+                    f.write(output_content)
+                click.echo(f"Comparison written to {output}")
+            else:
+                click.echo(output_content)
+
+            # Return non-zero exit code if differences found
+            if added or removed or changed:
+                sys.exit(1)
+
+        except ImportError as e:
+            click.echo(f"Error: Required module not available - {e}", err=True)
+            sys.exit(1)
+        except Exception as e:
+            click.echo(f"Error: {e}", err=True)
             sys.exit(1)
 
     @app.cli.command()
