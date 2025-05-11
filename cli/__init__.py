@@ -257,6 +257,131 @@ def get_available_commands() -> Dict[str, bool]:
 
     return commands
 
+def register_cli_commands(app: Flask) -> None:
+    """
+    Register all CLI commands with the Flask application.
+
+    This function registers command groups from both app and deploy modules,
+    ensuring all available commands are properly attached to the Flask application.
+    It provides a central registration point for all CLI functionality.
+
+    Args:
+        app: Flask application instance to register commands with
+    """
+    try:
+        # Import CLI command groups from app module
+        from .app import db_cli, user_cli, system_cli, security_cli, maintenance_cli, init_cli
+
+        # Register application management command groups with Flask application
+        app.cli.add_command(db_cli)
+        app.cli.add_command(user_cli)
+        app.cli.add_command(system_cli)
+        app.cli.add_command(security_cli)
+        app.cli.add_command(maintenance_cli)
+        app.cli.add_command(init_cli)
+
+        # Log successful registration of app commands
+        logger.debug("Registered application management CLI commands")
+
+        # Try to register deployment command groups
+        try:
+            # Import CLI command groups from deploy module
+            from .deploy import deploy_cli, aws_cli, azure_cli, gcp_cli, k8s_cli, docker_cli
+
+            # Register deployment command groups with Flask application
+            app.cli.add_command(deploy_cli)
+            app.cli.add_command(aws_cli)
+            app.cli.add_command(azure_cli)
+            app.cli.add_command(gcp_cli)
+            app.cli.add_command(k8s_cli)
+            app.cli.add_command(docker_cli)
+
+            logger.debug("Registered deployment CLI commands")
+        except ImportError as e:
+            # Don't fail if deployment modules aren't available
+            logger.debug(f"Some deployment CLI commands not available: {str(e)}")
+
+        # Register custom app commands directly through Flask app
+        _register_custom_commands(app)
+
+    except ImportError as e:
+        # Log error but don't crash if core modules are missing
+        logger.error(f"Failed to register CLI commands: {str(e)}")
+
+    except Exception as e:
+        # Log unexpected errors
+        logger.error(f"Unexpected error registering CLI commands: {str(e)}")
+
+
+def _register_custom_commands(app: Flask) -> None:
+    """
+    Register additional custom commands directly with the Flask app.
+
+    These are commands that don't fit into the main command group structure
+    or need special handling.
+
+    Args:
+        app: Flask application instance
+    """
+    from .cli_constants import (
+        DEFAULT_BATCH_SIZE,
+        EXIT_SUCCESS,
+        EXIT_ERROR,
+        ENVIRONMENT_DEVELOPMENT
+    )
+    import click
+
+    @app.cli.command("version")
+    def version_command():
+        """Display CLI version information."""
+        click.echo(f"Cloud Infrastructure Platform CLI v{get_cli_version()}")
+        click.echo(f"Python: {sys.version.split()[0]}")
+        click.echo(f"Environment: {os.environ.get('FLASK_ENV', DEFAULT_ENVIRONMENT)}")
+        return EXIT_SUCCESS
+
+    @app.cli.command("verify-environment")
+    @click.option("--fix/--no-fix", default=False, help="Attempt to fix environment issues")
+    def verify_environment_command(fix: bool):
+        """Verify the CLI execution environment meets security requirements."""
+        security_result = verify_cli_environment(
+            verify_permissions=FILE_INTEGRITY_SETTINGS['VERIFY_PERMISSIONS'],
+            allowed_paths=FILE_SECURITY_SETTINGS['SAFE_PATHS']
+        )
+
+        if security_result:
+            click.echo("✅ CLI environment verified successfully")
+            return EXIT_SUCCESS
+        elif fix:
+            click.echo("🔧 Attempting to fix environment issues...")
+            # Logic to fix environment issues would go here
+            click.echo("Please check permissions and path security")
+            return EXIT_ERROR
+        else:
+            click.echo("❌ CLI environment verification failed")
+            click.echo("Run with --fix to attempt automatic resolution")
+            return EXIT_ERROR
+
+    @app.cli.command("list-commands")
+    @click.option("--format", type=click.Choice(['text', 'json']), default='text',
+                  help="Output format")
+    def list_commands_command(format: str):
+        """List all available CLI commands."""
+        commands = get_available_commands()
+
+        if format == 'json':
+            import json
+            click.echo(json.dumps({
+                'commands': {k: v for k, v in commands.items()},
+                'version': get_cli_version()
+            }, indent=2))
+        else:
+            click.echo("Available command groups:")
+            for command, available in commands.items():
+                status = "✅" if available else "❌"
+                click.echo(f"{status} {command}")
+
+        return EXIT_SUCCESS
+
 # Create FlaskGroup CLI
 cli = FlaskGroup(create_app=create_cli_app)
 
@@ -265,5 +390,6 @@ __all__ = [
     'create_cli_app',
     'get_cli_version',
     'get_available_commands',
+    'register_cli_commands',
     'cli'
 ]
