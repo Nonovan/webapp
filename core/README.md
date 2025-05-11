@@ -4,18 +4,38 @@ This directory contains core components and utilities that provide the foundatio
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- Configuration
-- Best Practices & Security
-- Common Features
-- Usage Examples
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [Configuration](#configuration)
+- [Best Practices & Security](#best-practices--security)
+- [Common Features](#common-features)
+- [Usage Examples](#usage-examples)
+  - [Application Factory](#application-factory)
+  - [Core Configuration](#core-configuration)
+  - [File Integrity Monitoring](#file-integrity-monitoring)
+  - [Updating Integrity Baseline](#updating-integrity-baseline)
+  - [Baseline Verification](#baseline-verification)
+  - [Checking for Modified Files](#checking-for-modified-files)
+  - [File Integrity Command-line Tools](#file-integrity-command-line-tools)
+  - [Health Checks](#health-checks)
+  - [Request ID Generation](#request-id-generation)
+  - [Logging](#logging)
+  - [Logging File Integrity Events](#logging-file-integrity-events)
+  - [Cryptographic Operations](#cryptographic-operations)
+  - [Path Safety Validation](#path-safety-validation)
+  - [String Utilities](#string-utilities)
+  - [System Resource Utilities](#system-resource-utilities)
+  - [Collection Utilities](#collection-utilities)
+  - [Validation Utilities](#validation-utilities)
+  - [Security Initialization](#security-initialization)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
 The core package serves as the backbone of the Cloud Infrastructure Platform, providing critical infrastructure components that are used by multiple modules across the system. It implements application-wide concerns including security controls, metrics collection, middleware functionality, configuration management, and system health monitoring.
+
+The design emphasizes modularity, security, and performance with clean separation of concerns. The core components are designed to be reusable, well-documented, and thoroughly tested to provide a solid foundation for building application features.
 
 ## Key Components
 
@@ -52,6 +72,7 @@ The core package serves as the backbone of the Cloud Infrastructure Platform, pr
   - Creates default users, roles, and permissions
   - Sets up sample cloud resources and configurations
   - Generates file integrity test scenarios and baseline data
+  - Implements file integrity baseline management functions
 
 - **`utils/`**: Specialized utility modules
   - Organized collection of focused utility modules
@@ -63,7 +84,7 @@ The core package serves as the backbone of the Cloud Infrastructure Platform, pr
   - Centralized security implementation spanning multiple security domains
   - Modular approach with specialized components for different security concerns
   - Includes file integrity monitoring, cryptographic operations, and authentication services
-  - Implements audit logging, security monitoring, and metrics collection
+  - Implements security event logging and audit trail functionality
 
 ## Directory Structure
 
@@ -289,6 +310,53 @@ for change in changes:
         handle_high_severity_change(change)
 ```
 
+### File Integrity Command-line Tools
+
+```bash
+# Update the file integrity baseline
+flask integrity update-baseline
+
+# Use patterns to include specific files
+flask integrity update-baseline --include "*.py" "config/*.yaml"
+
+# Force update including critical files
+flask integrity update-baseline --force
+
+# Create a backup before updating
+flask integrity update-baseline --backup
+
+# Verify files against the baseline
+flask integrity verify
+
+# Analyze files for potential integrity risks
+flask integrity analyze --path /app --pattern "*.py" "*.config"
+```
+
+Or programmatically:
+
+```python
+from core.seeder import update_integrity_baseline, verify_baseline_integrity
+
+# Update the integrity baseline with custom patterns
+result = update_integrity_baseline(
+    include_pattern=["*.py", "config/*.yaml"],
+    exclude_pattern=["__pycache__/*", "*.pyc"],
+    backup=True,
+    verbose=True
+)
+
+if result['success']:
+    print(f"Baseline updated with {result['stats']['added']} new files")
+
+# Verify the integrity of files against the baseline
+verification = verify_baseline_integrity(verbose=True)
+if verification['changes_detected']:
+    print(f"Warning: {len(verification['changes'])} integrity violations found")
+    for change in verification['changes']:
+        if change['severity'] == 'critical':
+            print(f"Critical: {change['path']} has been {change['status']}")
+```
+
 ### Health Checks
 
 ```python
@@ -470,3 +538,4 @@ initialize_security_components(
 - System Resource Monitoring Guide
 - Permission Security Model
 - Baseline Management Guide
+- File Integrity CLI Tools Guide

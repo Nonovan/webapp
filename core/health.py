@@ -18,9 +18,12 @@ import os
 import time
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Tuple, List, Optional
 import psutil
+import shutil
+import glob
+import re
 
 from flask import Blueprint, jsonify, current_app, Response, request
 from sqlalchemy.exc import SQLAlchemyError
@@ -78,6 +81,21 @@ def healthcheck() -> Dict[str, Any]:
     except (ImportError, Exception) as e:
         logger.error(f"Cache health check failed: {str(e)}")
         health_info["components"]["cache"] = "unknown"
+
+    # Check filesystem metrics
+    try:
+        health_info["components"]["filesystem"] = check_filesystem_metrics_basic()
+        if health_info["components"]["filesystem"]["status"] != "healthy":
+            if health_info["components"]["filesystem"]["status"] == "critical":
+                health_info["status"] = "critical"
+            elif health_info["status"] == "healthy":
+                health_info["status"] = "degraded"
+    except Exception as e:
+        logger.error(f"Filesystem metrics check failed: {str(e)}")
+        health_info["components"]["filesystem"] = {
+            "status": "unknown",
+            "error": str(e)
+        }
 
     # Add system resources
     try:
@@ -245,6 +263,96 @@ def check_redis_health() -> Dict[str, Any]:
 
     return result
 
+# Filesystem-specific metrics check (basic version)
+def check_filesystem_metrics_basic() -> Dict[str, Any]:
+    """
+    Perform a basic check of filesystem metrics.
+
+    This is a lightweight version for quick health checks.
+
+    Returns:
+        Dict[str, Any]: Basic filesystem status information
+    """
+    result = {
+        "status": "healthy",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+    try:
+        partitions = []
+        for partition in psutil.disk_partitions(all=False):
+            if not partition.mountpoint or not os.path.isdir(partition.mountpoint):
+                continue
+
+            try:
+                usage = psutil.disk_usage(partition.mountpoint)
+                partition_status = "healthy"
+                if usage.percent >= 95:
+                    partition_status = "critical"
+                    result["status"] = "critical"
+                elif usage.percent >= 90:
+                    partition_status = "warning"
+                    if result["status"] == "healthy":
+                        result["status"] = "warning"
+                elif usage.percent >= 80:
+                    partition_status = "attention"
+
+                partitions.append({
+                    "mountpoint": partition.mountpoint,
+                    "device": partition.device,
+                    "fstype": partition.fstype,
+                    "total_gb": round(usage.total / (1024**3), 2),
+                    "free_gb": round(usage.free / (1024**3), 2),
+                    "usage_percent": usage.percent,
+                    "status": partition_status
+                })
+            except PermissionError:
+                continue
+
+        result["partitions"] = partitions
+        result["partitions_count"] = len(partitions)
+
+        # Add inode usage information for Unix-like systems
+        if hasattr(os, "statvfs"):
+            inodes = []
+            critical_inodes = False
+            for partition in partitions:
+                try:
+                    mountpoint = partition["mountpoint"]
+                    stats = os.statvfs(mountpoint)
+                    if stats.f_files > 0:  # Ensure division is safe
+                        free_inodes_percent = (stats.f_ffree * 100) / stats.f_files
+                        used_inodes_percent = 100 - free_inodes_percent
+
+                        inode_status = "healthy"
+                        if used_inodes_percent >= 95:
+                            inode_status = "critical"
+                            critical_inodes = True
+                        elif used_inodes_percent >= 90:
+                            inode_status = "warning"
+
+                        inodes.append({
+                            "mountpoint": mountpoint,
+                            "total_inodes": stats.f_files,
+                            "free_inodes": stats.f_ffree,
+                            "used_percent": round(used_inodes_percent, 2),
+                            "status": inode_status
+                        })
+                except (PermissionError, OSError):
+                    continue
+
+            if inodes:
+                result["inodes"] = inodes
+                if critical_inodes and result["status"] != "critical":
+                    result["status"] = "critical"
+
+    except Exception as e:
+        logger.error(f"Error in filesystem metrics check: {str(e)}")
+        result["status"] = "unknown"
+        result["error"] = str(e)
+
+    return result
+
 def register_health_endpoints(app):
     """Register health check endpoints with the Flask application."""
     health_bp = Blueprint('health', __name__, url_prefix='/health')
@@ -329,6 +437,15 @@ def register_health_endpoints(app):
             status["status"] = "critical"
             http_status = 500
         elif resources["status"] != "healthy" and status["status"] != "critical":
+            status["status"] = "degraded"
+
+        # Check detailed filesystem metrics
+        fs_metrics = check_detailed_filesystem_metrics()
+        status["checks"]["filesystem_metrics"] = fs_metrics
+        if fs_metrics["status"] == "critical":
+            status["status"] = "critical"
+            http_status = 500
+        elif fs_metrics["status"] != "healthy" and status["status"] != "critical":
             status["status"] = "degraded"
 
         # Check maintenance mode
@@ -513,6 +630,29 @@ def register_health_endpoints(app):
             http_status = 500
 
         return jsonify(status), http_status
+
+    @health_bp.route('/filesystem', methods=['GET'])
+    def filesystem_check() -> Tuple[Response, int]:
+        """
+        Comprehensive filesystem metrics check.
+
+        Provides detailed information about filesystem usage, performance metrics,
+        storage trends, and potential issues.
+
+        Returns:
+            Tuple[Response, int]: JSON response with filesystem metrics and HTTP status code
+        """
+        # Check if user has appropriate permissions for detailed info
+        has_admin_access = check_admin_access()
+
+        fs_metrics = check_detailed_filesystem_metrics(full_details=has_admin_access)
+
+        # Determine HTTP status code
+        http_status = 200
+        if fs_metrics.get("status") == "critical":
+            http_status = 500
+
+        return jsonify(fs_metrics), http_status
 
     def check_file_integrity(full_details: bool = False) -> Dict[str, Any]:
         """
@@ -949,6 +1089,264 @@ def register_health_endpoints(app):
                 "message": f"Error checking system resources: {str(e)}"
             }
 
+    def check_detailed_filesystem_metrics(full_details: bool = False) -> Dict[str, Any]:
+        """
+        Detailed filesystem metrics check.
+
+        Collects comprehensive metrics about filesystem usage,
+        performance, and potential issues.
+
+        Args:
+            full_details: Whether to include detailed per-directory information
+
+        Returns:
+            Dict[str, Any]: Detailed filesystem metrics
+        """
+        result = {
+            "status": "healthy",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+
+        try:
+            # Try to use FileSystemMetrics class if available
+            try:
+                from core.metrics import FileSystemMetrics
+
+                # Get filesystem metrics
+                fs_metrics = FileSystemMetrics.get_filesystem_metrics()
+
+                # Basic metrics
+                result["partitions"] = fs_metrics.get("partitions", [])
+                result["overall_status"] = fs_metrics.get("overall_status", "healthy")
+                result["status"] = result["overall_status"]
+
+                # IO counters if available
+                if "io_counters" in fs_metrics:
+                    result["io_metrics"] = {
+                        "read_count": fs_metrics["io_counters"].get("read_count", 0),
+                        "write_count": fs_metrics["io_counters"].get("write_count", 0),
+                        "read_bytes": fs_metrics["io_counters"].get("read_bytes", 0),
+                        "write_bytes": fs_metrics["io_counters"].get("write_bytes", 0),
+                        "read_time": fs_metrics["io_counters"].get("read_time", 0),
+                        "write_time": fs_metrics["io_counters"].get("write_time", 0)
+                    }
+
+                # Include inode usage if available
+                if "inodes" in fs_metrics:
+                    result["inodes"] = fs_metrics["inodes"]
+
+                # Include per-disk IO metrics if requested and available
+                if full_details and "per_disk_io" in fs_metrics:
+                    result["per_disk_io"] = fs_metrics["per_disk_io"]
+
+                # Try to get storage trend metrics
+                try:
+                    trend_metrics = FileSystemMetrics.get_storage_trend_metrics(days=7)
+                    if trend_metrics.get("trend_available"):
+                        result["storage_trends"] = {
+                            "daily_growth_rate": trend_metrics.get("daily_growth_rate"),
+                            "current_usage": trend_metrics.get("current_value"),
+                            "days_until_critical": trend_metrics.get("days_until_critical"),
+                            "trend_status": trend_metrics.get("trend_status", "healthy")
+                        }
+
+                        # Update status if trend is critical
+                        if trend_metrics.get("trend_status") == "critical" and result["status"] != "critical":
+                            result["status"] = "warning"
+                except Exception as trend_err:
+                    logger.debug(f"Could not get storage trends: {trend_err}")
+
+                # Add recommendations based on status
+                if result["status"] == "critical":
+                    result["recommendations"] = [
+                        "Immediate action required: Clean up disk space on critically full partitions",
+                        "Consider expanding storage for affected partitions",
+                        "Check for large log files or temporary files that can be pruned"
+                    ]
+                elif result["status"] == "warning":
+                    result["recommendations"] = [
+                        "Monitor disk usage closely for continued growth",
+                        "Review storage allocation and consider cleanup procedures",
+                        "Verify backup procedures are in place for critical data"
+                    ]
+
+                return result
+
+            except ImportError:
+                # Fall back to direct implementation
+                logger.debug("FileSystemMetrics not available, using fallback")
+                pass
+
+            # Direct implementation without relying on FileSystemMetrics
+            partitions = []
+            overall_status = "healthy"
+            critical_partitions = []
+            warning_partitions = []
+
+            # Check each disk partition
+            for partition in psutil.disk_partitions(all=False):
+                if not partition.mountpoint:
+                    continue
+
+                try:
+                    usage = psutil.disk_usage(partition.mountpoint)
+                    status = "healthy"
+
+                    if usage.percent >= 95:
+                        status = "critical"
+                        overall_status = "critical"
+                        critical_partitions.append(partition.mountpoint)
+                    elif usage.percent >= 90:
+                        status = "warning"
+                        if overall_status == "healthy":
+                            overall_status = "warning"
+                        warning_partitions.append(partition.mountpoint)
+                    elif usage.percent >= 80:
+                        status = "degraded"
+                        if overall_status == "healthy":
+                            overall_status = "degraded"
+
+                    partition_info = {
+                        "device": partition.device,
+                        "mountpoint": partition.mountpoint,
+                        "fstype": partition.fstype,
+                        "total_gb": round(usage.total / (1024**3), 2),
+                        "used_gb": round(usage.used / (1024**3), 2),
+                        "free_gb": round(usage.free / (1024**3), 2),
+                        "usage_percent": usage.percent,
+                        "status": status
+                    }
+
+                    # Get additional per-directory metrics for important paths
+                    if full_details and partition.mountpoint == "/":
+                        # Check specific application paths
+                        important_paths = [
+                            current_app.instance_path,
+                            current_app.config.get('LOG_DIR'),
+                            current_app.config.get('UPLOAD_FOLDER'),
+                            current_app.config.get('TEMP_DIR', '/tmp')
+                        ]
+
+                        path_metrics = []
+                        for path in important_paths:
+                            if path and os.path.exists(path) and os.path.isdir(path):
+                                try:
+                                    path_size = get_directory_size(path)
+                                    path_metrics.append({
+                                        "path": path,
+                                        "size_mb": round(path_size / (1024 * 1024), 2),
+                                        "file_count": count_files(path)
+                                    })
+                                except Exception:
+                                    pass
+
+                        if path_metrics:
+                            partition_info["directory_metrics"] = path_metrics
+
+                    partitions.append(partition_info)
+                except (PermissionError, OSError):
+                    # Skip inaccessible partitions
+                    continue
+
+            # Add inode usage if on Unix-like systems
+            inodes = []
+            if hasattr(os, 'statvfs'):
+                for partition_info in partitions:
+                    try:
+                        mountpoint = partition_info["mountpoint"]
+                        stats = os.statvfs(mountpoint)
+
+                        # Calculate inode usage
+                        total_inodes = stats.f_files
+                        free_inodes = stats.f_ffree
+                        if total_inodes > 0:
+                            used_inodes = total_inodes - free_inodes
+                            usage_percent = (used_inodes / total_inodes) * 100
+
+                            inode_status = "healthy"
+                            if usage_percent > 95:
+                                inode_status = "critical"
+                                if overall_status != "critical":
+                                    overall_status = "critical"
+                            elif usage_percent > 90:
+                                inode_status = "warning"
+                                if overall_status == "healthy":
+                                    overall_status = "warning"
+
+                            inodes.append({
+                                "mountpoint": mountpoint,
+                                "total_inodes": total_inodes,
+                                "free_inodes": free_inodes,
+                                "used_inodes": used_inodes,
+                                "usage_percent": round(usage_percent, 2),
+                                "status": inode_status
+                            })
+                    except Exception:
+                        continue
+
+            # Calculate IO metrics if available
+            io_metrics = {}
+            try:
+                io_counters = psutil.disk_io_counters()
+                if io_counters:
+                    io_metrics = {
+                        "read_count": io_counters.read_count,
+                        "write_count": io_counters.write_count,
+                        "read_bytes": io_counters.read_bytes,
+                        "write_bytes": io_counters.write_bytes
+                    }
+
+                    # Add read/write times if available
+                    if hasattr(io_counters, 'read_time'):
+                        io_metrics["read_time"] = io_counters.read_time
+                    if hasattr(io_counters, 'write_time'):
+                        io_metrics["write_time"] = io_counters.write_time
+            except Exception:
+                pass
+
+            result["partitions"] = partitions
+            result["partitions_count"] = len(partitions)
+            result["status"] = overall_status
+
+            if inodes:
+                result["inodes"] = inodes
+
+            if io_metrics:
+                result["io_metrics"] = io_metrics
+
+            # Check for large files growth
+            if full_details:
+                try:
+                    large_files = find_large_files(current_app.instance_path)
+                    if large_files:
+                        result["large_files"] = large_files[:10]  # Top 10 largest files
+                except Exception:
+                    pass
+
+            # Add recommendations based on status
+            if critical_partitions:
+                result["recommendations"] = [
+                    f"Immediate action required: Clean up disk space on critical partitions: {', '.join(critical_partitions)}",
+                    "Check for large log files or temporary files that can be removed",
+                    "Consider adding more storage capacity"
+                ]
+            elif warning_partitions:
+                result["recommendations"] = [
+                    f"Monitor partitions approaching capacity: {', '.join(warning_partitions)}",
+                    "Review data retention policies",
+                    "Schedule maintenance for cleanup procedures"
+                ]
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Error checking detailed filesystem metrics: {str(e)}")
+            return {
+                "status": "warning",
+                "message": f"Error checking filesystem metrics: {str(e)}",
+                "error": str(e)
+            }
+
     def check_admin_access() -> bool:
         """
         Check if the current user has admin access for detailed health data.
@@ -979,6 +1377,82 @@ def register_health_endpoints(app):
 
         return False
 
+    def get_directory_size(path: str) -> int:
+        """
+        Calculate the total size of a directory in bytes.
+
+        Args:
+            path: Directory path to check
+
+        Returns:
+            int: Total size in bytes
+        """
+        total_size = 0
+        try:
+            for dirpath, _, filenames in os.walk(path):
+                for filename in filenames:
+                    file_path = os.path.join(dirpath, filename)
+                    if os.path.isfile(file_path):
+                        total_size += os.path.getsize(file_path)
+        except (PermissionError, OSError):
+            pass
+        return total_size
+
+    def count_files(path: str) -> int:
+        """
+        Count the number of files in a directory.
+
+        Args:
+            path: Directory path to check
+
+        Returns:
+            int: Number of files
+        """
+        file_count = 0
+        try:
+            for dirpath, _, filenames in os.walk(path):
+                file_count += len(filenames)
+        except (PermissionError, OSError):
+            pass
+        return file_count
+
+    def find_large_files(path: str, min_size_mb: int = 50) -> List[Dict[str, Any]]:
+        """
+        Find large files in a directory.
+
+        Args:
+            path: Directory path to check
+            min_size_mb: Minimum file size to include in MB
+
+        Returns:
+            List[Dict[str, Any]]: List of large files with metadata
+        """
+        large_files = []
+        min_bytes = min_size_mb * 1024 * 1024
+
+        try:
+            for dirpath, _, filenames in os.walk(path):
+                for filename in filenames:
+                    try:
+                        file_path = os.path.join(dirpath, filename)
+                        if os.path.isfile(file_path):
+                            size = os.path.getsize(file_path)
+                            if size >= min_bytes:
+                                large_files.append({
+                                    "path": file_path,
+                                    "size_mb": round(size / (1024 * 1024), 2),
+                                    "last_modified": datetime.fromtimestamp(
+                                        os.path.getmtime(file_path), tz=timezone.utc
+                                    ).isoformat()
+                                })
+                    except (PermissionError, OSError):
+                        continue
+        except (PermissionError, OSError):
+            pass
+
+        # Sort by size (largest first)
+        return sorted(large_files, key=lambda x: x["size_mb"], reverse=True)
+
     app.register_blueprint(health_bp)
 
     # Log successful setup
@@ -994,5 +1468,6 @@ __all__ = [
     'register_health_endpoints',
     'check_database_health',
     'check_cache_health',
-    'check_redis_health'
+    'check_redis_health',
+    'check_filesystem_metrics_basic'
 ]

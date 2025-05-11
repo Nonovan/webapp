@@ -31,6 +31,9 @@ from pathlib import Path
 from flask import current_app
 import click
 from sqlalchemy.exc import SQLAlchemyError
+import glob
+import fnmatch
+import importlib
 
 from extensions import db
 from models import AuditLog, Permission, Role, SecurityIncident, SystemConfig, User
@@ -1360,3 +1363,441 @@ def calculate_file_hash(file_path: str, algorithm: str = 'sha256') -> str:
             hash_obj.update(chunk)
 
     return hash_obj.hexdigest()
+
+
+def update_integrity_baseline(
+    baseline_path: Optional[str] = None,
+    force: bool = False,
+    include_pattern: Optional[List[str]] = None,
+    exclude_pattern: Optional[List[str]] = None,
+    backup: bool = True,
+    verbose: bool = False
+) -> Dict[str, Any]:
+    """
+    Update the file integrity baseline by scanning for current files and hashes.
+
+    This command creates or updates a file integrity baseline that can be used
+    for security monitoring. It can selectively include/exclude files based on
+    patterns and automatically backups existing baselines before modification.
+
+    Args:
+        baseline_path: Path to the baseline file to update. If not provided,
+                      will use the application's configured baseline path
+        force: If True, will force update even for critical files
+        include_pattern: List of glob patterns to include (e.g. ["*.py", "config/*.ini"])
+        exclude_pattern: List of glob patterns to exclude (e.g. ["*.pyc", "tmp/*"])
+        backup: If True, will backup the existing baseline file before updating
+        verbose: If True, will output detailed progress information
+
+    Returns:
+        dict: Dictionary with update statistics and paths
+
+    Example:
+        # Update baseline with specific includes/excludes
+        result = update_integrity_baseline(
+            include_pattern=["*.py", "config/*.yaml"],
+            exclude_pattern=["__pycache__/*", "*.pyc"],
+            verbose=True
+        )
+    """
+    if verbose:
+        print("Updating file integrity baseline...")
+
+    # Track statistics
+    stats = {
+        'added': 0,
+        'updated': 0,
+        'unchanged': 0,
+        'skipped': 0,
+        'error': 0
+    }
+
+    # Check if app is available through Flask current_app
+    if not hasattr(current_app, '_get_current_object'):
+        if verbose:
+            print("Error: No application context available")
+        return {'success': False, 'error': 'No application context available'}
+
+    try:
+        # Use specified baseline or get from app config
+        if not baseline_path:
+            baseline_path = current_app.config.get('FILE_BASELINE_PATH')
+            if not baseline_path:
+                # Fall back to default in instance folder
+                baseline_path = os.path.join(current_app.instance_path, 'file_baseline.json')
+                if verbose:
+                    print(f"Using default baseline path: {baseline_path}")
+
+        # Make sure the directory exists
+        os.makedirs(os.path.dirname(baseline_path), exist_ok=True)
+
+        # Set default patterns if none provided
+        if not include_pattern:
+            include_pattern = current_app.config.get('CRITICAL_FILES_PATTERN', ["*.py", "config/*"])
+            if verbose:
+                print(f"Using default include patterns: {include_pattern}")
+
+        if not exclude_pattern:
+            exclude_pattern = current_app.config.get('IGNORE_PATTERN', ["__pycache__/*", "*.pyc", "*.pyo", "tmp/*"])
+            if verbose:
+                print(f"Using default exclude patterns: {exclude_pattern}")
+
+        # Load existing baseline if it exists
+        existing_baseline = {}
+        if os.path.exists(baseline_path):
+            try:
+                with open(baseline_path, 'r') as f:
+                    existing_baseline = json.load(f)
+
+                if verbose:
+                    print(f"Loaded existing baseline with {len(existing_baseline)} entries")
+
+                # Create backup if requested
+                if backup:
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    backup_path = f"{baseline_path}.{timestamp}.bak"
+                    with open(backup_path, 'w') as f:
+                        json.dump(existing_baseline, f, indent=2)
+                    if verbose:
+                        print(f"Created baseline backup at {backup_path}")
+            except (IOError, json.JSONDecodeError) as e:
+                if verbose:
+                    print(f"Warning: Could not load existing baseline: {str(e)}")
+
+        # Initialize new baseline with existing entries
+        new_baseline = existing_baseline.copy() if existing_baseline else {}
+
+        # Generate file list based on patterns
+        basedir = os.path.dirname(os.path.abspath(current_app.root_path))
+
+        # Map to store all matched files
+        matched_files = set()
+
+        # Find all files matching include patterns
+        for pattern in include_pattern:
+            # Allow both absolute and relative paths
+            if os.path.isabs(pattern):
+                glob_pattern = pattern
+            else:
+                glob_pattern = os.path.join(basedir, pattern)
+
+            # Find matching files
+            for filepath in glob.glob(glob_pattern, recursive=True):
+                if not os.path.isfile(filepath):
+                    continue
+
+                # Convert to relative path for consistency
+                rel_path = os.path.relpath(filepath, basedir)
+
+                # Skip if matches exclude pattern
+                skip = False
+                for exclude in exclude_pattern:
+                    if fnmatch.fnmatch(rel_path, exclude):
+                        skip = True
+                        stats['skipped'] += 1
+                        if verbose:
+                            print(f"Skipped excluded file: {rel_path}")
+                        break
+
+                if not skip:
+                    matched_files.add(rel_path)
+
+        # Process each matched file
+        for rel_path in sorted(matched_files):
+            try:
+                file_path = os.path.join(basedir, rel_path)
+
+                # Skip files that exceed size limit
+                max_size = current_app.config.get('MAX_BASELINE_FILE_SIZE', 10 * 1024 * 1024)
+                if os.path.getsize(file_path) > max_size:
+                    if verbose:
+                        print(f"Skipping large file: {rel_path}")
+                    stats['skipped'] += 1
+                    continue
+
+                # Calculate file hash
+                algorithm = current_app.config.get('FILE_HASH_ALGORITHM', 'sha256')
+                current_hash = calculate_file_hash(file_path, algorithm)
+
+                # Check if file is new or modified
+                if rel_path in new_baseline:
+                    if new_baseline[rel_path] != current_hash:
+                        # Check if this is a critical file and we're not forcing
+                        is_critical = any(fnmatch.fnmatch(rel_path, pattern) for pattern in
+                                         current_app.config.get('SECURITY_CRITICAL_FILES', []))
+
+                        if is_critical and not force:
+                            if verbose:
+                                print(f"Warning: Critical file changed but not updating (use --force): {rel_path}")
+                            stats['skipped'] += 1
+                            continue
+
+                        # Update hash
+                        new_baseline[rel_path] = current_hash
+                        stats['updated'] += 1
+                        if verbose:
+                            print(f"Updated: {rel_path}")
+                    else:
+                        # Hash unchanged
+                        stats['unchanged'] += 1
+                        if verbose and verbose > 1:  # More verbose output
+                            print(f"Unchanged: {rel_path}")
+                else:
+                    # New file
+                    new_baseline[rel_path] = current_hash
+                    stats['added'] += 1
+                    if verbose:
+                        print(f"Added: {rel_path}")
+            except Exception as e:
+                stats['error'] += 1
+                if verbose:
+                    print(f"Error processing {rel_path}: {str(e)}")
+
+        # Save updated baseline
+        with open(baseline_path, 'w') as f:
+            json.dump(new_baseline, f, indent=2, sort_keys=True)
+
+        # Update app config with new baseline
+        current_app.config['CRITICAL_FILE_HASHES'] = new_baseline
+
+        # Log the update as a security event
+        try:
+            from core.security import log_security_event
+            log_security_event(
+                event_type="baseline_updated",
+                description=f"File integrity baseline updated via command",
+                severity="info",
+                details={
+                    'added': stats['added'],
+                    'updated': stats['updated'],
+                    'unchanged': stats['unchanged'],
+                    'skipped': stats['skipped'],
+                    'error': stats['error'],
+                    'total_files': len(new_baseline)
+                }
+            )
+        except ImportError:
+            # If security event logging is not available, continue without it
+            pass
+
+        if verbose:
+            print(f"\nBaseline update complete:")
+            print(f"  - Files added:     {stats['added']}")
+            print(f"  - Files updated:   {stats['updated']}")
+            print(f"  - Files unchanged: {stats['unchanged']}")
+            print(f"  - Files skipped:   {stats['skipped']}")
+            print(f"  - Errors:          {stats['error']}")
+            print(f"  - Total files:     {len(new_baseline)}")
+            print(f"  - Baseline path:   {baseline_path}")
+
+        return {
+            'success': True,
+            'stats': stats,
+            'baseline_path': baseline_path,
+            'total_files': len(new_baseline)
+        }
+
+    except Exception as e:
+        error_msg = f"Error updating file integrity baseline: {str(e)}"
+        logging.error(error_msg)
+        if verbose:
+            print(f"❌ {error_msg}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+
+def verify_baseline_integrity(
+    baseline_path: Optional[str] = None,
+    report_only: bool = True,
+    verbose: bool = False
+) -> Dict[str, Any]:
+    """
+    Verify the integrity of files against a baseline.
+
+    This function checks all files in the baseline to detect unauthorized
+    modifications, permission changes, or missing files.
+
+    Args:
+        baseline_path: Path to the baseline file to check against. If not provided,
+                      will use the application's configured baseline path
+        report_only: If True, will only report issues without updating the baseline
+        verbose: If True, will output detailed progress information
+
+    Returns:
+        dict: Dictionary with verification results and detected changes
+
+    Example:
+        # Check file integrity and display results
+        result = verify_baseline_integrity(verbose=True)
+        if result['changes_detected']:
+            print(f"Warning: {len(result['changes'])} integrity violations found")
+    """
+    if verbose:
+        print("Verifying file integrity against baseline...")
+
+    # Check if app is available through Flask current_app
+    if not hasattr(current_app, '_get_current_object'):
+        if verbose:
+            print("Error: No application context available")
+        return {'success': False, 'error': 'No application context available'}
+
+    try:
+        # Use specified baseline or get from app config
+        if not baseline_path:
+            baseline_path = current_app.config.get('FILE_BASELINE_PATH')
+            if not baseline_path:
+                # Fall back to default in instance folder
+                baseline_path = os.path.join(current_app.instance_path, 'file_baseline.json')
+
+        # Ensure baseline file exists
+        if not os.path.exists(baseline_path):
+            error_msg = f"Baseline file not found: {baseline_path}"
+            if verbose:
+                print(f"Error: {error_msg}")
+            return {'success': False, 'error': error_msg}
+
+        # Load baseline
+        with open(baseline_path, 'r') as f:
+            baseline = json.load(f)
+
+        if verbose:
+            print(f"Loaded baseline with {len(baseline)} entries")
+
+        # Store detected changes
+        changes = []
+
+        # Check each file in the baseline
+        basedir = os.path.dirname(os.path.abspath(current_app.root_path))
+        algorithm = current_app.config.get('FILE_HASH_ALGORITHM', 'sha256')
+
+        for rel_path, expected_hash in baseline.items():
+            file_path = os.path.join(basedir, rel_path)
+
+            # Check if file exists
+            if not os.path.exists(file_path):
+                changes.append({
+                    'path': rel_path,
+                    'status': 'missing',
+                    'severity': 'high',
+                    'expected_hash': expected_hash
+                })
+                if verbose:
+                    print(f"Missing: {rel_path}")
+                continue
+
+            # Check file hash
+            try:
+                current_hash = calculate_file_hash(file_path, algorithm)
+                if current_hash != expected_hash:
+                    # Determine severity based on file type and location
+                    is_critical = any(fnmatch.fnmatch(rel_path, pattern) for pattern in
+                                     current_app.config.get('SECURITY_CRITICAL_FILES', []))
+                    severity = 'critical' if is_critical else 'high'
+
+                    changes.append({
+                        'path': rel_path,
+                        'status': 'modified',
+                        'severity': severity,
+                        'expected_hash': expected_hash,
+                        'current_hash': current_hash
+                    })
+                    if verbose:
+                        print(f"Modified ({severity}): {rel_path}")
+            except Exception as e:
+                changes.append({
+                    'path': rel_path,
+                    'status': 'error',
+                    'severity': 'medium',
+                    'error': str(e)
+                })
+                if verbose:
+                    print(f"Error checking {rel_path}: {str(e)}")
+
+        # Check permissions if configured
+        if current_app.config.get('CHECK_FILE_PERMISSIONS', True):
+            for rel_path in baseline.keys():
+                file_path = os.path.join(basedir, rel_path)
+                if os.path.exists(file_path):
+                    try:
+                        # Check executability of non-executable files
+                        if not rel_path.endswith(('.py', '.sh', '.bash')) and os.access(file_path, os.X_OK):
+                            changes.append({
+                                'path': rel_path,
+                                'status': 'permission_issue',
+                                'severity': 'medium',
+                                'details': 'Non-executable file has executable permissions'
+                            })
+                            if verbose:
+                                print(f"Permission issue: {rel_path} (executable)")
+
+                        # Check world-writability
+                        mode = os.stat(file_path).st_mode
+                        if mode & 0o002:  # Check if world-writable
+                            changes.append({
+                                'path': rel_path,
+                                'status': 'permission_issue',
+                                'severity': 'high',
+                                'details': 'File is world-writable'
+                            })
+                            if verbose:
+                                print(f"Permission issue: {rel_path} (world-writable)")
+                    except Exception as e:
+                        # Skip permission check errors
+                        pass
+
+        # Log verification result
+        try:
+            from core.security import log_security_event
+            severity = 'critical' if any(c['severity'] == 'critical' for c in changes) else \
+                      'high' if any(c['severity'] == 'high' for c in changes) else \
+                      'medium' if any(c['severity'] == 'medium' for c in changes) else \
+                      'info'
+
+            log_security_event(
+                event_type="integrity_verification",
+                description=f"File integrity verification completed with {len(changes)} issues",
+                severity=severity if changes else 'info',
+                details={
+                    'changes_detected': len(changes),
+                    'baseline_path': baseline_path,
+                    'verification_time': datetime.now().isoformat()
+                }
+            )
+        except ImportError:
+            # If security event logging is not available, continue without it
+            pass
+
+        if verbose:
+            print(f"\nVerification complete:")
+            print(f"  - Files checked:   {len(baseline)}")
+            print(f"  - Issues detected: {len(changes)}")
+            if not changes:
+                print("  - All files passed integrity check ✓")
+
+        return {
+            'success': True,
+            'changes_detected': len(changes) > 0,
+            'changes': changes,
+            'files_checked': len(baseline),
+            'baseline_path': baseline_path
+        }
+
+    except Exception as e:
+        error_msg = f"Error verifying file integrity: {str(e)}"
+        logging.error(error_msg)
+        if verbose:
+            print(f"❌ {error_msg}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+
+def import_module_safely(module_name):
+    """Helper function to safely import a module without raising exceptions."""
+    try:
+        return importlib.import_module(module_name)
+    except (ImportError, ModuleNotFoundError):
+        return None

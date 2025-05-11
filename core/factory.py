@@ -17,6 +17,7 @@ from flask import Flask, request, jsonify, render_template, current_app, g
 from jinja2 import TemplateNotFound
 from flask_wtf.csrf import CSRFError
 from werkzeug.exceptions import HTTPException
+import click
 
 from blueprints import register_all_blueprints
 from extensions import jwt, init_extensions, metrics
@@ -753,3 +754,256 @@ def log_startup_info(app: Flask, startup_duration: float = 0.0) -> None:
             'auto_update_baseline': app.config.get('AUTO_UPDATE_BASELINE', False),
             'check_signatures': app.config.get('CHECK_FILE_SIGNATURES', True)
         })
+
+
+def register_cli_commands(app: Flask) -> None:
+    """
+    Register CLI commands with the application.
+
+    This function adds custom Flask CLI commands for various administrative
+    tasks, including file integrity baseline management.
+
+    Args:
+        app (Flask): The Flask application instance
+    """
+    @app.cli.group()
+    def integrity():
+        """File integrity management commands."""
+        pass
+
+    @integrity.command('update-baseline')
+    @click.option('--path', help='Path to the baseline file to update')
+    @click.option('--force/--no-force', default=False,
+                  help='Update baseline even for critical files')
+    @click.option('--include', '-i', multiple=True,
+                  help='Patterns to include (e.g., "*.py", "config/*.yaml")')
+    @click.option('--exclude', '-e', multiple=True,
+                  help='Patterns to exclude (e.g., "*.pyc", "tmp/*")')
+    @click.option('--backup/--no-backup', default=True,
+                  help='Create backup of existing baseline')
+    @click.option('--verbose', '-v', count=True,
+                  help='Verbose output (use multiple times for more detail)')
+    def update_baseline(path, force, include, exclude, backup, verbose):
+        """Update file integrity baseline with current file states."""
+        from core.seeder import update_integrity_baseline
+
+        click.echo(f"Updating file integrity baseline{' (FORCE mode)' if force else ''}...")
+
+        include_patterns = list(include) if include else None
+        exclude_patterns = list(exclude) if exclude else None
+
+        result = update_integrity_baseline(
+            baseline_path=path,
+            force=force,
+            include_pattern=include_patterns,
+            exclude_pattern=exclude_patterns,
+            backup=backup,
+            verbose=verbose > 0
+        )
+
+        if result.get('success', False):
+            stats = result.get('stats', {})
+            click.echo(click.style("✓ Baseline updated successfully", fg='green'))
+            click.echo(f"  - Files added:     {stats.get('added', 0)}")
+            click.echo(f"  - Files updated:   {stats.get('updated', 0)}")
+            click.echo(f"  - Files unchanged: {stats.get('unchanged', 0)}")
+            click.echo(f"  - Files skipped:   {stats.get('skipped', 0)}")
+            click.echo(f"  - Errors:          {stats.get('error', 0)}")
+            click.echo(f"  - Total files:     {result.get('total_files', 0)}")
+            click.echo(f"  - Baseline path:   {result.get('baseline_path')}")
+        else:
+            click.echo(click.style(f"✗ Baseline update failed: {result.get('error', 'Unknown error')}", fg='red'))
+            sys.exit(1)
+
+    @integrity.command('verify')
+    @click.option('--path', help='Path to the baseline file to verify against')
+    @click.option('--report-only/--update', default=True,
+                  help='Only report issues, do not update baseline')
+    @click.option('--verbose', '-v', count=True,
+                  help='Verbose output (use multiple times for more detail)')
+    def verify_baseline(path, report_only, verbose):
+        """Verify file integrity against baseline."""
+        from core.seeder import verify_baseline_integrity
+
+        click.echo("Verifying file integrity against baseline...")
+
+        result = verify_baseline_integrity(
+            baseline_path=path,
+            report_only=report_only,
+            verbose=verbose > 0
+        )
+
+        if result.get('success', False):
+            changes = result.get('changes', [])
+            if not changes:
+                click.echo(click.style("✓ All files passed integrity check", fg='green'))
+                click.echo(f"  - Files checked: {result.get('files_checked', 0)}")
+            else:
+                click.echo(click.style(f"✗ {len(changes)} integrity violations found!", fg='yellow'))
+
+                # Group changes by severity
+                by_severity = {}
+                for change in changes:
+                    severity = change.get('severity', 'unknown')
+                    by_severity.setdefault(severity, []).append(change)
+
+                # Display counts by severity
+                for severity in ['critical', 'high', 'medium', 'low']:
+                    if severity in by_severity:
+                        color = 'red' if severity == 'critical' else 'yellow'
+                        click.echo(click.style(
+                            f"  - {severity.upper()}: {len(by_severity[severity])} issues",
+                            fg=color
+                        ))
+
+                # Display critical and high severity issues
+                for severity in ['critical', 'high']:
+                    if severity in by_severity:
+                        click.echo(f"\n{severity.upper()} SEVERITY ISSUES:")
+                        for change in by_severity[severity]:
+                            status = change.get('status', 'unknown')
+                            path = change.get('path', 'unknown')
+                            click.echo(click.style(f"  • {status}: {path}", fg='red'))
+
+                # Display summary and baseline path
+                click.echo(f"\nSummary:")
+                click.echo(f"  - Files checked: {result.get('files_checked', 0)}")
+                click.echo(f"  - Issues found: {len(changes)}")
+
+                # Suggest action if in report-only mode
+                if report_only:
+                    click.echo("\nTo update the baseline with these changes, run:")
+                    click.echo(click.style("  flask integrity update-baseline --force", fg='blue'))
+        else:
+            click.echo(click.style(f"✗ Verification failed: {result.get('error', 'Unknown error')}", fg='red'))
+            sys.exit(1)
+
+    @integrity.command('analyze')
+    @click.option('--path', help='Path to directory to analyze')
+    @click.option('--pattern', '-p', multiple=True, help='File patterns to include')
+    @click.option('--limit', default=100, help='Limit number of files to analyze')
+    def analyze_files(path, pattern, limit):
+        """Analyze files for potential integrity risks."""
+        import os
+        import fnmatch
+        import hashlib
+        from datetime import datetime
+
+        if not path:
+            path = os.path.dirname(app.root_path)
+
+        patterns = list(pattern) or ['*.py', '*.sh', '*.ini', '*.conf', '*.yaml', '*.yml']
+
+        click.echo(f"Analyzing files in {path} matching {', '.join(patterns)}")
+
+        # Find all matching files
+        matches = []
+        for root, _, filenames in os.walk(path):
+            for filename in filenames:
+                for pattern in patterns:
+                    if fnmatch.fnmatch(filename, pattern):
+                        matches.append(os.path.join(root, filename))
+                        break
+
+                if len(matches) >= limit:
+                    break
+
+            if len(matches) >= limit:
+                click.echo(f"Reached analysis limit of {limit} files")
+                break
+
+        # Analyze files
+        click.echo(f"Found {len(matches)} files to analyze")
+
+        analysis_results = {
+            'suspicious_permissions': [],
+            'recently_modified': [],
+            'unexpected_hash_values': [],
+            'executable_scripts': []
+        }
+
+        now = datetime.now()
+
+        for file_path in matches:
+            try:
+                # Get file stats
+                stats = os.stat(file_path)
+
+                # Check permissions
+                if stats.st_mode & 0o022:  # World-writable
+                    analysis_results['suspicious_permissions'].append(file_path)
+
+                # Check modification time
+                mod_time = datetime.fromtimestamp(stats.st_mtime)
+                if (now - mod_time).days < 1:  # Modified in the last 24 hours
+                    analysis_results['recently_modified'].append(file_path)
+
+                # Check if file is executable
+                if os.access(file_path, os.X_OK) and not file_path.endswith(('.py', '.sh')):
+                    analysis_results['executable_scripts'].append(file_path)
+
+                # Check content for suspicious patterns
+                with open(file_path, 'rb') as f:
+                    content = f.read(8192)  # Read the first 8KB
+
+                    # Calculate hash
+                    file_hash = hashlib.sha256(content).hexdigest()
+
+                    # This list would typically come from a threat intelligence feed
+                    # or known-bad hash database
+                    known_bad_hashes = app.config.get('KNOWN_BAD_HASHES', [])
+
+                    if file_hash in known_bad_hashes:
+                        analysis_results['unexpected_hash_values'].append(file_path)
+
+            except Exception as e:
+                click.echo(f"Error analyzing {file_path}: {str(e)}")
+
+        # Display results
+        click.echo("\nAnalysis Results:")
+
+        if analysis_results['suspicious_permissions']:
+            click.echo(click.style("\nFiles with suspicious permissions:", fg='yellow'))
+            for file_path in analysis_results['suspicious_permissions'][:10]:
+                click.echo(f"  • {os.path.relpath(file_path, path)}")
+            if len(analysis_results['suspicious_permissions']) > 10:
+                click.echo(f"  ... and {len(analysis_results['suspicious_permissions']) - 10} more")
+
+        if analysis_results['recently_modified']:
+            click.echo(click.style("\nRecently modified files:", fg='blue'))
+            for file_path in analysis_results['recently_modified'][:10]:
+                click.echo(f"  • {os.path.relpath(file_path, path)}")
+            if len(analysis_results['recently_modified']) > 10:
+                click.echo(f"  ... and {len(analysis_results['recently_modified']) - 10} more")
+
+        if analysis_results['executable_scripts']:
+            click.echo(click.style("\nUnexpected executable files:", fg='yellow'))
+            for file_path in analysis_results['executable_scripts'][:10]:
+                click.echo(f"  • {os.path.relpath(file_path, path)}")
+            if len(analysis_results['executable_scripts']) > 10:
+                click.echo(f"  ... and {len(analysis_results['executable_scripts']) - 10} more")
+
+        if analysis_results['unexpected_hash_values']:
+            click.echo(click.style("\nFiles with suspicious hash values:", fg='red'))
+            for file_path in analysis_results['unexpected_hash_values']:
+                click.echo(f"  • {os.path.relpath(file_path, path)}")
+
+        # Provide a summary and recommendations
+        click.echo("\nSummary:")
+        total_issues = sum(len(items) for items in analysis_results.values())
+        if total_issues > 0:
+            click.echo(click.style(f"  • {total_issues} potential issues found", fg='yellow'))
+            click.echo("\nRecommendations:")
+            if analysis_results['suspicious_permissions']:
+                click.echo("  • Review and correct file permissions")
+                click.echo("    Run: chmod 640 [file] to set appropriate permissions")
+            if analysis_results['recently_modified']:
+                click.echo("  • Verify recent file changes are expected")
+                click.echo("    Run: flask integrity verify")
+            if analysis_results['unexpected_hash_values']:
+                click.echo("  • Investigate files with suspicious hashes immediately")
+        else:
+            click.echo(click.style("  • No potential issues found", fg='green'))
+
+    # Register this function to prevent circular imports
+    app.register_cli_commands = register_cli_commands

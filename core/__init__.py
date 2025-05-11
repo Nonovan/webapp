@@ -50,7 +50,7 @@ from .health import (
 )
 from .middleware import (
     init_middleware,
-    generate_request_id  # Moved from utils.py to middleware.py
+    generate_request_id
 )
 from .utils.logging_utils import (
     setup_app_logging,
@@ -177,7 +177,9 @@ from .metrics import (
 from .seeder import (
     seed_database,
     seed_development_data,
-    seed_test_data
+    seed_test_data,
+    verify_baseline_integrity,
+    update_integrity_baseline
 )
 
 # Initialize security components
@@ -281,6 +283,8 @@ __all__ = [
     '_consider_baseline_update',
     'init_security',
     'verify_baseline_update',
+    'verify_baseline_integrity',
+    'update_integrity_baseline',
 
     # Metrics functions and classes
     'register_component_status',
