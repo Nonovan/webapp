@@ -17,6 +17,8 @@ This directory contains specialized utility modules that provide reusable functi
 
 The utility modules provide standardized implementations of common operations needed throughout the Cloud Infrastructure Platform. These modules follow consistent patterns, proper error handling, and strong security practices. They are designed to be imported individually to keep dependencies minimal and provide focused functionality that can be easily tested and maintained.
 
+The utilities are divided into logical categories, with each module handling a specific area of functionality. This organization ensures that related functions are grouped together, making the code more maintainable and easier to navigate. The modules are designed to be imported from their parent packages with clear function names that describe their purpose.
+
 ## Key Modules
 
 - **`string.py`**: Text manipulation and processing utilities
@@ -26,6 +28,9 @@ The utility modules provide standardized implementations of common operations ne
   - Case conversion (snake_case, camelCase, etc.)
   - String validation and classification
   - Secure text normalization and encoding
+  - String generation and randomization
+  - Text content extraction and formatting
+  - String security operations (escaping, masking)
 
 - **`file.py`**: File operation utilities
   - Secure file handling with appropriate permissions
@@ -34,6 +39,9 @@ The utility modules provide standardized implementations of common operations ne
   - Secure temporary file management
   - Configuration file reading and writing (JSON, YAML)
   - Directory operations with permission management
+  - File integrity monitoring and validation
+  - Secure file reading and atomic writing
+  - Path safety and validation
 
 - **`collection.py`**: Collection data structure manipulation
   - Deep dictionary operations (get, set, merge)
@@ -44,6 +52,8 @@ The utility modules provide standardized implementations of common operations ne
   - Duplicate detection and key-based uniqueness
   - Efficient batch operations and list chunking
   - Safe JSON serialization for complex objects
+  - Pagination and batch processing
+  - Graph operations (cycle detection)
 
 - **`validation.py`**: Input validation and sanitation
   - Type checking and validation
@@ -73,6 +83,9 @@ The utility modules provide standardized implementations of common operations ne
   - Request context management
   - Execution time measurement
   - Redis client management
+  - OS detection and environment information
+  - Server health metrics collection
+  - Resource usage tracking and optimization
   - Performance monitoring and tracking
 
 - **`logging_utils.py`**: Logging configuration and utilities
@@ -85,20 +98,34 @@ The utility modules provide standardized implementations of common operations ne
   - Secure log message handling
   - Sensitive data masking
   - Structured logging formatters
+  - Log file management and rotation
+
+- **`core_utils_constants.py`**: Centralized constants
+  - File operation constants
+  - Security settings
+  - Default formatting options
+  - System thresholds and limits
+  - Validation patterns
+  - Collection operation thresholds
+  - Date and time formats
+  - Logging configuration
+  - Default security values
+  - Environment-specific defaults
 
 ## Directory Structure
 
 ```plaintext
 core/utils/
-├── README.md          # This documentation
-├── __init__.py        # Package initialization and exports
-├── collection.py      # Collection manipulation utilities
-├── date_time.py       # Date and time handling utilities
-├── file.py            # File handling utilities
-├── logging_utils.py   # Logging configuration utilities
-├── string.py          # String manipulation utilities
-├── system.py          # System resource utilities
-└── validation.py      # Input validation utilities
+├── README.md               # This documentation
+├── __init__.py             # Package initialization and exports
+├── collection.py           # Collection manipulation utilities
+├── core_utils_constants.py # Centralized constants and configuration
+├── date_time.py            # Date and time handling utilities
+├── file.py                 # File handling utilities
+├── logging_utils.py        # Logging configuration utilities
+├── string.py               # String manipulation utilities
+├── system.py               # System resource utilities
+└── validation.py           # Input validation utilities
 ```
 
 ## Usage Examples
@@ -180,6 +207,12 @@ filtered = filter_dict_by_keys(data, ["id", "name", "email"])
 
 # Transform dictionary keys
 snake_case_dict = transform_keys(camel_case_dict, camel_to_snake)
+
+# Paginate results
+items_page, pagination_info = paginate(items, page=2, page_size=10)
+
+# Process items in batches
+results = batch_process(large_list, process_batch, batch_size=100)
 ```
 
 ### Validation Utilities
@@ -251,6 +284,9 @@ time_display = format_relative_time(event_date)  # e.g., "2 hours ago" or "in 3 
 
 # Format timestamp for logging or display
 formatted = format_timestamp(current_time)  # ISO 8601 format
+
+# Generate date range for reporting
+dates = date_range(start_date, end_date)
 ```
 
 ### System Utilities
@@ -281,7 +317,8 @@ redis = get_redis_client()
 
 ```python
 from core.utils.logging_utils import (
-    get_logger, get_security_logger, log_security_event
+    get_logger, get_security_logger, log_security_event,
+    log_file_integrity_event
 )
 
 # Get logger for current module
@@ -300,6 +337,14 @@ log_security_event(
     severity="warning",
     user_id="user123",
     details={"resource": "/admin/users", "ip": "192.168.1.100"}
+)
+
+# Log file integrity event
+log_file_integrity_event(
+    file_path="/app/config.py",
+    status="modified",
+    severity="critical",
+    details={"expected_hash": "abc123", "current_hash": "def456"}
 )
 ```
 
@@ -326,6 +371,7 @@ log_security_event(
 - **Cross-platform Support**: Utilities work on different operating systems
 - **Comprehensive Error Messages**: Clear, detailed error messages for debugging
 - **Reserved Name Validation**: Check for reserved names in service naming
+- **Default Parameter Security**: Default parameters never include sensitive information
 
 ## Common Features
 
@@ -367,6 +413,7 @@ All utility modules share these common features:
 
 ## Version Information
 
-- v0.0.3: Added cloud resource validation functions (resource_id, service_name, region)
-- v0.0.2: Major restructuring with improved security measures
+- v0.0.4: Enhanced logging utilities with file integrity event handling (current)
+- v0.0.3: Comprehensive collection utilities with batch processing and pagination
+- v0.0.2: Added cloud resource validation functions (resource_id, service_name, region)
 - v0.0.1: Initial stable release

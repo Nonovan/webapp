@@ -14,8 +14,25 @@ handling across the application.
 
 import functools
 import itertools
-from typing import Any, Dict, List, Optional, Set, Tuple, TypeVar, Union, Callable, Iterator, Iterable, Mapping, MutableMapping, Sequence
-from datetime import datetime
+import json
+import re
+import uuid
+import base64
+from datetime import date, datetime
+from decimal import Decimal
+from typing import (Any, Callable, Dict, Iterable, Iterator, List, Mapping,
+                    MutableMapping, Optional, Sequence, Set, Tuple, TypeVar,
+                    Union)
+
+from core.utils.core_utils_constants import (ARRAY_INDEX_PATTERN,
+                                             DEFAULT_BATCH_SIZE,
+                                             DEFAULT_LIST_LIMIT,
+                                             DEFAULT_RECURSION_LIMIT,
+                                             MAX_DICT_DEPTH, MAX_PAGE_SIZE,
+                                             DEFAULT_PAGE_SIZE,
+                                             PATH_SEPARATOR,
+                                             SAFE_JSON_SPECIAL_TYPES,
+                                             UNLIMITED_DEPTH)
 
 
 T = TypeVar('T')
@@ -44,15 +61,38 @@ def deep_get(dictionary: Dict, keys: Union[str, List], default: Any = None) -> A
 
     # Convert dot notation to key list if needed
     if isinstance(keys, str):
-        keys = keys.split('.')
+        keys = keys.split(PATH_SEPARATOR)
 
     current = dictionary
     try:
         for key in keys:
-            if isinstance(current, dict):
+            # Check for array index notation (e.g., "users[0]")
+            array_match = ARRAY_INDEX_PATTERN.match(key) if isinstance(key, str) else None
+
+            if array_match:
+                # Handle array indexing
+                base_key, index = array_match.groups()
+                if base_key in current and isinstance(current[base_key], list):
+                    try:
+                        index = int(index)
+                        if 0 <= index < len(current[base_key]):
+                            current = current[base_key][index]
+                        else:
+                            return default
+                    except (ValueError, TypeError):
+                        return default
+                else:
+                    return default
+            elif isinstance(current, dict):
+                # Standard dictionary lookup
                 current = current.get(key, default)
+                # If we hit the default value, terminate early
+                if current is default:
+                    return default
             else:
+                # If current is not a dict, we can't navigate further
                 return default
+
         return current
     except (KeyError, TypeError, IndexError):
         return default
@@ -80,17 +120,56 @@ def deep_set(dictionary: Dict, keys: Union[str, List], value: Any) -> Dict:
 
     # Convert dot notation to key list if needed
     if isinstance(keys, str):
-        keys = keys.split('.')
+        keys = keys.split(PATH_SEPARATOR)
 
     current = dictionary
     # Navigate to the last dict in the path
     for key in keys[:-1]:
-        if key not in current or not isinstance(current[key], dict):
-            current[key] = {}
-        current = current[key]
+        # Check for array index notation (e.g., "users[0]")
+        array_match = ARRAY_INDEX_PATTERN.match(key) if isinstance(key, str) else None
+
+        if array_match:
+            base_key, index = array_match.groups()
+            index = int(index)
+
+            # Ensure the base key exists and is a list
+            if base_key not in current:
+                current[base_key] = []
+            elif not isinstance(current[base_key], list):
+                current[base_key] = [current[base_key]]
+
+            # Ensure the list is long enough
+            while len(current[base_key]) <= index:
+                current[base_key].append({})
+
+            current = current[base_key][index]
+        else:
+            if key not in current or not isinstance(current[key], dict):
+                current[key] = {}
+            current = current[key]
 
     # Set the value at the final key
-    current[keys[-1]] = value
+    last_key = keys[-1]
+
+    # Check if the last key contains an array index
+    array_match = ARRAY_INDEX_PATTERN.match(last_key) if isinstance(last_key, str) else None
+    if array_match:
+        base_key, index = array_match.groups()
+        index = int(index)
+
+        # Ensure the base key exists and is a list
+        if base_key not in current:
+            current[base_key] = []
+        elif not isinstance(current[base_key], list):
+            current[base_key] = [current[base_key]]
+
+        # Ensure the list is long enough
+        while len(current[base_key]) <= index:
+            current[base_key].append(None)
+
+        current[base_key][index] = value
+    else:
+        current[last_key] = value
 
     return dictionary
 
@@ -147,7 +226,7 @@ def deep_filter(data: Dict, filter_func: Callable[[str, Any], bool]) -> Dict:
     return result
 
 
-def flatten_dict(dictionary: Dict, separator: str = '.', prefix: str = '') -> Dict:
+def flatten_dict(dictionary: Dict, separator: str = PATH_SEPARATOR, prefix: str = '') -> Dict:
     """
     Flatten a nested dictionary into a single-level dictionary with custom key separator.
 
@@ -174,7 +253,7 @@ def flatten_dict(dictionary: Dict, separator: str = '.', prefix: str = '') -> Di
     return dict(items)
 
 
-def unflatten_dict(dictionary: Dict, separator: str = '.') -> Dict:
+def unflatten_dict(dictionary: Dict, separator: str = PATH_SEPARATOR) -> Dict:
     """
     Convert a flattened dictionary with separated keys back to a nested dictionary.
 
@@ -275,7 +354,7 @@ def chunks(lst: List[T], size: int) -> Iterator[List[T]]:
         yield lst[i:i + size]
 
 
-def chunk_list(lst: List[T], size: int) -> List[List[T]]:
+def chunk_list(lst: List[T], size: int = DEFAULT_BATCH_SIZE) -> List[List[T]]:
     """
     Split a list into chunks of specified size.
 
@@ -285,7 +364,7 @@ def chunk_list(lst: List[T], size: int) -> List[List[T]]:
 
     Args:
         lst: List to chunk
-        size: Size of each chunk
+        size: Size of each chunk (default: from constants)
 
     Returns:
         List of list chunks
@@ -441,12 +520,13 @@ def find_first(items: Iterable[T], predicate: Callable[[T], bool], default: Opti
     return next((item for item in items if predicate(item)), default)
 
 
-def detect_cycles(graph: Dict[T, List[T]]) -> Optional[List[T]]:
+def detect_cycles(graph: Dict[T, List[T]], max_depth: int = DEFAULT_RECURSION_LIMIT) -> Optional[List[T]]:
     """
     Detect cycles in a directed graph represented as adjacency list.
 
     Args:
         graph: Dictionary mapping nodes to lists of adjacent nodes
+        max_depth: Maximum recursion depth for cycle detection
 
     Returns:
         First cycle found as list of nodes, or None if no cycles
@@ -458,8 +538,15 @@ def detect_cycles(graph: Dict[T, List[T]]) -> Optional[List[T]]:
     visited = set()
     path = []
     path_set = set()
+    depth_counter = 0
 
     def visit(node):
+        nonlocal depth_counter
+
+        depth_counter += 1
+        if depth_counter > max_depth:
+            raise RecursionError("Maximum recursion depth exceeded during cycle detection")
+
         if node in path_set:
             # Found a cycle - extract the cycle from the path
             cycle_start = path.index(node)
@@ -479,39 +566,69 @@ def detect_cycles(graph: Dict[T, List[T]]) -> Optional[List[T]]:
 
         path.pop()
         path_set.remove(node)
+        depth_counter -= 1
         return None
 
     # Check each unvisited node
     for node in graph:
         if node not in visited:
-            cycle = visit(node)
-            if cycle:
-                return cycle
+            depth_counter = 0
+            try:
+                cycle = visit(node)
+                if cycle:
+                    return cycle
+            except RecursionError:
+                # Reset and continue with next node if recursion limit reached
+                path.clear()
+                path_set.clear()
+                continue
 
     return None
 
 
-def merge_dicts(*dicts: Dict, overwrite: bool = True) -> Dict:
+def merge_dicts(*dicts: Dict, deep: bool = False, overwrite: bool = True) -> Dict:
     """
     Merge multiple dictionaries.
 
     Args:
         *dicts: Dictionaries to merge
+        deep: Whether to merge nested dictionaries (True) or just top level (False)
         overwrite: Whether later dictionaries should overwrite earlier ones
 
     Returns:
         Merged dictionary
-    """
-    result = {}
-    for d in dicts:
-        if overwrite:
-            result.update(d)
-        else:
-            for key, value in d.items():
-                if key not in result:
-                    result[key] = value
 
-    return result
+    Example:
+        >>> merge_dicts({'a': 1}, {'b': 2}, {'a': 3}, overwrite=True)
+        {'a': 3, 'b': 2}
+
+        >>> merge_dicts({'a': {'x': 1}}, {'a': {'y': 2}}, deep=True)
+        {'a': {'x': 1, 'y': 2}}
+    """
+    if not dicts:
+        return {}
+
+    if len(dicts) == 1:
+        return dicts[0].copy()
+
+    result = {}
+
+    if deep:
+        # Use deep_update for recursive merging
+        for d in dicts:
+            deep_update(result, d, overwrite)
+        return result
+    else:
+        # Simple top-level merge
+        for d in dicts:
+            if overwrite:
+                result.update(d)
+            else:
+                for key, value in d.items():
+                    if key not in result:
+                        result[key] = value
+
+        return result
 
 
 def index_by(items: Iterable[T], key_func: Callable[[T], K]) -> Dict[K, T]:
@@ -535,7 +652,8 @@ def index_by(items: Iterable[T], key_func: Callable[[T], K]) -> Dict[K, T]:
 def dict_transform(
     dictionary: Dict,
     transform_func: Callable[[str, Any], Optional[Tuple[str, Any]]],
-    recursive: bool = True
+    recursive: bool = True,
+    max_depth: int = MAX_DICT_DEPTH
 ) -> Dict:
     """
     Transform a dictionary by applying a function to each key-value pair.
@@ -544,6 +662,7 @@ def dict_transform(
         dictionary: Dictionary to transform
         transform_func: Function that takes (key, value) and returns new (key, value) or None to exclude
         recursive: Whether to recursively transform nested dictionaries
+        max_depth: Maximum recursion depth to prevent stack overflow
 
     Returns:
         Transformed dictionary
@@ -552,12 +671,16 @@ def dict_transform(
         dict_transform({'a': 1, 'b': 2}, lambda k, v: (k.upper(), v * 2))
         # Returns: {'A': 2, 'B': 4}
     """
+    if max_depth <= 0:
+        # Reached maximum recursion depth, return as-is
+        return dictionary
+
     result = {}
 
     for key, value in dictionary.items():
         # Transform nested dictionaries if recursive
-        if recursive and isinstance(value, dict):
-            transformed_value = dict_transform(value, transform_func, recursive)
+        if recursive and isinstance(value, dict) and max_depth > 0:
+            transformed_value = dict_transform(value, transform_func, recursive, max_depth - 1)
         else:
             transformed_value = value
 
@@ -577,6 +700,8 @@ def safe_json_serialize(obj: Any) -> Any:
     Convert object to JSON-serializable format.
 
     Handles datetime objects, sets, and other common non-serializable types.
+    This function is useful for preparing data for JSON serialization that may
+    contain types not natively supported by the json module.
 
     Args:
         obj: Object to serialize
@@ -584,19 +709,40 @@ def safe_json_serialize(obj: Any) -> Any:
     Returns:
         JSON-serializable representation of the object
     """
-    if isinstance(obj, datetime):
+    if obj is None:
+        return None
+    elif isinstance(obj, (str, int, float, bool)):
+        return obj
+    elif isinstance(obj, (datetime, date)):
         return obj.isoformat()
-    elif isinstance(obj, set):
+    elif isinstance(obj, Decimal):
+        return float(obj)
+    elif isinstance(obj, uuid.UUID):
+        return str(obj)
+    elif isinstance(obj, (set, frozenset)):
         return list(obj)
     elif isinstance(obj, bytes):
         try:
             return obj.decode('utf-8')
         except UnicodeDecodeError:
-            return str(obj)
+            # If we can't decode as UTF-8, use base64
+            return base64.b64encode(obj).decode('ascii')
+    elif isinstance(obj, (list, tuple)):
+        return [safe_json_serialize(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {str(k): safe_json_serialize(v) for k, v in obj.items()}
     elif hasattr(obj, 'to_dict') and callable(getattr(obj, 'to_dict')):
-        return obj.to_dict()
+        return safe_json_serialize(obj.to_dict())
+    elif hasattr(obj, '__dict__'):
+        # For custom objects, convert their __dict__ but skip the private attributes
+        return safe_json_serialize({k: v for k, v in obj.__dict__.items()
+                                  if not k.startswith('_')})
     else:
-        # Let the JSON serializer handle the type error
+        # For everything else, convert to string
+        obj_type = str(type(obj))
+        if obj_type in SAFE_JSON_SPECIAL_TYPES:
+            type_name = SAFE_JSON_SPECIAL_TYPES[obj_type]
+            return f"<{type_name}:{str(obj)}>"
         return str(obj)
 
 
@@ -674,13 +820,14 @@ def filter_dict_by_keys(data: Dict, keys: List[str], include: bool = True) -> Di
         return {k: v for k, v in data.items() if k not in keys}
 
 
-def transform_keys(data: Dict, transform_func: Callable[[str], str]) -> Dict:
+def transform_keys(data: Dict, transform_func: Callable[[str], str], recursive: bool = True) -> Dict:
     """
     Transform all keys in a dictionary using a transformation function.
 
     Args:
         data: Dictionary whose keys should be transformed
         transform_func: Function that takes a key string and returns a new key string
+        recursive: Whether to recursively transform keys in nested dictionaries
 
     Returns:
         Dictionary with transformed keys
@@ -697,21 +844,22 @@ def transform_keys(data: Dict, transform_func: Callable[[str], str]) -> Dict:
     for key, value in data.items():
         new_key = transform_func(key)
         # Handle nested dictionaries
-        if isinstance(value, dict):
-            result[new_key] = transform_keys(value, transform_func)
+        if isinstance(value, dict) and recursive:
+            result[new_key] = transform_keys(value, transform_func, recursive)
         else:
             result[new_key] = value
 
     return result
 
 
-def transform_values(data: Dict, transform_func: Callable[[Any], Any]) -> Dict:
+def transform_values(data: Dict, transform_func: Callable[[Any], Any], recursive: bool = True) -> Dict:
     """
     Transform all values in a dictionary using a transformation function.
 
     Args:
         data: Dictionary whose values should be transformed
         transform_func: Function that takes a value and returns a new value
+        recursive: Whether to recursively transform values in nested dictionaries
 
     Returns:
         Dictionary with transformed values
@@ -726,9 +874,225 @@ def transform_values(data: Dict, transform_func: Callable[[Any], Any]) -> Dict:
     result = {}
     for key, value in data.items():
         # Handle nested dictionaries
-        if isinstance(value, dict):
-            result[key] = transform_values(value, transform_func)
+        if isinstance(value, dict) and recursive:
+            result[key] = transform_values(value, transform_func, recursive)
         else:
             result[key] = transform_func(value)
 
     return result
+
+
+def paginate(items: List[T], page: int = 1, page_size: int = DEFAULT_PAGE_SIZE) -> Tuple[List[T], Dict[str, Any]]:
+    """
+    Paginate a list of items.
+
+    Args:
+        items: List of items to paginate
+        page: Page number (1-based)
+        page_size: Number of items per page (default from constants)
+
+    Returns:
+        Tuple of (paginated_items, pagination_info)
+
+    Example:
+        >>> items = list(range(100))
+        >>> results, info = paginate(items, page=2, page_size=10)
+        >>> len(results)
+        10
+        >>> results[0]
+        10
+        >>> info
+        {'page': 2, 'page_size': 10, 'total_pages': 10, 'total_items': 100, 'has_next': True, 'has_prev': True}
+    """
+    # Validate input
+    if page < 1:
+        page = 1
+    if page_size < 1:
+        page_size = DEFAULT_PAGE_SIZE
+    if page_size > MAX_PAGE_SIZE:
+        page_size = MAX_PAGE_SIZE
+
+    # Calculate pagination
+    total_items = len(items)
+    total_pages = (total_items + page_size - 1) // page_size if total_items > 0 else 1
+    page = min(page, total_pages)  # Ensure page isn't beyond the last page
+
+    # Get paginated items
+    start_idx = (page - 1) * page_size
+    end_idx = min(start_idx + page_size, total_items)
+    paginated_items = items[start_idx:end_idx]
+
+    # Build pagination info
+    pagination_info = {
+        'page': page,
+        'page_size': page_size,
+        'total_pages': total_pages,
+        'total_items': total_items,
+        'has_next': page < total_pages,
+        'has_prev': page > 1
+    }
+
+    return paginated_items, pagination_info
+
+
+def batch_process(items: List[T], func: Callable[[List[T]], Any], batch_size: int = DEFAULT_BATCH_SIZE) -> List[Any]:
+    """
+    Process a list in batches using a provided function.
+
+    This function is useful for performing operations on large lists that
+    should be broken up into smaller chunks, such as database operations.
+
+    Args:
+        items: List of items to process
+        func: Function that takes a batch of items and processes them
+        batch_size: Size of each batch
+
+    Returns:
+        List of results from each batch processing
+
+    Example:
+        >>> def process_batch(batch):
+        ...     return [item * 2 for item in batch]
+        >>> batch_process([1, 2, 3, 4, 5], process_batch, batch_size=2)
+        [[2, 4], [6, 8], [10]]
+    """
+    if not items:
+        return []
+
+    results = []
+    for batch in chunk_list(items, batch_size):
+        result = func(batch)
+        results.append(result)
+
+    return results
+
+
+def limit_list_length(items: List, max_length: int = DEFAULT_LIST_LIMIT) -> Tuple[List, bool]:
+    """
+    Limit a list to a maximum length, returning whether it was truncated.
+
+    Args:
+        items: List to limit
+        max_length: Maximum allowed length
+
+    Returns:
+        Tuple of (limited_list, was_truncated)
+
+    Example:
+        >>> limit_list_length([1, 2, 3, 4, 5], 3)
+        ([1, 2, 3], True)
+        >>> limit_list_length([1, 2, 3], 5)
+        ([1, 2, 3], False)
+    """
+    if not isinstance(items, list):
+        return ([], False)
+
+    if len(items) <= max_length:
+        return (items, False)
+
+    return (items[:max_length], True)
+
+
+def walk_dict(
+    data: Dict,
+    visit_func: Callable[[str, Any, List[str]], None],
+    path: Optional[List[str]] = None,
+    max_depth: int = UNLIMITED_DEPTH
+) -> None:
+    """
+    Walk through a nested dictionary, calling a visitor function for each value.
+
+    Args:
+        data: Dictionary to walk through
+        visit_func: Function to call for each value with args (key, value, path)
+        path: Current path in the dictionary (used in recursion)
+        max_depth: Maximum recursion depth, -1 for unlimited
+
+    Example:
+        >>> def print_values(key, value, path):
+        ...     print(f"{'.'.join(path)}: {value}")
+        >>> data = {'a': 1, 'b': {'c': 2, 'd': 3}}
+        >>> walk_dict(data, print_values)
+        a: 1
+        b.c: 2
+        b.d: 3
+    """
+    if path is None:
+        path = []
+
+    # Check max depth
+    if max_depth == 0:
+        return
+
+    for key, value in data.items():
+        current_path = path + [key]
+        visit_func(key, value, current_path)
+
+        if isinstance(value, dict) and (max_depth == UNLIMITED_DEPTH or max_depth > 0):
+            next_depth = max_depth - 1 if max_depth != UNLIMITED_DEPTH else UNLIMITED_DEPTH
+            walk_dict(value, visit_func, current_path, next_depth)
+
+
+def dict_to_json(data: Dict, indent: Optional[int] = None, sort_keys: bool = False) -> str:
+    """
+    Convert dictionary to JSON string, handling non-serializable types.
+
+    Args:
+        data: Dictionary to convert
+        indent: Indentation level (None for compact)
+        sort_keys: Whether to sort keys alphabetically
+
+    Returns:
+        JSON string representation of the dictionary
+
+    Example:
+        >>> dict_to_json({'a': 1, 'b': datetime(2022, 1, 1)})
+        '{"a": 1, "b": "2022-01-01T00:00:00"}'
+    """
+    # Use the default encoder for JSON serializable types, and safe_json_serialize for others
+    class CustomEncoder(json.JSONEncoder):
+        def default(self, obj):
+            return safe_json_serialize(obj)
+
+    return json.dumps(data, indent=indent, sort_keys=sort_keys, cls=CustomEncoder)
+
+
+# List of functions available when importing from this module
+__all__ = [
+    # Dictionary operations
+    'deep_get',
+    'deep_set',
+    'deep_update',
+    'deep_filter',
+    'flatten_dict',
+    'unflatten_dict',
+    'merge_dicts',
+    'dict_transform',
+    'transform_keys',
+    'transform_values',
+    'filter_none',
+    'filter_empty',
+    'filter_dict_by_keys',
+    'walk_dict',
+    'dict_to_json',
+
+    # List operations
+    'group_by',
+    'partition',
+    'chunks',
+    'chunk_list',
+    'unique_items',
+    'unique_by',
+    'find_first',
+    'find_duplicates',
+    'paginate',
+    'batch_process',
+    'limit_list_length',
+
+    # Graph operations
+    'detect_cycles',
+
+    # Advanced operations
+    'index_by',
+    'safe_json_serialize'
+]

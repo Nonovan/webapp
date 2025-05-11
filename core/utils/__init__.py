@@ -102,30 +102,33 @@ from .collection import (
     # Dictionary operations
     deep_get,
     deep_set,
-    merge_dicts,
+    deep_update,
+    deep_filter,
     flatten_dict,
     unflatten_dict,
-
-    # List and array operations
-    chunk_list,
-    find_duplicates,
-    group_by,
-    unique_by,
-
-    # Filtering operations
+    merge_dicts,
+    dict_transform,
+    transform_keys,
+    transform_values,
     filter_none,
     filter_empty,
     filter_dict_by_keys,
+    walk_dict,
+    dict_to_json,
 
-    # Transformation operations
-    transform_keys,
-    transform_values,
+    # List operations
+    chunk_list,
+    find_duplicates,
+    group_by,
+    unique_items,
+    unique_by,
+    partition,
+    chunks,
+    paginate,
+    batch_process,
+    limit_list_length,
 
     # Advanced operations
-    dict_transform,
-    deep_filter,
-    deep_update,
-    partition,
     index_by,
     find_first,
     detect_cycles,
@@ -297,7 +300,6 @@ from .core_utils_constants import (
 )
 
 # Import file integrity functions from security module
-# These were migrated from utils.py to core.security.cs_file_integrity
 try:
     from core.security.cs_file_integrity import (
         calculate_file_hash,
@@ -459,24 +461,29 @@ __all__ = [
     'deep_filter',
     'deep_update',
     'dict_transform',
+    'transform_keys',
+    'transform_values',
+    'filter_none',
+    'filter_empty',
+    'filter_dict_by_keys',
+    'walk_dict',
+    'dict_to_json',
     'safe_json_serialize',
 
     # Collection utilities - list operations
     'chunk_list',
+    'chunks',
     'find_duplicates',
     'group_by',
+    'unique_items',
     'unique_by',
     'partition',
     'index_by',
     'find_first',
     'detect_cycles',
-
-    # Collection utilities - filtering and transformation
-    'filter_none',
-    'filter_empty',
-    'filter_dict_by_keys',
-    'transform_keys',
-    'transform_values',
+    'paginate',
+    'batch_process',
+    'limit_list_length',
 
     # File utilities - operations
     'read_file',

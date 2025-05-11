@@ -27,25 +27,36 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, BinaryIO, TextIO, Iterator
 from contextlib import contextmanager
-from datetime import datetime
 
 # Import required security functions
 from core.security.cs_crypto import compute_hash as compute_file_hash
-from core.utils.logging_utils import log_error
+from core.utils.logging_utils import log_error, log_warning
+
+# Import centralized constants
+from core.utils.core_utils_constants import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_FILE_PERMS,
+    DEFAULT_DIR_PERMS,
+    SECURE_FILE_PERMS,
+    SECURE_DIR_PERMS,
+    TEMP_DIR_PERMS,
+    SMALL_FILE_THRESHOLD,
+    DEFAULT_MAX_FILE_SIZE,
+    DEFAULT_HASH_ALGORITHM,
+    SENSITIVE_FIELDS,
+    MAX_FILENAME_LENGTH
+)
 
 # Type definitions
 FileMetadata = Dict[str, Any]
 ResourceMetrics = Dict[str, Any]
 FileChangeInfo = Dict[str, Any]
 
-# Constants
-DEFAULT_CHUNK_SIZE = 8192  # 8KB chunks for file reading
-DEFAULT_HASH_ALGORITHM = 'sha256'
-SECURE_TEMP_DIR_PERMISSIONS = 0o700
-SECURE_TEMP_FILE_PERMISSIONS = 0o600
-SMALL_FILE_THRESHOLD = 1024 * 1024  # 1MB threshold for small files
+# Module-specific constants
 SUSPICIOUS_PATTERNS = ['backdoor', 'hack', 'exploit', 'rootkit', 'trojan', 'payload', 'malware']
 SENSITIVE_EXTENSIONS = ['.key', '.pem', '.p12', '.pfx', '.keystore', '.jks', '.env', '.secret']
+SECURE_TEMP_DIR_PERMISSIONS = TEMP_DIR_PERMS
+SECURE_TEMP_FILE_PERMISSIONS = SECURE_FILE_PERMS
 
 # Setup module-level logger
 logger = logging.getLogger(__name__)
@@ -71,6 +82,7 @@ def get_file_metadata(file_path: str) -> FileMetadata:
         - owner: File owner username
         - permissions: File permissions as octal string
         - hash: SHA-256 hash of the file content
+        - plus additional security-relevant attributes
 
     Raises:
         FileNotFoundError: If the specified file does not exist
@@ -88,15 +100,15 @@ def get_file_metadata(file_path: str) -> FileMetadata:
     try:
         # Get owner name (Unix-specific)
         owner = pwd.getpwuid(stat_info.st_uid).pw_name
-    except (KeyError, ImportError):
+    except (KeyError, ImportError, AttributeError):
         # Fallback for Windows or if user lookup fails
         owner = str(stat_info.st_uid)
 
     try:
         # Generate hash for content verification
-        file_hash = compute_file_hash(file_path)
+        file_hash = compute_file_hash(file_path, algorithm=DEFAULT_HASH_ALGORITHM)
     except IOError as e:
-        log_error(f"Failed to hash file {file_path}: {e}")
+        log_error(f"Failed to hash file {file_path}: {str(e)}")
         file_hash = None
 
     try:
@@ -109,11 +121,13 @@ def get_file_metadata(file_path: str) -> FileMetadata:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 timeout=2,
-                check=False
+                check=False,
+                text=True  # Handle text decoding within subprocess
             )
             if result.returncode == 0:
-                file_type = result.stdout.decode('utf-8', 'replace').strip()
-    except (subprocess.SubprocessError, OSError):
+                file_type = result.stdout.strip()
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.debug(f"Could not determine file type for {file_path}: {str(e)}")
         file_type = None
 
     # Extract filename and extension
@@ -179,9 +193,10 @@ def secure_tempfile(prefix: str = "secure_", suffix: str = "") -> Iterator[str]:
         yield path
     finally:
         try:
-            os.remove(path)
-        except OSError:
-            pass
+            if os.path.exists(path):
+                os.remove(path)
+        except OSError as e:
+            logger.warning(f"Failed to remove temporary file {path}: {str(e)}")
 
 
 @contextmanager
@@ -201,14 +216,18 @@ def secure_tempdir(prefix: str = "secure_") -> Iterator[str]:
         yield path
     finally:
         try:
-            shutil.rmtree(path)
-        except OSError:
-            pass
+            if os.path.exists(path):
+                shutil.rmtree(path)
+        except OSError as e:
+            logger.warning(f"Failed to remove temporary directory {path}: {str(e)}")
 
 
 def is_path_safe(path: str, allowed_base_dirs: Optional[List[str]] = None) -> bool:
     """
     Check if a path is safe (doesn't use path traversal).
+
+    This function provides a basic path safety check. For more comprehensive
+    path safety validation, use the dedicated functions in core.security.cs_utils.
 
     Args:
         path: Path to validate
@@ -217,210 +236,53 @@ def is_path_safe(path: str, allowed_base_dirs: Optional[List[str]] = None) -> bo
     Returns:
         True if path is safe, False otherwise
     """
-    # Normalize path
-    normalized_path = os.path.normpath(path)
-
-    # Check for path traversal attempts
-    if '..' in normalized_path.split(os.sep):
+    if not path:
         return False
 
-    # Check for absolute paths if relative is expected
-    if os.path.isabs(normalized_path) and allowed_base_dirs is not None:
-        # If absolute, check if it's within allowed base directories
-        return any(normalized_path.startswith(os.path.normpath(base_dir))
-                  for base_dir in allowed_base_dirs)
-
-    return True
-
-
-def load_json_file(file_path: str) -> Dict[str, Any]:
-    """
-    Load and parse JSON from file.
-
-    Args:
-        file_path: Path to the JSON file
-
-    Returns:
-        Parsed JSON data
-
-    Raises:
-        FileNotFoundError: If file does not exist
-        json.JSONDecodeError: If JSON is invalid
-    """
-    if not os.path.isfile(file_path):
-        raise FileNotFoundError(f"File not found: {file_path}")
-
-    with open(file_path, 'r', encoding='utf-8') as f:
-        return json.load(f)
-
-
-def save_json_file(file_path: str, data: Dict[str, Any], indent: int = 2) -> None:
-    """
-    Save data as JSON to file atomically.
-
-    Args:
-        file_path: Path where to save the file
-        data: Data to save
-        indent: JSON indentation level
-
-    Raises:
-        IOError: If file cannot be written
-    """
-    # Create directory if it doesn't exist
-    directory = os.path.dirname(file_path)
-    if directory and not os.path.exists(directory):
-        os.makedirs(directory)
-
-    # Write to temporary file first (atomic operation)
-    temp_file = f"{file_path}.tmp"
-    with open(temp_file, 'w', encoding='utf-8') as f:
-        json.dump(data, f, indent=indent)
-
-    # Replace the original file with the temporary one
-    os.replace(temp_file, file_path)
-
-
-def load_yaml_file(file_path: str) -> Dict[str, Any]:
-    """
-    Load and parse YAML from file.
-
-    Args:
-        file_path: Path to the YAML file
-
-    Returns:
-        Parsed YAML data
-
-    Raises:
-        FileNotFoundError: If file does not exist
-        yaml.YAMLError: If YAML is invalid
-    """
-    if not os.path.isfile(file_path):
-        raise FileNotFoundError(f"File not found: {file_path}")
-
-    with open(file_path, 'r', encoding='utf-8') as f:
-        return yaml.safe_load(f)
-
-
-def save_yaml_file(file_path: str, data: Dict[str, Any], default_flow_style: bool = False) -> None:
-    """
-    Save data as YAML to file atomically.
-
-    Args:
-        file_path: Path where to save the file
-        data: Data to save
-        default_flow_style: YAML flow style option
-
-    Raises:
-        IOError: If file cannot be written
-    """
-    # Create directory if it doesn't exist
-    directory = os.path.dirname(file_path)
-    if directory and not os.path.exists(directory):
-        os.makedirs(directory)
-
-    # Write to temporary file first (atomic operation)
-    temp_file = f"{file_path}.tmp"
-    with open(temp_file, 'w', encoding='utf-8') as f:
-        yaml.safe_dump(data, f, default_flow_style=default_flow_style)
-
-    # Replace the original file with the temporary one
-    os.replace(temp_file, file_path)
-
-
-def get_file_metadata(file_path: str) -> Dict[str, Any]:
-    """
-    Get metadata about a file for security and integrity checks.
-
-    Args:
-        file_path: Path to the file to analyze
-
-    Returns:
-        Dictionary containing file metadata including:
-        - size: File size in bytes
-        - created_at: Creation timestamp
-        - modified_at: Last modification timestamp
-        - accessed_at: Last access timestamp
-        - owner: File owner username
-        - permissions: File permissions as octal string
-        - hash: SHA-256 hash of the file content
-
-    Raises:
-        FileNotFoundError: If the specified file does not exist
-    """
-    if not os.path.isfile(file_path):
-        raise FileNotFoundError(f"File not found: {file_path}")
-
-    # Get file stats
-    file_stats = os.stat(file_path)
-
-    # Try to get owner name
     try:
-        owner = pwd.getpwuid(file_stats.st_uid).pw_name
-    except (KeyError, AttributeError):
-        owner = str(file_stats.st_uid)
+        # Special case for empty paths or current directory
+        if path.strip() in ('', '.'):
+            return True
 
-    # Compute file hash
-    file_hash = compute_file_hash(file_path, DEFAULT_HASH_ALGORITHM)
+        # Try to import specialized path safety functions first
+        try:
+            from core.security.cs_utils import is_within_directory, sanitize_path
+            if allowed_base_dirs:
+                return any(is_within_directory(path, base_dir) for base_dir in allowed_base_dirs)
+            else:
+                # If no allowed dirs specified, just check for path traversal
+                sanitized = sanitize_path(path)
+                return sanitized is not None
+        except ImportError:
+            # Fallback to basic implementation
+            pass
 
-    return {
-        'size': file_stats.st_size,
-        'created_at': datetime.fromtimestamp(file_stats.st_ctime).isoformat(),
-        'modified_at': datetime.fromtimestamp(file_stats.st_mtime).isoformat(),
-        'accessed_at': datetime.fromtimestamp(file_stats.st_atime).isoformat(),
-        'owner': owner,
-        'permissions': oct(file_stats.st_mode)[-4:],
-        'hash': file_hash
-    }
+        # Normalize path
+        normalized_path = os.path.normpath(path)
 
+        # Check for path traversal attempts
+        if '..' in normalized_path.split(os.sep):
+            return False
 
-def find_files(
-    directory: str,
-    patterns: List[str] = ["*"],
-    recursive: bool = True,
-    exclude_patterns: Optional[List[str]] = None
-) -> List[str]:
-    """
-    Find files in a directory matching given patterns.
+        # Check for absolute paths against allowed base directories
+        if os.path.isabs(normalized_path) and allowed_base_dirs is not None:
+            return any(normalized_path.startswith(os.path.normpath(base_dir))
+                      for base_dir in allowed_base_dirs)
 
-    Args:
-        directory: Base directory to search
-        patterns: List of glob patterns to match
-        recursive: Whether to search recursively
-        exclude_patterns: List of patterns to exclude
-
-    Returns:
-        List of file paths that match the patterns
-
-    Raises:
-        FileNotFoundError: If the directory doesn't exist
-    """
-    if not os.path.isdir(directory):
-        raise FileNotFoundError(f"Directory not found: {directory}")
-
-    exclude_patterns = exclude_patterns or []
-    matched_files = []
-
-    for pattern in patterns:
-        glob_pattern = os.path.join(directory, '**', pattern) if recursive else os.path.join(directory, pattern)
-        matched_files.extend(str(p) for p in Path(directory).glob(glob_pattern))
-
-    # Apply exclusions
-    if exclude_patterns:
-        for exclude_pattern in exclude_patterns:
-            exclude_glob = os.path.join(directory, '**', exclude_pattern) if recursive else os.path.join(directory, exclude_pattern)
-            exclude_files = set(str(p) for p in Path(directory).glob(exclude_glob))
-            matched_files = [f for f in matched_files if f not in exclude_files]
-
-    return sorted(matched_files)
+        return True
+    except Exception as e:
+        logger.warning(f"Path safety check failed for '{path}': {str(e)}")
+        return False
 
 
-def read_file(file_path: str, encoding: str = "utf-8") -> str:
+def read_file(file_path: str, encoding: str = "utf-8", max_size: int = DEFAULT_MAX_FILE_SIZE) -> str:
     """
     Securely read a file with proper error handling.
 
     Args:
         file_path: Path to the file to read
         encoding: File encoding (default: utf-8)
+        max_size: Maximum file size to read (default: from constants)
 
     Returns:
         String content of the file
@@ -428,9 +290,18 @@ def read_file(file_path: str, encoding: str = "utf-8") -> str:
     Raises:
         IOError: If the file cannot be read
         UnicodeDecodeError: If the file cannot be decoded with specified encoding
+        ValueError: If the file path is unsafe or file exceeds max size
     """
     if not is_path_safe(file_path):
         raise ValueError(f"Unsafe file path: {file_path}")
+
+    if not os.path.isfile(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    # Check file size to prevent loading very large files into memory
+    file_size = os.path.getsize(file_path)
+    if file_size > max_size:
+        raise ValueError(f"File too large: {file_size} bytes (max: {max_size} bytes)")
 
     try:
         with open(file_path, 'r', encoding=encoding) as file:
@@ -438,11 +309,16 @@ def read_file(file_path: str, encoding: str = "utf-8") -> str:
     except UnicodeDecodeError:
         # Try again with error handling for problematic characters
         with open(file_path, 'r', encoding=encoding, errors='replace') as file:
-            return file.read()
+            content = file.read()
+            logger.warning(f"File {file_path} contained invalid characters for {encoding} encoding")
+            return content
+    except OSError as e:
+        raise IOError(f"Error reading file {file_path}: {str(e)}")
 
 
 def write_file(file_path: str, content: str, encoding: str = "utf-8",
-               make_dirs: bool = True, atomic: bool = True) -> None:
+               make_dirs: bool = True, atomic: bool = True,
+               mode: int = DEFAULT_FILE_PERMS) -> None:
     """
     Securely write content to a file with proper error handling.
 
@@ -452,48 +328,64 @@ def write_file(file_path: str, content: str, encoding: str = "utf-8",
         encoding: File encoding (default: utf-8)
         make_dirs: Create parent directories if they don't exist
         atomic: Use atomic write operation to prevent corruption
+        mode: File permission mode (default: from constants)
 
     Raises:
         IOError: If the file cannot be written
         OSError: If directories cannot be created
+        ValueError: If file path is unsafe
     """
     if not is_path_safe(file_path):
         raise ValueError(f"Unsafe file path: {file_path}")
 
     # Create parent directories if needed
     if make_dirs:
-        ensure_directory_exists(os.path.dirname(file_path))
+        directory = os.path.dirname(file_path)
+        if directory:
+            ensure_directory_exists(directory)
 
     if atomic:
         # Use atomic write operation
-        import tempfile
-        temp_fd, temp_path = tempfile.mkstemp(
-            dir=os.path.dirname(os.path.abspath(file_path))
-        )
+        directory = os.path.dirname(os.path.abspath(file_path))
+        temp_fd, temp_path = tempfile.mkstemp(dir=directory)
         try:
             with os.fdopen(temp_fd, 'w', encoding=encoding) as temp_file:
                 temp_file.write(content)
 
-            # Ensure proper permissions before moving
-            if os.path.exists(file_path):
-                # Try to preserve permissions from existing file
-                try:
+            # Ensure proper permissions
+            try:
+                # Preserve permissions from existing file if any
+                if os.path.exists(file_path):
                     current_mode = os.stat(file_path).st_mode
                     os.chmod(temp_path, current_mode)
-                except OSError:
-                    pass
+                else:
+                    os.chmod(temp_path, mode)
+            except OSError as e:
+                logger.warning(f"Could not set permissions on {temp_path}: {str(e)}")
 
             # Atomic move/replace
             os.replace(temp_path, file_path)
-        except Exception:
+        except Exception as e:
             # Clean up temp file on error
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
-            raise
+            try:
+                if os.path.exists(temp_path):
+                    os.unlink(temp_path)
+            except OSError:
+                pass
+            raise IOError(f"Error writing to {file_path}: {str(e)}")
     else:
         # Direct write
-        with open(file_path, 'w', encoding=encoding) as file:
-            file.write(content)
+        try:
+            with open(file_path, 'w', encoding=encoding) as file:
+                file.write(content)
+
+            # Set permissions
+            try:
+                os.chmod(file_path, mode)
+            except OSError as e:
+                logger.warning(f"Could not set permissions on {file_path}: {str(e)}")
+        except OSError as e:
+            raise IOError(f"Error writing to {file_path}: {str(e)}")
 
 
 def append_to_file(file_path: str, content: str, encoding: str = "utf-8",
@@ -510,28 +402,35 @@ def append_to_file(file_path: str, content: str, encoding: str = "utf-8",
     Raises:
         IOError: If the file cannot be written
         OSError: If directories cannot be created
+        ValueError: If file path is unsafe
     """
     if not is_path_safe(file_path):
         raise ValueError(f"Unsafe file path: {file_path}")
 
     # Create parent directories if needed
     if make_dirs:
-        ensure_directory_exists(os.path.dirname(file_path))
+        directory = os.path.dirname(file_path)
+        if directory:
+            ensure_directory_exists(directory)
 
-    with open(file_path, 'a', encoding=encoding) as file:
-        file.write(content)
+    try:
+        with open(file_path, 'a', encoding=encoding) as file:
+            file.write(content)
+    except OSError as e:
+        raise IOError(f"Error appending to {file_path}: {str(e)}")
 
 
-def ensure_directory_exists(directory_path: str, mode: int = 0o755) -> None:
+def ensure_directory_exists(directory_path: str, mode: int = DEFAULT_DIR_PERMS) -> None:
     """
     Create a directory if it doesn't exist, including parent directories.
 
     Args:
         directory_path: Path of the directory to create
-        mode: Permissions for the newly created directory
+        mode: Permissions for the newly created directory (default: from constants)
 
     Raises:
         OSError: If the directory cannot be created or modified
+        ValueError: If directory path is unsafe
     """
     # Handle empty path
     if not directory_path:
@@ -572,29 +471,171 @@ def sanitize_filename(filename: str) -> str:
     if not filename:
         return "unnamed_file"
 
-    # Remove directory traversal components and limit to basename
-    sanitized = os.path.basename(filename)
+    try:
+        # Try using specialized security function if available
+        try:
+            from core.security.cs_utils import sanitize_filename as security_sanitize
+            return security_sanitize(filename)
+        except ImportError:
+            # Fallback to basic implementation
+            pass
 
-    # Remove null bytes and control characters
-    sanitized = re.sub(r'[\x00-\x1f]', '', sanitized)
+        # Remove directory traversal components and limit to basename
+        sanitized = os.path.basename(filename)
 
-    # Replace potentially dangerous characters
-    sanitized = re.sub(r'[<>:"/\\|?*]', '_', sanitized)
+        # Remove null bytes and control characters
+        sanitized = re.sub(r'[\x00-\x1f]', '', sanitized)
 
-    # Ensure the filename is not empty after sanitization
-    if not sanitized:
-        sanitized = "unnamed_file"
+        # Replace potentially dangerous characters
+        sanitized = re.sub(r'[<>:"/\\|?*]', '_', sanitized)
 
-    # Limit length for safety (prevent extremely long filenames)
-    if len(sanitized) > 255:
-        # Preserve extension if present
-        parts = sanitized.rsplit('.', 1)
-        if len(parts) > 1:
-            sanitized = parts[0][:250] + '.' + parts[1]
-        else:
-            sanitized = sanitized[:255]
+        # Ensure the filename is not empty after sanitization
+        if not sanitized:
+            sanitized = "unnamed_file"
 
-    return sanitized
+        # Limit length for safety (prevent extremely long filenames)
+        if len(sanitized) > MAX_FILENAME_LENGTH:
+            # Preserve extension if present
+            parts = sanitized.rsplit('.', 1)
+            if len(parts) > 1:
+                max_base = MAX_FILENAME_LENGTH - len(parts[1]) - 1  # -1 for the dot
+                sanitized = parts[0][:max_base] + '.' + parts[1]
+            else:
+                sanitized = sanitized[:MAX_FILENAME_LENGTH]
+
+        return sanitized
+    except Exception as e:
+        logger.warning(f"Error sanitizing filename '{filename}': {str(e)}")
+        # Return a safe default if all else fails
+        return "unnamed_file"
+
+
+def save_json_file(file_path: str, data: Dict[str, Any], indent: int = 2,
+                  atomic: bool = True, mode: int = DEFAULT_FILE_PERMS) -> None:
+    """
+    Save data as JSON to file atomically.
+
+    Args:
+        file_path: Path where to save the file
+        data: Data to save
+        indent: JSON indentation level
+        atomic: Use atomic write operation to prevent corruption
+        mode: File permission mode
+
+    Raises:
+        IOError: If file cannot be written
+        ValueError: If file path is unsafe
+    """
+    if not is_path_safe(file_path):
+        raise ValueError(f"Unsafe file path: {file_path}")
+
+    # Create directory if it doesn't exist
+    directory = os.path.dirname(file_path)
+    if directory and not os.path.exists(directory):
+        ensure_directory_exists(directory)
+
+    if atomic:
+        # Write to temporary file first (atomic operation)
+        temp_fd, temp_path = tempfile.mkstemp(
+            dir=os.path.dirname(os.path.abspath(file_path))
+        )
+        try:
+            with os.fdopen(temp_fd, 'w', encoding='utf-8') as temp_file:
+                json.dump(data, temp_file, indent=indent)
+
+            # Set permissions
+            try:
+                os.chmod(temp_path, mode)
+            except OSError as e:
+                logger.warning(f"Failed to set permissions on {temp_path}: {str(e)}")
+
+            # Replace the original file with the temporary one
+            os.replace(temp_path, file_path)
+        except Exception as e:
+            # Clean up temp file on error
+            try:
+                if os.path.exists(temp_path):
+                    os.unlink(temp_path)
+            except OSError:
+                pass
+            raise IOError(f"Failed to write JSON file {file_path}: {str(e)}")
+    else:
+        # Direct write
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=indent)
+
+            # Set permissions
+            try:
+                os.chmod(file_path, mode)
+            except OSError as e:
+                logger.warning(f"Failed to set permissions on {file_path}: {str(e)}")
+        except OSError as e:
+            raise IOError(f"Failed to write JSON file {file_path}: {str(e)}")
+
+
+def save_yaml_file(file_path: str, data: Dict[str, Any], default_flow_style: bool = False,
+                  atomic: bool = True, mode: int = DEFAULT_FILE_PERMS) -> None:
+    """
+    Save data as YAML to file atomically.
+
+    Args:
+        file_path: Path where to save the file
+        data: Data to save
+        default_flow_style: YAML flow style option
+        atomic: Use atomic write operation to prevent corruption
+        mode: File permission mode (default: from constants)
+
+    Raises:
+        IOError: If file cannot be written
+        ValueError: If file path is unsafe
+    """
+    if not is_path_safe(file_path):
+        raise ValueError(f"Unsafe file path: {file_path}")
+
+    # Create directory if it doesn't exist
+    directory = os.path.dirname(file_path)
+    if directory and not os.path.exists(directory):
+        ensure_directory_exists(directory)
+
+    if atomic:
+        # Write to temporary file first (atomic operation)
+        temp_fd, temp_path = tempfile.mkstemp(
+            dir=os.path.dirname(os.path.abspath(file_path))
+        )
+        try:
+            with os.fdopen(temp_fd, 'w', encoding='utf-8') as temp_file:
+                yaml.safe_dump(data, temp_file, default_flow_style=default_flow_style)
+
+            # Set permissions
+            try:
+                os.chmod(temp_path, mode)
+            except OSError as e:
+                logger.warning(f"Failed to set permissions on {temp_path}: {str(e)}")
+
+            # Replace the original file with the temporary one
+            os.replace(temp_path, file_path)
+        except Exception as e:
+            # Clean up temp file on error
+            try:
+                if os.path.exists(temp_path):
+                    os.unlink(temp_path)
+            except OSError:
+                pass
+            raise IOError(f"Failed to write YAML file {file_path}: {str(e)}")
+    else:
+        # Direct write
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                yaml.safe_dump(data, f, default_flow_style=default_flow_style)
+
+            # Set permissions
+            try:
+                os.chmod(file_path, mode)
+            except OSError as e:
+                logger.warning(f"Failed to set permissions on {file_path}: {str(e)}")
+        except OSError as e:
+            raise IOError(f"Failed to write YAML file {file_path}: {str(e)}")
 
 
 def read_json_file(file_path: str, default: Any = None) -> Dict[str, Any]:
@@ -612,6 +653,12 @@ def read_json_file(file_path: str, default: Any = None) -> Dict[str, Any]:
         >>> config = read_json_file("/path/to/config.json", default={})
         >>> print(config.get("setting", "default_value"))
     """
+    if not is_path_safe(file_path):
+        if default is not None:
+            logger.warning(f"Unsafe file path provided to read_json_file: {file_path}")
+            return default
+        raise ValueError(f"Unsafe file path: {file_path}")
+
     if not os.path.isfile(file_path):
         if default is not None:
             return default
@@ -622,12 +669,14 @@ def read_json_file(file_path: str, default: Any = None) -> Dict[str, Any]:
             return json.load(file)
     except json.JSONDecodeError as e:
         if default is not None:
+            logger.warning(f"Invalid JSON in {file_path}: {str(e)}")
             return default
-        raise ValueError(f"Invalid JSON in {file_path}: {e}")
-    except Exception as e:
+        raise ValueError(f"Invalid JSON in {file_path}: {str(e)}")
+    except OSError as e:
         if default is not None:
+            logger.warning(f"Error reading {file_path}: {str(e)}")
             return default
-        raise IOError(f"Error reading {file_path}: {e}")
+        raise IOError(f"Error reading {file_path}: {str(e)}")
 
 
 def read_yaml_file(file_path: str, default: Any = None) -> Dict[str, Any]:
@@ -645,6 +694,12 @@ def read_yaml_file(file_path: str, default: Any = None) -> Dict[str, Any]:
         >>> config = read_yaml_file("/path/to/config.yaml", default={})
         >>> print(config.get("setting", "default_value"))
     """
+    if not is_path_safe(file_path):
+        if default is not None:
+            logger.warning(f"Unsafe file path provided to read_yaml_file: {file_path}")
+            return default
+        raise ValueError(f"Unsafe file path: {file_path}")
+
     if not os.path.isfile(file_path):
         if default is not None:
             return default
@@ -652,15 +707,80 @@ def read_yaml_file(file_path: str, default: Any = None) -> Dict[str, Any]:
 
     try:
         with open(file_path, 'r', encoding='utf-8') as file:
-            return yaml.safe_load(file) or {}
+            data = yaml.safe_load(file)
+            return data if data is not None else {}
     except yaml.YAMLError as e:
         if default is not None:
+            logger.warning(f"Invalid YAML in {file_path}: {str(e)}")
             return default
-        raise ValueError(f"Invalid YAML in {file_path}: {e}")
-    except Exception as e:
+        raise ValueError(f"Invalid YAML in {file_path}: {str(e)}")
+    except OSError as e:
         if default is not None:
+            logger.warning(f"Error reading {file_path}: {str(e)}")
             return default
-        raise IOError(f"Error reading {file_path}: {e}")
+        raise IOError(f"Error reading {file_path}: {str(e)}")
+
+
+def find_files(
+    directory: str,
+    patterns: List[str] = ["*"],
+    recursive: bool = True,
+    exclude_patterns: Optional[List[str]] = None
+) -> List[str]:
+    """
+    Find files in a directory matching given patterns.
+
+    Args:
+        directory: Base directory to search
+        patterns: List of glob patterns to match
+        recursive: Whether to search recursively
+        exclude_patterns: List of patterns to exclude
+
+    Returns:
+        List of file paths that match the patterns
+
+    Raises:
+        FileNotFoundError: If the directory doesn't exist
+        ValueError: If directory path is unsafe
+    """
+    if not is_path_safe(directory):
+        raise ValueError(f"Unsafe directory path: {directory}")
+
+    if not os.path.isdir(directory):
+        raise FileNotFoundError(f"Directory not found: {directory}")
+
+    exclude_patterns = exclude_patterns or []
+    matched_files = []
+
+    try:
+        for pattern in patterns:
+            if recursive:
+                glob_pattern = f"**/{pattern}"
+                matches = Path(directory).glob(glob_pattern)
+            else:
+                glob_pattern = pattern
+                matches = Path(directory).glob(glob_pattern)
+
+            matched_files.extend(str(p) for p in matches if p.is_file())
+
+        # Apply exclusions
+        if exclude_patterns:
+            excluded_files = set()
+            for exclude_pattern in exclude_patterns:
+                if recursive:
+                    exclude_glob = f"**/{exclude_pattern}"
+                    matches = Path(directory).glob(exclude_glob)
+                else:
+                    exclude_glob = exclude_pattern
+                    matches = Path(directory).glob(exclude_glob)
+
+                excluded_files.update(str(p) for p in matches if p.is_file())
+
+            matched_files = [f for f in matched_files if f not in excluded_files]
+
+        return sorted(matched_files)
+    except Exception as e:
+        raise IOError(f"Error finding files in {directory}: {str(e)}")
 
 
 def get_critical_file_hashes(files: List[str], algorithm: str = DEFAULT_HASH_ALGORITHM) -> Dict[str, str]:
@@ -672,7 +792,7 @@ def get_critical_file_hashes(files: List[str], algorithm: str = DEFAULT_HASH_ALG
 
     Args:
         files: List of file paths to hash
-        algorithm: Hash algorithm to use (default: sha256)
+        algorithm: Hash algorithm to use (default: from constants)
 
     Returns:
         Dictionary mapping file paths to their hash values
@@ -690,7 +810,7 @@ def get_critical_file_hashes(files: List[str], algorithm: str = DEFAULT_HASH_ALG
         normalized_path = os.path.normpath(file_path)
 
         if not os.path.exists(normalized_path):
-            print(f"Warning: File not found for hashing: {normalized_path}")
+            log_warning(f"File not found for hashing: {normalized_path}")
             errors.append(f"File not found: {normalized_path}")
             continue
 
@@ -699,12 +819,43 @@ def get_critical_file_hashes(files: List[str], algorithm: str = DEFAULT_HASH_ALG
             hashes[normalized_path] = file_hash
         except (IOError, ValueError, PermissionError) as e:
             error_msg = f"Failed to hash {normalized_path}: {str(e)}"
-            print(f"Error: {error_msg}")
+            log_warning(error_msg)
             errors.append(error_msg)
             hashes[normalized_path] = None
 
     # Log a summary if there were errors
-    if errors and len(errors) > 0:
-        print(f"Completed file hash generation with {len(errors)} errors")
+    if errors:
+        log_warning(f"Completed file hash generation with {len(errors)} errors")
 
     return hashes
+
+
+# Define what should be exported from this module
+__all__ = [
+    # File metadata and verification
+    'get_file_metadata',
+    'get_critical_file_hashes',
+
+    # File reading and writing
+    'read_file',
+    'write_file',
+    'append_to_file',
+
+    # Directory operations
+    'ensure_directory_exists',
+    'find_files',
+
+    # Security and safety
+    'sanitize_filename',
+    'is_path_safe',
+
+    # Temporary file operations
+    'secure_tempfile',
+    'secure_tempdir',
+
+    # Structured file formats
+    'read_json_file',
+    'save_json_file',
+    'read_yaml_file',
+    'save_yaml_file',
+]

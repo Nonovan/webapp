@@ -16,6 +16,24 @@ import datetime
 from typing import Optional, Union, Tuple, List, Dict, Any
 from datetime import datetime, timezone, timedelta
 
+# Import centralized constants
+from core.utils.core_utils_constants import (
+    DEFAULT_DATE_FORMAT,
+    DEFAULT_TIME_FORMAT,
+    DEFAULT_DATETIME_FORMAT,
+    ISO_DATETIME_FORMAT,
+    LOG_TIMESTAMP_FORMAT,
+    FILENAME_TIMESTAMP_FORMAT,
+    HUMAN_READABLE_FORMAT,
+    DEFAULT_TIMEZONE,
+    SECONDS_PER_MINUTE,
+    SECONDS_PER_HOUR,
+    SECONDS_PER_DAY,
+    SECONDS_PER_WEEK,
+    SECONDS_PER_MONTH,
+    SECONDS_PER_YEAR
+)
+
 
 def localnow() -> datetime:
     """
@@ -109,6 +127,9 @@ def get_timezone(timezone_name: Optional[str] = None) -> Optional[timezone]:
         >>> tz = get_timezone('Europe/London')
         >>> dt = datetime.now(tz)
     """
+    if timezone_name is None:
+        timezone_name = DEFAULT_TIMEZONE
+
     # First try zoneinfo from standard library (Python 3.9+)
     try:
         import zoneinfo
@@ -227,7 +248,7 @@ def from_timestamp(timestamp: float, tz: Optional[timezone] = None) -> datetime:
 
 def format_datetime(
     dt: datetime,
-    format_str: str = "%Y-%m-%d %H:%M:%S",
+    format_str: str = None,
     use_utc: bool = False
 ) -> str:
     """
@@ -235,7 +256,7 @@ def format_datetime(
 
     Args:
         dt: Datetime to format
-        format_str: Format string
+        format_str: Format string (defaults to DEFAULT_DATETIME_FORMAT)
         use_utc: Whether to convert to UTC first
 
     Returns:
@@ -243,6 +264,9 @@ def format_datetime(
     """
     if dt is None:
         return ""
+
+    if format_str is None:
+        format_str = DEFAULT_DATETIME_FORMAT
 
     if use_utc and dt.tzinfo is not None:
         dt = dt.astimezone(timezone.utc)
@@ -252,7 +276,7 @@ def format_datetime(
 
 def parse_datetime(
     date_string: str,
-    format_str: str = "%Y-%m-%d %H:%M:%S",
+    format_str: str = None,
     assume_utc: bool = False
 ) -> datetime:
     """
@@ -260,7 +284,7 @@ def parse_datetime(
 
     Args:
         date_string: Date string to parse
-        format_str: Format of the string
+        format_str: Format of the string (defaults to DEFAULT_DATETIME_FORMAT)
         assume_utc: Whether to assume UTC timezone if no timezone info
 
     Returns:
@@ -269,6 +293,9 @@ def parse_datetime(
     Raises:
         ValueError: If the string cannot be parsed
     """
+    if format_str is None:
+        format_str = DEFAULT_DATETIME_FORMAT
+
     dt = datetime.strptime(date_string, format_str)
 
     if assume_utc and dt.tzinfo is None:
@@ -292,6 +319,7 @@ def parse_iso_datetime(date_string: str, assume_utc: bool = True) -> datetime:
         ValueError: If the string cannot be parsed as ISO format
     """
     try:
+        # Handle 'Z' timezone indicator by converting to +00:00
         dt = datetime.fromisoformat(date_string.replace('Z', '+00:00'))
     except (ValueError, AttributeError):
         # For Python < 3.7 or if fromisoformat fails
@@ -375,7 +403,7 @@ def get_end_of_day(dt: datetime = None, use_utc: bool = False) -> datetime:
         use_utc: Whether to use UTC timezone
 
     Returns:
-        Datetime representing the end of the day (23:59:59)
+        Datetime representing the end of the day (23:59:59.999999)
     """
     if dt is None:
         dt = utcnow() if use_utc else localnow()
@@ -428,11 +456,11 @@ def format_relative_time(dt: datetime, now: datetime = None) -> str:
         unit = f"{months} month{'s' if months > 1 else ''}"
     elif abs_diff.days > 0:
         unit = f"{abs_diff.days} day{'s' if abs_diff.days > 1 else ''}"
-    elif abs_diff.seconds >= 3600:
-        hours = abs_diff.seconds // 3600
+    elif abs_diff.seconds >= SECONDS_PER_HOUR:
+        hours = abs_diff.seconds // SECONDS_PER_HOUR
         unit = f"{hours} hour{'s' if hours > 1 else ''}"
-    elif abs_diff.seconds >= 60:
-        minutes = abs_diff.seconds // 60
+    elif abs_diff.seconds >= SECONDS_PER_MINUTE:
+        minutes = abs_diff.seconds // SECONDS_PER_MINUTE
         unit = f"{minutes} minute{'s' if minutes > 1 else ''}"
     else:
         unit = f"{abs_diff.seconds} second{'s' if abs_diff.seconds != 1 else ''}"
@@ -562,7 +590,7 @@ def date_range(
 
     while current < end_date or (inclusive and current <= end_date):
         result.append(current)
-        current = add_time_delta(current, days=step_days)
+        current = add_time_interval(current, days=step_days)
 
     return result
 
@@ -581,9 +609,9 @@ def format_duration(seconds: float) -> str:
         return "0s"
 
     # Break down into components
-    days, remainder = divmod(int(seconds), 86400)
-    hours, remainder = divmod(remainder, 3600)
-    minutes, seconds = divmod(remainder, 60)
+    days, remainder = divmod(int(seconds), SECONDS_PER_DAY)
+    hours, remainder = divmod(remainder, SECONDS_PER_HOUR)
+    minutes, seconds = divmod(remainder, SECONDS_PER_MINUTE)
 
     parts = []
     if days:
@@ -598,7 +626,7 @@ def format_duration(seconds: float) -> str:
     return ' '.join(parts[:2])  # Show at most 2 units
 
 
-def format_timestamp(dt: Optional[datetime] = None, use_utc: bool = True) -> str:
+def format_timestamp_with_format(dt: Optional[datetime] = None, use_utc: bool = True) -> str:
     """
     Format datetime as ISO 8601 timestamp string.
 
@@ -614,9 +642,9 @@ def format_timestamp(dt: Optional[datetime] = None, use_utc: bool = True) -> str
         ISO 8601 formatted timestamp string with timezone information
 
     Example:
-        >>> format_timestamp()  # Current time in UTC
+        >>> format_timestamp_with_format()  # Current time in UTC
         '2023-10-27T14:30:00.123456+00:00'
-        >>> format_timestamp(datetime(2023, 10, 27, 14, 30), use_utc=True)
+        >>> format_timestamp_with_format(datetime(2023, 10, 27, 14, 30), use_utc=True)
         '2023-10-27T14:30:00+00:00'
     """
     if dt is None:
@@ -820,13 +848,7 @@ def beginning_of_day(dt: Optional[datetime] = None, use_utc: bool = False) -> da
         >>> beginning_of_day(dt)
         datetime.datetime(2023, 5, 15, 0, 0, 0)
     """
-    if dt is None:
-        dt = utcnow() if use_utc else localnow()
-
-    if use_utc and dt.tzinfo is not None:
-        dt = dt.astimezone(timezone.utc)
-
-    return dt.replace(hour=0, minute=0, second=0, microsecond=0)
+    return get_start_of_day(dt, use_utc)
 
 
 def end_of_day(dt: Optional[datetime] = None, use_utc: bool = False) -> datetime:
@@ -845,10 +867,49 @@ def end_of_day(dt: Optional[datetime] = None, use_utc: bool = False) -> datetime
         >>> end_of_day(dt)
         datetime.datetime(2023, 5, 15, 23, 59, 59, 999999)
     """
-    if dt is None:
-        dt = utcnow() if use_utc else localnow()
+    return get_end_of_day(dt, use_utc)
 
-    if use_utc and dt.tzinfo is not None:
-        dt = dt.astimezone(timezone.utc)
 
-    return dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+# Define what's available for import from this module
+__all__ = [
+    # Core datetime functions
+    'utcnow',
+    'localnow',
+    'now_with_timezone',
+    'format_timestamp',
+    'format_timestamp_with_format',
+    'format_datetime',
+    'parse_datetime',
+    'parse_iso_datetime',
+
+    # Timezone operations
+    'get_timezone',
+    'convert_timezone',
+
+    # Formatting and display
+    'format_relative_time',
+    'format_duration',
+    'to_iso_format',
+
+    # Time calculations and comparison
+    'calculate_time_difference',
+    'is_same_day',
+    'is_business_day',
+    'is_future_date',
+    'is_past_date',
+
+    # Date ranges and manipulation
+    'date_range',
+    'add_time_delta',
+    'add_time_interval',
+    'beginning_of_day',
+    'end_of_day',
+    'get_start_of_day',
+    'get_end_of_day',
+
+    # Timestamp conversions
+    'to_timestamp',
+    'from_timestamp',
+    'to_unix_timestamp',
+    'from_unix_timestamp',
+]

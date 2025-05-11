@@ -19,8 +19,26 @@ import unicodedata
 import uuid
 from typing import Optional, List, Dict, Any, Set, Tuple, Union, Pattern
 
+# Import centralized constants
+from core.utils.core_utils_constants import (
+    DEFAULT_TRUNCATE_LENGTH,
+    DEFAULT_EXCERPT_LENGTH,
+    DEFAULT_RANDOM_STRING_LENGTH,
+    DEFAULT_RANDOM_STRING_CHARS,
+    SECURE_RANDOM_STRING_CHARS,
+    DEFAULT_ALLOWED_TAGS,
+    DEFAULT_ALLOWED_ATTRIBUTES,
+    ASCII_LOWERCASE,
+    ASCII_UPPERCASE,
+    ASCII_LETTERS,
+    DIGITS,
+    HEXDIGITS,
+    EMAIL_PATTERN,
+    URL_PATTERN,
+    SLUG_PATTERN,
+)
+
 # String truncation defaults
-DEFAULT_TRUNCATE_LENGTH = 80
 DEFAULT_TRUNCATE_SUFFIX = "..."
 
 # Slug generation defaults
@@ -28,18 +46,13 @@ DEFAULT_SLUG_SEPARATOR = "-"
 DEFAULT_SLUG_LOWERCASE = True
 DEFAULT_SLUG_STRIP_DIACRITICS = True
 
-# Common character sets
-ASCII_LOWERCASE = 'abcdefghijklmnopqrstuvwxyz'
-ASCII_UPPERCASE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-ASCII_LETTERS = ASCII_LOWERCASE + ASCII_UPPERCASE
-DIGITS = '0123456789'
-HEXDIGITS = DIGITS + 'abcdef' + 'ABCDEF'
+# Derived constants
 ALPHANUMERIC = ASCII_LETTERS + DIGITS
 
-# Regular expressions
-EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-URL_REGEX = re.compile(r'^https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+')
-SLUG_REGEX = re.compile(r'^[a-z0-9]+(?:-[a-z0-9]+)*$')
+# Compiled regexes for better performance
+EMAIL_REGEX = re.compile(EMAIL_PATTERN)
+URL_REGEX = re.compile(URL_PATTERN)
+SLUG_REGEX = re.compile(SLUG_PATTERN)
 
 
 def slugify(text: str, separator: str = DEFAULT_SLUG_SEPARATOR,
@@ -215,27 +228,11 @@ def sanitize_html(html_content: str,
 
     # Default safe tags if none provided
     if allowed_tags is None:
-        allowed_tags = [
-            'a', 'abbr', 'acronym', 'b', 'blockquote', 'br', 'code', 'div',
-            'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'i', 'img',
-            'li', 'ol', 'p', 'pre', 'span', 'strong', 'table', 'tbody',
-            'td', 'th', 'thead', 'tr', 'ul'
-        ]
+        allowed_tags = DEFAULT_ALLOWED_TAGS
 
     # Default safe attributes if none provided
     if allowed_attributes is None:
-        allowed_attributes = {
-            'a': ['href', 'title', 'target', 'rel'],
-            'abbr': ['title'],
-            'acronym': ['title'],
-            'img': ['src', 'alt', 'title', 'width', 'height'],
-            'div': ['class'],
-            'p': ['class'],
-            'span': ['class'],
-            'table': ['class', 'width'],
-            'td': ['class', 'colspan', 'rowspan'],
-            'th': ['class', 'colspan', 'rowspan', 'scope']
-        }
+        allowed_attributes = DEFAULT_ALLOWED_ATTRIBUTES
 
     try:
         # Try to use the html-sanitizer package if available (preferred)
@@ -272,7 +269,6 @@ def sanitize_html(html_content: str,
             return sanitized
         except ImportError:
             # Last resort fallback using simple regex replacement
-            # This is not as secure as using dedicated libraries
             import re
 
             # First strip all comments if requested
@@ -323,6 +319,8 @@ def sanitize_html(html_content: str,
                                     if attr_name.lower() in allowed_attrs_list:
                                         value = dq_val or sq_val or nq_val
                                         if value:
+                                            # Escape attribute values to prevent XSS
+                                            value = value.replace('"', '&quot;')
                                             filtered_parts.append(f'{attr_name}="{value}"')
                                         else:
                                             filtered_parts.append(attr_name)
@@ -402,27 +400,22 @@ def camel_to_snake(text: str) -> str:
     return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
 
 
-def generate_random_string(length: int = 16,
-                          chars: str = ALPHANUMERIC) -> str:
+def generate_random_string(length: int = DEFAULT_RANDOM_STRING_LENGTH,
+                          chars: str = DEFAULT_RANDOM_STRING_CHARS) -> str:
     """
     Generate a random string of specified length.
 
     Args:
-        length: Length of the random string (default: 16)
-        chars: Character set to use (default: alphanumeric)
+        length: Length of the random string (default from core_utils_constants)
+        chars: Character set to use (default from core_utils_constants)
 
     Returns:
         Random string
     """
-    import random
     import secrets
 
-    try:
-        # Use cryptographically strong random generator if available
-        return ''.join(secrets.choice(chars) for _ in range(length))
-    except (ImportError, AttributeError):
-        # Fall back to random (less secure)
-        return ''.join(random.choice(chars) for _ in range(length))
+    # Use cryptographically strong random generation
+    return ''.join(secrets.choice(chars) for _ in range(length))
 
 
 def is_valid_email(email: str) -> bool:
@@ -438,6 +431,7 @@ def is_valid_email(email: str) -> bool:
     if not email:
         return False
 
+    # Use compiled regex from module constants
     return bool(EMAIL_REGEX.match(email))
 
 
@@ -454,6 +448,7 @@ def is_valid_url(url: str) -> bool:
     if not url:
         return False
 
+    # Use compiled regex from module constants
     return bool(URL_REGEX.match(url))
 
 
@@ -470,6 +465,7 @@ def is_valid_slug(slug: str) -> bool:
     if not slug:
         return False
 
+    # Use compiled regex from module constants
     return bool(SLUG_REGEX.match(slug))
 
 
@@ -531,9 +527,7 @@ def pluralize(singular: str, count: int, plural: Optional[str] = None) -> str:
         return plural
 
     # Simple pluralization rules
-    if singular.endswith('s') or singular.endswith('sh') or \
-       singular.endswith('ch') or singular.endswith('x') or \
-       singular.endswith('z'):
+    if singular.endswith(('s', 'sh', 'ch', 'x', 'z')):
         return singular + 'es'
     elif singular.endswith('y') and len(singular) > 1 and \
          singular[-2] not in 'aeiou':
@@ -561,10 +555,11 @@ def generate_secure_filename(original_filename: str) -> str:
     # Generate a UUID for the filename
     secure_name = str(uuid.uuid4())
 
-    # Add original extension if present
+    # Add original extension if present and safe
     if len(parts) > 1:
         extension = parts[1].lower()
-        # Only allow safe extensions - limit to 10 chars
+        # Only allow safe extensions - limit to alphanumeric characters
+        # and ensure it's not too long
         if re.match(r'^[a-z0-9]{1,10}$', extension):
             return f"{secure_name}.{extension}"
 
@@ -698,7 +693,12 @@ def replace_urls_with_links(text: str, target: str = "_blank",
         if url.startswith('www.'):
             url = 'https://' + url
 
-        return f'<a href="{url}" target="{target}" class="{css_class}">{display_url}</a>'
+        # Escape attributes to prevent XSS
+        url = url.replace('"', '%22')
+        target_attr = target.replace('"', '%22')
+        css_class_attr = css_class.replace('"', '%22')
+
+        return f'<a href="{url}" target="{target_attr}" class="{css_class_attr}">{display_url}</a>'
 
     return re.sub(url_pattern, replacer, text)
 
@@ -789,6 +789,17 @@ def has_common_substring(text1: str, text2: str, min_length: int = 3) -> bool:
 
     # Use dynamic programming for efficiency
     len1, len2 = len(text1), len(text2)
+
+    # Memory optimization for very long strings
+    if len1 * len2 > 10_000_000:  # Arbitrary large threshold
+        # Fall back to a simpler approach for very long strings
+        for i in range(len(text1) - min_length + 1):
+            substr = text1[i:i + min_length]
+            if substr in text2:
+                return True
+        return False
+
+    # For smaller strings use dynamic programming
     dp = [[0] * (len2 + 1) for _ in range(len1 + 1)]
     max_length = 0
 
@@ -801,14 +812,14 @@ def has_common_substring(text1: str, text2: str, min_length: int = 3) -> bool:
     return max_length >= min_length
 
 
-def generate_excerpt(content: str, max_length: int = 150,
+def generate_excerpt(content: str, max_length: int = DEFAULT_EXCERPT_LENGTH,
                     strip_markup: bool = True) -> str:
     """
     Generate a short excerpt from longer content.
 
     Args:
         content: Source content
-        max_length: Maximum excerpt length (default: 150)
+        max_length: Maximum excerpt length (default from core_utils_constants)
         strip_markup: Whether to strip HTML markup (default: True)
 
     Returns:
@@ -846,6 +857,10 @@ def mask_sensitive_data(text: str, pattern: Optional[Union[str, Pattern]] = None
     if not text:
         return ""
 
+    # Security check - ensure mask_char is a single, safe character
+    if len(mask_char) != 1 or not mask_char.isprintable():
+        mask_char = '*'
+
     if not pattern:
         # If no pattern specified, mask the entire string
         visible_length = keep_prefix + keep_suffix
@@ -861,7 +876,11 @@ def mask_sensitive_data(text: str, pattern: Optional[Union[str, Pattern]] = None
 
     # If pattern is provided as string, compile it
     if isinstance(pattern, str):
-        pattern = re.compile(pattern)
+        try:
+            pattern = re.compile(pattern)
+        except re.error:
+            # If pattern is invalid, mask everything
+            return mask_char * len(text)
 
     def replacer(match):
         matched = match.group(0)
@@ -915,7 +934,7 @@ __all__ = [
     'truncate_text',
     'strip_html_tags',
     'sanitize_text',
-    'sanitize_html',  # New function added
+    'sanitize_html',
     'snake_to_camel',
     'camel_to_snake',
     'snake_to_pascal',

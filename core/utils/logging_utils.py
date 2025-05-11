@@ -35,22 +35,50 @@ from sentry_sdk.integrations.flask import FlaskIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 from sentry_sdk.integrations.redis import RedisIntegration
 
+# Import constants from core_utils_constants
+from core.utils.core_utils_constants import (
+    # Logging constants
+    LOG_LEVEL_DEBUG,
+    LOG_LEVEL_INFO,
+    LOG_LEVEL_WARNING,
+    LOG_LEVEL_ERROR,
+    LOG_LEVEL_CRITICAL,
+    DEFAULT_LOG_FORMAT,
+    SIMPLE_LOG_FORMAT,
+    JSON_LOG_FORMAT,
+    CLI_LOG_FORMAT,
+    SECURITY_LOG_FORMAT,
+
+    # Log categories
+    SECURITY_LOG_CATEGORY,
+    AUDIT_LOG_CATEGORY,
+    FILE_INTEGRITY_LOG_CATEGORY,
+
+    # File integrity events
+    INTEGRITY_EVENT_FILE_CHANGED,
+    INTEGRITY_EVENT_FILE_MISSING,
+    INTEGRITY_EVENT_NEW_FILE,
+    INTEGRITY_EVENT_PERMISSION_CHANGED,
+
+    # File permissions
+    LOG_FILE_PERMS,
+    LOG_DIR_PERMS,
+
+    # Rotation settings
+    DEFAULT_LOG_ROTATION_SIZE,
+    DEFAULT_BACKUP_COUNT,
+    MAX_BACKUP_COUNT,
+
+    # Sensitive fields
+    SENSITIVE_FIELDS
+)
+
 # Create a module-level logger
 logger = logging.getLogger(__name__)
 
-# Constants for log levels
-LOG_LEVEL_DEBUG = logging.DEBUG
-LOG_LEVEL_INFO = logging.INFO
-LOG_LEVEL_WARNING = logging.WARNING
-LOG_LEVEL_ERROR = logging.ERROR
-LOG_LEVEL_CRITICAL = logging.CRITICAL
-
 # Default log format strings
-DEFAULT_LOG_FORMAT = '[%(asctime)s] %(levelname)s in %(module)s: %(message)s'
 DEFAULT_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
 DEFAULT_CONSOLE_FORMAT = '%(levelname)s: %(message)s'
-CLI_LOG_FORMAT = '[%(asctime)s] %(levelname)s: %(message)s'
-
 
 # Export all public functions and constants
 __all__ = [
@@ -169,14 +197,22 @@ class SecurityAwareJsonFormatter(logging.Formatter):
             # Add security-specific fields to make filtering and analysis easier
             log_data["security"] = {
                 "event_type": getattr(record, 'event_type', 'unknown'),
-                "severity": record.levelname,
+                "severity": getattr(record, 'severity', record.levelname),
                 "user_id": getattr(record, 'user_id', None),
                 "ip_address": getattr(record, 'ip_address', None),
+                "category": SECURITY_LOG_CATEGORY,
             }
 
             # Add any file integrity details if present
             if hasattr(record, 'file_integrity') and record.file_integrity:
-                log_data["security"]["file_integrity"] = record.file_integrity
+                log_data["security"]["category"] = FILE_INTEGRITY_LOG_CATEGORY
+                log_data["security"]["file_integrity"] = True
+
+                # Add file-specific information if available
+                if hasattr(record, 'file_path'):
+                    log_data["security"]["file_path"] = record.file_path
+                if hasattr(record, 'file_status'):
+                    log_data["security"]["file_status"] = record.file_status
 
         # Include any additional attributes added to the record
         # Skip internal logging attributes and those already processed
@@ -210,10 +246,24 @@ class FileIntegrityAwareHandler(logging.Handler):
     This handler processes file integrity related events specifically,
     storing them for monitoring and providing metrics.
     """
-    def __init__(self, level=logging.INFO):
+    def __init__(self, level=logging.INFO, max_events: int = 500):
+        """
+        Initialize the file integrity handler.
+
+        Args:
+            level: Minimum log level to handle
+            max_events: Maximum number of events to keep in memory
+        """
         super().__init__(level)
         self.integrity_events = []
-        self.max_events = 100  # Store only last 100 events
+        self.max_events = max_events
+        self.event_counts = {
+            INTEGRITY_EVENT_FILE_CHANGED: 0,
+            INTEGRITY_EVENT_FILE_MISSING: 0,
+            INTEGRITY_EVENT_NEW_FILE: 0,
+            INTEGRITY_EVENT_PERMISSION_CHANGED: 0,
+            'other': 0
+        }
 
     def emit(self, record):
         # Process only file integrity events
@@ -221,11 +271,30 @@ class FileIntegrityAwareHandler(logging.Handler):
             return
 
         try:
+            # Extract file path from record or details
+            file_path = getattr(record, 'file_path', None)
+            if not file_path and hasattr(record, 'details') and isinstance(record.details, dict):
+                file_path = record.details.get('path', None)
+
+            # Extract file status from record or details
+            status = getattr(record, 'file_status', None)
+            if not status and hasattr(record, 'details') and isinstance(record.details, dict):
+                status = record.details.get('status', 'unknown')
+
+            # Update event counts for monitoring
+            if status in self.event_counts:
+                self.event_counts[status] += 1
+            else:
+                self.event_counts['other'] += 1
+
             # Extract integrity event details
             event = {
                 'timestamp': datetime.now(timezone.utc).isoformat(),
                 'level': record.levelname,
                 'message': record.getMessage(),
+                'severity': getattr(record, 'severity', 'info'),
+                'file_path': file_path,
+                'status': status,
                 'details': getattr(record, 'details', None)
             }
 
@@ -239,16 +308,45 @@ class FileIntegrityAwareHandler(logging.Handler):
                 try:
                     severity = getattr(record, 'severity', 'info').lower()
                     current_app.metrics.increment('security.file_integrity.events',
-                                               labels={'severity': severity})
-                except Exception:
+                                               labels={
+                                                   'severity': severity,
+                                                   'status': status or 'unknown'
+                                               })
+                except Exception as e:
+                    # Don't let metrics issues affect logging
                     pass
 
         except Exception:
             self.handleError(record)
 
-    def get_recent_events(self, limit=10):
-        """Get most recent file integrity events"""
-        return self.integrity_events[-limit:] if self.integrity_events else []
+    def get_recent_events(self, limit=10, status_filter=None, severity_filter=None) -> List[Dict[str, Any]]:
+        """
+        Get recent file integrity events, optionally filtered.
+
+        Args:
+            limit: Maximum number of events to return
+            status_filter: Optional filter for event status
+            severity_filter: Optional filter for event severity level
+
+        Returns:
+            List of integrity events matching the criteria
+        """
+        if not self.integrity_events:
+            return []
+
+        # Apply filters if specified
+        filtered_events = self.integrity_events
+        if status_filter:
+            filtered_events = [e for e in filtered_events if e.get('status') == status_filter]
+        if severity_filter:
+            filtered_events = [e for e in filtered_events if e.get('severity') == severity_filter]
+
+        # Return most recent events up to the limit
+        return filtered_events[-limit:]
+
+    def get_event_counts(self) -> Dict[str, int]:
+        """Get counts of different file integrity event types."""
+        return self.event_counts.copy()
 
 
 def setup_app_logging(app: Any = None,
@@ -280,15 +378,36 @@ def setup_app_logging(app: Any = None,
 
         # Add file handler if specified
         if log_file:
-            file_handler = logging.FileHandler(log_file)
+            log_dir = os.path.dirname(log_file)
+            if log_dir and not os.path.exists(log_dir):
+                os.makedirs(log_dir, mode=LOG_DIR_PERMS, exist_ok=True)
+
+            file_handler = logging.handlers.RotatingFileHandler(
+                log_file,
+                maxBytes=DEFAULT_LOG_ROTATION_SIZE,
+                backupCount=DEFAULT_BACKUP_COUNT
+            )
             file_handler.setFormatter(formatter)
             app.logger.addHandler(file_handler)
+
+            # Set secure permissions
+            try:
+                os.chmod(log_file, LOG_FILE_PERMS)
+            except (OSError, PermissionError) as e:
+                logger.warning(f"Failed to set permissions on log file: {e}")
 
         # Make sure we have at least one handler
         if not app.logger.handlers:
             stream_handler = logging.StreamHandler()
             stream_handler.setFormatter(formatter)
             app.logger.addHandler(stream_handler)
+
+        # Create and attach a file integrity handler
+        file_integrity_handler = FileIntegrityAwareHandler(level)
+        app.file_integrity_handler = file_integrity_handler
+
+        security_logger = logging.getLogger('security')
+        security_logger.addHandler(file_integrity_handler)
 
     # Also configure the root logger
     logging.basicConfig(
@@ -303,8 +422,8 @@ def setup_logging(level: Union[str, int] = logging.INFO,
                  log_format: Optional[str] = None,
                  include_timestamp: bool = True,
                  json_format: bool = False,
-                 max_bytes: int = 10*1024*1024,
-                 backup_count: int = 5) -> None:
+                 max_bytes: int = DEFAULT_LOG_ROTATION_SIZE,
+                 backup_count: int = DEFAULT_BACKUP_COUNT) -> None:
     """
     Set up general-purpose logging configuration.
 
@@ -366,12 +485,12 @@ def setup_logging(level: Union[str, int] = logging.INFO,
             # Create directory if it doesn't exist
             log_dir = os.path.dirname(log_file)
             if log_dir and not os.path.exists(log_dir):
-                os.makedirs(log_dir, exist_ok=True)
+                os.makedirs(log_dir, mode=LOG_DIR_PERMS, exist_ok=True)
 
             # Set secure permissions on log directory
             if log_dir:
                 try:
-                    os.chmod(log_dir, 0o750)
+                    os.chmod(log_dir, LOG_DIR_PERMS)
                 except (OSError, PermissionError):
                     pass
 
@@ -379,19 +498,14 @@ def setup_logging(level: Union[str, int] = logging.INFO,
             file_handler = logging.handlers.RotatingFileHandler(
                 log_file,
                 maxBytes=max_bytes,
-                backupCount=backup_count
+                backupCount=min(backup_count, MAX_BACKUP_COUNT)  # Ensure we don't exceed the max
             )
 
             # Use JSON formatting or standard formatting
             if json_format:
                 try:
                     # Try to use SecurityAwareJsonFormatter
-                    if hasattr(logging.getLogger(), 'handlers') and isinstance(logging.getLogger().handlers[0], SecurityAwareJsonFormatter):
-                        file_handler.setFormatter(SecurityAwareJsonFormatter())
-                    else:
-                        # Fall back to standard formatter
-                        file_formatter = logging.Formatter(log_format)
-                        file_handler.setFormatter(file_formatter)
+                    file_handler.setFormatter(SecurityAwareJsonFormatter())
                 except Exception:
                     # Fall back to standard formatter
                     file_formatter = logging.Formatter(log_format)
@@ -405,7 +519,7 @@ def setup_logging(level: Union[str, int] = logging.INFO,
 
             # Secure the log file with appropriate permissions
             try:
-                os.chmod(log_file, 0o640)
+                os.chmod(log_file, LOG_FILE_PERMS)
             except (OSError, PermissionError):
                 pass
 
@@ -422,6 +536,13 @@ def setup_logging(level: Union[str, int] = logging.INFO,
     if not security_logger.handlers:
         for handler in root_logger.handlers:
             security_logger.addHandler(handler)
+
+    # Create and attach a file integrity handler
+    file_integrity_handler = FileIntegrityAwareHandler(log_level)
+    security_logger.addHandler(file_integrity_handler)
+
+    # Allow access to the file integrity handler
+    setattr(root_logger, 'file_integrity_handler', file_integrity_handler)
 
     # Log initialization at debug level
     if log_level <= logging.DEBUG:
@@ -494,28 +615,20 @@ def setup_cli_logging(log_file: Optional[str] = None,
             # Create directory if it doesn't exist
             log_dir = os.path.dirname(log_file)
             if log_dir and not os.path.exists(log_dir):
-                os.makedirs(log_dir, exist_ok=True)
+                os.makedirs(log_dir, mode=LOG_DIR_PERMS, exist_ok=True)
 
-            # Set secure permissions on log directory
-            if log_dir:
-                try:
-                    os.chmod(log_dir, 0o750)
-                except (OSError, PermissionError):
-                    pass
-
-            # Create the file handler with rotation
-            from logging.handlers import RotatingFileHandler
-            file_handler = RotatingFileHandler(
-                log_file, maxBytes=5*1024*1024, backupCount=5
+            # Create rotating file handler with secure permissions
+            file_handler = logging.handlers.RotatingFileHandler(
+                log_file,
+                maxBytes=DEFAULT_LOG_ROTATION_SIZE,
+                backupCount=DEFAULT_BACKUP_COUNT
             )
 
             # Use JSON formatting or standard formatting
             if json_format:
                 try:
-                    # Try to use the platform's JSON formatter if available
-                    from core.utils.json_log_formatter import JsonFormatter
-                    file_handler.setFormatter(JsonFormatter())
-                except ImportError:
+                    file_handler.setFormatter(SecurityAwareJsonFormatter())
+                except Exception:
                     # Fall back to standard formatter
                     file_formatter = logging.Formatter(DEFAULT_LOG_FORMAT)
                     file_handler.setFormatter(file_formatter)
@@ -528,7 +641,7 @@ def setup_cli_logging(log_file: Optional[str] = None,
 
             # Secure the log file with appropriate permissions
             try:
-                os.chmod(log_file, 0o640)
+                os.chmod(log_file, LOG_FILE_PERMS)
             except (OSError, PermissionError):
                 pass
 
@@ -540,184 +653,18 @@ def setup_cli_logging(log_file: Optional[str] = None,
     cli_logger = logging.getLogger('cli')
     cli_logger.setLevel(log_level)
 
+    # Set up security logger too with a file integrity handler
+    security_logger = logging.getLogger('security')
+    security_logger.setLevel(log_level)
+
+    # Create and attach a file integrity handler
+    file_integrity_handler = FileIntegrityAwareHandler(log_level)
+    security_logger.addHandler(file_integrity_handler)
+    setattr(root_logger, 'file_integrity_handler', file_integrity_handler)
+
     # Report setup completion if debug level
     if log_level <= logging.DEBUG:
         root_logger.debug(f"CLI logging initialized (level: {logging.getLevelName(log_level)}, file: {log_file or 'none'})")
-
-
-def get_logger(module_name: str, level: Union[str, int] = None) -> logging.Logger:
-    """
-    Get a logger instance with proper configuration for a module.
-
-    Creates or retrieves a logger for a specific module with appropriate
-    configuration to ensure consistent logging behavior.
-
-    Args:
-        module_name: Name of the module requesting a logger
-        level: Optional specific log level for this logger
-
-    Returns:
-        Configured logger instance
-    """
-    logger = logging.getLogger(module_name)
-
-    # Set level if specified
-    if level is not None:
-        if isinstance(level, str):
-            level = getattr(logging, level.upper(), logging.INFO)
-        logger.setLevel(level)
-
-    return logger
-
-
-def log_to_file(message: str,
-               level: Union[str, int] = logging.INFO,
-               log_file: str = None,
-               include_timestamp: bool = True) -> bool:
-    """
-    Log a message to a specific file.
-
-    Directly writes a log message to a specified file without going through
-    the logging system. Useful for dedicated logs like audit logs.
-
-    Args:
-        message: The message to log
-        level: The log level (name or numeric constant)
-        log_file: Path to the log file
-        include_timestamp: Whether to include timestamp in the message
-
-    Returns:
-        True if successful, False otherwise
-    """
-    if not log_file:
-        return False
-
-    try:
-        # Create directory if it doesn't exist
-        log_dir = os.path.dirname(log_file)
-        if log_dir and not os.path.exists(log_dir):
-            os.makedirs(log_dir, exist_ok=True)
-
-        # Format the level if it's a number
-        if isinstance(level, int):
-            level_name = logging.getLevelName(level)
-        else:
-            level_name = level.upper()
-
-        # Format the message with timestamp if requested
-        if include_timestamp:
-            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            formatted_message = f"[{timestamp}] {level_name}: {message}\n"
-        else:
-            formatted_message = f"{level_name}: {message}\n"
-
-        # Write to file
-        with open(log_file, 'a') as f:
-            f.write(formatted_message)
-
-        return True
-    except Exception as e:
-        # Log to standard logger if file logging fails
-        logger.error(f"Failed to log to file {log_file}: {e}")
-        return False
-
-
-def sanitize_log_message(message: str) -> str:
-    """
-    Sanitize a message before logging to prevent log injection.
-
-    Removes potentially dangerous characters from log messages that could be used
-    for log injection attacks.
-
-    Args:
-        message: The message to sanitize
-
-    Returns:
-        Sanitized message string
-    """
-    # Replace newlines and carriage returns with spaces
-    sanitized = message.replace("\n", " ").replace("\r", " ")
-
-    # Filter out control characters
-    sanitized = "".join(ch for ch in sanitized if ch >= ' ' or ch in ['\t'])
-
-    # Truncate very long messages
-    if len(sanitized) > 8192:
-        sanitized = sanitized[:8189] + "..."
-
-    return sanitized
-
-
-def obfuscate_sensitive_data(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Mask sensitive data in dictionary for safe logging.
-
-    Args:
-        data: Dictionary potentially containing sensitive data
-
-    Returns:
-        Dictionary with sensitive values masked
-    """
-    if not isinstance(data, dict):
-        return data
-
-    sensitive_patterns = [
-        "password", "secret", "token", "key", "credential",
-        "api_key", "private", "access_key", "secret_key"
-    ]
-
-    masked_data = {}
-    for key, value in data.items():
-        if any(pattern in key.lower() for pattern in sensitive_patterns):
-            masked_data[key] = "******" if value else value
-        elif isinstance(value, dict):
-            masked_data[key] = obfuscate_sensitive_data(value)
-        elif isinstance(value, list) and all(isinstance(item, dict) for item in value):
-            masked_data[key] = [obfuscate_sensitive_data(item) for item in value]
-        else:
-            masked_data[key] = value
-
-    return masked_data
-
-
-def log_critical(message: str) -> None:
-    """Log a critical message using the appropriate logger."""
-    if has_app_context():
-        current_app.logger.critical(message)
-    else:
-        logger.critical(message)
-
-
-def log_error(message: str) -> None:
-    """Log an error message using the appropriate logger."""
-    if has_app_context():
-        current_app.logger.error(message)
-    else:
-        logger.error(message)
-
-
-def log_warning(message: str) -> None:
-    """Log a warning message using the appropriate logger."""
-    if has_app_context():
-        current_app.logger.warning(message)
-    else:
-        logger.warning(message)
-
-
-def log_info(message: str) -> None:
-    """Log an info message using the appropriate logger."""
-    if has_app_context():
-        current_app.logger.info(message)
-    else:
-        logger.info(message)
-
-
-def log_debug(message: str) -> None:
-    """Log a debug message using the appropriate logger."""
-    if has_app_context():
-        current_app.logger.debug(message)
-    else:
-        logger.debug(message)
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -765,6 +712,172 @@ def get_logger(name: str) -> logging.Logger:
     return logger
 
 
+def log_to_file(message: str,
+               level: Union[str, int] = logging.INFO,
+               log_file: str = None,
+               include_timestamp: bool = True) -> bool:
+    """
+    Log a message to a specific file.
+
+    Directly writes a log message to a specified file without going through
+    the logging system. Useful for dedicated logs like audit logs.
+
+    Args:
+        message: The message to log
+        level: The log level (name or numeric constant)
+        log_file: Path to the log file
+        include_timestamp: Whether to include timestamp in the message
+
+    Returns:
+        True if successful, False otherwise
+    """
+    if not log_file:
+        return False
+
+    try:
+        # Create directory if it doesn't exist
+        log_dir = os.path.dirname(log_file)
+        if log_dir and not os.path.exists(log_dir):
+            os.makedirs(log_dir, mode=LOG_DIR_PERMS, exist_ok=True)
+            # Set secure permissions on directory
+            try:
+                os.chmod(log_dir, LOG_DIR_PERMS)
+            except (OSError, PermissionError):
+                pass
+
+        # Format the level if it's a number
+        if isinstance(level, int):
+            level_name = logging.getLevelName(level)
+        else:
+            level_name = level.upper()
+
+        # Format the message with timestamp if requested
+        if include_timestamp:
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            formatted_message = f"[{timestamp}] {level_name}: {message}\n"
+        else:
+            formatted_message = f"{level_name}: {message}\n"
+
+        # Write to file
+        with open(log_file, 'a') as f:
+            f.write(formatted_message)
+
+        # Set secure permissions on the log file
+        try:
+            os.chmod(log_file, LOG_FILE_PERMS)
+        except (OSError, PermissionError):
+            pass
+
+        return True
+    except Exception as e:
+        # Log to standard logger if file logging fails
+        logger.error(f"Failed to log to file {log_file}: {e}")
+        return False
+
+
+def sanitize_log_message(message: str) -> str:
+    """
+    Sanitize a message before logging to prevent log injection.
+
+    Removes potentially dangerous characters from log messages that could be used
+    for log injection attacks.
+
+    Args:
+        message: The message to sanitize
+
+    Returns:
+        Sanitized message string
+    """
+    # Replace newlines and carriage returns with spaces
+    sanitized = message.replace("\n", " ").replace("\r", " ")
+
+    # Filter out control characters
+    sanitized = "".join(ch for ch in sanitized if ch >= ' ' or ch in ['\t'])
+
+    # Truncate very long messages
+    if len(sanitized) > 8192:
+        sanitized = sanitized[:8189] + "..."
+
+    return sanitized
+
+
+def obfuscate_sensitive_data(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Mask sensitive data in dictionary for safe logging.
+
+    Args:
+        data: Dictionary potentially containing sensitive data
+
+    Returns:
+        Dictionary with sensitive values masked
+    """
+    if not isinstance(data, dict):
+        return data
+
+    masked_data = {}
+    for key, value in data.items():
+        # Check if this is a sensitive field using constants from core_utils_constants
+        key_lower = key.lower()
+        is_sensitive = any(pattern in key_lower for pattern in SENSITIVE_FIELDS)
+
+        if is_sensitive:
+            # Mask the value but preserve None values and empty strings
+            if value:
+                masked_data[key] = "******"
+            else:
+                masked_data[key] = value
+        elif isinstance(value, dict):
+            # Recursively mask nested dictionaries
+            masked_data[key] = obfuscate_sensitive_data(value)
+        elif isinstance(value, list) and all(isinstance(item, dict) for item in value):
+            # Mask dictionaries within lists
+            masked_data[key] = [obfuscate_sensitive_data(item) for item in value]
+        else:
+            masked_data[key] = value
+
+    return masked_data
+
+
+def log_critical(message: str) -> None:
+    """Log a critical message using the appropriate logger."""
+    if has_app_context():
+        current_app.logger.critical(message)
+    else:
+        logger.critical(message)
+
+
+def log_error(message: str) -> None:
+    """Log an error message using the appropriate logger."""
+    if has_app_context():
+        current_app.logger.error(message)
+    else:
+        logger.error(message)
+
+
+def log_warning(message: str) -> None:
+    """Log a warning message using the appropriate logger."""
+    if has_app_context():
+        current_app.logger.warning(message)
+    else:
+        logger.warning(message)
+
+
+def log_info(message: str) -> None:
+    """Log an info message using the appropriate logger."""
+    if has_app_context():
+        current_app.logger.info(message)
+    else:
+        logger.info(message)
+
+
+def log_debug(message: str) -> None:
+    """Log a debug message using the appropriate logger."""
+    if has_app_context():
+        current_app.logger.debug(message)
+    else:
+        logger.debug(message)
+
+
 def get_security_logger() -> logging.Logger:
     """
     Get the security logger instance.
@@ -799,15 +912,17 @@ def get_audit_logger() -> logging.Logger:
             try:
                 # Ensure directory exists
                 if not os.path.exists(log_dir):
-                    os.makedirs(log_dir, exist_ok=True)
+                    os.makedirs(log_dir, mode=LOG_DIR_PERMS, exist_ok=True)
                     try:
-                        os.chmod(log_dir, 0o750)
+                        os.chmod(log_dir, LOG_DIR_PERMS)
                     except (OSError, PermissionError):
                         pass
 
                 # Create rotating file handler for audit log
                 audit_handler = logging.handlers.RotatingFileHandler(
-                    audit_log_path, maxBytes=10*1024*1024, backupCount=20
+                    audit_log_path,
+                    maxBytes=DEFAULT_LOG_ROTATION_SIZE,
+                    backupCount=DEFAULT_BACKUP_COUNT
                 )
                 audit_handler.setFormatter(SecurityAwareJsonFormatter())
                 audit_handler.setLevel(logging.INFO)
@@ -815,7 +930,7 @@ def get_audit_logger() -> logging.Logger:
 
                 # Set secure permissions on the log file
                 try:
-                    os.chmod(audit_log_path, 0o640)
+                    os.chmod(audit_log_path, LOG_FILE_PERMS)
                 except (OSError, PermissionError):
                     pass
 
@@ -827,18 +942,41 @@ def get_audit_logger() -> logging.Logger:
     return audit_logger
 
 
-def get_file_integrity_events(limit: int = 10) -> List[Dict[str, Any]]:
+def get_file_integrity_events(limit: int = 10,
+                             status_filter: str = None,
+                             severity_filter: str = None) -> List[Dict[str, Any]]:
     """
     Get recent file integrity events from the logging system.
 
     Args:
         limit: Maximum number of events to return
+        status_filter: Optional filter for event status
+        severity_filter: Optional filter for event severity
 
     Returns:
         List of file integrity events with timestamps and details
     """
-    if has_app_context() and hasattr(current_app, 'file_integrity_handler'):
-        return current_app.file_integrity_handler.get_recent_events(limit)
+    # First check for app context with file integrity handler
+    if has_app_context():
+        # Check if we have a handler attached to the app
+        if hasattr(current_app, 'file_integrity_handler'):
+            return current_app.file_integrity_handler.get_recent_events(
+                limit, status_filter, severity_filter
+            )
+        # Check if it's attached to the logger
+        root_logger = logging.getLogger()
+        if hasattr(root_logger, 'file_integrity_handler'):
+            return root_logger.file_integrity_handler.get_recent_events(
+                limit, status_filter, severity_filter
+            )
+
+    # Check if the security logger has a file integrity handler attached
+    security_logger = get_security_logger()
+    for handler in security_logger.handlers:
+        if isinstance(handler, FileIntegrityAwareHandler):
+            return handler.get_recent_events(limit, status_filter, severity_filter)
+
+    # No events found
     return []
 
 
@@ -905,6 +1043,13 @@ def log_security_event(
     if event_type == 'file_integrity':
         extra_data['file_integrity'] = True
 
+        # Extract file path and status from details if available
+        if isinstance(normalized_details, dict):
+            if 'path' in normalized_details:
+                extra_data['file_path'] = normalized_details['path']
+            if 'status' in normalized_details:
+                extra_data['file_status'] = normalized_details['status']
+
     # Log the event with all the extra context
     logger.log(log_level, description, extra=extra_data)
 
@@ -940,16 +1085,17 @@ def log_file_integrity_event(
         details: Additional details about the event
         user_id: User ID if available (for tracking who made changes)
     """
-    # Format description based on status
-    descriptions = {
-        'modified': f"File modified: {os.path.basename(file_path)}",
-        'missing': f"File missing: {os.path.basename(file_path)}",
-        'permission_changed': f"File permissions changed: {os.path.basename(file_path)}",
-        'new': f"New file detected: {os.path.basename(file_path)}",
+    # Format description based on status using standard messages from constants
+    status_description_map = {
+        INTEGRITY_EVENT_FILE_CHANGED: f"File modified: {os.path.basename(file_path)}",
+        INTEGRITY_EVENT_FILE_MISSING: f"File missing: {os.path.basename(file_path)}",
+        INTEGRITY_EVENT_PERMISSION_CHANGED: f"File permissions changed: {os.path.basename(file_path)}",
+        INTEGRITY_EVENT_NEW_FILE: f"New file detected: {os.path.basename(file_path)}",
         'suspicious': f"Suspicious file detected: {os.path.basename(file_path)}",
         'unexpected_owner': f"Unexpected file owner: {os.path.basename(file_path)}",
     }
-    description = descriptions.get(status, f"File integrity issue: {file_path} ({status})")
+
+    description = status_description_map.get(status, f"File integrity issue: {os.path.basename(file_path)} ({status})")
 
     # Build comprehensive details
     event_details = details or {}
@@ -959,6 +1105,9 @@ def log_file_integrity_event(
         'severity': severity,
         'timestamp': datetime.now(timezone.utc).isoformat()
     })
+
+    # Add the file's directory for easier filtering/grouping
+    event_details['directory'] = os.path.dirname(file_path)
 
     # Log through main security event logger
     log_security_event(
@@ -997,7 +1146,7 @@ def _record_to_audit_log(
     """
     try:
         # Import here to avoid circular imports
-        from models.audit_log import AuditLog
+        from models.security import AuditLog
         from extensions import db
 
         # Check if Redis fallback is needed due to database issues
@@ -1046,6 +1195,9 @@ def _record_to_audit_log(
         db.session.add(log_entry)
         db.session.commit()
 
+    except ImportError:
+        # Modules not available (common during startup or in standalone scripts)
+        logger.warning("AuditLog model not available for security event logging")
     except Exception as e:
         # Use Redis-based fallback if available
         if use_redis_fallback:
@@ -1133,7 +1285,7 @@ def _store_audit_event_in_redis(
         return False
 
 
-def _normalize_log_details(details: Optional[Union[Dict[str, Any], str]]) -> Optional[str]:
+def _normalize_log_details(details: Optional[Union[Dict[str, Any], str]]) -> Optional[Union[Dict[str, Any], str]]:
     """
     Normalize log details to ensure they are in a consistent format.
 
@@ -1141,7 +1293,7 @@ def _normalize_log_details(details: Optional[Union[Dict[str, Any], str]]) -> Opt
         details: Details to normalize, can be dict or JSON string
 
     Returns:
-        Normalized details as a JSON string or None
+        Normalized details as a dict, JSON string or None
     """
     if details is None:
         return None
@@ -1149,18 +1301,20 @@ def _normalize_log_details(details: Optional[Union[Dict[str, Any], str]]) -> Opt
     if isinstance(details, str):
         # Check if it's already valid JSON
         try:
-            json.loads(details)
-            return details
+            parsed_details = json.loads(details)
+            # Return the parsed dict for better handling
+            return parsed_details
         except (TypeError, ValueError):
             # Not valid JSON, convert to JSON string
-            return json.dumps({'message': details})
+            return {'message': details}
 
     # Convert dict to JSON string
     try:
-        return json.dumps(details, default=str)
+        # Just return the dict - we'll convert to JSON later if needed
+        return details
     except (TypeError, ValueError):
         # Fallback for non-serializable objects
-        return json.dumps({'error': 'Unserializable details'})
+        return {'error': 'Unserializable details'}
 
 
 # Initialize module-level loggers
@@ -1172,12 +1326,23 @@ def initialize_module_logging():
     ))
 
     module_logger = logging.getLogger(__name__)
-    module_logger.addHandler(handler)
-    module_logger.setLevel(logging.INFO)
+    if not module_logger.handlers:
+        module_logger.addHandler(handler)
+        module_logger.setLevel(logging.INFO)
 
     security_logger = logging.getLogger('security')
-    security_logger.addHandler(handler)
-    security_logger.setLevel(logging.INFO)
+    if not security_logger.handlers:
+        security_handler = logging.StreamHandler()
+        security_handler.setFormatter(logging.Formatter(SECURITY_LOG_FORMAT))
+        security_logger.addHandler(security_handler)
+        security_logger.setLevel(logging.INFO)
+
+        # Add file integrity handler
+        file_integrity_handler = FileIntegrityAwareHandler()
+        security_logger.addHandler(file_integrity_handler)
+
+        # Make the file integrity handler accessible
+        setattr(logging.getLogger(), 'file_integrity_handler', file_integrity_handler)
 
 
 # Initialize module logging if not in app context
