@@ -32,8 +32,11 @@ from .schemas import (
     alert_create_schema,
     alert_update_schema,
     alert_filter_schema,
-    alert_statistics_schema
+    alert_statistics_schema,
+    alert_sla_schema,
+    alert_sla_response_schema
 )
+from .helpers import check_sla_compliance, update_sla_compliance_history
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -389,6 +392,10 @@ def acknowledge_alert(alert_id):
             }
         )
 
+        # Check and update SLA compliance after status change
+        sla_compliance = check_sla_compliance(alert, check_type='both')
+        update_sla_compliance_history(alert, sla_compliance)
+
         logger.info(f"Alert acknowledged: ID {alert_id}")
 
         return jsonify(alert_schema.dump(alert)), 200
@@ -451,6 +458,10 @@ def resolve_alert(alert_id):
             }
         )
 
+        # Check and update SLA compliance after status change
+        sla_compliance = check_sla_compliance(alert, check_type='both')
+        update_sla_compliance_history(alert, sla_compliance)
+
         logger.info(f"Alert resolved: ID {alert_id}")
 
         return jsonify(alert_schema.dump(alert)), 200
@@ -460,6 +471,234 @@ def resolve_alert(alert_id):
         return handle_error(e, "Database error resolving alert", 500)
     except Exception as e:
         return handle_error(e, f"Failed to resolve alert {alert_id}", 500)
+
+
+@alerts_api.route('/<int:alert_id>/sla', methods=['GET'])
+@require_permission('alerts:read')
+@limiter.limit("30/minute")
+def check_alert_sla(alert_id):
+    """
+    Check SLA compliance for a specific alert.
+
+    Args:
+        alert_id: ID of the alert to check
+
+    Query Parameters:
+        check_type (str): Type of SLA check to perform (acknowledgement, resolution, both)
+        include_history (bool): Whether to include historical compliance data
+
+    Returns:
+        JSON: SLA compliance information
+    """
+    try:
+        alert = Alert.query.get(alert_id)
+        if not alert:
+            return jsonify({"error": "Alert not found"}), 404
+
+        # Parse query parameters
+        check_type = request.args.get('check_type', 'both')
+        if check_type not in ['acknowledgement', 'resolution', 'both']:
+            check_type = 'both'
+
+        include_history = request.args.get('include_history', '').lower() == 'true'
+
+        # Calculate SLA compliance
+        compliance_data = check_sla_compliance(
+            alert,
+            check_type=check_type,
+            custom_sla_hours=None  # Use system defaults
+        )
+
+        # Format response using schema
+        result = {
+            'alert_id': alert.id,
+            'severity': alert.severity,
+            'status': alert.status,
+            'created_at': alert.created_at.isoformat(),
+            'acknowledged_at': alert.acknowledged_at.isoformat() if alert.acknowledged_at else None,
+            'resolved_at': alert.resolved_at.isoformat() if alert.resolved_at else None,
+            'sla_met': compliance_data.get('sla_met', False),
+            'compliance': compliance_data.get('compliance', {}),
+            'overall_health': compliance_data.get('overall_health', 0)
+        }
+
+        # Include history if requested and available
+        if include_history and 'history' in compliance_data:
+            result['history'] = compliance_data['history']
+
+        # Log the event (lower level than security events)
+        logger.info(f"SLA compliance checked for alert {alert_id}: {result['sla_met']}")
+
+        return jsonify(result), 200
+
+    except SQLAlchemyError as e:
+        return handle_error(e, "Database error checking SLA compliance", 500)
+    except Exception as e:
+        return handle_error(e, f"Failed to check SLA compliance for alert {alert_id}", 500)
+
+
+@alerts_api.route('/sla/report', methods=['POST'])
+@require_permission('alerts:read')
+@limiter.limit("10/minute")
+def get_sla_compliance_report():
+    """
+    Generate a comprehensive SLA compliance report across multiple alerts.
+
+    Request Body:
+        start_date (str, optional): Start date for report (ISO format)
+        end_date (str, optional): End date for report (ISO format)
+        environment (str, optional): Filter by environment
+        service_name (str, optional): Filter by service name
+        severity (str, optional): Filter by severity
+
+    Returns:
+        JSON: SLA compliance report with statistics
+    """
+    try:
+        # Parse request parameters
+        data = request.get_json() or {}
+
+        # Validate date inputs if provided
+        start_date = None
+        end_date = None
+
+        if 'start_date' in data:
+            try:
+                start_date = datetime.fromisoformat(data['start_date'].replace('Z', '+00:00'))
+            except ValueError:
+                return jsonify({"error": "Invalid start_date format. Use ISO format (YYYY-MM-DDTHH:MM:SS)."}), 400
+
+        if 'end_date' in data:
+            try:
+                end_date = datetime.fromisoformat(data['end_date'].replace('Z', '+00:00'))
+            except ValueError:
+                return jsonify({"error": "Invalid end_date format. Use ISO format (YYYY-MM-DDTHH:MM:SS)."}), 400
+
+        # Set default date range if not provided (last 30 days)
+        if end_date is None:
+            end_date = datetime.utcnow()
+        if start_date is None:
+            start_date = end_date - timedelta(days=30)
+
+        # Build query with filters
+        query = Alert.query.filter(
+            Alert.created_at >= start_date,
+            Alert.created_at <= end_date
+        )
+
+        # Apply additional filters
+        if data.get('environment'):
+            query = query.filter(Alert.environment == data['environment'])
+        if data.get('service_name'):
+            query = query.filter(Alert.service_name == data['service_name'])
+        if data.get('severity'):
+            query = query.filter(Alert.severity == data['severity'])
+
+        # Execute query
+        alerts = query.all()
+
+        # Initialize metrics
+        total_count = len(alerts)
+        acknowledged_count = 0
+        resolved_count = 0
+        sla_met_count = 0
+        sla_missed_count = 0
+        avg_acknowledgement_time = 0
+        avg_resolution_time = 0
+
+        # Collect alert-specific compliance data and calculate metrics
+        compliance_details = []
+        total_ack_time = 0
+        total_resolve_time = 0
+
+        for alert in alerts:
+            # Skip alerts with no meaningful SLA data
+            if not alert.created_at:
+                continue
+
+            # Check SLA compliance
+            compliance_data = check_sla_compliance(alert, check_type='both')
+
+            # Collect details for each alert
+            detail = {
+                'alert_id': alert.id,
+                'severity': alert.severity,
+                'service_name': alert.service_name,
+                'created_at': alert.created_at.isoformat(),
+                'status': alert.status,
+                'sla_met': compliance_data.get('sla_met', False)
+            }
+
+            # Track metrics
+            if compliance_data.get('sla_met', False):
+                sla_met_count += 1
+            else:
+                sla_missed_count += 1
+
+            if alert.status in ('acknowledged', 'resolved'):
+                acknowledged_count += 1
+
+            if alert.status == 'resolved':
+                resolved_count += 1
+
+            # Track acknowledgement time
+            if alert.acknowledged_at:
+                ack_time_seconds = (alert.acknowledged_at - alert.created_at).total_seconds()
+                detail['acknowledgement_time_seconds'] = ack_time_seconds
+                total_ack_time += ack_time_seconds
+
+            # Track resolution time
+            if alert.resolved_at:
+                resolve_time_seconds = (alert.resolved_at - alert.created_at).total_seconds()
+                detail['resolution_time_seconds'] = resolve_time_seconds
+                total_resolve_time += resolve_time_seconds
+
+            compliance_details.append(detail)
+
+        # Calculate averages
+        if acknowledged_count > 0:
+            avg_acknowledgement_time = total_ack_time / acknowledged_count
+
+        if resolved_count > 0:
+            avg_resolution_time = total_resolve_time / resolved_count
+
+        # Prepare response
+        result = {
+            'period': {
+                'start_date': start_date.isoformat(),
+                'end_date': end_date.isoformat(),
+                'days': (end_date - start_date).days
+            },
+            'metrics': {
+                'total_alerts': total_count,
+                'acknowledged_alerts': acknowledged_count,
+                'resolved_alerts': resolved_count,
+                'sla_met_count': sla_met_count,
+                'sla_missed_count': sla_missed_count,
+                'sla_compliance_rate': round(sla_met_count / total_count, 4) if total_count > 0 else 0,
+                'avg_acknowledgement_time_seconds': round(avg_acknowledgement_time, 2),
+                'avg_resolution_time_seconds': round(avg_resolution_time, 2)
+            },
+            'filters': {
+                'environment': data.get('environment'),
+                'service_name': data.get('service_name'),
+                'severity': data.get('severity')
+            }
+        }
+
+        # Include individual alert details if requested and not too many
+        if data.get('include_details', False) and total_count <= 1000:
+            result['alerts'] = compliance_details
+
+        # Log the event
+        logger.info(f"SLA compliance report generated: {total_count} alerts analyzed")
+
+        return jsonify(result), 200
+
+    except SQLAlchemyError as e:
+        return handle_error(e, "Database error generating SLA compliance report", 500)
+    except Exception as e:
+        return handle_error(e, "Failed to generate SLA compliance report", 500)
 
 
 @alerts_api.route('/statistics', methods=['GET'])
@@ -564,14 +803,27 @@ def get_alert_statistics():
             resolve_time_query = resolve_time_query.filter(Alert.environment == environment)
         avg_time_to_resolve = resolve_time_query.scalar() or 0
 
+        # Calculate SLA compliance rates
+        total_alerts = query.count()
+        compliant_alerts = 0
+
+        for alert in query.all():
+            compliance_data = check_sla_compliance(alert, check_type='both')
+            if compliance_data.get('sla_met', False):
+                compliant_alerts += 1
+
+        sla_compliance_rate = round(compliant_alerts / total_alerts, 4) if total_alerts > 0 else 0
+
         # Prepare statistics response
         statistics = {
-            'total_alerts': query.count(),
+            'total_alerts': total_alerts,
             'by_severity': {severity: count for severity, count in severity_stats},
             'by_status': {status: count for status, count in status_stats},
             'by_service': {service: count for service, count in service_stats},
             'avg_time_to_acknowledge': avg_time_to_ack,  # in seconds
             'avg_time_to_resolve': avg_time_to_resolve,  # in seconds
+            'sla_compliance_rate': sla_compliance_rate,
+            'sla_compliant_alerts': compliant_alerts,
             'time_period': {
                 'days': days,
                 'start_date': start_date.isoformat(),

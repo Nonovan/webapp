@@ -265,6 +265,139 @@ def check_alert_sla(alert: Alert) -> Dict[str, Any]:
     }
 
 
+def check_sla_compliance(alert: Alert, check_type: str = 'both',
+                        custom_sla_hours: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
+    """
+    Perform comprehensive SLA compliance check for an alert with detailed metrics.
+
+    This function evaluates if an alert has been acknowledged and/or resolved within
+    the required SLA time frames based on severity. It supports different check types
+    and custom SLA definitions.
+
+    Args:
+        alert: Alert to check for SLA compliance
+        check_type: Type of SLA check ('acknowledgement', 'resolution', or 'both')
+        custom_sla_hours: Optional custom SLA hours that override system defaults
+
+    Returns:
+        Dictionary with comprehensive SLA compliance information, including:
+        - Deadlines for acknowledgement and resolution
+        - Time metrics (elapsed time, remaining time)
+        - Compliance status for both acknowledgement and resolution
+        - Historical compliance data
+    """
+    # Get configured SLA response times or use defaults
+    system_sla_hours = current_app.config.get('INCIDENT_SLA_HOURS', ESCALATION_THRESHOLDS)
+
+    # Use custom SLAs if provided, otherwise use system defaults
+    sla_hours = custom_sla_hours or system_sla_hours
+
+    # Get specific SLA for this alert's severity
+    severity = alert.severity.lower()
+    hours_to_respond = sla_hours.get(severity, ESCALATION_THRESHOLDS[severity])
+
+    # Base response with alert info
+    now = datetime.utcnow()
+    response = {
+        'alert_id': alert.id,
+        'severity': alert.severity,
+        'status': alert.status,
+        'created_at': alert.created_at.isoformat(),
+        'acknowledged_at': alert.acknowledged_at.isoformat() if alert.acknowledged_at else None,
+        'resolved_at': alert.resolved_at.isoformat() if alert.resolved_at else None,
+        'sla_hours': hours_to_respond,
+        'compliance': {}
+    }
+
+    # Calculate acknowledgement SLA metrics if requested
+    if check_type in ('acknowledgement', 'both'):
+        ack_deadline = alert.created_at + timedelta(hours=hours_to_respond)
+        response['compliance']['acknowledgement'] = {
+            'deadline': ack_deadline.isoformat(),
+        }
+
+        # If alert has been acknowledged, calculate actual time taken
+        if alert.acknowledged_at:
+            time_to_ack_seconds = (alert.acknowledged_at - alert.created_at).total_seconds()
+            time_to_ack_hours = time_to_ack_seconds / 3600
+            response['compliance']['acknowledgement'].update({
+                'time_taken_seconds': int(time_to_ack_seconds),
+                'time_taken_hours': round(time_to_ack_hours, 2),
+                'sla_met': time_to_ack_hours <= hours_to_respond,
+                'overdue': time_to_ack_hours > hours_to_respond,
+                'overdue_by_hours': round(time_to_ack_hours - hours_to_respond, 2) if time_to_ack_hours > hours_to_respond else 0
+            })
+        # If alert is still active, calculate remaining time
+        elif alert.status == 'active':
+            time_remaining = (ack_deadline - now).total_seconds()
+            response['compliance']['acknowledgement'].update({
+                'time_remaining_seconds': int(time_remaining),
+                'time_remaining_hours': round(time_remaining / 3600, 2),
+                'sla_met': time_remaining > 0,
+                'overdue': time_remaining < 0,
+                'overdue_by_hours': round(abs(time_remaining) / 3600, 2) if time_remaining < 0 else 0
+            })
+        # Alert is in an invalid state for acknowledgement SLA checking
+        else:
+            response['compliance']['acknowledgement'].update({
+                'sla_met': False,
+                'error': "Alert is not active but hasn't been acknowledged"
+            })
+
+    # Calculate resolution SLA metrics if requested
+    if check_type in ('resolution', 'both'):
+        # For resolution, we typically allow more time than acknowledgement
+        resolution_multiplier = current_app.config.get('RESOLUTION_SLA_MULTIPLIER', 2.0)
+        resolution_hours = hours_to_respond * resolution_multiplier
+
+        res_deadline = alert.created_at + timedelta(hours=resolution_hours)
+        response['compliance']['resolution'] = {
+            'deadline': res_deadline.isoformat(),
+            'sla_hours': resolution_hours
+        }
+
+        # If alert has been resolved, calculate actual time taken
+        if alert.resolved_at:
+            time_to_resolve_seconds = (alert.resolved_at - alert.created_at).total_seconds()
+            time_to_resolve_hours = time_to_resolve_seconds / 3600
+            response['compliance']['resolution'].update({
+                'time_taken_seconds': int(time_to_resolve_seconds),
+                'time_taken_hours': round(time_to_resolve_hours, 2),
+                'sla_met': time_to_resolve_hours <= resolution_hours,
+                'overdue': time_to_resolve_hours > resolution_hours,
+                'overdue_by_hours': round(time_to_resolve_hours - resolution_hours, 2) if time_to_resolve_hours > resolution_hours else 0
+            })
+        # If alert is still open (active or acknowledged), calculate remaining time
+        elif alert.status in ('active', 'acknowledged'):
+            time_remaining = (res_deadline - now).total_seconds()
+            response['compliance']['resolution'].update({
+                'time_remaining_seconds': int(time_remaining),
+                'time_remaining_hours': round(time_remaining / 3600, 2),
+                'sla_met': time_remaining > 0,
+                'overdue': time_remaining < 0,
+                'overdue_by_hours': round(abs(time_remaining) / 3600, 2) if time_remaining < 0 else 0
+            })
+
+    # Determine overall SLA compliance based on check type
+    if check_type == 'both':
+        ack_met = response['compliance'].get('acknowledgement', {}).get('sla_met', False)
+        res_met = response['compliance'].get('resolution', {}).get('sla_met', False)
+        response['sla_met'] = ack_met and res_met
+    elif check_type == 'acknowledgement':
+        response['sla_met'] = response['compliance'].get('acknowledgement', {}).get('sla_met', False)
+    else:  # resolution
+        response['sla_met'] = response['compliance'].get('resolution', {}).get('sla_met', False)
+
+    # Calculate overall compliance metrics
+    response['overall_health'] = _calculate_sla_health_score(response)
+
+    # Add SLA history if available in alert.details
+    if alert.details and 'sla_history' in alert.details:
+        response['history'] = alert.details['sla_history']
+
+    return response
+
+
 def should_auto_escalate(alert: Alert) -> bool:
     """
     Determine if an alert should be auto-escalated based on time thresholds.
@@ -384,6 +517,62 @@ def log_alert_action(alert: Alert, action: str, details: Optional[Dict[str, Any]
     logger.info(f"Alert {action}: ID {alert.id}")
 
 
+def update_sla_compliance_history(alert: Alert, compliance_data: Dict[str, Any]) -> bool:
+    """
+    Update an alert with SLA compliance history.
+
+    Args:
+        alert: Alert to update
+        compliance_data: The compliance data to record
+
+    Returns:
+        Boolean indicating if the update was successful
+    """
+    try:
+        # Get current details or initialize empty dict
+        details = alert.details or {}
+
+        # Initialize SLA history if not present
+        if 'sla_history' not in details:
+            details['sla_history'] = []
+
+        # Create a history entry with timestamp
+        history_entry = {
+            'timestamp': datetime.utcnow().isoformat(),
+            'status': alert.status,
+            'sla_met': compliance_data.get('sla_met', False),
+            'check_type': compliance_data.get('check_type', 'both'),
+            'user_id': g.get('user_id', 'system')
+        }
+
+        # Add compliance details
+        if 'compliance' in compliance_data:
+            for check_type, check_data in compliance_data['compliance'].items():
+                history_entry[check_type] = {
+                    'sla_met': check_data.get('sla_met', False),
+                    'overdue': check_data.get('overdue', False),
+                    'overdue_by_hours': check_data.get('overdue_by_hours', 0)
+                }
+
+        # Append to history and limit to 20 entries
+        details['sla_history'].append(history_entry)
+        details['sla_history'] = details['sla_history'][-20:]
+
+        # Update alert with latest compliance status
+        details['last_sla_check'] = {
+            'timestamp': datetime.utcnow().isoformat(),
+            'sla_met': compliance_data.get('sla_met', False),
+            'overall_health': compliance_data.get('overall_health', 0)
+        }
+
+        # Update the alert details
+        return alert.update_details(details)
+
+    except Exception as e:
+        logger.error(f"Error updating SLA compliance history for alert {alert.id}: {str(e)}")
+        return False
+
+
 def sanitize_alert_message(message: str) -> str:
     """
     Sanitize an alert message to prevent potential XSS attacks.
@@ -440,6 +629,44 @@ def validate_alert_details(details: Dict[str, Any]) -> Tuple[bool, Optional[str]
         return False, str(e)
 
     return True, None
+
+
+def _calculate_sla_health_score(compliance_data: Dict[str, Any]) -> float:
+    """
+    Calculate an overall SLA health score from compliance data.
+
+    Args:
+        compliance_data: The SLA compliance data
+
+    Returns:
+        A score between 0.0 and 1.0 representing the overall SLA health
+    """
+    # Start with base score
+    score = 1.0
+
+    # Check acknowledgement compliance
+    if 'compliance' in compliance_data and 'acknowledgement' in compliance_data['compliance']:
+        ack_data = compliance_data['compliance']['acknowledgement']
+        if not ack_data.get('sla_met', True):
+            # Reduce score based on how overdue
+            overdue_hours = ack_data.get('overdue_by_hours', 0)
+            if overdue_hours > 0:
+                # More reduction for acknowledgement than resolution
+                reduction = min(0.6, overdue_hours * 0.1)
+                score -= reduction
+
+    # Check resolution compliance
+    if 'compliance' in compliance_data and 'resolution' in compliance_data['compliance']:
+        res_data = compliance_data['compliance']['resolution']
+        if not res_data.get('sla_met', True):
+            # Reduce score based on how overdue
+            overdue_hours = res_data.get('overdue_by_hours', 0)
+            if overdue_hours > 0:
+                reduction = min(0.4, overdue_hours * 0.05)
+                score -= reduction
+
+    # Ensure score is between 0 and 1
+    return max(0.0, min(1.0, score))
 
 
 def _check_nesting_depth(obj: Any, current_depth: int = 0, max_depth: int = 5) -> None:

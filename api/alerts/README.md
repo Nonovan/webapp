@@ -4,14 +4,14 @@ The Alerts API module provides RESTful endpoints for alert creation, management,
 
 ## Contents
 
-- Overview
-- Key Components
-- Directory Structure
-- API Endpoints
-- Configuration
-- Security Features
-- Usage Examples
-- Related Documentation
+- [Overview](#overview)
+- [Key Components](#key-components)
+- [Directory Structure](#directory-structure)
+- [API Endpoints](#api-endpoints)
+- [Configuration](#configuration)
+- [Security Features](#security-features)
+- [Usage Examples](#usage-examples)
+- [Related Documentation](#related-documentation)
 
 ## Overview
 
@@ -25,12 +25,14 @@ The Alerts API implements RESTful endpoints following security best practices in
   - Filtering and searching capabilities
   - Alert statistics and aggregation
   - Integration with notification systems
+  - SLA compliance monitoring and reporting
 
 - **`schemas.py`**: Defines data validation schemas for the alert API
   - Alert creation schema with required fields
   - Alert update schema for status changes
   - Filter parameters schema for search operations
   - Alert statistics request schema
+  - SLA compliance check schema
 
 - **`helpers.py`**: Alert-specific helper functions
   - Alert priority calculation
@@ -38,12 +40,14 @@ The Alerts API implements RESTful endpoints following security best practices in
   - Alert correlation algorithms
   - Resource group aggregation
   - Status transition validations
+  - SLA compliance checking and history tracking
 
 - **`__init__.py`**: Module initialization with metrics and event handlers
   - Blueprint registration with proper routes
   - Security metrics integration
   - Event handler registration
   - Rate limit configuration
+  - SLA compliance metrics
 
 ## Directory Structure
 
@@ -68,6 +72,8 @@ api/alerts/
 | `/api/alerts/{id}/resolve` | POST | Resolve an alert | 30/minute |
 | `/api/alerts/statistics` | GET | Get alert statistics | 20/minute |
 | `/api/alerts/service/{service_name}` | GET | Get alerts for a service | 60/minute |
+| `/api/alerts/{id}/sla` | GET | Check SLA compliance for an alert | 30/minute |
+| `/api/alerts/sla/report` | POST | Generate SLA compliance report | 10/minute |
 
 ## Configuration
 
@@ -81,10 +87,21 @@ The alerts system uses several configuration settings that can be adjusted in th
 'ALERT_SEVERITY_ESCALATION_HOURS': 2,    # Escalate unacknowledged critical alerts
 'MAX_ALERTS_PER_SERVICE': 100,           # Throttle excessive alerts from one service
 
+# SLA configuration
+'INCIDENT_SLA_HOURS': {                  # Response time SLAs by severity
+    'critical': 1,                       # 1 hour for critical alerts
+    'high': 4,                           # 4 hours for high severity alerts
+    'warning': 24,                       # 24 hours for warnings
+    'info': 72                           # 72 hours for informational alerts
+},
+'RESOLUTION_SLA_MULTIPLIER': 2.0,        # Resolution time = SLA hours * multiplier
+
 # Rate limiting settings
 'RATELIMIT_ALERT_LIST': "60 per minute",
 'RATELIMIT_ALERT_CREATE': "120 per minute",
 'RATELIMIT_ALERT_UPDATE': "30 per minute",
+'RATELIMIT_ALERT_SLA': "30 per minute",
+'RATELIMIT_ALERT_SLA_REPORT': "10 per minute",
 ```
 
 ## Security Features
@@ -97,6 +114,7 @@ The alerts system uses several configuration settings that can be adjusted in th
 - **Alert Throttling**: Prevents alert storms from overwhelming the system
 - **Alert Correlation**: Identifies related alerts to prevent duplication
 - **Data Sanitization**: Prevents XSS and injection in alert messages
+- **SLA Compliance**: Enforces proper response times based on alert severity
 
 ## Usage Examples
 
@@ -170,6 +188,119 @@ Response:
 }
 ```
 
+### Checking SLA Compliance
+
+```http
+GET /api/alerts/1234/sla?check_type=both&include_history=true
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+Response:
+
+```json
+{
+  "alert_id": 1234,
+  "severity": "high",
+  "status": "active",
+  "created_at": "2023-06-15T14:30:00Z",
+  "acknowledged_at": null,
+  "resolved_at": null,
+  "sla_met": true,
+  "compliance": {
+    "acknowledgement": {
+      "deadline": "2023-06-15T18:30:00Z",
+      "time_remaining_seconds": 7200,
+      "time_remaining_hours": 2.0,
+      "sla_met": true,
+      "overdue": false
+    },
+    "resolution": {
+      "deadline": "2023-06-15T22:30:00Z",
+      "sla_hours": 8.0,
+      "time_remaining_seconds": 21600,
+      "time_remaining_hours": 6.0,
+      "sla_met": true,
+      "overdue": false
+    }
+  },
+  "overall_health": 1.0,
+  "history": [
+    {
+      "timestamp": "2023-06-15T14:45:00Z",
+      "status": "active",
+      "sla_met": true,
+      "check_type": "both",
+      "acknowledgement": {
+        "sla_met": true,
+        "overdue": false,
+        "overdue_by_hours": 0
+      },
+      "resolution": {
+        "sla_met": true,
+        "overdue": false,
+        "overdue_by_hours": 0
+      }
+    }
+  ]
+}
+```
+
+### Generating SLA Compliance Report
+
+```http
+POST /api/alerts/sla/report
+Content-Type: application/json
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+{
+  "start_date": "2023-06-10T00:00:00Z",
+  "end_date": "2023-06-17T00:00:00Z",
+  "environment": "production",
+  "severity": "high",
+  "include_details": true
+}
+```
+
+Response:
+
+```json
+{
+  "period": {
+    "start_date": "2023-06-10T00:00:00Z",
+    "end_date": "2023-06-17T00:00:00Z",
+    "days": 7
+  },
+  "metrics": {
+    "total_alerts": 45,
+    "acknowledged_alerts": 42,
+    "resolved_alerts": 38,
+    "sla_met_count": 41,
+    "sla_missed_count": 4,
+    "sla_compliance_rate": 0.9111,
+    "avg_acknowledgement_time_seconds": 2482.15,
+    "avg_resolution_time_seconds": 12684.32
+  },
+  "filters": {
+    "environment": "production",
+    "service_name": null,
+    "severity": "high"
+  },
+  "alerts": [
+    {
+      "alert_id": 1234,
+      "severity": "high",
+      "service_name": "web",
+      "created_at": "2023-06-15T14:30:00Z",
+      "status": "resolved",
+      "sla_met": true,
+      "acknowledgement_time_seconds": 1850,
+      "resolution_time_seconds": 9200
+    },
+    // Additional alerts...
+  ]
+}
+```
+
 ### Getting Alert Statistics
 
 ```http
@@ -199,7 +330,9 @@ Response:
     "storage": 26
   },
   "period": "7d",
-  "environment": "production"
+  "environment": "production",
+  "sla_compliance_rate": 0.94,
+  "sla_compliant_alerts": 147
 }
 ```
 
@@ -210,3 +343,5 @@ Response:
 - Notification System
 - Security Monitoring
 - API Reference
+- SLA Compliance Framework
+- Alert Response Procedures

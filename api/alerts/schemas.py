@@ -238,6 +238,38 @@ class AlertStatisticsSchema(BaseSchema):
         return data
 
 
+class AlertSLASchema(BaseSchema):
+    """
+    Schema for checking and managing alert Service Level Agreements (SLAs).
+
+    This schema supports checking if alerts are being handled within the specified
+    time frames based on their severity and operational requirements.
+    """
+
+    alert_id = fields.Integer(
+        required=True,
+        error_messages={"required": "Alert ID is required"}
+    )
+
+    include_history = fields.Boolean(
+        missing=False,
+        description="Include SLA compliance history in the response"
+    )
+
+    check_type = fields.String(
+        validate=validate.OneOf(['acknowledgement', 'resolution', 'both']),
+        missing='both',
+        description="Type of SLA check to perform"
+    )
+
+    custom_sla_hours = fields.Dict(
+        keys=fields.String(validate=validate.OneOf(['critical', 'high', 'warning', 'info'])),
+        values=fields.Float(validate=validate.Range(min=0.25)),
+        missing=dict,
+        description="Custom SLA hours to use instead of defaults"
+    )
+
+
 class PaginationSchema(BaseSchema):
     """Schema for pagination parameters."""
 
@@ -282,6 +314,23 @@ class AlertDetailSchema(BaseSchema):
     resolution_type = fields.String(dump_only=True, allow_none=True)
 
 
+class AlertSLAResponseSchema(BaseSchema):
+    """Schema for SLA check response."""
+
+    alert_id = fields.Integer(dump_only=True)
+    deadline = fields.DateTime(dump_only=True, allow_none=True)
+    sla_hours = fields.Float(dump_only=True)
+    time_remaining_seconds = fields.Integer(dump_only=True)
+    overdue = fields.Boolean(dump_only=True)
+    sla_met = fields.Boolean(dump_only=True)
+    severity = fields.String(dump_only=True)
+    status = fields.String(dump_only=True)
+    created_at = fields.DateTime(dump_only=True)
+    acknowledged_at = fields.DateTime(dump_only=True, allow_none=True)
+    resolved_at = fields.DateTime(dump_only=True, allow_none=True)
+    history = fields.List(fields.Dict(), dump_only=True, allow_none=True)
+
+
 class AlertListItemSchema(BaseSchema):
     """Schema for alert list representation (simplified)."""
 
@@ -293,6 +342,7 @@ class AlertListItemSchema(BaseSchema):
     created_at = fields.DateTime(dump_only=True)
     service_name = fields.String(dump_only=True)
     environment = fields.String(dump_only=True)
+    sla_status = fields.Dict(dump_only=True, allow_none=True)
 
 
 # Create schema instances for direct use in routes.py
@@ -304,4 +354,6 @@ alert_acknowledge_schema = AlertAcknowledgeSchema()
 alert_resolve_schema = AlertResolveSchema()
 alert_filter_schema = AlertFilterSchema()
 alert_statistics_schema = AlertStatisticsSchema()
+alert_sla_schema = AlertSLASchema()
+alert_sla_response_schema = AlertSLAResponseSchema()
 pagination_schema = PaginationSchema()

@@ -52,6 +52,25 @@ alert_active_gauge = metrics.gauge(
     ['severity', 'environment']
 )
 
+# Define SLA compliance metrics
+sla_compliance_gauge = metrics.gauge(
+    'cloud_platform_alerts_sla_compliance',
+    'SLA compliance ratio (0-1)',
+    ['severity', 'environment', 'check_type']
+)
+
+sla_violation_counter = Counter(
+    'cloud_platform_alerts_sla_violations_total',
+    'Number of SLA violations',
+    ['severity', 'environment', 'check_type']
+)
+
+sla_check_counter = Counter(
+    'cloud_platform_alerts_sla_checks_total',
+    'Number of SLA compliance checks performed',
+    ['severity', 'environment', 'check_type']
+)
+
 # Register event handlers
 @alerts_api.before_app_first_request
 def initialize_alert_metrics():
@@ -83,6 +102,9 @@ def initialize_alert_metrics():
             logger.info(f"Cleaned up {deleted_count} old resolved alerts during startup")
             db.session.commit()
 
+        # Initialize SLA compliance metrics
+        _update_sla_compliance_metrics()
+
     except Exception as e:
         logger.warning(f"Failed to initialize alert metrics: {e}")
 
@@ -96,7 +118,7 @@ def update_alert_metrics(response):
         operation = path[-1] if len(path) > 2 else 'unknown'
 
         # Track active alert counts periodically (not on every request)
-        if operation in ['create', 'acknowledge', 'resolve'] or operation.isdigit():
+        if operation in ['create', 'acknowledge', 'resolve', 'sla'] or operation.isdigit():
             try:
                 for severity in ['critical', 'high', 'warning', 'info']:
                     for env in ['production', 'staging', 'development', 'dr-recovery']:
@@ -106,10 +128,89 @@ def update_alert_metrics(response):
                             status='active'
                         ).count()
                         alert_active_gauge.labels(severity=severity, environment=env).set(count)
+
+                # Update SLA metrics when SLA endpoints are accessed
+                if operation == 'sla':
+                    _update_sla_compliance_metrics()
             except Exception as e:
                 logger.debug(f"Error updating alert metrics: {e}")
 
     return response
+
+
+def _update_sla_compliance_metrics():
+    """Update SLA compliance metrics based on current alerts."""
+    try:
+        # Get counts for compliance check
+        environments = ['production', 'staging', 'development', 'dr-recovery']
+        severities = ['critical', 'high', 'warning', 'info']
+        check_types = ['acknowledgement', 'resolution', 'both']
+
+        for env in environments:
+            for severity in severities:
+                for check_type in check_types:
+                    # Calculate percentage of alerts meeting SLA for each type
+                    try:
+                        # Get active alerts for this severity/environment
+                        active_alerts = Alert.query.filter_by(
+                            environment=env,
+                            severity=severity,
+                            status='active'
+                        ).all()
+
+                        acknowledged_alerts = Alert.query.filter_by(
+                            environment=env,
+                            severity=severity,
+                            status='acknowledged'
+                        ).all()
+
+                        resolved_alerts = Alert.query.filter_by(
+                            environment=env,
+                            severity=severity,
+                            status='resolved'
+                        ).filter(Alert.resolved_at >= datetime.utcnow() - timedelta(days=7)).all()
+
+                        # Calculate compliance for each alert group
+                        from .helpers import check_sla_compliance
+
+                        compliance_count = 0
+                        total_count = 0
+
+                        # Process active alerts
+                        for alert in active_alerts:
+                            compliance = check_sla_compliance(alert, check_type=check_type)
+                            if compliance.get('sla_met', False):
+                                compliance_count += 1
+                            total_count += 1
+
+                        # Process acknowledged alerts
+                        for alert in acknowledged_alerts:
+                            if check_type != 'resolution':  # They're already acknowledged
+                                compliance_count += 1
+                                total_count += 1
+
+                        # Process resolved alerts
+                        for alert in resolved_alerts:
+                            if check_type == 'both' or check_type == 'resolution':
+                                compliance = check_sla_compliance(alert, check_type=check_type)
+                                if compliance.get('sla_met', False):
+                                    compliance_count += 1
+                                total_count += 1
+
+                        # Update metrics
+                        if total_count > 0:
+                            compliance_ratio = compliance_count / total_count
+                            sla_compliance_gauge.labels(
+                                severity=severity,
+                                environment=env,
+                                check_type=check_type
+                            ).set(compliance_ratio)
+
+                    except Exception as inner_e:
+                        logger.debug(f"Error calculating SLA metrics for {severity}/{env}/{check_type}: {inner_e}")
+
+    except Exception as e:
+        logger.warning(f"Failed to update SLA compliance metrics: {e}")
 
 
 # Register error handlers
@@ -139,6 +240,9 @@ def ratelimit_handler(e):
 # Set custom rate limits for specific routes
 limiter.limit("60/minute")(alerts_api)
 limiter.limit("120/minute", key_func=lambda: request.endpoint)(alerts_api)
+# Add specific rate limit for SLA endpoints - these can be resource-intensive
+limiter.limit("30/minute")(alerts_api, "/<int:alert_id>/sla")
+limiter.limit("10/minute")(alerts_api, "/sla/report")
 
 
 # Import and register routes
