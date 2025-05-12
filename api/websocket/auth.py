@@ -26,6 +26,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from extensions import db, metrics, cache
 from core.security import log_security_event, is_suspicious_ip
 from models.auth import User, UserSession
+from models.auth.user_activity import UserActivity
 from models.security import CircuitBreaker
 from services.auth_service import AuthService
 
@@ -171,9 +172,11 @@ def authenticate_connection(request_obj) -> Dict[str, Any]:
             metrics.increment('security.websocket_suspicious_ip')
 
         # Update user's last active timestamp
-        if hasattr(UserActivity, 'update_last_active'):
-            from models.auth.user_activity import UserActivity
+        try:
             UserActivity.update_last_active(user.id)
+        except Exception as e:
+            # Don't fail the authentication if activity tracking fails
+            logger.warning(f"Failed to update user activity for {user.username}: {str(e)}")
 
         # Log successful authentication
         logger.info(f"WebSocket authentication successful for user: {user.username}")

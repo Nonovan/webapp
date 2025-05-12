@@ -8,7 +8,7 @@ they are authorized for.
 """
 
 from functools import wraps
-from typing import Callable, Dict, Any, Optional, Union, List, Tuple
+from typing import Callable, Dict, Any, Optional, Union, List, Tuple, Set
 import time
 import hashlib
 import re
@@ -647,6 +647,441 @@ def verify_permission(user_id: int, permission: str) -> bool:
         return False
 
     return False
+
+
+def get_user_permissions(user_id: int) -> List[str]:
+    """
+    Get a list of all permissions assigned to a user.
+
+    This function retrieves all permissions a user has through:
+    1. Direct permission assignments
+    2. Role-based permissions
+    3. Active delegated permissions
+
+    Args:
+        user_id: The ID of the user whose permissions to retrieve
+
+    Returns:
+        List[str]: List of permission names the user has access to
+
+    Raises:
+        SQLAlchemyError: If there's a database access error
+    """
+    from flask import current_app, has_app_context
+    from sqlalchemy.exc import SQLAlchemyError
+
+    if not user_id:
+        return []
+
+    try:
+        # Import here to avoid circular imports
+        from models.auth.user import User
+        from datetime import datetime, timezone
+
+        user = User.query.get(user_id)
+        if not user:
+            return []
+
+        # Handle superadmin privilege as a special case
+        if getattr(user, 'is_admin', False):
+            # If the user is an admin, they implicitly have all permissions
+            if has_app_context():
+                # If possible, get a list of all possible permissions from the system
+                from models.auth.permission import Permission
+                try:
+                    return [p.name for p in Permission.query.filter_by(is_active=True).all()]
+                except Exception:
+                    # If we can't query all permissions, return a wildcard indicator
+                    return ['*:*']
+            return ['*:*']  # Wildcard permission
+
+        # Get all permissions the user has directly or via roles
+        all_permissions = set()
+
+        # 1. Direct permissions
+        if hasattr(user, 'permissions'):
+            all_permissions.update(p.name for p in user.permissions if hasattr(p, 'name'))
+
+        # 2. Role-based permissions
+        if hasattr(user, 'role') and user.role and hasattr(user.role, 'permissions'):
+            all_permissions.update(p.name for p in user.role.permissions if hasattr(p, 'name'))
+
+        # Handle multiple roles if the system supports it
+        if hasattr(user, 'roles'):
+            for role in user.roles:
+                if hasattr(role, 'permissions'):
+                    all_permissions.update(p.name for p in role.permissions if hasattr(p, 'name'))
+
+        # 3. Active delegated permissions
+        try:
+            from models.auth.permission_delegation import PermissionDelegation
+
+            # Get current time for checking active delegations
+            now = datetime.now(timezone.utc)
+
+            # Query active permission delegations for this user
+            delegations = PermissionDelegation.query.filter_by(
+                delegate_id=user_id,
+                is_active=True
+            ).filter(
+                PermissionDelegation.start_time <= now,
+                PermissionDelegation.end_time > now
+            ).all()
+
+            # Add delegated permissions
+            for delegation in delegations:
+                if hasattr(delegation, 'permission') and delegation.permission:
+                    all_permissions.add(delegation.permission.name)
+                elif hasattr(delegation, 'permissions') and isinstance(delegation.permissions, list):
+                    # Handle case where permissions is stored as a list of strings
+                    all_permissions.update(delegation.permissions)
+
+        except (ImportError, SQLAlchemyError) as e:
+            # Log the error but don't fail - just don't include delegated permissions
+            if has_app_context():
+                current_app.logger.warning(f"Error retrieving delegated permissions: {str(e)}")
+
+        # Support for the legacy get_all_permissions method
+        if hasattr(user, 'get_all_permissions') and callable(user.get_all_permissions):
+            try:
+                user_permissions = user.get_all_permissions()
+                if isinstance(user_permissions, (list, tuple, set)):
+                    all_permissions.update(user_permissions)
+            except Exception as e:
+                if has_app_context():
+                    current_app.logger.warning(f"Error calling get_all_permissions: {str(e)}")
+
+        # Convert the set to a list for return
+        return list(all_permissions)
+
+    except Exception as e:
+        if has_app_context():
+            current_app.logger.error(f"Error retrieving permissions for user {user_id}: {str(e)}")
+        return []
+
+
+def get_user_roles(user_id: int) -> List[str]:
+    """
+    Get a list of all roles assigned to a user.
+
+    This function retrieves all roles a user has, including direct assignments
+    and inherited roles through role hierarchy.
+
+    Args:
+        user_id: The ID of the user whose roles to retrieve
+
+    Returns:
+        List[str]: List of role names assigned to the user
+
+    Raises:
+        SQLAlchemyError: If there's a database access error
+    """
+    from flask import current_app, has_app_context
+    from sqlalchemy.exc import SQLAlchemyError
+
+    if not user_id:
+        return []
+
+    try:
+        # Import here to avoid circular imports
+        from models.auth.user import User
+
+        user = User.query.get(user_id)
+        if not user:
+            return []
+
+        all_roles = set()
+
+        # 1. Get single role if the user model has 'role' attribute
+        if hasattr(user, 'role') and user.role:
+            if isinstance(user.role, str):
+                all_roles.add(user.role)
+            elif hasattr(user.role, 'name'):
+                all_roles.add(user.role.name)
+
+        # 2. Get multiple roles if the user model has 'roles' attribute (list of Role objects)
+        if hasattr(user, 'roles') and user.roles:
+            if isinstance(user.roles, (list, tuple, set)):
+                for role in user.roles:
+                    if isinstance(role, str):
+                        all_roles.add(role)
+                    elif hasattr(role, 'name'):
+                        all_roles.add(role.name)
+
+        # 3. Use get_all_roles method if available
+        if hasattr(user, 'get_all_roles') and callable(user.get_all_roles):
+            try:
+                user_roles = user.get_all_roles()
+                if isinstance(user_roles, (list, tuple, set)):
+                    all_roles.update(r if isinstance(r, str) else getattr(r, 'name', str(r))
+                                    for r in user_roles)
+            except Exception as e:
+                if has_app_context():
+                    current_app.logger.warning(f"Error calling get_all_roles: {str(e)}")
+
+        # 4. Get inherited roles through role hierarchy
+        if all_roles:
+            # Get parent roles if role hierarchy is supported
+            try:
+                from models.auth.role import Role
+
+                # Get all role objects for the roles we already found
+                role_objects = Role.query.filter(Role.name.in_(all_roles)).all()
+
+                # Check each role for a parent
+                for role in role_objects:
+                    # Add parent roles recursively up to max depth
+                    parent_roles = _get_parent_roles(role, depth=0, max_depth=5)
+                    all_roles.update(parent_roles)
+
+            except (ImportError, SQLAlchemyError) as e:
+                if has_app_context():
+                    current_app.logger.debug(f"Could not resolve role hierarchy: {str(e)}")
+
+        # Sort and return the final list
+        return sorted(list(all_roles))
+
+    except Exception as e:
+        if has_app_context():
+            current_app.logger.error(f"Error retrieving roles for user {user_id}: {str(e)}")
+        return []
+
+
+def _get_parent_roles(role, depth: int = 0, max_depth: int = 5) -> Set[str]:
+    """
+    Get all parent roles in the role hierarchy recursively.
+
+    This helper function walks up the role hierarchy to find all parent
+    roles that the given role inherits permissions from.
+
+    Args:
+        role: The role object to check for parents
+        depth: Current recursion depth
+        max_depth: Maximum recursion depth to prevent infinite loops
+
+    Returns:
+        Set[str]: Set of parent role names
+    """
+    # Prevent excessive recursion
+    if depth >= max_depth:
+        return set()
+
+    parent_roles = set()
+
+    # Check if role has a parent
+    if hasattr(role, 'parent') and role.parent:
+        # Add the direct parent role name
+        if hasattr(role.parent, 'name'):
+            parent_roles.add(role.parent.name)
+
+        # Recursively get parents of the parent
+        parent_roles.update(_get_parent_roles(role.parent, depth + 1, max_depth))
+
+    return parent_roles
+
+
+def has_role(user_id: int, role_name: str) -> bool:
+    """
+    Check if a user has a specific role.
+
+    Args:
+        user_id: The ID of the user to check
+        role_name: The name of the role to check for
+
+    Returns:
+        bool: True if the user has the role, False otherwise
+    """
+    user_roles = get_user_roles(user_id)
+    return role_name in user_roles
+
+
+def has_any_role(user_id: int, role_names: List[str]) -> bool:
+    """
+    Check if a user has any of the specified roles.
+
+    Args:
+        user_id: The ID of the user to check
+        role_names: List of role names to check for
+
+    Returns:
+        bool: True if the user has any of the roles, False otherwise
+    """
+    user_roles = get_user_roles(user_id)
+    return any(role in user_roles for role in role_names)
+
+
+def get_role_permissions(role_name: str) -> List[str]:
+    """
+    Get all permissions associated with a role.
+
+    Args:
+        role_name: The name of the role whose permissions to retrieve
+
+    Returns:
+        List[str]: List of permission names for the specified role
+    """
+    from flask import current_app, has_app_context
+    from sqlalchemy.exc import SQLAlchemyError
+
+    try:
+        # Import here to avoid circular imports
+        from models.auth.role import Role
+
+        # Get the role by name
+        role = Role.query.filter_by(name=role_name).first()
+        if not role:
+            return []
+
+        # Use built-in get_permission_names if available
+        if hasattr(role, 'get_permission_names') and callable(role.get_permission_names):
+            try:
+                return role.get_permission_names()
+            except Exception as e:
+                if has_app_context():
+                    current_app.logger.warning(f"Error calling role.get_permission_names: {str(e)}")
+
+        # Fall back to manual permission gathering
+        permissions = []
+
+        if hasattr(role, 'permissions'):
+            for permission in role.permissions:
+                if hasattr(permission, 'name'):
+                    permissions.append(permission.name)
+
+        return permissions
+
+    except (ImportError, SQLAlchemyError) as e:
+        if has_app_context():
+            current_app.logger.error(f"Error retrieving permissions for role {role_name}: {str(e)}")
+        return []
+
+
+def get_user_roles_with_permissions(user_id: int) -> Dict[str, List[str]]:
+    """
+    Get all roles and their permissions for a user.
+
+    This function is useful when you need both the roles and their permissions
+    for a user in a single call, optimizing database queries.
+
+    Args:
+        user_id: The ID of the user whose roles and permissions to retrieve
+
+    Returns:
+        Dict[str, List[str]]: Dictionary mapping role names to lists of permission names
+    """
+    roles = get_user_roles(user_id)
+    result = {}
+
+    for role_name in roles:
+        permissions = get_role_permissions(role_name)
+        result[role_name] = permissions
+
+    return result
+
+
+def is_admin_role(role_name: str) -> bool:
+    """
+    Check if a role is an administrative role.
+
+    Args:
+        role_name: The name of the role to check
+
+    Returns:
+        bool: True if the role is an admin role, False otherwise
+    """
+    # Check against common admin role names
+    admin_roles = ['admin', 'superadmin', 'administrator', 'system_admin', 'super_admin']
+
+    # Case-insensitive check for exact matches
+    if role_name.lower() in [r.lower() for r in admin_roles]:
+        return True
+
+    # Perform more complex checks if available
+    try:
+        from models.auth.role import Role
+        role = Role.query.filter_by(name=role_name).first()
+
+        # If role has a specific admin flag
+        if role and hasattr(role, 'is_admin') and role.is_admin:
+            return True
+
+        # If role has admin permissions
+        admin_permission_patterns = ['admin:*', '*:admin', 'admin.*']
+        if role and hasattr(role, 'get_permission_names'):
+            permissions = role.get_permission_names()
+            for pattern in admin_permission_patterns:
+                if pattern in permissions:
+                    return True
+
+            # Check for wildcard permission which typically indicates admin
+            if '*:*' in permissions:
+                return True
+    except Exception:
+        pass
+
+    return False
+
+
+def get_effective_permissions(user_id: int) -> Dict[str, Dict[str, Any]]:
+    """
+    Get effective permissions for a user with their source role.
+
+    This function returns a detailed mapping of permissions and which role
+    granted them, useful for permission auditing and UI displays.
+
+    Args:
+        user_id: The ID of the user whose permissions to analyze
+
+    Returns:
+        Dict[str, Dict[str, Any]]: Dictionary mapping permission names to details
+                                 about the permission, including source role
+    """
+    from flask import current_app, has_app_context
+
+    try:
+        # Get all user roles with their permissions
+        roles_with_permissions = get_user_roles_with_permissions(user_id)
+
+        # Track permissions and their sources
+        effective_permissions = {}
+
+        # Process each role and its permissions
+        for role_name, permissions in roles_with_permissions.items():
+            for permission in permissions:
+                # If we haven't seen this permission yet, or we're overriding from a more
+                # specific role (simplistic approach - would need customization for real hierarchy)
+                if permission not in effective_permissions:
+                    effective_permissions[permission] = {
+                        'name': permission,
+                        'source_role': role_name,
+                        'inherited': False
+                    }
+
+        # Add directly assigned permissions if available
+        try:
+            from models.auth.user import User
+            user = User.query.get(user_id)
+
+            if user and hasattr(user, 'permissions'):
+                for permission in user.permissions:
+                    if hasattr(permission, 'name'):
+                        perm_name = permission.name
+                        effective_permissions[perm_name] = {
+                            'name': perm_name,
+                            'source_role': 'direct_assignment',
+                            'inherited': False
+                        }
+        except Exception as e:
+            if has_app_context():
+                current_app.logger.debug(f"Error checking direct permissions: {str(e)}")
+
+        return effective_permissions
+
+    except Exception as e:
+        if has_app_context():
+            current_app.logger.error(f"Error analyzing effective permissions for user {user_id}: {str(e)}")
+        return {}
+
 
 def _check_resource_permissions(user, resource: str) -> bool:
     """

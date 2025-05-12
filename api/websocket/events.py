@@ -258,6 +258,100 @@ def send_direct_event(connection_id: str, event_type: str, data: Dict[str, Any])
         return False
 
 
+def broadcast_file_integrity_event(event_data: Dict[str, Any]) -> int:
+    """
+    Broadcast file integrity events to subscribed clients.
+
+    This function is designed to be registered as a callback for the file integrity
+    monitoring system. When file integrity violations or baseline updates are detected,
+    this function forwards those events to all clients subscribed to the file_integrity
+    channel.
+
+    Args:
+        event_data: Dictionary containing file integrity event details
+
+    Returns:
+        int: Number of clients the message was sent to
+    """
+    try:
+        # Extract event properties
+        event_type = event_data.get('event_type', 'security.file_integrity.violation')
+        severity = event_data.get('severity', 'info')
+
+        # Add standard metadata if not present
+        if 'timestamp' not in event_data:
+            event_data['timestamp'] = datetime.now(timezone.utc).isoformat()
+
+        if 'event_id' not in event_data and 'id' in event_data:
+            event_data['event_id'] = event_data['id']
+        elif 'event_id' not in event_data:
+            event_data['event_id'] = f"fim-{int(time.time())}"
+
+        # Format the event according to WebSocket API standards
+        formatted_data = {
+            'severity': severity,
+            'event_id': event_data.get('event_id'),
+            'timestamp': event_data.get('timestamp')
+        }
+
+        # Add specific data depending on event type
+        if event_type == 'baseline_updated' or event_type == 'security.file_integrity.baseline_updated':
+            # For baseline updates
+            formatted_data['changes'] = {
+                'added': event_data.get('added', 0),
+                'updated': event_data.get('updated', 0),
+                'removed': event_data.get('removed', 0)
+            }
+
+            if 'initiated_by' in event_data:
+                formatted_data['initiated_by'] = event_data['initiated_by']
+
+            if 'reason' in event_data:
+                formatted_data['reason'] = event_data['reason']
+
+            event_type = 'security.file_integrity.baseline_updated'
+
+        else:
+            # For integrity violations
+            violations = []
+
+            # Extract violations from event_data
+            if 'violations' in event_data:
+                violations = event_data['violations']
+            elif 'changes' in event_data:
+                # Convert changes format to violations format
+                for change in event_data.get('changes', []):
+                    violation = {
+                        'path': change.get('path', ''),
+                        'type': change.get('status', 'modified'),
+                        'details': {
+                            'severity': change.get('severity', 'medium'),
+                            'old_hash': change.get('old_hash', ''),
+                            'new_hash': change.get('new_hash', '')
+                        }
+                    }
+                    violations.append(violation)
+
+            formatted_data['violations'] = violations
+            event_type = 'security.file_integrity.violation'
+
+        # Log the broadcasting of the event
+        logger.info(f"Broadcasting file integrity event: {event_type} with {len(formatted_data.get('violations', []))} violations"
+                    if 'violations' in formatted_data else
+                    f"Broadcasting baseline update with {sum(formatted_data['changes'].values())} changes")
+
+        # Broadcast to the file_integrity channel
+        return broadcast_event('file_integrity', event_type, formatted_data)
+
+    except Exception as e:
+        logger.error(f"Error broadcasting file integrity event: {str(e)}", exc_info=True)
+        metrics.counter(
+            'websocket_file_integrity_errors_total',
+            'Total WebSocket file integrity broadcast errors'
+        ).inc()
+        return 0
+
+
 def register_event_handlers():
     """
     Register all event handlers for the websocket API.
@@ -274,6 +368,9 @@ def register_event_handlers():
 
     # Register alert event handlers
     _register_alert_event_handlers()
+
+    # Register file integrity event handlers
+    _register_file_integrity_event_handlers()
 
     # Register custom event handlers
     _register_custom_event_handlers()
@@ -505,6 +602,74 @@ def _register_alert_event_handlers():
         # Use the existing channel subscription logic
         from .routes import handle_subscribe
         handle_subscribe(subscribe_message)
+
+        return {'success': True}
+
+
+# --- File Integrity Event Handler Registration ---
+
+def _register_file_integrity_event_handlers():
+    """Register handlers for file integrity related events."""
+
+    @register_event_handler('security.file_integrity.request', permission='security:integrity:read')
+    def handle_file_integrity_request(message: Dict[str, Any], connection_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle request for current file integrity status."""
+        try:
+            # Check if the file_integrity module is available
+            from core.security.cs_file_integrity import get_last_integrity_status
+
+            # Get the current integrity status
+            integrity_status = get_last_integrity_status()
+
+            if not integrity_status:
+                integrity_status = {
+                    'status': 'unknown',
+                    'last_check': datetime.now(timezone.utc).isoformat(),
+                    'violations': []
+                }
+
+            # Send response with current status
+            emit('security.file_integrity.status', {
+                'type': 'security.file_integrity.status',
+                'data': integrity_status,
+                'meta': {
+                    'timestamp': datetime.now(timezone.utc).isoformat(),
+                    'request_id': message.get('request_id')
+                }
+            })
+
+            return {'success': True}
+
+        except ImportError:
+            logger.warning("File integrity module not available")
+            return {'success': False, 'message': "File integrity monitoring not available"}
+        except Exception as e:
+            logger.error(f"Error handling file integrity request: {str(e)}", exc_info=True)
+            return {'success': False, 'message': "Failed to get file integrity status"}
+
+
+    @register_event_handler('security.file_integrity.subscribe', permission='security:integrity:view')
+    def handle_file_integrity_subscribe(message: Dict[str, Any], connection_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle subscription to file integrity events."""
+        # Create filters for subscription
+        filters = message.get('data', {}).get('filters', {})
+
+        # Create subscribe message for the channel
+        subscribe_message = {
+            'type': 'channel.subscribe',
+            'data': {
+                'channel': 'file_integrity',
+                'filters': filters
+            },
+            'request_id': message.get('request_id')
+        }
+
+        # Use existing channel subscription mechanism
+        from .routes import handle_subscribe
+        handle_subscribe(subscribe_message)
+
+        # Also send the current status immediately after subscribing
+        handle_file_integrity_request(message, connection_data)
 
         return {'success': True}
 

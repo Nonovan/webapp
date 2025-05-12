@@ -12,6 +12,7 @@ This module provides real-time communication capabilities for the Cloud Infrastr
 - [Authentication](#authentication)
 - [Channel Subscription](#channel-subscription)
 - [Security Features](#security-features)
+- [File Integrity Monitoring](#file-integrity-monitoring)
 - [Usage Examples](#usage-examples)
 - [Client Implementation](#client-implementation)
 - [Error Handling](#error-handling)
@@ -31,6 +32,8 @@ The WebSocket API implements secure, bidirectional communication channels betwee
   - Security middleware configuration
   - WebSocket session tracking
   - Application integration hooks
+  - Background task management
+  - Graceful shutdown handling
 
 - **`auth.py`**: Authentication and authorization for WebSocket connections
   - Permission checks for subscriptions
@@ -39,6 +42,7 @@ The WebSocket API implements secure, bidirectional communication channels betwee
   - User identity confirmation
   - Token-based authentication flow
   - Circuit breakers for authentication services
+  - Security event logging
 
 - **`channels.py`**: Channel subscription and management
   - Channel access control
@@ -48,6 +52,7 @@ The WebSocket API implements secure, bidirectional communication channels betwee
   - Topic-based filtering
   - Channel pattern validation
   - Channel metadata retrieval
+  - Subscription validation
 
 - **`events.py`**: Event handling and message processing
   - Broadcast functionality
@@ -57,6 +62,7 @@ The WebSocket API implements secure, bidirectional communication channels betwee
   - Message type processors
   - Event permission enforcement
   - Event routing and dispatching
+  - File integrity event broadcasting
 
 - **`metrics.py`**: Connection and performance monitoring
   - Connection statistics
@@ -88,6 +94,7 @@ The WebSocket API implements secure, bidirectional communication channels betwee
   - Data sanitization
   - Input size limits
   - Type checking and conversion
+  - File integrity event schemas
 
 ## Directory Structure
 
@@ -146,6 +153,8 @@ All WebSocket messages use a standardized JSON format:
 | `resource.updated` | Server→Client | Resource state changed |
 | `notification` | Server→Client | User notification |
 | `error` | Server→Client | Error message |
+| `security.file_integrity.violation` | Server→Client | File integrity violation detected |
+| `security.file_integrity.baseline_updated` | Server→Client | File integrity baseline updated |
 
 ## Authentication
 
@@ -198,6 +207,7 @@ The WebSocket API supports these standard channel patterns:
 | `metrics` | System metrics stream | Metrics view permission |
 | `system` | System-wide notifications | System view permission |
 | `status:{component}` | Component status updates | Status view permission |
+| `file_integrity` | File integrity events | Security integrity view permission |
 
 ### Subscription Features
 
@@ -222,6 +232,52 @@ The WebSocket API supports these standard channel patterns:
 - **Payload Validation**: Strict schema validation with input sanitization
 - **Comprehensive Logging**: Security-relevant events are logged for audit purposes
 - **Connection Timeouts**: Automatic disconnection of idle connections
+
+## File Integrity Monitoring
+
+The WebSocket API provides real-time notifications for file integrity monitoring events, allowing clients to receive immediate alerts when unauthorized file modifications are detected.
+
+### File Integrity Channels
+
+Clients can subscribe to the `file_integrity` channel to receive file integrity notifications:
+
+```json
+{
+  "type": "channel.subscribe",
+  "data": {
+    "channel": "file_integrity",
+    "filters": {
+      "severity": ["critical", "high"],
+      "status": ["modified", "permission_changed"]
+    }
+  }
+}
+```
+
+### File Integrity Events
+
+The system broadcasts two main types of file integrity events:
+
+1. **Integrity Violations** (`security.file_integrity.violation`):
+   - Sent when unauthorized file changes are detected
+   - Includes details about the modified files, type of changes, and severity
+   - Can be filtered by severity, status, and paths
+
+2. **Baseline Updates** (`security.file_integrity.baseline_updated`):
+   - Sent when the file integrity baseline is updated
+   - Includes summary of changes (files added, updated, removed)
+   - Includes details about who initiated the update and why
+
+### File Integrity Filters
+
+The following filters are supported for file integrity events:
+
+| Filter | Description | Example Values |
+|--------|-------------|----------------|
+| `severity` | Filter by severity level | `["critical", "high", "medium", "low", "info"]` |
+| `status` | Filter by change status | `["modified", "added", "deleted", "permission_changed"]` |
+| `paths` | Filter by specific file paths | `["/etc/security/", "/app/config/"]` |
+| `change_types` | Filter by change types | `["content", "permission", "ownership", "timestamp"]` |
 
 ## Usage Examples
 
@@ -274,6 +330,19 @@ socket.onmessage = (event) => {
   }
 };
 
+// Subscribe to file integrity events
+socket.send(JSON.stringify({
+  type: 'channel.subscribe',
+  data: {
+    channel: 'file_integrity',
+    filters: {
+      severity: ['critical', 'high'],
+      status: ['modified', 'added']
+    }
+  },
+  request_id: 'fim-subscription'
+}));
+
 // Unsubscribe when no longer needed
 socket.send(JSON.stringify({
   type: 'channel.unsubscribe',
@@ -297,6 +366,12 @@ socket.onmessage = (event) => {
     case 'notification':
       showNotification(message.data);
       break;
+    case 'security.file_integrity.violation':
+      handleFileIntegrityViolation(message.data);
+      break;
+    case 'security.file_integrity.baseline_updated':
+      updateFileIntegrityStatus(message.data);
+      break;
     case 'error':
       handleError(message.data);
       break;
@@ -305,6 +380,24 @@ socket.onmessage = (event) => {
       break;
   }
 };
+
+// Example function to handle file integrity violations
+function handleFileIntegrityViolation(data) {
+  const { severity, violations, timestamp } = data;
+
+  // Display an alert for critical violations
+  if (severity === 'critical' || severity === 'high') {
+    displaySecurityAlert({
+      title: `File Integrity Alert: ${severity.toUpperCase()}`,
+      message: `${violations.length} file(s) modified without authorization`,
+      timestamp: new Date(timestamp),
+      details: violations.map(v => `${v.path} (${v.type})`)
+    });
+  }
+
+  // Log all violations
+  logSecurityEvent('file_integrity_violation', data);
+}
 ```
 
 ### Maintaining Connection Examples
@@ -448,16 +541,17 @@ The WebSocket API collects comprehensive metrics to monitor performance and secu
 - **Performance Metrics**: Processing latency and resource utilization
 - **Error Metrics**: Error rates by type and channel
 - **Security Metrics**: Authentication failures and permission denials
+- **File Integrity Metrics**: Violation counts, severities, and resolution times
 
 These metrics are available through the monitoring system and can be accessed via the metrics endpoint with appropriate permissions.
 
 ## Related Documentation
 
-- API Reference - Complete API documentation
+- API Reference Guide - Complete API documentation
 - Authentication System - Authentication details
-- Channel Subscription Guide - In-depth channel guide
+- Security Best Practices - Security guidelines
+- File Integrity Monitoring Guide - File integrity monitoring details
 - Error Handling - Error response standards
 - Event Types Reference - Available event types
 - Real-time Communication Architecture - System design
-- Security Best Practices - Security guidelines
 - WebSocket Client SDKs - Language-specific clients

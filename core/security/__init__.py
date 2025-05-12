@@ -65,7 +65,15 @@ from .cs_authorization import (
     role_required,
     api_key_required,
     rate_limit,
-    verify_permission
+    verify_permission,
+    get_user_permissions,
+    get_user_roles,
+    has_role,
+    has_any_role,
+    get_role_permissions,
+    get_user_roles_with_permissions,
+    is_admin_role,
+    get_effective_permissions
 )
 
 from .cs_crypto import (
@@ -302,6 +310,14 @@ __all__ = [
     'api_key_required',
     'rate_limit',
     'verify_permission',
+    'get_user_permissions',
+    'get_user_roles',
+    'has_role',
+    'has_any_role',
+    'get_role_permissions',
+    'get_user_roles_with_permissions',
+    'is_admin_role',
+    'get_effective_permissions',
 
     # Crypto functions
     'encrypt_sensitive_data',

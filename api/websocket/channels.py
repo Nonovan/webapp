@@ -34,6 +34,7 @@ CHANNEL_TYPE_METRIC = 'metrics'      # Metrics updates (metrics)
 CHANNEL_TYPE_SYSTEM = 'system'       # System-wide events (system)
 CHANNEL_TYPE_STATUS = 'status'       # Status updates (status:cloud)
 CHANNEL_TYPE_CUSTOM = 'custom'       # Custom event streams (custom:name)
+CHANNEL_TYPE_INTEGRITY = 'file_integrity'  # File integrity monitoring events
 
 # Available channel patterns with descriptions
 CHANNEL_PATTERNS = {
@@ -45,7 +46,8 @@ CHANNEL_PATTERNS = {
     r'^metrics:[a-zA-Z0-9_\-]+$': 'Component-specific metrics',
     r'^system$': 'System-wide notifications',
     r'^status:[a-zA-Z0-9_\-]+$': 'Status updates by component',
-    r'^custom:[a-zA-Z0-9_\-]+$': 'Custom event streams'
+    r'^custom:[a-zA-Z0-9_\-]+$': 'Custom event streams',
+    r'^file_integrity$': 'File integrity monitoring events'
 }
 
 # Valid characters for channel names
@@ -157,6 +159,12 @@ def get_available_channels(user_id: Optional[int] = None,
             'type': CHANNEL_TYPE_STATUS,
             'description': 'Network status updates',
             'requires_permission': 'status:view'
+        },
+        {
+            'name': 'file_integrity',
+            'type': CHANNEL_TYPE_INTEGRITY,
+            'description': 'File integrity monitoring events',
+            'requires_permission': 'security:integrity:view'
         }
     ]
 
@@ -325,6 +333,15 @@ def get_channel_info(channel: str) -> Dict[str, Any]:
                 'status_type': status_type
             }
 
+    elif channel == 'file_integrity':
+        return {
+            'exists': True,
+            'channel': channel,
+            'type': CHANNEL_TYPE_INTEGRITY,
+            'description': 'File integrity monitoring events',
+            'requires_permission': 'security:integrity:view'
+        }
+
     elif channel.startswith('custom:'):
         parts = channel.split(':')
         if len(parts) == 2:
@@ -355,3 +372,75 @@ def get_channel_info(channel: str) -> Dict[str, Any]:
         'error': 'Unknown channel format',
         'channel': channel
     }
+
+
+def validate_channel_subscription_filters(channel: str, filters: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Validate filters for a specific channel subscription.
+
+    Args:
+        channel: Channel name
+        filters: Dictionary of filters to validate
+
+    Returns:
+        Dict with validation result and error messages if invalid
+    """
+    if not filters:
+        # Empty filters are valid
+        return {'valid': True}
+
+    # Get channel info to determine what filters are allowed
+    channel_info = get_channel_info(channel)
+    if not channel_info['exists']:
+        return {
+            'valid': False,
+            'errors': {'channel': ['Invalid channel specified']}
+        }
+
+    errors = {}
+
+    # Common filter validations
+    if 'event_types' in filters:
+        event_types = filters['event_types']
+        if not isinstance(event_types, list):
+            errors['event_types'] = ['Event types must be an array']
+        elif not all(isinstance(et, str) for et in event_types):
+            errors['event_types'] = ['All event types must be strings']
+
+    # Channel-specific filter validations
+    if channel_info['type'] == CHANNEL_TYPE_INTEGRITY:
+        # File integrity specific filters
+        if 'severity' in filters:
+            severities = filters['severity']
+            if not isinstance(severities, list):
+                errors['severity'] = ['Severity must be an array']
+            else:
+                valid_severities = ['critical', 'high', 'medium', 'low', 'info']
+                invalid = [s for s in severities if s not in valid_severities]
+                if invalid:
+                    errors['severity'] = [f"Invalid severity value(s): {', '.join(invalid)}"]
+
+        if 'status' in filters:
+            status_values = filters['status']
+            if not isinstance(status_values, list):
+                errors['status'] = ['Status must be an array']
+            else:
+                valid_statuses = ['modified', 'added', 'deleted', 'permission_changed']
+                invalid = [s for s in status_values if s not in valid_statuses]
+                if invalid:
+                    errors['status'] = [f"Invalid status value(s): {', '.join(invalid)}"]
+
+        if 'paths' in filters:
+            paths = filters['paths']
+            if not isinstance(paths, list):
+                errors['paths'] = ['Paths must be an array']
+            elif not all(isinstance(p, str) for p in paths):
+                errors['paths'] = ['All paths must be strings']
+            elif any(len(p) > 256 for p in paths):
+                errors['paths'] = ['Paths must not exceed 256 characters']
+
+    # Return validation result
+    if errors:
+        return {'valid': False, 'errors': errors}
+
+    return {'valid': True}
