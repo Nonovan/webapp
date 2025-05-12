@@ -670,7 +670,7 @@ def _generate_mock_trend_data(metric_name: str, start_time: datetime, end_time: 
 
     return data
 
-__all___ = [
+__all__ = [
     'detect_anomalies',
     'analyze_trends',
     'calculate_statistics',

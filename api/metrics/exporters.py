@@ -2,7 +2,7 @@
 Metrics export functionality for the Cloud Infrastructure Platform.
 
 This module provides functions for exporting metrics in various formats including
-Prometheus, CSV, and JSON. Each exporter implements proper formatting, data
+Prometheus, CSV, JSON, and XML. Each exporter implements proper formatting, data
 validation, and security controls to ensure safe and efficient data exports.
 
 The exporters handle complex nested metrics data structures and provide consistent
@@ -11,11 +11,13 @@ handling large datasets efficiently.
 """
 
 import logging
+import xml.dom.minidom
 from datetime import datetime
 from typing import Dict, Any, List, Union, Optional, Tuple
 import csv
 import json
 from io import StringIO
+from xml.etree import ElementTree as ET
 
 from flask import current_app, has_app_context
 
@@ -241,6 +243,140 @@ def export_metrics_json(metrics_data: Dict[str, Any],
     return json.dumps(output_data, indent=2, cls=MetricsEncoder)
 
 
+def export_metrics_xml(metrics_data: Dict[str, Any],
+                      include_metadata: bool = True) -> str:
+    """
+    Export metrics in XML format.
+
+    This function structures metrics data as properly formatted XML with
+    appropriate element nesting and metadata.
+
+    Args:
+        metrics_data: Dictionary containing metrics data to export
+        include_metadata: Whether to include metadata like export timestamp
+
+    Returns:
+        str: XML-formatted metrics data
+
+    Example:
+        xml_data = export_metrics_xml(metrics_data, include_metadata=True)
+    """
+    # Create root element
+    root = ET.Element('metrics')
+
+    # Add metadata if requested
+    if include_metadata:
+        metadata = ET.SubElement(root, 'metadata')
+
+        # Add timestamp if present, otherwise use current time
+        timestamp_val = metrics_data.get('timestamp', datetime.utcnow().isoformat() + 'Z')
+        timestamp = ET.SubElement(metadata, 'timestamp')
+        timestamp.text = timestamp_val
+
+        # Add export timestamp
+        exported = ET.SubElement(metadata, 'exported_at')
+        exported.text = datetime.utcnow().isoformat() + 'Z'
+
+        # Add version info
+        version = ET.SubElement(metadata, 'version')
+        version.text = current_app.config.get('VERSION', '1.0.0') if has_app_context() else '1.0.0'
+
+    # Process metrics recursively
+    def process_element(data: Dict[str, Any], parent: ET.Element, category: str = None) -> None:
+        """Process a dictionary of metrics into XML elements"""
+        for key, value in data.items():
+            # Skip timestamp and metadata which are handled separately
+            if key in ('timestamp', '_metadata'):
+                continue
+
+            # Use category+key for metric names if inside a category
+            element_name = key
+            if category:
+                # Clean name for XML element (remove special chars)
+                element_name = sanitize_metric_name(key)
+
+            if isinstance(value, dict):
+                # For dictionaries, create a container element
+                child = ET.SubElement(parent, element_name)
+                # Add a type attribute to indicate this is a category
+                child.set('type', 'category')
+                # Recursively process the dictionary
+                process_element(value, child, key)
+            elif isinstance(value, (list, tuple)):
+                # For lists, create an item for each element
+                container = ET.SubElement(parent, element_name)
+                container.set('type', 'array')
+                for i, item in enumerate(value):
+                    item_elem = ET.SubElement(container, 'item')
+                    item_elem.set('index', str(i))
+                    if isinstance(item, dict):
+                        process_element(item, item_elem)
+                    else:
+                        item_elem.text = str(item)
+            else:
+                # For simple values, create an element with the value as text
+                child = ET.SubElement(parent, element_name)
+
+                # Set value and its type
+                child.text = str(value)
+
+                # Add type attribute for proper parsing
+                if isinstance(value, bool):
+                    child.set('type', 'boolean')
+                elif isinstance(value, int):
+                    child.set('type', 'integer')
+                elif isinstance(value, float):
+                    child.set('type', 'float')
+                else:
+                    child.set('type', 'string')
+
+                # Try to detect and add unit information
+                if isinstance(value, (int, float)) and category:
+                    unit = detect_unit(key, value)
+                    if unit:
+                        child.set('unit', unit)
+
+    # Process each top-level category
+    for category, category_data in metrics_data.items():
+        # Skip timestamp and metadata which are handled separately
+        if category in ('timestamp', '_metadata'):
+            continue
+
+        # Create category element
+        category_elem = ET.SubElement(root, category)
+        category_elem.set('type', 'category')
+
+        # Process the category's data
+        if isinstance(category_data, dict):
+            process_element(category_data, category_elem, category)
+        elif isinstance(category_data, (list, tuple)):
+            for i, item in enumerate(category_data):
+                item_elem = ET.SubElement(category_elem, 'item')
+                item_elem.set('index', str(i))
+                if isinstance(item, dict):
+                    process_element(item, item_elem)
+                else:
+                    item_elem.text = str(item)
+        else:
+            # Simple value at top level
+            category_elem.text = str(category_data)
+
+            # Set appropriate type
+            if isinstance(category_data, bool):
+                category_elem.set('type', 'boolean')
+            elif isinstance(category_data, int):
+                category_elem.set('type', 'integer')
+            elif isinstance(category_data, float):
+                category_elem.set('type', 'float')
+            else:
+                category_elem.set('type', 'string')
+
+    # Convert to string with nice formatting
+    rough_string = ET.tostring(root, 'utf-8')
+    parsed = xml.dom.minidom.parseString(rough_string)
+    return parsed.toprettyxml(indent="  ")
+
+
 # --- Helper functions ---
 
 def format_help_text(metric_name: str) -> str:
@@ -298,7 +434,7 @@ def flatten_metrics(metrics_data: Dict[str, Any], delimiter: str = '.') -> Dict[
 
 def sanitize_metric_name(name: str) -> str:
     """
-    Sanitize metric names for Prometheus compatibility.
+    Sanitize metric names for compatibility with various output formats.
 
     Args:
         name: Raw metric name
@@ -314,6 +450,28 @@ def sanitize_metric_name(name: str) -> str:
         sanitized = f"_{sanitized}"
 
     return sanitized.lower()
+
+
+def detect_unit(name: str, value: Union[int, float, str]) -> str:
+    """
+    Detect appropriate unit based on metric name.
+
+    Args:
+        name: Name of the metric
+        value: Value of the metric
+
+    Returns:
+        str: Detected unit or empty string if unknown
+    """
+    if any(substr in name.lower() for substr in ['percent', 'usage', 'utilization']):
+        return '%'
+    elif any(substr in name.lower() for substr in ['time', 'latency', 'duration']):
+        return 'ms' if value < 1000 else 's'
+    elif any(substr in name.lower() for substr in ['bytes', 'size']):
+        return 'bytes'
+    elif any(substr in name.lower() for substr in ['count', 'total', 'num']):
+        return 'count'
+    return ''
 
 
 def filter_sensitive_metrics(metrics_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -355,20 +513,10 @@ __all__ = [
     'export_metrics_prometheus',
     'export_metrics_csv',
     'export_metrics_json',
+    'export_metrics_xml',
     'format_help_text',
     'flatten_metrics',
     'sanitize_metric_name',
-    'filter_sensitive_metrics'
+    'filter_sensitive_metrics',
+    'detect_unit'
 ]
-
-# --- End of module ---
-# Note: The above code is a simplified version of the original code. It focuses on the
-# core functionality of exporting metrics in different formats, while ensuring proper
-# formatting, data validation, and security controls. The code is designed to be modular
-# and reusable, allowing for easy integration into larger applications.
-# The functions are well-documented with clear descriptions of their purpose, arguments,
-# and return values. The use of type hints enhances code readability and helps with
-# static analysis. The logging statements provide useful information for debugging and
-# monitoring the execution of the code. Overall, this code serves as a solid foundation
-# for exporting metrics in various formats, while adhering to best practices in software
-# development.

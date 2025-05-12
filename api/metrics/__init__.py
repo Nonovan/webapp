@@ -141,10 +141,12 @@ from .exporters import (
     export_metrics_prometheus,
     export_metrics_csv,
     export_metrics_json,
+    export_metrics_xml,
     format_help_text,
     flatten_metrics,
     sanitize_metric_name,
-    filter_sensitive_metrics
+    filter_sensitive_metrics,
+    detect_unit
 )
 
 # Define public API
@@ -183,8 +185,10 @@ __all__ = [
     'export_metrics_prometheus',
     'export_metrics_csv',
     'export_metrics_json',
+    'export_metrics_xml',
     'format_help_text',
     'flatten_metrics',
     'sanitize_metric_name',
-    'filter_sensitive_metrics'
+    'filter_sensitive_metrics',
+    'detect_unit'
 ]
