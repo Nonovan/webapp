@@ -10,7 +10,7 @@
 # Usage: source "$(dirname "$0")/common.sh"
 #
 # Version: 0.0.1
-# Date: 2024-09-01
+# Date: 2024-09-02
 
 # Ensure the script is sourced, not executed
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
@@ -25,7 +25,7 @@ fi
 
 # Version tracking
 readonly COMMON_VERSION="0.0.1"
-readonly COMMON_DATE="2024-09-01"
+readonly COMMON_DATE="2024-09-02"
 
 # Determine script location with robust path handling
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -51,6 +51,7 @@ readonly EXIT_CONFIG_ERROR=2
 readonly EXIT_PERMISSION_ERROR=3
 readonly EXIT_DEPENDENCY_ERROR=4
 readonly EXIT_TIMEOUT_ERROR=5
+readonly EXIT_UNSUPPORTED_ERROR=6
 
 # Default file permissions
 readonly DEFAULT_FILE_PERMS="644"
@@ -85,6 +86,23 @@ LOG_TIMESTAMP_FORMAT="%Y-%m-%d %H:%M:%S"
 LOG_TO_FILE="${LOG_TO_FILE:-false}"
 LOG_FILE="${LOG_FILE:-}"
 TIMESTAMP=$(date +"%Y%m%d%H%M%S")
+
+# Component availability tracking
+COMPONENT_STATUS="{}"
+declare -A AVAILABLE_COMPONENTS=(
+  ["logger"]="false"
+  ["config_loader"]="false"
+  ["environment"]="false"
+  ["error_handler"]="false"
+  ["notification"]="false"
+  ["security"]="false"
+  ["system"]="false"
+  ["crypto"]="false"
+  ["file_integrity"]="false"
+  ["permissions"]="false"
+  ["cloud_provider"]="false"
+  ["resource_monitor"]="false"
+)
 
 # Python core initialization status
 PYTHON_CORE_INITIALIZED=false
@@ -262,6 +280,9 @@ log() {
         }
     fi
 
+    # Mark logger as available after first successful log
+    AVAILABLE_COMPONENTS["logger"]="true"
+
     return $EXIT_SUCCESS
 }
 
@@ -404,6 +425,9 @@ detect_environment() {
         # Default to development if unable to detect
         echo "${DEFAULT_ENVIRONMENT}"
     fi
+
+    # Mark environment as available
+    AVAILABLE_COMPONENTS["environment"]="true"
 }
 
 # Check if running in production environment
@@ -556,6 +580,9 @@ load_config_file() {
         log_debug "Config: $key = $value"
     done < "$config_file"
 
+    # Mark config loader as available
+    AVAILABLE_COMPONENTS["config_loader"]="true"
+
     return $EXIT_SUCCESS
 }
 
@@ -668,6 +695,115 @@ generate_random_string() {
     fi
 
     echo "$result"
+}
+
+#######################################
+# COMPONENT MANAGEMENT FUNCTIONS
+#######################################
+
+# Get the availability status of a component
+# Arguments:
+#   $1 - Component name
+# Returns:
+#   "true" if available, "false" if not
+is_component_available() {
+    local component="$1"
+
+    if [[ -n "${AVAILABLE_COMPONENTS[$component]}" ]]; then
+        echo "${AVAILABLE_COMPONENTS[$component]}"
+    else
+        echo "false"
+    fi
+}
+
+# Mark a component as available
+# Arguments:
+#   $1 - Component name
+# Returns:
+#   0 on success, 1 on failure
+mark_component_available() {
+    local component="$1"
+
+    if [[ -n "$component" ]]; then
+        AVAILABLE_COMPONENTS["$component"]="true"
+        log_debug "Component marked as available: $component"
+        return $EXIT_SUCCESS
+    else
+        log_error "No component name provided"
+        return $EXIT_FAILURE
+    fi
+}
+
+# Get status of all components
+# Arguments:
+#   None
+# Returns:
+#   JSON-like string with component statuses
+get_component_status() {
+    local components_json="{"
+    local first=true
+
+    for component in "${!AVAILABLE_COMPONENTS[@]}"; do
+        if [[ "$first" == "true" ]]; then
+            first=false
+        else
+            components_json+=", "
+        fi
+        components_json+="\"$component\": ${AVAILABLE_COMPONENTS[$component]}"
+    done
+
+    components_json+="}"
+    echo "$components_json"
+}
+
+# Initialize a component with dependency checking
+# Arguments:
+#   $1 - Component name
+#   $2 - Command to initialize component
+#   $3... - Dependencies (component names)
+# Returns:
+#   0 on success, 1 on failure
+initialize_component() {
+    local component="$1"
+    local init_command="$2"
+    shift 2
+    local dependencies=("$@")
+
+    # Skip if already initialized
+    if [[ "$(is_component_available "$component")" == "true" ]]; then
+        log_debug "Component already initialized: $component"
+        return $EXIT_SUCCESS
+    fi
+
+    # Check dependencies
+    local missing_deps=()
+    for dep in "${dependencies[@]}"; do
+        if [[ "$(is_component_available "$dep")" != "true" ]]; then
+            missing_deps+=("$dep")
+        fi
+    done
+
+    # If missing dependencies, log and return
+    if [[ ${#missing_deps[@]} -gt 0 ]]; then
+        log_warning "Cannot initialize $component, missing dependencies: ${missing_deps[*]}"
+        return $EXIT_DEPENDENCY_ERROR
+    fi
+
+    # Initialize the component
+    log_debug "Initializing component: $component"
+
+    # Execute the initialization command
+    eval "$init_command"
+    local result=$?
+
+    if [[ $result -eq 0 ]]; then
+        mark_component_available "$component"
+        log_info "Component initialized: $component"
+        return $EXIT_SUCCESS
+    else
+        log_error "Failed to initialize component: $component"
+        return $EXIT_FAILURE
+    fi
 }
 
 #######################################
@@ -975,6 +1111,7 @@ EOF
         done <<< "$temp_vars"
 
         log_info "Configuration loaded successfully from Python core"
+        mark_component_available "config_loader"
     else
         local error
         error=$(echo "$result" | grep -o '"error": "[^"]*"' | cut -d'"' -f4)
@@ -982,6 +1119,249 @@ EOF
         return $EXIT_FAILURE
     fi
 
+    return $EXIT_SUCCESS
+}
+
+#######################################
+# MODULE INITIALIZATION
+#######################################
+
+# Initialize security components
+# Arguments:
+#   $1 - Security level (default: normal)
+#   $2 - Skip unavailable components (default: true)
+# Returns:
+#   Returns a list of successfully initialized components
+initialize_security_components() {
+    local security_level="${1:-normal}"
+    local skip_unavailable="${2:-true}"
+    local success=true
+    local errors=()
+    local initialized=()
+
+    log_info "Initializing security components with security level: $security_level"
+
+    # Initialize basic crypto (no dependencies)
+    if initialize_component "crypto" "initialize_crypto_component" ; then
+        initialized+=("crypto")
+    else
+        errors+=("Failed to initialize crypto component")
+        [[ "$skip_unavailable" != "true" ]] && success=false
+    fi
+
+    # Initialize file integrity (depends on crypto)
+    if initialize_component "file_integrity" "initialize_file_integrity_component" "crypto"; then
+        initialized+=("file_integrity")
+    else
+        errors+=("Failed to initialize file integrity component")
+        [[ "$skip_unavailable" != "true" ]] && success=false
+    fi
+
+    # Initialize permissions module (depends on file_integrity)
+    if initialize_component "permissions" "initialize_permissions_component" "file_integrity"; then
+        initialized+=("permissions")
+    else
+        errors+=("Failed to initialize permissions component")
+        [[ "$skip_unavailable" != "true" ]] && success=false
+    fi
+
+    # Mark main security component as available if all essentials are initialized
+    if [[ " ${initialized[*]} " =~ " crypto " &&
+          " ${initialized[*]} " =~ " file_integrity " &&
+          " ${initialized[*]} " =~ " permissions " ]]; then
+        mark_component_available "security"
+        log_info "Security components initialized successfully"
+    else
+        log_warning "Security components partially initialized"
+    fi
+
+    if [[ "$success" == "true" ]]; then
+        log_info "All security components initialized successfully"
+    else
+        log_warning "Some security components failed to initialize"
+        for error in "${errors[@]}"; do
+            log_warning "$error"
+        done
+    fi
+
+    return $EXIT_SUCCESS
+}
+
+# Initialize crypto component
+# This is typically called by initialize_security_components
+# Arguments:
+#   None
+# Returns:
+#   0 on success, non-zero on failure
+initialize_crypto_component() {
+    log_info "Initializing crypto component"
+
+    # Check for required commands
+    if ! check_dependencies openssl; then
+        log_warning "OpenSSL not found, crypto functionality will be limited"
+    fi
+
+    # Set up crypto environment
+    export CRYPTO_INITIALIZED=true
+    export CRYPTO_LEVEL=${SECURITY_LEVEL:-normal}
+
+    # Mark as successful
+    return $EXIT_SUCCESS
+}
+
+# Initialize file integrity component
+# This is typically called by initialize_security_components
+# Arguments:
+#   None
+# Returns:
+#   0 on success, non-zero on failure
+initialize_file_integrity_component() {
+    log_info "Initializing file integrity component"
+
+    # Check for required dependencies
+    if ! check_dependencies sha256sum find; then
+        log_error "Required commands for file integrity not available"
+        return $EXIT_DEPENDENCY_ERROR
+    fi
+
+    # Create integrity database directory if needed
+    local integrity_db_dir="$PROJECT_ROOT/.secure/integrity"
+    ensure_directory "$integrity_db_dir" || {
+        log_error "Failed to create integrity database directory"
+        return $EXIT_FAILURE
+    }
+
+    # Mark as successful
+    return $EXIT_SUCCESS
+}
+
+# Initialize permissions component
+# This is typically called by initialize_security_components
+# Arguments:
+#   None
+# Returns:
+#   0 on success, non-zero on failure
+initialize_permissions_component() {
+    log_info "Initializing permissions component"
+
+    # Check for required dependencies
+    if ! check_dependencies chmod chown find; then
+        log_error "Required commands for permissions management not available"
+        return $EXIT_DEPENDENCY_ERROR
+    }
+
+    # Mark as successful
+    return $EXIT_SUCCESS
+}
+
+# Initialize system components
+# Arguments:
+#   $1 - Skip unavailable components (default: true)
+# Returns:
+#   0 on success, 1 on failure
+initialize_system_components() {
+    local skip_unavailable="${1:-true}"
+    local success=true
+    local errors=()
+    local initialized=()
+
+    log_info "Initializing system components"
+
+    # Initialize resource monitor (no dependencies)
+    if initialize_component "resource_monitor" "initialize_resource_monitor_component"; then
+        initialized+=("resource_monitor")
+    else
+        errors+=("Failed to initialize resource monitor component")
+        [[ "$skip_unavailable" != "true" ]] && success=false
+    fi
+
+    # Initialize cloud provider (depends on config_loader)
+    if initialize_component "cloud_provider" "initialize_cloud_provider_component" "config_loader"; then
+        initialized+=("cloud_provider")
+    else
+        errors+=("Failed to initialize cloud provider component")
+        # Don't fail if skip_unavailable is true
+        [[ "$skip_unavailable" != "true" ]] && success=false
+    fi
+
+    # Mark main system component as available if all essentials are initialized
+    if [[ " ${initialized[*]} " =~ " resource_monitor " ]]; then
+        mark_component_available "system"
+        log_info "System components initialized successfully"
+    else
+        log_warning "System components partially initialized"
+    fi
+
+    if [[ "$success" == "true" ]]; then
+        log_info "All system components initialized successfully"
+    else
+        log_warning "Some system components failed to initialize"
+        for error in "${errors[@]}"; do
+            log_warning "$error"
+        done
+    fi
+
+    return $EXIT_SUCCESS
+}
+
+# Initialize resource monitor component
+# This is typically called by initialize_system_components
+# Arguments:
+#   None
+# Returns:
+#   0 on success, non-zero on failure
+initialize_resource_monitor_component() {
+    log_info "Initializing resource monitor component"
+
+    # Check for required dependencies
+    if ! command_exists top || ! command_exists ps; then
+        log_warning "Resource monitoring will have limited functionality"
+    }
+
+    # Create monitoring directory if needed
+    local monitoring_dir="$PROJECT_ROOT/logs/monitoring"
+    ensure_directory "$monitoring_dir" || {
+        log_error "Failed to create monitoring directory"
+        return $EXIT_FAILURE
+    }
+
+    # Mark as successful
+    return $EXIT_SUCCESS
+}
+
+# Initialize cloud provider component
+# This is typically called by initialize_system_components
+# Arguments:
+#   None
+# Returns:
+#   0 on success, non-zero on failure
+initialize_cloud_provider_component() {
+    log_info "Initializing cloud provider component"
+
+    # Check cloud provider tools
+    local cloud_provider_available=false
+
+    if command_exists aws; then
+        log_debug "AWS CLI found"
+        cloud_provider_available=true
+    fi
+
+    if command_exists az; then
+        log_debug "Azure CLI found"
+        cloud_provider_available=true
+    fi
+
+    if command_exists gcloud; then
+        log_debug "Google Cloud CLI found"
+        cloud_provider_available=true
+    fi
+
+    if [[ "$cloud_provider_available" == "false" ]]; then
+        log_warning "No cloud provider CLI tools found"
+    }
+
+    # Mark as successful even without cloud tools
+    # (we'll handle unavailability later)
     return $EXIT_SUCCESS
 }
 
@@ -994,8 +1374,10 @@ parse_arguments() {
     # Default values
     SHOW_HELP=false
     SHOW_VERSION=false
+    SHOW_STATUS=false
     INIT_PYTHON_CORE=false
     CONFIG_FILE=""
+    SECURITY_LEVEL="normal"
 
     # Process options
     while [[ $# -gt 0 ]]; do
@@ -1005,6 +1387,9 @@ parse_arguments() {
                 ;;
             --version|-v)
                 SHOW_VERSION=true
+                ;;
+            --status|-s)
+                SHOW_STATUS=true
                 ;;
             --verbose)
                 VERBOSE=true
@@ -1054,6 +1439,15 @@ parse_arguments() {
             --init-python-core)
                 INIT_PYTHON_CORE=true
                 ;;
+            --security-level)
+                if [[ -n "$2" ]]; then
+                    SECURITY_LEVEL="$2"
+                    shift
+                else
+                    log_error "Missing value for --security-level"
+                    return $EXIT_FAILURE
+                fi
+                ;;
             --config)
                 if [[ -n "$2" ]]; then
                     CONFIG_FILE="$2"
@@ -1084,7 +1478,51 @@ parse_arguments() {
         return $EXIT_SUCCESS
     fi
 
+    # Show status if requested
+    if [[ "$SHOW_STATUS" == "true" ]]; then
+        show_status
+        return $EXIT_SUCCESS
+    }
+
     return $EXIT_SUCCESS
+}
+
+# Display component status
+# Arguments:
+#   None
+# Returns:
+#   None
+show_status() {
+    echo "Core Component Status:"
+    echo "-------------------"
+    for component in $(echo "${!AVAILABLE_COMPONENTS[@]}" | tr ' ' '\n' | sort); do
+        status="${AVAILABLE_COMPONENTS[$component]}"
+        if [[ "$status" == "true" ]]; then
+            echo -e "${GREEN}✓${NC} $component: Available"
+        else
+            echo -e "${RED}✗${NC} $component: Unavailable"
+        fi
+    done
+
+    if [[ "$PYTHON_CORE_INITIALIZED" == "true" ]]; then
+        echo -e "\nPython Components:"
+        echo "----------------"
+        python_status=$(get_python_component_status)
+        # Extract each component and status from the JSON-like string
+        while read -r line; do
+            if [[ "$line" =~ \"([^\"]+)\":\ (true|false) ]]; then
+                component="${BASH_REMATCH[1]}"
+                status="${BASH_REMATCH[2]}"
+                if [[ "$status" == "true" ]]; then
+                    echo -e "${GREEN}✓${NC} $component: Available"
+                else
+                    echo -e "${RED}✗${NC} $component: Unavailable"
+                fi
+            fi
+        done < <(echo "$python_status" | sed 's/[{,}]//g')
+    else
+        echo -e "\nPython Core: ${RED}Not Initialized${NC}"
+    fi
 }
 
 # Show help message
@@ -1111,9 +1549,14 @@ USAGE:
         # Production-specific code
     fi
 
-    # Temporary files and directories
-    temp_file=$(create_temp_file)
-    temp_dir=$(create_temp_dir)
+    # Component initialization
+    initialize_security_components
+    initialize_system_components
+
+    # Component availability
+    if [[ $(is_component_available "permissions") == "true" ]]; then
+        # Use permission-related functions
+    fi
 
     # Python integration
     initialize_python_core "config/app.yaml" "production" "INFO"
@@ -1124,14 +1567,20 @@ USAGE:
 OPTIONS:
     --help, -h            Show this help message
     --version, -v         Show version information
+    --status, -s          Show component availability status
     --verbose             Enable verbose output
     --quiet, -q           Suppress non-error output
     --log-file FILE       Write logs to FILE
     --log-level LEVEL     Set log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
     --init-python-core    Initialize Python core components
     --config FILE         Specify configuration file
+    --security-level LVL  Set security level (low, normal, high, paranoid)
 
 FUNCTIONS:
+    Component Management:
+        is_component_available, mark_component_available, get_component_status
+        initialize_security_components, initialize_system_components
+
     Logging:
         log, log_info, log_debug, log_warning, log_error, log_critical
 
@@ -1208,6 +1657,9 @@ init() {
         }
     fi
 
+    # Mark error handler as available
+    mark_component_available "error_handler"
+
     return $EXIT_SUCCESS
 }
 
@@ -1220,7 +1672,7 @@ fi
 export COMMON_VERSION COMMON_DATE
 export ENV_PRODUCTION ENV_STAGING ENV_DEVELOPMENT ENV_TESTING
 export LOG_LEVEL_DEBUG LOG_LEVEL_INFO LOG_LEVEL_WARNING LOG_LEVEL_ERROR LOG_LEVEL_CRITICAL
-export EXIT_SUCCESS EXIT_FAILURE EXIT_CONFIG_ERROR EXIT_PERMISSION_ERROR EXIT_DEPENDENCY_ERROR EXIT_TIMEOUT_ERROR
+export EXIT_SUCCESS EXIT_FAILURE EXIT_CONFIG_ERROR EXIT_PERMISSION_ERROR EXIT_DEPENDENCY_ERROR EXIT_TIMEOUT_ERROR EXIT_UNSUPPORTED_ERROR
 export DEFAULT_FILE_PERMS DEFAULT_DIR_PERMS DEFAULT_LOG_FILE_PERMS DEFAULT_SECRET_FILE_PERMS
 
 export -f command_exists check_dependencies
@@ -1229,8 +1681,17 @@ export -f error_exit setup_cleanup_trap execute_with_timeout
 export -f detect_environment is_production is_development
 export -f create_temp_file create_temp_dir ensure_directory validate_file load_config_file
 export -f is_number is_root is_port_in_use generate_random_string
-export -f parse_arguments show_help get_version
+
+# Export component management functions
+export -f is_component_available mark_component_available get_component_status
+export -f initialize_security_components initialize_system_components
+export -f show_status
+
+# Export Python integration functions
 export -f initialize_python_core get_python_component_status load_python_config
+
+# Export script handling functions
+export -f parse_arguments show_help get_version
 
 # Return success when sourced
 return $EXIT_SUCCESS

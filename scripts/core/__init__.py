@@ -50,14 +50,14 @@ logger = logging.getLogger(__name__)
 
 def setup_minimal_logging(level: str = DEFAULT_LOG_LEVEL) -> None:
     """
-    Set up minimal logging configuration for bootstrapping.
+    Set up minimal logging for bootstrapping before main logger is initialized.
 
     Args:
-        level: Log level to use
+        level: Logging level as string (DEBUG, INFO, WARNING, ERROR, CRITICAL)
     """
     numeric_level = getattr(logging, level.upper(), logging.INFO)
 
-    # Configure root logger with a simple formatter
+    # Configure basic logger
     logging.basicConfig(
         level=numeric_level,
         format='[%(asctime)s] [%(levelname)s] %(name)s: %(message)s',
@@ -65,9 +65,8 @@ def setup_minimal_logging(level: str = DEFAULT_LOG_LEVEL) -> None:
         stream=sys.stderr
     )
 
-    # Specifically configure this module's logger
-    global logger
-    logger = logging.getLogger(__name__)
+    # Set specific logger for this module
+    logger.setLevel(numeric_level)
     logger.debug("Minimal logging initialized")
 
 
@@ -200,10 +199,10 @@ def initialize_components() -> Tuple[bool, List[str]]:
 
 def get_component_status() -> Dict[str, bool]:
     """
-    Get the availability status of all core components.
+    Get status of all core components.
 
     Returns:
-        Dictionary with component names as keys and availability as bool values
+        Dictionary of component names and their availability status
     """
     return {
         "logger": LOGGER_AVAILABLE,
@@ -219,25 +218,25 @@ def get_component_status() -> Dict[str, bool]:
 def load_configuration(config_file: Optional[str] = None,
                       environment: Optional[str] = None) -> Optional[Any]:
     """
-    Load configuration from specified file or default location.
+    Load configuration using the config_loader module.
 
     Args:
         config_file: Path to configuration file
-        environment: Environment name for configuration overrides
+        environment: Environment name
 
     Returns:
-        Configuration object or None if loading failed
+        Configuration object or None if configuration loading fails
     """
     if not CONFIG_LOADER_AVAILABLE:
-        logger.warning("Cannot load configuration - config_loader module not available")
+        logger.error("Config loader not available, cannot load configuration")
         return None
 
     try:
-        from scripts.core.config_loader import ConfigLoader
-        config = ConfigLoader.load(config_file or DEFAULT_CONFIG_FILE, environment=environment)
+        from scripts.core.config_loader import load_config
+        config = load_config(config_file, environment=environment)
         return config
     except Exception as e:
-        logger.error(f"Error loading configuration: {e}")
+        logger.error(f"Failed to load configuration: {e}")
         return None
 
 
@@ -290,42 +289,45 @@ def setup_script_environment(config_file: Optional[str] = None,
 
 def setup_cli_parser() -> argparse.ArgumentParser:
     """
-    Set up command-line argument parser for script.
+    Set up command line argument parser.
 
     Returns:
         Configured argument parser
     """
     parser = argparse.ArgumentParser(
         description="Core Initialization for Cloud Infrastructure Platform",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
 
     parser.add_argument(
-        "--environment", "-e",
-        default=os.environ.get("ENVIRONMENT", DEFAULT_ENV),
-        help="Environment to use (development, testing, staging, production)"
+        "--config",
+        "-c",
+        help="Configuration file path"
     )
 
     parser.add_argument(
-        "--config", "-c",
-        default=os.environ.get(CONFIG_PATH_ENV_VAR, DEFAULT_CONFIG_FILE),
-        help="Path to configuration file"
+        "--environment",
+        "-e",
+        help="Environment (development, staging, production)"
     )
 
     parser.add_argument(
-        "--log-level", "-l",
-        default=os.environ.get("LOG_LEVEL", DEFAULT_LOG_LEVEL),
+        "--log-level",
+        "-l",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        default="INFO",
         help="Logging level"
     )
 
     parser.add_argument(
-        "--log-file", "-f",
-        help="Log file path (if not specified, logs to stderr)"
+        "--log-file",
+        "-f",
+        help="Log file path"
     )
 
     parser.add_argument(
-        "--status", "-s",
+        "--status",
+        "-s",
         action="store_true",
         help="Show status of core components"
     )
@@ -335,10 +337,10 @@ def setup_cli_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     """
-    Main entry point for command-line usage.
+    Main entry point when script is executed directly.
 
     Returns:
-        Exit code (0 for success, 1 for failure)
+        Exit code (0 for success, non-zero for failure)
     """
     parser = setup_cli_parser()
     args = parser.parse_args()
@@ -346,25 +348,21 @@ def main() -> int:
     # Set up minimal logging
     setup_minimal_logging(args.log_level)
 
-    # Show status if requested
+    # If status flag is set, just print component status
     if args.status:
-        # Initialize first to get accurate status
-        success, errors = initialize_components()
+        # Initialize components first
+        success, _ = initialize_components()
 
-        status = get_component_status()
+        # Print status
         print("Core Component Status:")
-        for component, available in status.items():
+        for component, available in get_component_status().items():
             status_str = "✅ Available" if available else "❌ Unavailable"
-            print(f"  {component}: {status_str}")
+            print(f"{component}: {status_str}")
 
-        if errors:
-            print("\nInitialization Errors:")
-            for error in errors:
-                print(f"  - {error}")
-
+        # Success is true if at least the basic components are available
         return 0 if success else 1
 
-    # Otherwise, set up script environment
+    # Otherwise set up the environment
     success = setup_script_environment(
         config_file=args.config,
         environment=args.environment,
@@ -372,7 +370,6 @@ def main() -> int:
         log_file=args.log_file
     )
 
-    # Return appropriate exit code
     return 0 if success else 1
 
 

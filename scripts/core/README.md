@@ -96,6 +96,9 @@ The core scripts in this directory are designed to streamline operations, enhanc
     - Dependency-aware component initialization
     - Command-line interface
     - Status reporting
+    - Component availability tracking
+    - Minimal logging setup
+    - Error handling during initialization
 
 ## Directory Structure
 
@@ -239,7 +242,7 @@ The `system/` directory contains functionality for system operations:
 
 ## Initialization
 
-The `init.py` module provides centralized initialization for all core components:
+The `__init__.py` module in the core directory provides centralized initialization for all core components:
 
 - **Dependency Resolution**: Components are initialized in the correct order based on dependencies.
 - **Component Availability Tracking**: Keeps track of which components are successfully initialized.
@@ -247,6 +250,9 @@ The `init.py` module provides centralized initialization for all core components
 - **Environment Setup**: Configures the running environment based on parameters or environment variables.
 - **Command Line Interface**: Provides CLI options for initialization and component status checking.
 - **Script Environment Setup**: One-step function for setting up script environment with proper logging and configuration.
+- **Graceful Degradation**: Handles missing or failed components by continuing with limited functionality.
+- **Centralized Configuration**: Provides unified configuration loading across components.
+- **Status Reporting**: Ability to check and report on component initialization status.
 
 ## Best Practices & Security
 
@@ -263,7 +269,7 @@ The `init.py` module provides centralized initialization for all core components
 - **Timeout Management**: Implement appropriate timeouts for external operations
 - **Resource Cleanup**: Ensure resources are properly released, even in error cases
 - **Failure Recovery**: Implement retries with exponential backoff for transient failures
-- **Initialization Order**: Follow proper initialization order through the `init.py` module
+- **Initialization Order**: Follow proper initialization order through the `__init__.py` module
 
 ## Common Features
 
@@ -557,7 +563,7 @@ security_success, security_errors = initialize_security_components(
 )
 
 # Run as command-line tool to check initialization status
-# python -m scripts.core --environment production --log-level DEBUG
+# python -m scripts.core --environment production --log-level DEBUG --status
 ```
 
 ## Module Dependencies
@@ -591,7 +597,6 @@ security_success, security_errors = initialize_security_components(
 
 ## Version History
 
-- **0.0.4 (2024-08-25)**: Added enhanced security module with file integrity monitoring and permissions management
-- **0.0.3 (2024-03-10)**: Added system module with resources monitoring and information collection
+- **0.0.3 (2024-10-20)**: Added centralized initialization system with dependency resolution
 - **0.0.2 (2024-01-05)**: Major refactor with modular design and enhanced security
 - **0.0.1 (2023-04-15)**: Initial release of core script utilities
