@@ -1,117 +1,135 @@
-# Disaster Recovery Scripts
+# Database Backup Scripts
 
 ## Overview
 
-This directory contains scripts for managing disaster recovery operations for the Cloud Infrastructure Platform. These scripts handle failover procedures, DNS updates, and infrastructure activation to ensure business continuity during outages or disaster scenarios.
+This directory contains scripts for managing database backups for the Cloud Infrastructure Platform. These scripts handle the creation, verification, and restoration of database backups across different environments, ensuring data integrity and providing disaster recovery capabilities.
 
 ## Key Scripts
 
-- **`dr-activate.sh`**: Activates the disaster recovery infrastructure in the secondary region
-- **`dr-failover.sh`**: Handles application failover between primary and secondary regions
-- **`update-dns.sh`**: Updates DNS records to point to active infrastructure during failover
+- **`backup_db.sh`**: Creates and manages database backups with integrity verification
+- **`restore_db.sh`**: Restores database from previous backups with safety checks
+- **`verify-backups.sh`**: Validates backup integrity and performs test restorations
 
 ## Directory Structure
 
-```bash
-scripts/deployment/dr/
-├── dr-activate.sh        # DR infrastructure activation script
-├── dr-failover.sh        # Application failover management
+```plaintext
+scripts/backup/
+├── backup_db.sh          # Database backup creation script
 ├── README.md             # This documentation
-└── update-dns.sh         # DNS redirection utility
+├── restore_db.sh         # Database restoration script
+└── verify-backups.sh     # Backup integrity verification tool
 ```
 
 ## Configuration
 
-DR scripts rely on environment variables that can be configured in the deployment environment files:
+Backup scripts rely on environment variables that can be configured in the deployment environment files:
 
-- **PRIMARY_REGION**: Primary AWS region (default: us-west-2)
-- **SECONDARY_REGION**: Secondary/DR AWS region (default: us-east-1)
-- **PRIMARY_REGION_ENDPOINT**: Endpoint for primary region health checks
-- **SECONDARY_REGION_ENDPOINT**: Endpoint for secondary region health checks
-- **PRIMARY_CLUSTER**: Name of the primary region's auto-scaling group
-- **SECONDARY_CLUSTER**: Name of the secondary region's auto-scaling group
-- **PRIMARY_DB_HOST**: Primary database host
-- **SECONDARY_DB_HOST**: Secondary database host
+- **BACKUP_DIR**: Directory where backups are stored (default: /var/backups/cloud-platform)
+- **LOG_DIR**: Directory for backup logs (default: /var/log/cloud-platform)
+- **LOG_RETENTION_HOURS**: Hours to retain backup logs (default: 168)
+- **DB_MANAGER**: Path to database manager (default: PROJECT_ROOT/scripts/database/database-manager.sh)
+- **DB_BACKUP_NOTIFY**: Email for backup notifications (configurable per environment)
+- **DB_RESTORE_NOTIFY**: Email for restore notifications (configurable per environment)
 
 ## Best Practices & Security
 
-- Always verify infrastructure readiness before completing failover
-- Use proper cleanup handlers with `trap` to ensure resource cleanup
-- Maintain accurate DNS records for both primary and secondary regions
-- Never run DR scripts during normal operations without proper planning
-- Test DR procedures regularly using `--dry-run` mode
-- Coordinate DR activities with all stakeholders using established communication channels
+- Always verify backup integrity after creation using `verify-backups.sh`
+- Create safety backups before performing database restorations
+- Use encryption for sensitive production backups
+- Implement proper retention policies to manage backup storage
+- Test restoration procedures regularly in isolated environments
+- Use appropriate permissions (600/640) for backup files and logs
+- Follow the principle of least privilege for database operations
+- Store backup files in multiple secure locations
 
 ## Common Features
 
-- Detailed logging to both console and log files for audit purposes
-- Health checks to verify infrastructure and application availability
-- Notification system for critical DR events
+- Environment-specific configurations (development, staging, production)
+- Compression and optional encryption capabilities
+- Integrity verification with cryptographic checksums
+- Detailed logging for audit and troubleshooting purposes
+- Notification system for critical backup and restoration events
 - Force mode to override safety checks when necessary
-- Automatic DNS updates to redirect traffic
+- Backup rotation to implement retention policies
 
 ## Usage
 
-### Disaster Recovery Infrastructure Activation
+### Database Backup
 
 ```bash
-# Activate DR infrastructure with verification
-./scripts/deployment/dr/dr-activate.sh
+# Create a backup for production environment
+./scripts/backup/backup_db.sh --env production
 
-# Activate DR infrastructure without verification
-./scripts/deployment/dr/dr-activate.sh --skip-verification
+# Create compressed and encrypted backup
+./scripts/backup/backup_db.sh --env production --encrypt
 
-# Force activation even if verification fails
-./scripts/deployment/dr/dr-activate.sh --force
+# Back up specific tables only
+./scripts/backup/backup_db.sh --env staging --tables users,accounts,settings
+
+# Create schema-only backup (no data)
+./scripts/backup/backup_db.sh --env development --schema-only
+
+# Skip verification and rotation
+./scripts/backup/backup_db.sh --env production --no-verify --no-rotate
 ```
 
-### Application Failover
+### Database Restoration
 
 ```bash
-# Failover to secondary region
-./scripts/deployment/dr/dr-failover.sh --activate-region secondary
+# Restore from specific backup file to staging environment
+./scripts/backup/restore_db.sh --env staging --file backup_20240415_120000.sql.gz
 
-# Failover back to primary region when recovered
-./scripts/deployment/dr/dr-failover.sh --activate-region primary
+# Restore latest backup
+./scripts/backup/restore_db.sh --env development --file latest
 
-# Force failover even if checks fail
-./scripts/deployment/dr/dr-failover.sh --activate-region secondary --force
+# Restore without owner statements
+./scripts/backup/restore_db.sh --file backup_20240415_120000.sql.gz --env development --no-owner
 
-# Quiet mode (minimal console output)
-./scripts/deployment/dr/dr-failover.sh --activate-region secondary --quiet
+# Restore without safety backup
+./scripts/backup/restore_db.sh --file backup_20240415_120000.sql.gz --env staging --no-safety-backup
+
+# Force restore without confirmation
+./scripts/backup/restore_db.sh --file backup_20240415_120000.sql.gz --env development --force
 ```
 
-### DNS Updates
+### Backup Verification
 
 ```bash
-# Update DNS to point to secondary region
-./scripts/deployment/dr/update-dns.sh --point-to secondary
+# Verify backups for production environment
+./scripts/backup/verify-backups.sh --environment production
 
-# Update DNS to point back to primary region
-./scripts/deployment/dr/update-dns.sh --point-to primary
+# Verify with test restoration
+./scripts/backup/verify-backups.sh --environment staging --restore-test
 
-# Force DNS update even if health checks fail
-./scripts/deployment/dr/update-dns.sh --point-to secondary --force
+# Verify all environments
+./scripts/backup/verify-backups.sh --all-environments
+
+# Verify backups from last 14 days
+./scripts/backup/verify-backups.sh --environment production --verify-days 14
+
+# Verify with detailed integrity checks and notifications
+./scripts/backup/verify-backups.sh --environment production --detailed-verify --notify ops@example.com
 ```
 
 ## Module Dependencies
 
-- **Database Scripts**: Required for database verification
-- **Monitoring Scripts**: Used for health checks and alerts
-- **Security Scripts**: Used for file integrity verification
-- **Testing Scripts**: Used for smoke tests after failover
-- **Utils Scripts**: Used for notifications and logging
+- **Database Scripts**: Required for database operations and management
+- **Core Utilities**: Used for configuration loading and environment detection
+- **Security Scripts**: Used for cryptographic operations and file integrity verification
+- **Notification Scripts**: Used for alerting on backup status and issues
+- **Utils Scripts**: Used for logging and error handling
 
 ## Related Documentation
 
+- Database Management Documentation
+- Backup Strategy and Retention Policies
 - Disaster Recovery Plan
-- Deployment Overview
-- Monitoring Configuration
-- DNS Management
+- Data Protection Guidelines
+- PostgreSQL Administration Guide
 
 ## Version History
 
-- **1.3.0 (2024-03-15)**: Added comprehensive verification and notification system
-- **1.2.0 (2024-01-20)**: Enhanced logging and database verification
-- **1.1.0 (2023-11-10)**: Added support for multi-region deployments
-- **1.0.0 (2023-09-01)**: Initial release of DR scripts
+- **0.0.4 (2024-05-10)**: Enhanced verification with detailed integrity checks and test restoration
+- **0.0.3 (2024-03-15)**: Added comprehensive notification system and improved logging
+- **0.0.2 (2024-01-20)**: Enhanced restore script with safety features and rollback capabilities
+- **0.0.1 (2023-11-05)**: Initial release of database backup scripts
