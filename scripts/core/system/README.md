@@ -8,6 +8,10 @@ This directory contains system-related functionality that provides essential sys
 - [Key Components](#key-components)
 - [Directory Structure](#directory-structure)
 - [Usage Examples](#usage-examples)
+  - [Initialization](#initialization)
+  - [Cloud Provider Operations](#cloud-provider-operations)
+  - [Resource Monitoring](#resource-monitoring)
+  - [System Information](#system-information)
 - [Integration Points](#integration-points)
 - [Common Features](#common-features)
 - [Best Practices & Security](#best-practices--security)
@@ -20,6 +24,19 @@ This directory contains system-related functionality that provides essential sys
 The system module provides core system operation capabilities that can be leveraged across the entire Cloud Infrastructure Platform. It implements cloud provider interactions, system resource monitoring, and system information collection following industry best practices. These components form reliable building blocks that can be used across different environments (development, staging, production) to ensure consistent system operations and monitoring.
 
 ## Key Components
+
+- **`__init__.py`**: Provides centralized initialization for all system components.
+  - **Usage**: Import this module to initialize the system components or use its CLI.
+  - **Features**:
+    - Component dependency resolution
+    - Cloud provider initialization
+    - Resource monitoring setup
+    - System information collection configuration
+    - Cross-platform compatibility handling
+    - Component status tracking
+    - Environment-specific configuration
+    - Prerequisite verification and validation
+    - CLI interface for component management
 
 - **`cloud_provider.py`**: Manages interactions with cloud service providers.
   - **Usage**: Import this module to interact with cloud services across multiple platforms.
@@ -75,6 +92,37 @@ scripts/core/system/
 ```
 
 ## Usage Examples
+
+### Initialization
+
+```python
+from scripts.core.system import (
+    initialize_system_components,
+    get_system_component_status,
+    verify_system_prerequisites
+)
+
+# Initialize system components with custom settings
+success, errors = initialize_system_components(
+    log_level="INFO",
+    config_path="config/custom",
+    skip_unavailable=True
+)
+
+if not success:
+    print(f"Initialization issues: {errors}")
+
+# Check component availability
+status = get_system_component_status()
+if not status["cloud_provider"]:
+    print("Cloud provider functionality unavailable")
+
+# Verify system prerequisites
+prereqs = verify_system_prerequisites()
+for category, result in prereqs.items():
+    if not result["status"]:
+        print(f"Prerequisite issues in {category}: {result['issues']}")
+```
 
 ### Cloud Provider Operations
 
@@ -207,6 +255,9 @@ The system module integrates with several other platform components:
 - **Secure Credential Handling**: Safe management of cloud provider credentials
 - **Historical Data Collection**: Time-series tracking of system performance
 - **Environment-Aware Behavior**: Different thresholds and behaviors by environment
+- **Component Availability Tracking**: Dynamic detection of available functionality
+- **Prerequisite Verification**: Validation of required dependencies and permissions
+- **CLI Interface**: Command-line tools for system management and diagnostics
 
 ## Best Practices & Security
 
@@ -222,6 +273,8 @@ The system module integrates with several other platform components:
 - Implement proper cleanup of temporary resources
 - Use appropriate retention policies for historical metrics data
 - Secure all configuration containing connection details or credentials
+- Verify system prerequisites before attempting operations
+- Initialize components in the correct order based on dependencies
 
 ## Module Dependencies
 
@@ -242,9 +295,11 @@ The system module integrates with several other platform components:
 - Alert Management Guidelines
 - Multi-Cloud Strategy
 - Performance Baseline Guidelines
+- System Initialization Guide
+- Component Dependency Management
 
 ## Version History
 
-- **0.0.3 (2024-08-20)**: Enhanced cloud provider support with cross-provider abstractions
+- **0.0.3 (2024-10-15)**: Added centralized initialization with dependency resolution
 - **0.0.2 (2024-03-10)**: Added comprehensive resource monitoring with alerting
 - **0.0.1 (2023-11-15)**: Initial release with basic system operations
