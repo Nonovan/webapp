@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# filepath: scripts/database/__init__.py
 """
 Database Management Package for Cloud Infrastructure Platform.
 
@@ -14,6 +16,7 @@ Core functionality includes:
 import os
 import sys
 import logging
+import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any, Set, Union
 
@@ -23,6 +26,8 @@ logger = logging.getLogger(__name__)
 # Define package constants
 SCRIPT_DIR = Path(__file__).parent.absolute()
 PROJECT_ROOT = SCRIPT_DIR.parent.parent
+DEFAULT_CONFIG_PATH = "deployment/database/db_config.ini"
+DEFAULT_ENVIRONMENT = "development"
 
 # Try to import PostgreSQL optimizer functionality
 try:
@@ -60,49 +65,46 @@ except ImportError as e:
     logger.debug(f"Could not import init_db module: {e}")
     INIT_DB_AVAILABLE = False
 
-# Define a function to run database-manager.sh since it's a shell script
+
 def run_db_manager(command: str, env: str = None, **kwargs) -> Tuple[bool, str]:
     """
-    Run database-manager.sh with given command and parameters.
+    Run the database-manager.sh script with the given parameters.
 
     Args:
-        command: Command to execute (backup, restore, verify, list, etc.)
-        env: Target environment (production, staging, development, etc.)
-        **kwargs: Additional parameters for the command
+        command: Command to execute (backup, restore, verify, etc.)
+        env: Target environment (production, staging, development)
+        **kwargs: Additional arguments to pass to the script
 
     Returns:
         Tuple of (success, output)
     """
-    import subprocess
+    cmd = [str(SCRIPT_DIR / "database-manager.sh"), command]
 
-    script_path = os.path.join(SCRIPT_DIR, "database-manager.sh")
-    if not os.path.exists(script_path):
-        return False, f"database-manager.sh not found at {script_path}"
-
-    cmd = [script_path, command]
     if env:
         cmd.extend(["--env", env])
 
-    # Add any additional parameters
+    # Add other parameters
     for key, value in kwargs.items():
-        if len(key) == 1:
-            cmd.append(f"-{key}")
-        else:
-            cmd.append(f"--{key.replace('_', '-')}")
+        if value is True:
+            cmd.append(f"--{key}")
+        elif value not in (None, False):
+            cmd.append(f"--{key}={value}")
 
-        if value is not True:  # Don't add value for boolean flags
-            cmd.append(str(value))
+    logger.debug(f"Executing command: {' '.join(cmd)}")
 
     try:
-        result = subprocess.run(cmd,
-                               capture_output=True,
-                               text=True,
-                               check=False)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False
+        )
         return result.returncode == 0, result.stdout
     except Exception as e:
+        logger.error(f"Error executing database-manager.sh: {str(e)}")
         return False, f"Error executing database-manager.sh: {str(e)}"
 
-# Define convenience functions for common database operations
+
 def backup_database(env: str, compress: bool = True, schema_only: bool = False) -> Tuple[bool, str]:
     """
     Create a database backup for the specified environment.
@@ -116,6 +118,7 @@ def backup_database(env: str, compress: bool = True, schema_only: bool = False) 
         Tuple of (success, output)
     """
     return run_db_manager("backup", env=env, compress=compress, schema_only=schema_only)
+
 
 def restore_database(env: str, backup_file: str, force: bool = False) -> Tuple[bool, str]:
     """
@@ -131,60 +134,63 @@ def restore_database(env: str, backup_file: str, force: bool = False) -> Tuple[b
     """
     return run_db_manager("restore", env=env, file=backup_file, force=force)
 
+
 def verify_database(env: str, quick_check: bool = False) -> Tuple[bool, str]:
     """
-    Verify database integrity for the specified environment.
+    Verify database integrity.
 
     Args:
         env: Target environment (production, staging, development)
-        quick_check: Whether to perform only connectivity check
+        quick_check: Whether to perform only basic verification
 
     Returns:
         Tuple of (success, output)
     """
-    return run_db_manager("verify-db", env=env, quick_check=quick_check)
+    return run_db_manager("verify-db", env=env, quick=quick_check)
+
 
 def check_replication(env: str, lag_threshold: int = 300) -> Tuple[bool, str]:
     """
-    Check database replication status.
+    Check database replication health.
 
     Args:
         env: Target environment (production, staging, development)
-        lag_threshold: Maximum acceptable replication lag in seconds
+        lag_threshold: Maximum allowed replication lag in seconds
 
     Returns:
         Tuple of (success, output)
     """
     return run_db_manager("check-replication", env=env, threshold=lag_threshold)
 
+
 def optimize_db(env: str, vacuum_mode: str = "standard", reindex: bool = False,
                apply: bool = False, analyze_only: bool = False) -> Dict[str, Any]:
     """
-    Optimize database by running vacuum, analyze, and/or reindex operations.
+    Perform database optimization using pg_optimizer.py.
 
     Args:
         env: Target environment (production, staging, development)
-        vacuum_mode: Type of vacuum to perform (standard, full, analyze)
-        reindex: Whether to reindex bloated indexes
-        apply: Whether to apply changes (false for dry run)
-        analyze_only: Whether to only analyze without performing optimizations
+        vacuum_mode: Type of vacuum to perform ('standard', 'full', 'analyze')
+        reindex: Whether to rebuild indexes
+        apply: Whether to apply changes or run in dry-run mode
+        analyze_only: Whether to only analyze without optimization recommendations
 
     Returns:
-        Dictionary containing optimization results
+        Dictionary with optimization results
     """
     if not PG_OPTIMIZER_AVAILABLE:
         logger.error("pg_optimizer module not available")
-        return {"success": False, "error": "pg_optimizer module not available"}
+        return {
+            "success": False,
+            "error": "pg_optimizer module not available"
+        }
 
     try:
-        # Get database configuration for the environment
         db_config = get_db_config(env)
 
-        # Run analysis if analyze_only is True
         if analyze_only:
             return analyze_db_statistics(db_config=db_config)
 
-        # Otherwise perform optimization
         return perform_optimization(
             db_config=db_config,
             vacuum_mode=vacuum_mode,
@@ -196,7 +202,10 @@ def optimize_db(env: str, vacuum_mode: str = "standard", reindex: bool = False,
     except Exception as e:
         return {"success": False, "error": f"Unexpected error: {str(e)}"}
 
-def initialize_database(env: str, seed: bool = False, drop_existing: bool = False) -> bool:
+
+def initialize_database(env: str, seed: bool = False, drop_existing: bool = False,
+                      schema_only: bool = False, verbose: bool = False,
+                      skip_migrations: bool = False) -> bool:
     """
     Initialize database for the specified environment.
 
@@ -204,6 +213,9 @@ def initialize_database(env: str, seed: bool = False, drop_existing: bool = Fals
         env: Target environment (production, staging, development)
         seed: Whether to seed initial data
         drop_existing: Whether to drop existing database
+        schema_only: Whether to create only schema without data
+        verbose: Whether to enable verbose output
+        skip_migrations: Whether to skip running migrations
 
     Returns:
         True if database was initialized successfully
@@ -214,27 +226,41 @@ def initialize_database(env: str, seed: bool = False, drop_existing: bool = Fals
 
     try:
         # Read database configuration
-        db_config, app_user, app_password = read_config("../deployment/database/db_config.ini", env)
+        config_path = os.path.join(PROJECT_ROOT, DEFAULT_CONFIG_PATH)
+        db_config, app_user, app_password = read_config(config_path, env)
 
         # Create database
-        if not create_database(db_config, app_user, app_password, drop_existing):
+        success = create_database(
+            db_config,
+            app_user,
+            app_password,
+            drop_existing=drop_existing,
+            skip_extensions=False
+        )
+        if not success:
             return False
 
         # Apply migrations
-        if not apply_migrations():
-            return False
+        if not skip_migrations:
+            if not apply_migrations(env, skip=skip_migrations):
+                return False
+        else:
+            logger.info("Skipping database migrations")
 
         # Seed data if requested
-        if seed and not seed_data():
-            return False
+        if seed and not schema_only:
+            if not seed_data(env, schema_only=schema_only):
+                return False
 
+        logger.info(f"Database initialization for {env} completed successfully")
         return True
     except Exception as e:
         logger.error(f"Error initializing database: {e}")
         return False
 
+
 # Define package version and metadata
-__version__ = "0.2.0"
+__version__ = "0.1.1"
 __author__ = "Cloud Infrastructure Platform Team"
 
 # Define public API

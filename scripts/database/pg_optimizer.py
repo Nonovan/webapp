@@ -72,9 +72,11 @@ OPERATION_ADD_INDEX = "add_index"
 OPERATION_DROP_INDEX = "drop_index"
 OPERATION_CONFIG = "config_change"
 
+
 class OptimizationError(Exception):
     """Exception raised for errors during optimization operations."""
     pass
+
 
 def load_maintenance_settings() -> Dict[str, float]:
     """
@@ -91,6 +93,7 @@ def load_maintenance_settings() -> Dict[str, float]:
                 settings[key] = MAINTENANCE_SETTINGS[key]
 
     return settings
+
 
 def get_db_config(environment: str) -> Dict[str, str]:
     """
@@ -122,7 +125,9 @@ def get_db_config(environment: str) -> Dict[str, str]:
                 "password": os.environ.get(f"DB_PASSWORD_{environment.upper()}", "")
             }
     except Exception as e:
+        logger.error(f"Failed to load database configuration: {e}")
         raise OptimizationError(f"Failed to load database configuration: {str(e)}")
+
 
 def analyze_db_statistics(
     db_config: Dict[str, str],
@@ -160,6 +165,7 @@ def analyze_db_statistics(
 
             # Add more detailed statistics
             conn, cursor = connect_to_database(db_config)
+
             if conn and cursor:
                 try:
                     # Add cache hit ratio statistics
@@ -217,6 +223,9 @@ def analyze_db_statistics(
                 # Add table bloat analysis
                 result.update(analyze_table_bloat(cursor, settings, schema))
 
+                # Add query statistics
+                result.update(analyze_slow_queries(cursor))
+
                 return result
             finally:
                 if cursor:
@@ -234,6 +243,7 @@ def analyze_db_statistics(
             "indexes_needing_reindex": 0,
             "operations": {"vacuum": [], "analyze": [], "reindex": []}
         }
+
 
 def analyze_cache_hit_ratio(cursor) -> Dict[str, Any]:
     """
@@ -305,6 +315,7 @@ def analyze_cache_hit_ratio(cursor) -> Dict[str, Any]:
         result["cache_hit_analysis"]["error"] = str(e)
 
     return result
+
 
 def analyze_index_usage(cursor, settings: Dict[str, float]) -> Dict[str, Any]:
     """
@@ -384,6 +395,7 @@ def analyze_index_usage(cursor, settings: Dict[str, float]) -> Dict[str, Any]:
         result["index_usage_analysis"]["error"] = str(e)
 
     return result
+
 
 def analyze_table_bloat(
     cursor,
@@ -504,9 +516,10 @@ def analyze_table_bloat(
 
     return result
 
+
 def analyze_slow_queries(cursor) -> Dict[str, Any]:
     """
-    Analyze slow queries if pg_stat_statements is available.
+    Analyze slow queries using pg_stat_statements if available.
 
     Args:
         cursor: Database cursor
@@ -517,7 +530,8 @@ def analyze_slow_queries(cursor) -> Dict[str, Any]:
     result = {
         "slow_queries": {
             "available": False,
-            "queries": []
+            "queries": [],
+            "error": None
         }
     }
 
@@ -530,17 +544,17 @@ def analyze_slow_queries(cursor) -> Dict[str, Any]:
         """)
         has_pg_stat_statements = cursor.fetchone()[0]
 
-        if has_pg_stat_statements:
-            result["slow_queries"]["available"] = True
+        result["slow_queries"]["available"] = has_pg_stat_statements
 
-            # Get top 10 slowest queries by average execution time
+        if has_pg_stat_statements:
+            # Get top slow queries
             cursor.execute("""
             SELECT
-                SUBSTRING(query, 1, 200) AS query_text,
+                substring(query from 1 for 500) as query_text,
                 calls,
-                total_exec_time / calls AS avg_time,
-                rows / calls AS avg_rows,
-                100.0 * shared_blks_hit / NULLIF(shared_blks_hit + shared_blks_read, 0) AS hit_percent
+                mean_exec_time as avg_time,
+                rows as avg_rows,
+                shared_blks_hit * 100.0 / nullif(shared_blks_hit + shared_blks_read, 0) as hit_percent
             FROM
                 pg_stat_statements
             ORDER BY
@@ -573,6 +587,7 @@ def analyze_slow_queries(cursor) -> Dict[str, Any]:
         result["slow_queries"]["error"] = str(e)
 
     return result
+
 
 def perform_optimization(
     db_config: Dict[str, str],
@@ -800,6 +815,7 @@ def perform_optimization(
             "operations_performed": 0
         }
 
+
 def generate_optimization_report(analysis_result: Dict[str, Any], output_file: Optional[str] = None) -> None:
     """
     Generate a human-readable optimization report from analysis results.
@@ -1001,6 +1017,7 @@ def generate_optimization_report(analysis_result: Dict[str, Any], output_file: O
     # Always print to console
     print("\n" + report_text)
 
+
 def main() -> int:
     """Main entry point for the script."""
     parser = argparse.ArgumentParser(
@@ -1040,9 +1057,9 @@ def main() -> int:
                       help='Size ratio threshold for REINDEX')
 
     # Output options
-    parser.add_argument('--output', help='Output file for HTML report')
-    parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose output')
+    parser.add_argument('--output', help='Output file for report')
     parser.add_argument('--json', action='store_true', help='Output results in JSON format')
+    parser.add_argument('--verbose', '-v', action='store_true', help='Enable verbose output')
 
     # Execution options
     parser.add_argument('--apply', action='store_true',
@@ -1171,6 +1188,7 @@ def main() -> int:
             traceback.print_exc()
 
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(main())
