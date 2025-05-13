@@ -51,15 +51,6 @@ The core scripts in this directory are designed to streamline operations, enhanc
     - Schema enforcement
     - Default value handling
 
-- **`environment.py`**: Manages environment variables and settings.
-  - **Usage**: Import this module to access environment settings.
-  - **Features**:
-    - Environment variable management
-    - Runtime environment detection
-    - Environment-specific behavior
-    - Secure secrets handling
-    - Configuration override mechanism
-
 - **`error_handler.py`**: Provides standardized error handling.
   - **Usage**: Import this module to handle errors consistently.
   - **Features**:
@@ -100,13 +91,23 @@ The core scripts in this directory are designed to streamline operations, enhanc
     - Minimal logging setup
     - Error handling during initialization
 
+- **`env_manager.py`**: Manages script-specific environment variables and integration with core environment.
+  - **Usage**: Import this module for script environment management.
+  - **Features**:
+    - Integration with `core.environment` module
+    - Script-specific environment detection
+    - Environment variable validation
+    - Environment file management
+    - Secure credential handling
+    - Environment comparison utilities
+
 ## Directory Structure
 
 ```plaintext
 scripts/core/
 ├── common.sh               # Common shell utility functions
 ├── config_loader.py        # Configuration loading and validation
-├── environment.py          # Environment variable and settings management
+├── env_manager.py          # Environment management for scripts
 ├── error_handler.py        # Standardized error handling
 ├── __init__.py             # Core initialization module
 ├── logger.py               # Logging functionality
@@ -123,6 +124,8 @@ scripts/core/
     ├── system_info.py      # System information collection
     └── __init__.py         # System module initialization
 ```
+
+> **Note**: Environment management functionality is provided by the `core.environment` module from the main application package, not in this scripts directory. For environment variable handling and environment detection, import directly from `core.environment` rather than from `scripts.core`. The `env_manager.py` module provides a bridge between script-specific environment needs and the core environment module.
 
 ## Security Module
 
@@ -253,6 +256,9 @@ The `__init__.py` module in the core directory provides centralized initializati
 - **Graceful Degradation**: Handles missing or failed components by continuing with limited functionality.
 - **Centralized Configuration**: Provides unified configuration loading across components.
 - **Status Reporting**: Ability to check and report on component initialization status.
+- **Multiple Environment Sources**: Support for both `core.environment` and script-specific `env_manager`.
+- **Security Initialization**: Secure defaults for security components based on environment.
+- **System Component Integration**: Proper initialization of system components with error handling.
 
 ## Best Practices & Security
 
@@ -270,6 +276,9 @@ The `__init__.py` module in the core directory provides centralized initializati
 - **Resource Cleanup**: Ensure resources are properly released, even in error cases
 - **Failure Recovery**: Implement retries with exponential backoff for transient failures
 - **Initialization Order**: Follow proper initialization order through the `__init__.py` module
+- **Component Availability**: Always check component availability before using functionality
+- **Graceful Degradation**: Handle missing or unavailable components with fallback behavior
+- **Environment Awareness**: Ensure components behave appropriately for current environment
 
 ## Common Features
 
@@ -292,6 +301,11 @@ The `__init__.py` module in the core directory provides centralized initializati
 - Tracing and observability
 - Centralized component initialization
 - Component availability tracking
+- Dependency resolution
+- Configuration validation
+- Secure credential handling
+- Environment-specific behavior
+- CLI interfaces for components
 
 ## Usage Examples
 
@@ -311,13 +325,12 @@ from scripts.core.config_loader import ConfigLoader
 config = ConfigLoader.load("config/app.yaml")
 database_url = config.get("database.url")
 
-# Using resource monitoring
-from scripts.core.system.resource_monitor import ResourceMonitor
+# Using environment functionality from core package
+from core.environment import get_current_environment, is_production
 
-monitor = ResourceMonitor()
-cpu_usage = monitor.get_cpu_usage()
-if cpu_usage > 90:
-    monitor.send_alert("High CPU Usage", f"Current usage: {cpu_usage}%")
+env = get_current_environment()
+if is_production():
+    log.info("Running in production environment")
 ```
 
 ### Shell Scripts
@@ -562,6 +575,12 @@ security_success, security_errors = initialize_security_components(
     log_level="INFO"
 )
 
+# Access environment functionality from main core package
+from core.environment import get_current_environment, is_production
+env = get_current_environment()
+if is_production():
+    print("Running in production environment")
+
 # Run as command-line tool to check initialization status
 # python -m scripts.core --environment production --log-level DEBUG --status
 ```
@@ -570,12 +589,13 @@ security_success, security_errors = initialize_security_components(
 
 - **Logger**: No internal dependencies
 - **ConfigLoader**: Depends on `logger`
-- **Environment**: Depends on `logger` and `config_loader`
 - **ErrorHandler**: Depends on `logger` and `notification`
 - **Security modules**: Depend on `logger` and `error_handler`
 - **System modules**: Depend on `logger`, `error_handler`, and `config_loader`
 - **Notification**: Depends on `logger` and `config_loader`
 - **`__init__.py`**: Manages dependencies for all other modules
+- **All scripts/core components**: May depend on `core.environment` from main application package
+- **env_manager**: Bridges between scripts/core and `core.environment`
 
 ## Related Documentation
 
@@ -594,6 +614,10 @@ security_success, security_errors = initialize_security_components(
 - Security Architecture Overview
 - System Information Collection Guide
 - Component Initialization Guide
+- Environment Management Guide
+- Initialization Sequence Documentation
+- Core Module API Integration Guide
+- Script Environment Configuration Guide
 
 ## Version History
 

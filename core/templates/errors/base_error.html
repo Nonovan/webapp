@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr" data-bs-theme="{{ theme|default('light') }}">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Security headers -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="X-Frame-Options" content="DENY">
+    <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
+    <meta http-equiv="Permissions-Policy" content="geolocation=(), camera=(), microphone=(), payment=()">
+
+    <title>{{ error_title|default('Error') }} {{ error_code|default('') }} | Cloud Infrastructure Platform</title>
+
+    <!-- Bootstrap and custom styles with SRI -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}"
+        integrity="{{ sri_hash('css/bootstrap.min.css') }}" crossorigin="anonymous">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.css') }}"
+        integrity="{{ sri_hash('css/bootstrap-icons.css') }}" crossorigin="anonymous">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}"
+        integrity="{{ sri_hash('css/style.css') }}" crossorigin="anonymous">
+
+    <!-- Critical CSS for immediate rendering -->
+    <style>
+        .error-page {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            background-color: #f8f9fa;
+        }
+
+        .error-code {
+            font-size: 6rem;
+            font-weight: 700;
+            color: #dc3545;
+            line-height: 1;
+        }
+
+        .error-icon {
+            font-size: 3.5rem;
+            color: #dc3545;
+        }
+
+        [data-bs-theme="dark"] {
+            background-color: #212529;
+            color: #f8f9fa;
+        }
+
+        [data-bs-theme="dark"] .error-page {
+            background-color: #212529;
+            color: #f8f9fa;
+        }
+
+        .card {
+            border: none;
+            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+        }
+
+        .skip-link {
+            position: absolute;
+            top: -40px;
+            left: 0;
+            background: #0d6efd;
+            color: white;
+            padding: 8px;
+            z-index: 100;
+            transition: top 0.1s;
+        }
+
+        .skip-link:focus {
+            top: 0;
+        }
+
+        .reasons-list {
+            padding-left: 1.25rem;
+        }
+
+        .reasons-list li {
+            margin-bottom: 0.25rem;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Skip link for accessibility -->
+    <a href="#main-content" class="skip-link visually-hidden-focusable">Skip to main content</a>
+
+    <div class="error-page">
+        <div class="container py-5">
+            <div class="row justify-content-center">
+                <div class="col-lg-8">
+                    <div class="card">
+                        <div class="card-body p-md-5" id="main-content">
+                            <div class="text-center mb-4">
+                                {% if error_code == 404 %}
+                                <i class="bi bi-search error-icon"></i>
+                                {% elif error_code == 403 %}
+                                <i class="bi bi-shield-lock-fill error-icon"></i>
+                                {% elif error_code == 401 %}
+                                <i class="bi bi-shield-lock error-icon"></i>
+                                {% elif error_code == 500 %}
+                                <i class="bi bi-exclamation-triangle-fill error-icon"></i>
+                                {% elif error_code == 400 %}
+                                <i class="bi bi-exclamation-circle-fill error-icon"></i>
+                                {% else %}
+                                <i class="bi bi-exclamation-octagon-fill error-icon"></i>
+                                {% endif %}
+                                <h1 class="error-code mb-0">{{ error_code|default('Error') }}</h1>
+                                <h2 class="h3 mt-3">{{ error_title|default('An error occurred') }}</h2>
+                            </div>
+
+                            <div class="alert alert-{{ alert_level|default('danger') }} d-flex align-items-center"
+                                role="alert">
+                                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                                <div>
+                                    {{ message|default('An unexpected error has occurred.') }}
+                                </div>
+                            </div>
+
+                            <p class="text-center mb-4">
+                                {{ description|default('Our team has been notified of this issue.') }}
+                            </p>
+
+                            <div class="d-grid gap-3 d-md-flex justify-content-center">
+                                <a href="{{ back_url|default(url_for('main.home')) }}" class="btn btn-primary">
+                                    <i class="bi bi-house-door me-2"></i>Go to Home
+                                </a>
+                                {% if request.referrer and (request.referrer != request.url) %}
+                                <a href="{{ request.referrer }}" class="btn btn-outline-secondary">
+                                    <i class="bi bi-arrow-left me-2"></i>Go Back
+                                </a>
+                                {% endif %}
+                                {% block additional_actions %}{% endblock %}
+                            </div>
+
+                            <hr class="my-4">
+
+                            <div class="small text-muted">
+                                {% if reasons %}
+                                <p class="mb-1"><strong>Possible reasons:</strong></p>
+                                <ul class="reasons-list">
+                                    {% for reason in reasons %}
+                                    <li>{{ reason }}</li>
+                                    {% endfor %}
+                                </ul>
+                                {% endif %}
+
+                                <p class="mb-1 mt-3">
+                                    If you believe this is an error, please contact
+                                    <a
+                                        href="mailto:{{ support_email|default('support@cloudplatform.com') }}">support</a>.
+                                </p>
+
+                                <!-- Error reference ID for support -->
+                                {% if error_reference %}
+                                <p>Reference ID: {{ error_reference }}</p>
+                                {% endif %}
+
+                                <!-- Debug info for development environments -->
+                                {% if show_details and error_details %}
+                                <div class="mt-4">
+                                    <p><strong>Technical Details (Development Only):</strong></p>
+                                    <pre class="border bg-light p-3 small">{{ error_details|e }}</pre>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS with SRI for any interactive components -->
+    <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"
+        integrity="{{ sri_hash('js/bootstrap.bundle.min.js') }}" crossorigin="anonymous"></script>
+
+    <!-- Optional inline JS with nonce -->
+    {% if csp_nonce %}
+    <script nonce="{{ csp_nonce }}">
+        // Monitor dark mode preference
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.body.setAttribute('data-bs-theme', 'dark');
+        }
+
+        // Track error page view for security monitoring
+        if (window.fetch) {
+            try {
+                fetch('{{ url_for("api.log_security_event") }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': '{{ csrf_token() }}'
+                    },
+                    body: JSON.stringify({
+                        event_type: 'error_page_view',
+                        error_code: {{ error_code|default(0)
+                }},
+            path: '{{ request.path }}',
+                referrer: '{{ request.referrer|default("") }}'
+        }),
+        credentials: 'same-origin',
+            mode: 'same-origin'
+                }).catch (() => {
+            // Silently fail - logging shouldn't affect user experience
+        });
+            } catch (e) {
+            // Ignore errors in error page
+        }
+        }
+    </script>
+    {% endif %}
+
+    <!-- Page-specific scripts -->
+    {% block scripts %}{% endblock %}
+</body>
+
+</html>
