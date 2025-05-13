@@ -66,7 +66,7 @@ except ImportError:
         logger.error(f"Error: {error}, Context: {context}")
 
 try:
-    from scripts.core.environment import get_environment
+    from core.environment import get_environment
     ENVIRONMENT_AVAILABLE = True
 except ImportError:
     ENVIRONMENT_AVAILABLE = False

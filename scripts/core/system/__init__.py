@@ -115,7 +115,7 @@ def initialize_system_components(
     # Step 2: Initialize environment if available
     if CORE_LOGGER_AVAILABLE:
         try:
-            from scripts.core.environment import get_current_environment, Environment
+            from core.environment import get_current_environment, Environment
             environment = get_current_environment()
             ENVIRONMENT_AVAILABLE = True
             logger.debug(f"Environment module initialized: {environment}")
@@ -246,7 +246,7 @@ def initialize_system_components(
         # Initialize cloud providers
         if ENVIRONMENT_AVAILABLE and CONFIG_LOADER_AVAILABLE:
             # Initialize appropriate providers based on environment
-            from scripts.core.environment import is_production, is_staging, is_development
+            from core.environment import is_production, is_staging, is_development
 
             # Initialize providers differently based on environment
             if is_production():

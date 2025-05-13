@@ -16,6 +16,7 @@ import logging
 import os
 import sys
 import time
+import psycopg2
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any, Union, Set
@@ -190,7 +191,6 @@ def analyze_db_statistics(
             logger.warning("Core modules not available, performing simplified analysis")
             conn, cursor = None, None
             try:
-                import psycopg2
                 conn = psycopg2.connect(
                     host=db_config.get("host", "localhost"),
                     port=db_config.get("port", "5432"),
@@ -667,7 +667,6 @@ def perform_optimization(
 
             try:
                 # Connect with psycopg2 directly
-                import psycopg2
                 conn = psycopg2.connect(
                     host=db_config.get("host", "localhost"),
                     port=db_config.get("port", "5432"),

@@ -29,6 +29,7 @@ This directory contains core components and utilities that provide the foundatio
   - [Collection Utilities](#collection-utilities)
   - [Validation Utilities](#validation-utilities)
   - [Security Initialization](#security-initialization)
+  - [Environment Management](#environment-management)
 - [Related Documentation](#related-documentation)
 
 ## Overview
@@ -43,6 +44,13 @@ The design emphasizes modularity, security, and performance with clean separatio
   - Provides hierarchical configuration with sensible defaults and environment overrides
   - Implements security configuration validation for production environments
   - Manages feature flags and environment-specific settings
+
+- **`environment.py`**: Environment variable and runtime environment management
+  - Detects and manages application environments (development, staging, production)
+  - Provides centralized access to environment variables with type conversion
+  - Supports multiple environment file formats (.env, JSON, YAML)
+  - Implements secure handling of sensitive environment data
+  - Enables environment-specific behavior and configuration
 
 - **`factory.py`**: Application factory for Flask application initialization
   - Creates and configures the Flask application with appropriate settings
@@ -92,6 +100,7 @@ The design emphasizes modularity, security, and performance with clean separatio
 core/
 ├── __init__.py           # Package initialization
 ├── config.py             # Configuration management
+├── environment.py        # Environment management
 ├── factory.py            # Application factory
 ├── health.py             # Health check functionality
 ├── metrics.py            # Metrics collection
@@ -109,7 +118,7 @@ core/
 │   ├── cs_metrics.py        # Security metrics
 │   ├── cs_monitoring.py     # Security monitoring
 │   ├── cs_session.py        # Session management
-│   ├── cs_utils.py          # Security utilities (includes path safety)
+│   ├── cs_utils.py          # Security utility functions
 │   └── README.md            # Security module documentation
 ├── templates/            # Core templates
 │   ├── README.md         # Templates documentation
@@ -125,7 +134,7 @@ core/
 │       ├── minimal.html  # Minimal layout without navigation
 │       └── secure.html   # Security-enhanced layout
 └── utils/                # Specialized utilities (modular organization)
-    ├── __init__.py       # Utility package initialization and stubs
+    ├── __init__.py       # Utility package initialization and exports
     ├── collection.py     # Collection data structure manipulation
     ├── date_time.py      # Date and time handling utilities
     ├── file.py           # File handling utilities
@@ -202,6 +211,7 @@ The core package uses the following configuration settings:
 - **Request Tracing**: Consistent request ID generation and propagation
 - **Atomic Operations**: File operations use atomic patterns to prevent partial writes
 - **Permission Verification**: File and directory permission checks for security
+- **Environment Awareness**: Components adapt behavior based on runtime environment
 
 ## Common Features
 
@@ -224,6 +234,8 @@ The core package uses the following configuration settings:
 - Request ID generation for tracing requests through the system
 - System resource monitoring and tracking
 - Permission monitoring for critical files
+- Environment detection and management
+- Secure environment variable handling
 
 ## Usage Examples
 
@@ -520,6 +532,33 @@ initialize_security_components(
 )
 ```
 
+### Environment Management
+
+```python
+from core.environment import load_env, get_current_environment, is_production
+
+# Load environment configuration
+env = load_env(env_file=".env.production")
+
+# Check current environment
+current_env = get_current_environment()
+print(f"Running in {current_env} environment")
+
+# Get typed environment variables
+database_url = env.get("DATABASE_URL")
+max_connections = env.get_int("MAX_CONNECTIONS", default=100)
+debug_mode = env.get_bool("DEBUG_MODE", default=False)
+allowed_hosts = env.get_list("ALLOWED_HOSTS", separator=",")
+
+# Environment-specific behavior
+if is_production():
+    # Apply production-specific settings
+    logging.getLogger().setLevel(logging.WARNING)
+else:
+    # Apply development settings
+    logging.getLogger().setLevel(logging.DEBUG)
+```
+
 ## Related Documentation
 
 - Application Architecture
@@ -539,3 +578,5 @@ initialize_security_components(
 - Permission Security Model
 - Baseline Management Guide
 - File Integrity CLI Tools Guide
+- Environment Management
+- Configuration Hierarchy

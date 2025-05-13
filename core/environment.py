@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# filepath: scripts/core/environment.py
+# filepath: core/environment.py
 """
 Environment Management for Cloud Infrastructure Platform
 

@@ -52,7 +52,7 @@ except ImportError:
     ERROR_HANDLER_AVAILABLE = False
 
 try:
-    from scripts.core.environment import get_current_environment
+    from core.environment import get_current_environment
     ENVIRONMENT_AVAILABLE = True
 except ImportError:
     logger.warning("Environment module not available, using basic environment detection")

@@ -97,7 +97,7 @@ def initialize_components() -> Tuple[bool, List[str]]:
     # Step 2: Initialize environment (depends on logger)
     if LOGGER_AVAILABLE:
         try:
-            from scripts.core.environment import Environment, load_env
+            from core.environment import Environment, load_env
             env_file = os.environ.get("ENV_FILE")
             env_name = os.environ.get("ENVIRONMENT", DEFAULT_ENV)
             env = load_env(env_file=env_file, environment=env_name)
@@ -274,7 +274,7 @@ def setup_script_environment(config_file: Optional[str] = None,
 
     # Load environment if not already done
     if ENVIRONMENT_AVAILABLE and environment:
-        from scripts.core.environment import load_env
+        from core.environment import load_env
         load_env(environment=environment)
 
     # Load configuration

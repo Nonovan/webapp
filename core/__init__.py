@@ -34,6 +34,26 @@ SMALL_FILE_THRESHOLD = 10240  # 10KB
 
 # Import core components for direct access
 from .config import Config
+from .environment import (
+    get_environment,
+    load_env,
+    get_current_environment,
+    is_production,
+    is_development,
+    is_secure_environment,
+    get_env,
+    set_env,
+    detect_environment,
+    Environment,
+
+    # Environment constants
+    ENV_DEVELOPMENT,
+    ENV_TESTING,
+    ENV_STAGING,
+    ENV_PRODUCTION,
+    ENV_DR_RECOVERY,
+    ENV_CI
+)
 from .factory import (
     create_app,
     configure_app,
@@ -204,6 +224,26 @@ __all__ = [
     'register_extensions',
     'register_error_handlers',
     'init_middleware',
+
+    # Environment management
+    'get_environment',
+    'load_env',
+    'get_current_environment',
+    'is_production',
+    'is_development',
+    'is_secure_environment',
+    'get_env',
+    'set_env',
+    'detect_environment',
+    'Environment',
+
+    # Environment constants
+    'ENV_DEVELOPMENT',
+    'ENV_TESTING',
+    'ENV_STAGING',
+    'ENV_PRODUCTION',
+    'ENV_DR_RECOVERY',
+    'ENV_CI',
 
     # Health check utilities
     'healthcheck',
