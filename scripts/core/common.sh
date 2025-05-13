@@ -10,7 +10,7 @@
 # Usage: source "$(dirname "$0")/common.sh"
 #
 # Version: 0.0.1
-# Date: 2024-08-20
+# Date: 2024-09-01
 
 # Ensure the script is sourced, not executed
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
@@ -25,7 +25,7 @@ fi
 
 # Version tracking
 readonly COMMON_VERSION="0.0.1"
-readonly COMMON_DATE="2024-08-20"
+readonly COMMON_DATE="2024-09-01"
 
 # Determine script location with robust path handling
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -85,6 +85,10 @@ LOG_TIMESTAMP_FORMAT="%Y-%m-%d %H:%M:%S"
 LOG_TO_FILE="${LOG_TO_FILE:-false}"
 LOG_FILE="${LOG_FILE:-}"
 TIMESTAMP=$(date +"%Y%m%d%H%M%S")
+
+# Python core initialization status
+PYTHON_CORE_INITIALIZED=false
+PYTHON_COMPONENTS_STATUS="{}"
 
 #######################################
 # DEPENDENCY CHECKING
@@ -666,6 +670,321 @@ generate_random_string() {
     echo "$result"
 }
 
+#######################################
+# PYTHON INTEGRATION FUNCTIONS
+#######################################
+
+# Initialize Python core components
+# Arguments:
+#   $1 - Configuration file (optional)
+#   $2 - Environment (optional - defaults to detected environment)
+#   $3 - Log level (optional - defaults to current log level)
+# Returns:
+#   0 on success, 1 on failure
+initialize_python_core() {
+    local config_file="${1:-}"
+    local environment="${2:-$(detect_environment)}"
+    local log_level="${3:-}"
+    local result
+    local python_log_level
+
+    # Map bash log level to Python log level if not specified
+    if [[ -z "$log_level" ]]; then
+        case $LOG_LEVEL in
+            $LOG_LEVEL_DEBUG) python_log_level="DEBUG" ;;
+            $LOG_LEVEL_INFO) python_log_level="INFO" ;;
+            $LOG_LEVEL_WARNING) python_log_level="WARNING" ;;
+            $LOG_LEVEL_ERROR) python_log_level="ERROR" ;;
+            $LOG_LEVEL_CRITICAL) python_log_level="CRITICAL" ;;
+            *) python_log_level="INFO" ;;
+        esac
+    else
+        python_log_level="$log_level"
+    fi
+
+    # Check for Python
+    if ! command_exists python3 && ! command_exists python; then
+        log_error "Python not found, cannot initialize core Python components"
+        return $EXIT_DEPENDENCY_ERROR
+    fi
+
+    # Prepare Python command
+    local python_cmd
+    if command_exists python3; then
+        python_cmd="python3"
+    else
+        python_cmd="python"
+    fi
+
+    # Prepare script
+    local temp_script
+    temp_script=$(create_temp_file "init_py")
+
+    # Create a Python script to initialize the core components and return the status
+    cat > "$temp_script" << EOF
+import sys
+import os
+import json
+
+# Set environment variables for initialization
+os.environ["ENVIRONMENT"] = "$environment"
+
+try:
+    # Add project root to Python path if needed
+    project_root = "$PROJECT_ROOT"
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    # Import core initialization
+    from scripts.core import setup_script_environment, get_component_status
+
+    # Initialize core components
+    success = setup_script_environment(
+        config_file="$config_file",
+        environment="$environment",
+        log_level="$python_log_level"
+    )
+
+    # Get component status
+    status = get_component_status()
+
+    # Output results as JSON for bash to parse
+    print(json.dumps({
+        "success": success,
+        "status": status
+    }))
+    sys.exit(0)
+except Exception as e:
+    # Handle any exceptions
+    print(json.dumps({
+        "success": False,
+        "status": {},
+        "error": str(e)
+    }))
+    sys.exit(1)
+EOF
+
+    # Run the Python script and capture output
+    result=$("$python_cmd" "$temp_script" 2>/dev/null)
+    local exit_code=$?
+
+    # Clean up temp file
+    rm -f "$temp_script"
+
+    # Check for execution error
+    if [[ $exit_code -ne 0 || -z "$result" ]]; then
+        log_error "Failed to initialize Python core components"
+        return $EXIT_FAILURE
+    fi
+
+    # Parse result
+    local success
+    success=$(echo "$result" | grep -o '"success": true\|"success": false' | cut -d' ' -f2)
+
+    # Store component status
+    PYTHON_COMPONENTS_STATUS=$(echo "$result" | grep -o '"status": {.*}' | cut -d':' -f2-)
+
+    # Check for success
+    if [[ "$success" == "true" ]]; then
+        PYTHON_CORE_INITIALIZED=true
+        log_info "Python core components initialized successfully"
+    else
+        local error
+        error=$(echo "$result" | grep -o '"error": "[^"]*"' | cut -d'"' -f4)
+        log_error "Failed to initialize Python core components: $error"
+        return $EXIT_FAILURE
+    fi
+
+    return $EXIT_SUCCESS
+}
+
+# Get Python component status
+# Arguments:
+#   $1 - Component name (optional, returns status for all components if not specified)
+# Returns:
+#   Status string (true/false) or JSON status object
+get_python_component_status() {
+    local component="$1"
+
+    if [[ "$PYTHON_CORE_INITIALIZED" != "true" ]]; then
+        if [[ -n "$component" ]]; then
+            echo "false"
+        else
+            echo "{}"
+        fi
+        return $EXIT_FAILURE
+    fi
+
+    if [[ -n "$component" ]]; then
+        # Extract specific component status (true/false)
+        local status
+        status=$(echo "$PYTHON_COMPONENTS_STATUS" | grep -o "\"$component\": true\|\"$component\": false" | cut -d' ' -f2)
+        if [[ -n "$status" ]]; then
+            echo "$status"
+        else
+            echo "false"
+        fi
+    else
+        # Return full status
+        echo "$PYTHON_COMPONENTS_STATUS"
+    fi
+
+    return $EXIT_SUCCESS
+}
+
+# Load configuration through Python core
+# Arguments:
+#   $1 - Configuration file (optional)
+#   $2 - Environment (optional)
+# Returns:
+#   0 on success, 1 on failure; configuration is set to environment variables with CONFIG_ prefix
+load_python_config() {
+    local config_file="${1:-}"
+    local environment="${2:-$(detect_environment)}"
+    local result
+    local temp_script
+
+    # Check for Python
+    if ! command_exists python3 && ! command_exists python; then
+        log_error "Python not found, cannot load configuration"
+        return $EXIT_DEPENDENCY_ERROR
+    fi
+
+    # Prepare Python command
+    local python_cmd
+    if command_exists python3; then
+        python_cmd="python3"
+    else
+        python_cmd="python"
+    fi
+
+    # Initialize Python core if not already done
+    if [[ "$PYTHON_CORE_INITIALIZED" != "true" ]]; then
+        log_info "Initializing Python core components before loading configuration"
+        initialize_python_core "$config_file" "$environment" || return $?
+    fi
+
+    # Prepare script
+    temp_script=$(create_temp_file "config_loader_py")
+
+    # Create a Python script to load configuration and export as environment variables
+    cat > "$temp_script" << EOF
+import sys
+import os
+import json
+
+# Set environment variables for initialization
+os.environ["ENVIRONMENT"] = "$environment"
+
+try:
+    # Add project root to Python path if needed
+    project_root = "$PROJECT_ROOT"
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
+    # Import core configuration loader
+    from scripts.core import load_configuration
+
+    # Load configuration
+    config = load_configuration("$config_file", "$environment")
+
+    if config is None:
+        print(json.dumps({
+            "success": False,
+            "error": "Failed to load configuration"
+        }))
+        sys.exit(1)
+
+    # Convert config to dictionary with flattened keys for bash
+    env_vars = {}
+    config_dict = config.get_all()
+
+    def flatten_dict(d, parent_key=''):
+        items = []
+        for k, v in d.items():
+            new_key = f"{parent_key}_{k}" if parent_key else k
+            if isinstance(v, dict):
+                items.extend(flatten_dict(v, new_key).items())
+            else:
+                items.append((new_key, v))
+        return dict(items)
+
+    flattened = flatten_dict(config_dict)
+
+    # Prepare for bash export (with CONFIG_ prefix)
+    for key, value in flattened.items():
+        env_key = f"CONFIG_{key.upper()}"
+        if isinstance(value, bool):
+            env_vars[env_key] = str(value).lower()
+        elif value is None:
+            env_vars[env_key] = ""
+        else:
+            env_vars[env_key] = str(value)
+
+    # Output as JSON
+    print(json.dumps({
+        "success": True,
+        "env_vars": env_vars
+    }))
+
+    sys.exit(0)
+except Exception as e:
+    # Handle any exceptions
+    print(json.dumps({
+        "success": False,
+        "error": str(e)
+    }))
+    sys.exit(1)
+EOF
+
+    # Run the Python script and capture output
+    result=$("$python_cmd" "$temp_script" 2>/dev/null)
+    local exit_code=$?
+
+    # Clean up temp file
+    rm -f "$temp_script"
+
+    # Check for execution error
+    if [[ $exit_code -ne 0 || -z "$result" ]]; then
+        log_error "Failed to load configuration from Python core"
+        return $EXIT_FAILURE
+    fi
+
+    # Parse result
+    local success
+    success=$(echo "$result" | grep -o '"success": true\|"success": false' | cut -d' ' -f2)
+
+    # Check for success
+    if [[ "$success" == "true" ]]; then
+        # Extract and set environment variables
+        local env_vars
+        env_vars=$(echo "$result" | grep -o '"env_vars": {.*}' | cut -d':' -f2-)
+
+        # Process each key-value pair with a simple parser
+        local temp_vars
+        temp_vars=$(echo "$env_vars" | sed 's/{//;s/}//;s/"//g;s/,/\n/g')
+
+        while IFS=: read -r key value; do
+            # Remove leading/trailing whitespace
+            key=$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            value=$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+            # Export as environment variable
+            export "$key=$value"
+            log_debug "Config loaded: $key=$value"
+        done <<< "$temp_vars"
+
+        log_info "Configuration loaded successfully from Python core"
+    else
+        local error
+        error=$(echo "$result" | grep -o '"error": "[^"]*"' | cut -d'"' -f4)
+        log_error "Failed to load configuration: $error"
+        return $EXIT_FAILURE
+    fi
+
+    return $EXIT_SUCCESS
+}
+
 # Parse command-line arguments
 # Arguments:
 #   $@ - Arguments to parse
@@ -675,6 +994,8 @@ parse_arguments() {
     # Default values
     SHOW_HELP=false
     SHOW_VERSION=false
+    INIT_PYTHON_CORE=false
+    CONFIG_FILE=""
 
     # Process options
     while [[ $# -gt 0 ]]; do
@@ -730,6 +1051,18 @@ parse_arguments() {
                     return $EXIT_FAILURE
                 fi
                 ;;
+            --init-python-core)
+                INIT_PYTHON_CORE=true
+                ;;
+            --config)
+                if [[ -n "$2" ]]; then
+                    CONFIG_FILE="$2"
+                    shift
+                else
+                    log_error "Missing value for --config"
+                    return $EXIT_FAILURE
+                fi
+                ;;
             *)
                 # Handle positional arguments or unknown options
                 log_error "Unknown option: $1"
@@ -782,13 +1115,21 @@ USAGE:
     temp_file=$(create_temp_file)
     temp_dir=$(create_temp_dir)
 
+    # Python integration
+    initialize_python_core "config/app.yaml" "production" "INFO"
+    if [[ $(get_python_component_status "logger") == "true" ]]; then
+        log_info "Logger is available"
+    fi
+
 OPTIONS:
-    --help, -h        Show this help message
-    --version, -v     Show version information
-    --verbose         Enable verbose output
-    --quiet, -q       Suppress non-error output
-    --log-file FILE   Write logs to FILE
-    --log-level LEVEL Set log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    --help, -h            Show this help message
+    --version, -v         Show version information
+    --verbose             Enable verbose output
+    --quiet, -q           Suppress non-error output
+    --log-file FILE       Write logs to FILE
+    --log-level LEVEL     Set log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    --init-python-core    Initialize Python core components
+    --config FILE         Specify configuration file
 
 FUNCTIONS:
     Logging:
@@ -807,6 +1148,10 @@ FUNCTIONS:
     Utilities:
         command_exists, check_dependencies, is_number,
         is_root, is_port_in_use, generate_random_string
+
+    Python Integration:
+        initialize_python_core, get_python_component_status,
+        load_python_config
 
 EOF
 }
@@ -847,6 +1192,22 @@ init() {
     log_debug "Common shell utilities initialized (version ${COMMON_VERSION})"
     log_debug "Environment: $(detect_environment)"
 
+    # Initialize Python core if requested
+    if [[ "$INIT_PYTHON_CORE" == "true" ]]; then
+        log_info "Initializing Python core components"
+        initialize_python_core "$CONFIG_FILE" || {
+            log_warning "Failed to initialize Python core components"
+        }
+    fi
+
+    # Load configuration from Python core if config file specified
+    if [[ -n "$CONFIG_FILE" && "$INIT_PYTHON_CORE" == "true" ]]; then
+        log_info "Loading configuration from Python core"
+        load_python_config "$CONFIG_FILE" || {
+            log_warning "Failed to load configuration from Python core"
+        }
+    fi
+
     return $EXIT_SUCCESS
 }
 
@@ -869,6 +1230,7 @@ export -f detect_environment is_production is_development
 export -f create_temp_file create_temp_dir ensure_directory validate_file load_config_file
 export -f is_number is_root is_port_in_use generate_random_string
 export -f parse_arguments show_help get_version
+export -f initialize_python_core get_python_component_status load_python_config
 
 # Return success when sourced
 return $EXIT_SUCCESS

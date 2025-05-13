@@ -9,6 +9,7 @@ This directory contains core utility scripts that are essential for the operatio
 - [Directory Structure](#directory-structure)
 - [Security Module](#security-module)
 - [System Module](#system-module)
+- [Initialization](#initialization)
 - [Best Practices & Security](#best-practices--security)
 - [Common Features](#common-features)
 - [Usage Examples](#usage-examples)
@@ -20,6 +21,7 @@ This directory contains core utility scripts that are essential for the operatio
   - [Resource Monitoring](#resource-monitoring)
   - [Error Handling](#error-handling)
   - [Notifications](#notifications)
+  - [Initialization](#initialization-usage)
 - [Module Dependencies](#module-dependencies)
 - [Related Documentation](#related-documentation)
 - [Version History](#version-history)
@@ -84,6 +86,16 @@ The core scripts in this directory are designed to streamline operations, enhanc
     - Rate limiting
     - Delivery verification
 
+- **`__init__.py`**: Core initialization module that bootstraps components.
+  - **Usage**: Import to initialize core components or run directly to test initialization.
+  - **Features**:
+    - Unified environment setup
+    - Centralized logging configuration
+    - Configuration loading and validation
+    - Dependency-aware component initialization
+    - Command-line interface
+    - Status reporting
+
 ## Directory Structure
 
 ```plaintext
@@ -92,6 +104,7 @@ scripts/core/
 ├── config_loader.py        # Configuration loading and validation
 ├── environment.py          # Environment variable and settings management
 ├── error_handler.py        # Standardized error handling
+├── __init__.py             # Core initialization module
 ├── logger.py               # Logging functionality
 ├── notification.py         # Notification services
 ├── README.md               # This documentation
@@ -167,6 +180,17 @@ The `system/` directory contains functionality for system operations:
     - Service status monitoring
     - Environment identification
 
+## Initialization
+
+The `init.py` module provides centralized initialization for all core components:
+
+- **Dependency Resolution**: Components are initialized in the correct order based on dependencies.
+- **Component Availability Tracking**: Keeps track of which components are successfully initialized.
+- **Minimal Logging Setup**: Provides basic logging before full logger is initialized.
+- **Environment Setup**: Configures the running environment based on parameters or environment variables.
+- **Command Line Interface**: Provides CLI options for initialization and component status checking.
+- **Script Environment Setup**: One-step function for setting up script environment with proper logging and configuration.
+
 ## Best Practices & Security
 
 - **Reusability**: Import appropriate modules rather than duplicating functionality
@@ -182,6 +206,7 @@ The `system/` directory contains functionality for system operations:
 - **Timeout Management**: Implement appropriate timeouts for external operations
 - **Resource Cleanup**: Ensure resources are properly released, even in error cases
 - **Failure Recovery**: Implement retries with exponential backoff for transient failures
+- **Initialization Order**: Follow proper initialization order through the `init.py` module
 
 ## Common Features
 
@@ -202,6 +227,8 @@ The `system/` directory contains functionality for system operations:
 - Input validation and sanitization
 - Safe default configurations
 - Tracing and observability
+- Centralized component initialization
+- Component availability tracking
 
 ## Usage Examples
 
@@ -393,6 +420,33 @@ notifier.send("Database backup completed",
             })
 ```
 
+### Initialization Usage
+
+```python
+# Import core initialization module
+from scripts.core import setup_script_environment, get_component_status
+
+# Set up script environment with specific configuration
+success = setup_script_environment(
+    config_file="config/app.yaml",
+    environment="production",
+    log_level="INFO"
+)
+
+# Check component status
+components = get_component_status()
+if not components["logger"] or not components["config_loader"]:
+    print("Critical components not available")
+    sys.exit(1)
+
+# Load application configuration
+from scripts.core import load_configuration
+config = load_configuration()
+
+# Run as command-line tool to check initialization status
+# python -m scripts.core --environment production --log-level DEBUG
+```
+
 ## Module Dependencies
 
 - **Logger**: No internal dependencies
@@ -402,6 +456,7 @@ notifier.send("Database backup completed",
 - **Security modules**: Depend on `logger` and `error_handler`
 - **System modules**: Depend on `logger`, `error_handler`, and `config_loader`
 - **Notification**: Depends on `logger` and `config_loader`
+- **`init.py`**: Manages dependencies for all other modules
 
 ## Related Documentation
 
@@ -415,8 +470,10 @@ notifier.send("Database backup completed",
 - Resource Monitoring Guide
 - Cloud Integration Reference
 - Integrity Monitoring Guide
+- Core Initialization Guide
 
 ## Version History
 
+- **0.0.3 (2024-08-25)**: Added centralized component initialization with dependency resolution
 - **0.0.2 (2024-01-05)**: Major refactor with modular design and enhanced security
 - **0.0.1 (2023-04-15)**: Initial release of core script utilities
