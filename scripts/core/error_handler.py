@@ -29,6 +29,7 @@ import json
 import socket
 import inspect
 import threading
+import functools
 from datetime import datetime
 from enum import Enum
 from typing import Dict, Any, Optional, Union, List, Tuple, Callable, TypeVar, Type, cast
