@@ -15,6 +15,7 @@ from datetime import datetime
 from . import EVENT_TYPES, EVENT_CATEGORIES
 from .delivery import deliver_webhook
 from .subscription import create_subscription
+from .services import get_circuit_breaker_stats, reset_circuit_breaker, configure_circuit_breaker
 from extensions import db, limiter
 from blueprints.auth.decorators import login_required, require_role
 from models.communication.webhook import WebhookSubscription, WebhookDelivery
@@ -56,7 +57,9 @@ def create_webhook_subscription():
             event_types=data['event_types'],
             description=data.get('description'),
             headers=data.get('headers'),
-            user_id=g.user.id
+            user_id=g.user.id,
+            failure_threshold=data.get('failure_threshold'),
+            reset_timeout=data.get('reset_timeout')
         )
 
         return jsonify(result), 201
@@ -292,3 +295,126 @@ def list_webhook_events():
     }
 
     return jsonify(result)
+
+@webhooks_api.route('/<subscription_id>/circuit', methods=['GET'])
+@limiter.limit("30/minute")
+@login_required
+def get_circuit_status(subscription_id):
+    """
+    Get circuit breaker status for a webhook subscription.
+
+    This endpoint provides detailed information about the circuit breaker state
+    for a specific webhook subscription, including failure counts, trip status,
+    and timing information for automatic recovery.
+
+    Args:
+        subscription_id: ID of the subscription
+
+    Returns:
+        Circuit breaker status details
+    """
+    try:
+        # Verify subscription ownership
+        subscription = WebhookSubscription.query.filter_by(
+            id=subscription_id,
+            user_id=g.user.id
+        ).first()
+
+        if not subscription:
+            return jsonify({"error": "Webhook subscription not found"}), 404
+
+        # Get circuit breaker stats
+        stats = get_circuit_breaker_stats(subscription_id)
+
+        if 'error' in stats:
+            return jsonify({"error": stats['error']}), 400
+
+        return jsonify(stats), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Error getting circuit breaker status: {e}")
+        return jsonify({"error": "Failed to get circuit breaker status"}), 500
+
+@webhooks_api.route('/<subscription_id>/circuit', methods=['POST'])
+@limiter.limit("10/minute")
+@login_required
+def manage_circuit_breaker(subscription_id):
+    """
+    Manage circuit breaker for a webhook subscription.
+
+    This endpoint allows actions on a webhook's circuit breaker:
+    - reset: Reset circuit breaker to closed state
+    - configure: Configure circuit breaker parameters
+
+    Request body:
+    {
+        "action": "reset"|"configure",
+        "failure_threshold": 5,  // Optional, for "configure" action
+        "reset_timeout": 300     // Optional, for "configure" action
+    }
+
+    Args:
+        subscription_id: ID of the subscription
+
+    Returns:
+        Success confirmation or error details
+    """
+    try:
+        # Verify subscription ownership
+        subscription = WebhookSubscription.query.filter_by(
+            id=subscription_id,
+            user_id=g.user.id
+        ).first()
+
+        if not subscription:
+            return jsonify({"error": "Webhook subscription not found"}), 404
+
+        # Get request data
+        data = request.get_json()
+        if not data or 'action' not in data:
+            return jsonify({"error": "Missing required field: action"}), 400
+
+        action = data['action']
+
+        if action == 'reset':
+            # Reset the circuit breaker
+            success, error = reset_circuit_breaker(subscription_id)
+            if not success:
+                return jsonify({"error": error}), 400
+
+            return jsonify({
+                "success": True,
+                "message": "Circuit breaker reset successfully",
+                "circuit_status": "closed"
+            }), 200
+
+        elif action == 'configure':
+            # Configure circuit breaker parameters
+            failure_threshold = data.get('failure_threshold')
+            reset_timeout = data.get('reset_timeout')
+
+            if failure_threshold is None and reset_timeout is None:
+                return jsonify({"error": "No configuration parameters provided"}), 400
+
+            success, error = configure_circuit_breaker(
+                subscription_id,
+                failure_threshold=failure_threshold,
+                reset_timeout=reset_timeout
+            )
+
+            if not success:
+                return jsonify({"error": error}), 400
+
+            return jsonify({
+                "success": True,
+                "message": "Circuit breaker configured successfully",
+                "failure_threshold": failure_threshold if failure_threshold is not None else subscription.failure_threshold,
+                "reset_timeout": reset_timeout if reset_timeout is not None else subscription.reset_timeout
+            }), 200
+
+        else:
+            return jsonify({"error": f"Unsupported action: {action}"}), 400
+
+    except Exception as e:
+        current_app.logger.error(f"Error managing circuit breaker: {e}")
+        return jsonify({"error": "Failed to manage circuit breaker"}), 500

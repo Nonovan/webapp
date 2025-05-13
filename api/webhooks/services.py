@@ -73,6 +73,16 @@ def enqueue_webhook_event(event_type: str, payload: Dict[str, Any]) -> int:
 
         count = 0
         for subscription in subscriptions:
+            # Skip if circuit is open (WebhookSubscription.find_by_event_type already filters these,
+            # but we check again in case circuit status changed between query and processing)
+            if subscription.is_circuit_open():
+                metrics.counter(
+                    'webhook_circuit_breaker_blocks_total',
+                    'Total number of webhook deliveries blocked by circuit breaker',
+                    labels={'subscription_id': str(subscription.id)}
+                ).inc()
+                continue
+
             # Create delivery attempt record
             delivery = WebhookDeliveryAttempt(
                 subscription_id=subscription.id,
@@ -117,6 +127,19 @@ def trigger_webhook(
     Returns:
         Tuple of (success, result details)
     """
+    # Check circuit breaker status unless this is a test event
+    if not is_test and subscription.is_circuit_open():
+        metrics.counter(
+            'webhook_circuit_breaker_blocks_total',
+            'Total number of webhook deliveries blocked by circuit breaker',
+            labels={'subscription_id': str(subscription.id)}
+        ).inc()
+        return False, {
+            "error": "Circuit breaker is open",
+            "circuit_status": subscription.circuit_status,
+            "next_attempt_at": subscription.next_attempt_at.isoformat() if subscription.next_attempt_at else None
+        }
+
     # Add standard properties to payload
     enriched_payload = {
         'event_type': event_type,
@@ -179,6 +202,9 @@ def trigger_webhook(
         success = 200 <= response.status_code < 300
 
         if success:
+            # Update circuit breaker state on success
+            subscription.record_success()
+
             delivery_attempt.status = DeliveryStatus.DELIVERED
             delivery_attempt.completed_at = datetime.utcnow()
             metrics.histogram(
@@ -186,7 +212,18 @@ def trigger_webhook(
                 'Webhook delivery duration in milliseconds',
                 labels={'event_type': event_type}
             ).observe(duration_ms)
+
+            # Track circuit breaker transitions
+            if subscription.circuit_status == 'closed':
+                metrics.counter(
+                    'webhook_circuit_breaker_close_total',
+                    'Total number of circuit breaker closes',
+                    labels={'subscription_id': str(subscription.id)}
+                ).inc()
         else:
+            # Update circuit breaker state on failure
+            subscription.record_failure()
+
             delivery_attempt.status = DeliveryStatus.FAILED
             delivery_attempt.error_message = f"HTTP {response.status_code}: {response.text[:100]}"
             metrics.counter(
@@ -195,13 +232,25 @@ def trigger_webhook(
                 labels={'event_type': event_type, 'status_code': str(response.status_code)}
             ).inc()
 
+            # Track circuit breaker trips
+            if subscription.circuit_status == 'open':
+                metrics.counter(
+                    'webhook_circuit_breaker_trip_total',
+                    'Total number of circuit breaker trips',
+                    labels={'subscription_id': str(subscription.id)}
+                ).inc()
+                current_app.logger.warning(
+                    f"Circuit breaker tripped for webhook subscription {subscription.id} to {subscription.url}"
+                )
+
         db.session.commit()
 
         return success, {
             "delivery_id": delivery_attempt.id,
             "status_code": response.status_code,
             "success": success,
-            "duration_ms": duration_ms
+            "duration_ms": duration_ms,
+            "circuit_status": subscription.circuit_status
         }
     except Exception as e:
         current_app.logger.error(f"Error triggering webhook {subscription.id}: {str(e)}")
@@ -212,6 +261,21 @@ def trigger_webhook(
                 delivery_attempt.status = DeliveryStatus.FAILED
                 delivery_attempt.error_message = f"Exception: {str(e)[:500]}"
                 delivery_attempt.updated_at = datetime.utcnow()
+
+                # Update circuit breaker on failure
+                subscription.record_failure()
+
+                # Track circuit breaker trips
+                if subscription.circuit_status == 'open':
+                    metrics.counter(
+                        'webhook_circuit_breaker_trip_total',
+                        'Total number of circuit breaker trips',
+                        labels={'subscription_id': str(subscription.id)}
+                    ).inc()
+                    current_app.logger.warning(
+                        f"Circuit breaker tripped for webhook subscription {subscription.id} to {subscription.url}"
+                    )
+
                 db.session.commit()
         except Exception as inner_e:
             db.session.rollback()
@@ -223,4 +287,144 @@ def trigger_webhook(
             labels={'event_type': event_type, 'status_code': 'exception'}
         ).inc()
 
-        return False, {"error": str(e)}
+        return False, {"error": str(e), "circuit_status": subscription.circuit_status}
+
+def reset_circuit_breaker(subscription_id: str) -> Tuple[bool, Optional[str]]:
+    """
+    Manually reset a circuit breaker to closed state.
+
+    Args:
+        subscription_id: ID of the subscription to reset
+
+    Returns:
+        Tuple of (success, error_message)
+    """
+    try:
+        subscription = WebhookSubscription.query.get(subscription_id)
+        if not subscription:
+            return False, "Subscription not found"
+
+        # Reset failure count and circuit status
+        subscription.failure_count = 0
+        subscription.circuit_status = 'closed'
+        subscription.circuit_tripped_at = None
+        subscription.next_attempt_at = None
+
+        db.session.commit()
+
+        # Log and track metrics
+        current_app.logger.info(f"Circuit breaker manually reset for subscription {subscription_id}")
+        metrics.counter(
+            'webhook_circuit_breaker_manual_reset_total',
+            'Total number of manual circuit breaker resets',
+            labels={'subscription_id': str(subscription_id)}
+        ).inc()
+
+        return True, None
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error resetting circuit breaker for subscription {subscription_id}: {e}")
+        return False, str(e)
+
+def get_circuit_breaker_stats(subscription_id: str) -> Dict[str, Any]:
+    """
+    Get circuit breaker statistics for a webhook subscription.
+
+    Args:
+        subscription_id: ID of the subscription
+
+    Returns:
+        Dictionary with circuit breaker statistics
+    """
+    try:
+        subscription = WebhookSubscription.query.get(subscription_id)
+        if not subscription:
+            return {"error": "Subscription not found"}
+
+        # Calculate time remaining if circuit is open
+        time_remaining = None
+        if subscription.circuit_status == 'open' and subscription.next_attempt_at:
+            time_remaining = max(0, (subscription.next_attempt_at - datetime.utcnow()).total_seconds())
+
+        # Get recent delivery statistics
+        recent_deliveries = WebhookDeliveryAttempt.query.filter(
+            WebhookDeliveryAttempt.subscription_id == subscription_id,
+            WebhookDeliveryAttempt.created_at >= datetime.utcnow() - timedelta(hours=24)
+        ).all()
+
+        success_count = len([d for d in recent_deliveries if d.status == DeliveryStatus.DELIVERED])
+        failure_count = len([d for d in recent_deliveries if d.status == DeliveryStatus.FAILED])
+        pending_count = len([d for d in recent_deliveries if d.status == DeliveryStatus.PENDING])
+
+        # Calculate success rate
+        total_completed = success_count + failure_count
+        success_rate = (success_count / total_completed) * 100 if total_completed > 0 else None
+
+        return {
+            "subscription_id": subscription_id,
+            "circuit_status": subscription.circuit_status,
+            "failure_count": subscription.failure_count,
+            "failure_threshold": subscription.failure_threshold,
+            "last_failure_at": subscription.last_failure_at.isoformat() if subscription.last_failure_at else None,
+            "circuit_tripped_at": subscription.circuit_tripped_at.isoformat() if subscription.circuit_tripped_at else None,
+            "next_attempt_at": subscription.next_attempt_at.isoformat() if subscription.next_attempt_at else None,
+            "reset_timeout_seconds": subscription.reset_timeout,
+            "time_remaining_seconds": time_remaining,
+            "recent_delivery_stats": {
+                "success_count": success_count,
+                "failure_count": failure_count,
+                "pending_count": pending_count,
+                "success_rate_percent": success_rate,
+                "period_hours": 24
+            }
+        }
+    except Exception as e:
+        current_app.logger.error(f"Error getting circuit breaker stats for subscription {subscription_id}: {e}")
+        return {"error": str(e)}
+
+def configure_circuit_breaker(
+    subscription_id: str,
+    failure_threshold: Optional[int] = None,
+    reset_timeout: Optional[int] = None
+) -> Tuple[bool, Optional[str]]:
+    """
+    Configure circuit breaker parameters for a webhook subscription.
+
+    Args:
+        subscription_id: ID of the subscription to configure
+        failure_threshold: Number of failures before tripping circuit breaker
+        reset_timeout: Time in seconds before trying again after circuit trips
+
+    Returns:
+        Tuple of (success, error_message)
+    """
+    try:
+        subscription = WebhookSubscription.query.get(subscription_id)
+        if not subscription:
+            return False, "Subscription not found"
+
+        # Update parameters if provided
+        if failure_threshold is not None:
+            if not (1 <= failure_threshold <= 20):
+                return False, "failure_threshold must be between 1 and 20"
+            subscription.failure_threshold = failure_threshold
+
+        if reset_timeout is not None:
+            if not (30 <= reset_timeout <= 86400):  # Between 30 seconds and 24 hours
+                return False, "reset_timeout must be between 30 and 86400 seconds"
+            subscription.reset_timeout = reset_timeout
+
+        db.session.commit()
+
+        # Log configuration change
+        current_app.logger.info(
+            f"Circuit breaker configured for subscription {subscription_id}: "
+            f"threshold={subscription.failure_threshold}, "
+            f"timeout={subscription.reset_timeout}s"
+        )
+
+        return True, None
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error configuring circuit breaker for subscription {subscription_id}: {e}")
+        return False, str(e)

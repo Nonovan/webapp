@@ -5,7 +5,7 @@ This module defines the database models for webhook subscriptions, delivery
 attempts, event logs, and their corresponding schemas for API validation.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from marshmallow import Schema, fields, validate, validates, ValidationError
 import re
@@ -32,6 +32,17 @@ class WebhookSubscription(db.Model):
     max_retries = db.Column(db.Integer, default=3, nullable=False)
     retry_interval = db.Column(db.Integer, default=60, nullable=False)  # seconds
 
+    # Circuit breaker fields
+    circuit_status = db.Column(db.String(10), default='closed', nullable=False)  # closed, open, half-open
+    failure_count = db.Column(db.Integer, default=0, nullable=False)
+    last_failure_at = db.Column(db.DateTime, nullable=True)
+    circuit_tripped_at = db.Column(db.DateTime, nullable=True)
+    next_attempt_at = db.Column(db.DateTime, nullable=True)
+    failure_threshold = db.Column(db.Integer, default=5, nullable=False)
+    reset_timeout = db.Column(db.Integer, default=300, nullable=False)  # seconds
+    success_threshold = db.Column(db.Integer, default=2, nullable=False)  # Successful requests needed in half-open state
+    half_open_successes = db.Column(db.Integer, default=0, nullable=False)  # Counter for successes in half-open state
+
     # Relationships
     created_by = db.relationship('User', backref=db.backref('webhook_subscriptions', lazy='dynamic'))
     delivery_attempts = db.relationship('WebhookDeliveryAttempt',
@@ -56,7 +67,12 @@ class WebhookSubscription(db.Model):
             'event_types': self.event_types,
             'headers': self.headers,
             'max_retries': self.max_retries,
-            'retry_interval': self.retry_interval
+            'retry_interval': self.retry_interval,
+            'circuit_status': self.circuit_status,
+            'failure_count': self.failure_count,
+            'failure_threshold': self.failure_threshold,
+            'reset_timeout': self.reset_timeout,
+            'next_attempt_at': self.next_attempt_at.isoformat() if self.next_attempt_at else None
         }
 
     @classmethod
@@ -64,8 +80,140 @@ class WebhookSubscription(db.Model):
         """Find all active subscriptions for a specific event type."""
         return cls.query.filter(
             cls.active == True,
-            cls.event_types.contains(event_type)
+            cls.event_types.contains(event_type),
+            # Don't deliver to subscriptions with open circuit, but allow half-open for testing
+            db.or_(
+                cls.circuit_status == 'closed',
+                cls.circuit_status == 'half-open',
+                cls.circuit_status == None
+            )
         ).all()
+
+    def record_failure(self) -> None:
+        """Record delivery failure and potentially trip circuit breaker."""
+        self.failure_count += 1
+        self.last_failure_at = datetime.utcnow()
+
+        # Handle different circuit states
+        if self.circuit_status == 'closed':
+            # Trip circuit breaker if failures exceed threshold
+            if self.failure_count >= self.failure_threshold:
+                self.trip_circuit_breaker()
+        elif self.circuit_status == 'half-open':
+            # Any failure in half-open state trips the circuit again
+            self.trip_circuit_breaker()
+
+        db.session.commit()
+
+    def record_success(self) -> None:
+        """Record successful delivery and update circuit breaker state."""
+        if self.circuit_status == 'closed':
+            # Reset failure count on success in closed state
+            if self.failure_count > 0:
+                self.failure_count = 0
+                db.session.commit()
+        elif self.circuit_status == 'half-open':
+            # In half-open state, we need consecutive successes to close the circuit
+            self.half_open_successes += 1
+
+            if self.half_open_successes >= self.success_threshold:
+                # Reset circuit breaker after enough successful requests
+                self.circuit_status = 'closed'
+                self.failure_count = 0
+                self.half_open_successes = 0
+                self.circuit_tripped_at = None
+                self.next_attempt_at = None
+                db.session.commit()
+            else:
+                # Still collecting successes in half-open state
+                db.session.commit()
+
+    def trip_circuit_breaker(self) -> None:
+        """Trip the circuit breaker to open state."""
+        self.circuit_status = 'open'
+        self.circuit_tripped_at = datetime.utcnow()
+        self.next_attempt_at = datetime.utcnow() + timedelta(seconds=self.reset_timeout)
+        self.half_open_successes = 0  # Reset success counter
+
+    def is_circuit_open(self) -> bool:
+        """
+        Check if circuit breaker is open (preventing deliveries).
+
+        This method also handles the transition from open to half-open state
+        when the reset timeout has elapsed.
+
+        Returns:
+            bool: True if circuit is open and blocking requests, False otherwise
+        """
+        if self.circuit_status == 'open':
+            # Check if it's time to try again (transition to half-open state)
+            if self.next_attempt_at and datetime.utcnow() >= self.next_attempt_at:
+                self.circuit_status = 'half-open'
+                self.half_open_successes = 0  # Reset success counter for half-open state
+                db.session.commit()
+                return False  # Allow one request through in half-open state
+            return True  # Still in open state, block requests
+        return False  # Circuit is closed or half-open
+
+    def get_health_status(self) -> Dict[str, Any]:
+        """
+        Get detailed health status information for this webhook subscription.
+
+        Returns:
+            Dict containing health metrics and circuit breaker status
+        """
+        # Calculate failure rate
+        attempts = self.delivery_attempts.filter(
+            WebhookDeliveryAttempt.created_at >= datetime.utcnow() - timedelta(hours=24)
+        ).count()
+
+        failures = self.delivery_attempts.filter(
+            WebhookDeliveryAttempt.status == DeliveryStatus.FAILED,
+            WebhookDeliveryAttempt.created_at >= datetime.utcnow() - timedelta(hours=24)
+        ).count()
+
+        failure_rate = (failures / attempts) * 100 if attempts > 0 else 0
+        time_since_last_failure = None
+
+        if self.last_failure_at:
+            time_since_last_failure = (datetime.utcnow() - self.last_failure_at).total_seconds()
+
+        # Determine if circuit breaker is going to be reset soon
+        reset_remaining = None
+        if self.circuit_status == 'open' and self.next_attempt_at:
+            reset_remaining = max(0, (self.next_attempt_at - datetime.utcnow()).total_seconds())
+
+        return {
+            'circuit_status': self.circuit_status,
+            'failure_count': self.failure_count,
+            'failure_threshold': self.failure_threshold,
+            'failure_rate_24h': round(failure_rate, 2),
+            'attempts_24h': attempts,
+            'failures_24h': failures,
+            'last_failure_at': self.last_failure_at.isoformat() if self.last_failure_at else None,
+            'time_since_failure_seconds': round(time_since_last_failure) if time_since_last_failure else None,
+            'reset_timeout': self.reset_timeout,
+            'reset_remaining_seconds': round(reset_remaining) if reset_remaining else None,
+            'half_open_successes': self.half_open_successes,
+            'success_threshold': self.success_threshold
+        }
+
+    def manual_reset_circuit(self) -> bool:
+        """
+        Manually reset the circuit breaker to closed state.
+
+        Returns:
+            bool: True if circuit was reset, False if it was already closed
+        """
+        if self.circuit_status != 'closed':
+            self.circuit_status = 'closed'
+            self.failure_count = 0
+            self.half_open_successes = 0
+            self.circuit_tripped_at = None
+            self.next_attempt_at = None
+            db.session.commit()
+            return True
+        return False
 
 
 class WebhookDeliveryAttempt(db.Model):
@@ -109,6 +257,15 @@ class WebhookDeliveryAttempt(db.Model):
             'request_id': self.request_id
         }
 
+    @classmethod
+    def get_recent_failures(cls, subscription_id: int, hours: int = 24) -> List['WebhookDeliveryAttempt']:
+        """Get recent delivery failures for a subscription."""
+        return cls.query.filter(
+            cls.subscription_id == subscription_id,
+            cls.status == DeliveryStatus.FAILED,
+            cls.created_at >= datetime.utcnow() - timedelta(hours=hours)
+        ).order_by(cls.created_at.desc()).all()
+
 
 # Schema classes for API validation
 class BaseSchema(Schema):
@@ -138,6 +295,10 @@ class WebhookSubscriptionSchema(BaseSchema):
     headers = fields.Dict(keys=fields.String(), values=fields.String(), missing=dict)
     max_retries = fields.Integer(missing=3, validate=validate.Range(min=0, max=10))
     retry_interval = fields.Integer(missing=60, validate=validate.Range(min=10, max=3600))
+    failure_threshold = fields.Integer(missing=5, validate=validate.Range(min=1, max=20))
+    reset_timeout = fields.Integer(missing=300, validate=validate.Range(min=30, max=86400))
+    success_threshold = fields.Integer(missing=2, validate=validate.Range(min=1, max=5))
+    circuit_status = fields.String(dump_only=True)
 
     @validates('url')
     def validate_url(self, url):
@@ -222,3 +383,12 @@ class WebhookDeliveryQuerySchema(BaseSchema):
             raise ValidationError("end_date must be after start_date")
 
         return end_date
+
+
+class CircuitBreakerActionSchema(BaseSchema):
+    """Schema for circuit breaker actions."""
+
+    action = fields.String(required=True, validate=validate.OneOf(['reset', 'trip', 'configure']))
+    failure_threshold = fields.Integer(validate=validate.Range(min=1, max=20), missing=None)
+    reset_timeout = fields.Integer(validate=validate.Range(min=30, max=86400), missing=None)
+    success_threshold = fields.Integer(validate=validate.Range(min=1, max=5), missing=None)

@@ -11,6 +11,7 @@ The webhook system enables real-time notifications to external systems when even
 - [API Endpoints](#api-endpoints)
 - [Database Models](#database-models)
 - [Delivery Process](#delivery-process)
+- [Circuit Breaker Pattern](#circuit-breaker-pattern)
 - [Security Considerations](#security-considerations)
 - [Event Types](#event-types)
 - [Testing](#testing)
@@ -20,7 +21,7 @@ The webhook system enables real-time notifications to external systems when even
 
 ## Overview
 
-The webhook system provides a mechanism for external applications to receive real-time notifications when events occur within the Cloud Infrastructure Platform. Webhooks allow for loose coupling between systems and enable event-driven architectures across organizational boundaries.
+The webhook system provides a mechanism for external applications to receive real-time notifications when events occur within the Cloud Infrastructure Platform. Webhooks allow for loose coupling between systems and enable event-driven architectures across organizational boundaries. The system implements reliable delivery with automatic retries, security through payload signing, and resilience using the circuit breaker pattern.
 
 ## Architecture
 
@@ -29,7 +30,10 @@ The webhook system consists of these components:
 - **Subscription Management**: Creates and manages webhook subscriptions
 - **Event Dispatch**: Determines which subscriptions should receive which events
 - **Delivery System**: Securely delivers payloads to target URLs with retries
+- **Circuit Breaker**: Prevents repeated calls to failing endpoints
 - **History Tracking**: Records all delivery attempts and their outcomes
+
+![Webhook System Architecture](https://link-to-architecture-diagram.png)
 
 ## Key Components
 
@@ -39,30 +43,35 @@ The webhook system consists of these components:
   - Signature generation and verification
   - Delivery status tracking
   - Application initialization hooks
+  - Circuit breaker initialization
 
 - **`models.py`**: Database models for webhook functionality
   - Subscription storage
   - Delivery history tracking
   - Status monitoring
   - Health metrics calculation
+  - Circuit breaker state management
 
 - **`routes.py`**: API endpoints for webhook management
   - Subscription creation, listing, and deletion
   - Delivery history tracking
   - Test functionality
   - Event type listing
+  - Circuit breaker status and control
 
 - **`services.py`**: Business logic services
   - Subscription validation
   - Event queueing
   - Webhook triggering
   - Delivery management
+  - Circuit breaker operations
 
 - **`subscription.py`**: Subscription management functionality
   - Subscription creation with validation
   - Secret generation
   - Event filtering
   - Subscription health monitoring
+  - Circuit breaker configuration
 
 - **`delivery.py`**: Event delivery processing
   - Payload preparation and signing
@@ -75,6 +84,7 @@ The webhook system consists of these components:
   - Delivery verification
   - Response simulation
   - Signature validation testing
+  - Circuit breaker simulation
 
 ## Directory Structure
 
@@ -102,8 +112,8 @@ api/webhooks/
 
 | Endpoint | Method | Description | Rate Limit |
 |----------|--------|-------------|------------|
-| `/api/webhooks` | GET | List webhook subscriptions | 60/minute |
-| `/api/webhooks` | POST | Create a webhook subscription | 30/minute |
+| webhooks | GET | List webhook subscriptions | 60/minute |
+| webhooks | POST | Create a webhook subscription | 30/minute |
 | `/api/webhooks/<id>` | GET | Get a specific subscription | 60/minute |
 | `/api/webhooks/<id>` | PUT | Update a subscription | 30/minute |
 | `/api/webhooks/<id>` | DELETE | Delete a subscription | 30/minute |
@@ -112,6 +122,8 @@ api/webhooks/
 | `/api/webhooks/events` | GET | List available event types | 30/minute |
 | `/api/webhooks/<id>/rotate-secret` | POST | Rotate webhook secret | 5/minute |
 | `/api/webhooks/deliveries/<id>/retry` | POST | Retry a failed delivery | 20/minute |
+| `/api/webhooks/<id>/circuit` | GET | Get circuit breaker status | 30/minute |
+| `/api/webhooks/<id>/circuit` | POST | Manage circuit breaker | 10/minute |
 
 ## Database Models
 
@@ -130,8 +142,19 @@ Represents an external endpoint registration to receive webhook events:
 - `retry_interval`: Base interval in seconds between retries
 - `created_at`: When the subscription was created
 - `updated_at`: When the subscription was last updated
-- `last_used_at`: When the subscription was last triggered
 - `is_active`: Whether the subscription is currently active
+
+**Circuit breaker fields:**
+
+- `circuit_status`: Current state of the circuit breaker ('closed', 'open', 'half-open')
+- `failure_count`: Number of consecutive failures
+- `failure_threshold`: Number of failures before the circuit opens
+- `last_failure_at`: Timestamp of the most recent failure
+- `circuit_tripped_at`: When the circuit breaker was last tripped
+- `next_attempt_at`: When to attempt delivery again after circuit opens
+- `reset_timeout`: Time in seconds before transitioning from open to half-open
+- `success_threshold`: Successful requests needed in half-open state to close circuit
+- `half_open_successes`: Counter for successful requests in half-open state
 
 ### WebhookDeliveryAttempt
 
@@ -158,10 +181,12 @@ Tracks the delivery attempt history and outcomes for webhook events:
 1. An event occurs in the system (e.g., resource created, alert triggered)
 2. The system identifies all active subscriptions interested in the event type
 3. For each subscription, a delivery record is created
-4. The payload is signed with the subscription's secret
-5. The payload is sent to the target URL with appropriate headers
-6. Success/failure is recorded along with response details
-7. Failed deliveries are retried with exponential backoff up to max_retries
+4. The circuit breaker status is checked to determine if delivery should proceed
+5. The payload is signed with the subscription's secret
+6. The payload is sent to the target URL with appropriate headers
+7. Success/failure is recorded along with response details
+8. The circuit breaker state is updated based on the delivery outcome
+9. Failed deliveries are retried with exponential backoff up to `max_retries`
 
 ### Delivery Headers
 
@@ -173,6 +198,47 @@ Every webhook delivery includes these standard headers:
 - `X-Event-Type`: Type of event being delivered
 - `X-Webhook-ID`: Unique identifier for the webhook delivery
 - `X-Request-ID`: Correlation ID for request tracking
+
+## Circuit Breaker Pattern
+
+The webhook system implements the circuit breaker pattern to prevent repeated calls to failing endpoints, improving system reliability and performance.
+
+### Circuit Breaker States
+
+1. **Closed**: Normal operation - webhook deliveries proceed as expected.
+2. **Open**: Delivery attempts are suspended after multiple consecutive failures.
+3. **Half-Open**: After the reset timeout, a test delivery is allowed to determine if the endpoint has recovered.
+
+### Circuit Breaker Operation
+
+1. **When Closed**:
+   - Deliveries proceed normally
+   - Failures are counted
+   - Once failures reach `failure_threshold`, circuit trips to Open state
+
+2. **When Open**:
+   - Webhook deliveries are skipped
+   - A reset timeout timer begins
+   - After `reset_timeout` seconds, circuit transitions to Half-Open
+
+3. **When Half-Open**:
+   - Limited test deliveries are allowed
+   - If successful, successful deliveries are counted
+   - After `success_threshold` successful deliveries, circuit closes
+   - Any failure immediately returns circuit to Open state
+
+### Configuration
+
+Circuit breaker behavior can be configured both globally and per-subscription:
+
+- `WEBHOOK_CIRCUIT_THRESHOLD`: Number of consecutive failures before tripping (default: 5)
+- `WEBHOOK_CIRCUIT_RESET`: Seconds to wait before transitioning to half-open (default: 300)
+- `WEBHOOK_CIRCUIT_SUCCESS`: Successful requests needed to close circuit (default: 2)
+- `WEBHOOK_CIRCUIT_HALFOPEN`: Additional timing control for half-open state (default: 60)
+
+### Background Maintenance
+
+A scheduled background task runs every minute to check for circuit breakers that need to transition from open to half-open state based on their timeouts.
 
 ## Security Considerations
 
@@ -264,6 +330,7 @@ The system includes tools for testing webhooks:
   - Simulates responses for testing error handling
   - Validates webhook signatures
   - Tracks delivery statistics
+  - Simulates circuit breaker scenarios
 
 - A test endpoint at `/api/webhooks/test` for manual testing
   - Sends test events to a specified subscription
@@ -285,11 +352,16 @@ def test_webhook_delivery(client, auth):
     # Create test server
     mock_server = MockWebhookServer(secret="test_secret")
 
+    # Set up server to simulate circuit breaker scenario
+    # Will fail 6 times then succeed
+    mock_server.set_failure_sequence([500, 500, 500, 500, 500, 500, 200])
+
     # Create subscription pointing to mock server
     subscription = create_subscription(
         target_url=mock_server.url,
         event_types=["resource.created"],
-        secret=mock_server.secret
+        secret=mock_server.secret,
+        failure_threshold=5  # Circuit should trip after 5 failures
     )
 
     # Trigger webhook
@@ -300,6 +372,10 @@ def test_webhook_delivery(client, auth):
     assert len(deliveries) == 1
     assert deliveries[0]["event_type"] == "resource.created"
     assert deliveries[0]["data"]["id"] == "res-123"
+
+    # Verify circuit breaker tripped
+    subscription_record = WebhookSubscription.query.get(subscription.id)
+    assert subscription_record.circuit_status == 'open'
 ```
 
 ## Best Practices
@@ -310,7 +386,7 @@ When using webhooks in your application:
 2. **Respond Quickly**: Return a 2xx status code as soon as possible, then process asynchronously
 3. **Set Up Health Monitoring**: Monitor webhook delivery success rates for early issue detection
 4. **Use Idempotent Handlers**: Design webhook handlers to be safely retryable
-5. **Implement Circuit Breakers**: Temporarily disable webhooks that consistently fail
+5. **Configure Circuit Breakers**: Adjust circuit breaker thresholds based on your endpoint's reliability
 6. **Include Correlation IDs**: Add request IDs in your responses for troubleshooting
 7. **Limit Subscription Scope**: Subscribe only to events your application needs
 8. **Handle Duplicates**: Design for the possibility of receiving the same event twice
@@ -348,7 +424,7 @@ def verify_signature(payload, signature, secret):
 
 To add new event types:
 
-1. Add the event type to the `EventType` class in **init**.py
+1. Add the event type to the `EventType` class in `__init__.py`
 2. Add the event to the appropriate category in `EVENT_CATEGORIES`
 3. Trigger the new event type using `trigger_webhook()` from your code
 
@@ -361,6 +437,7 @@ To enhance the webhook system:
 5. Add filtering capabilities for more precise event selection
 6. Implement webhook payload transformations
 7. Add support for different payload formats (e.g., XML)
+8. Fine-tune circuit breaker parameters by event type
 
 ## Related Documentation
 
@@ -369,3 +446,4 @@ To enhance the webhook system:
 - Security Best Practices
 - Event Catalog
 - Webhook Testing Framework
+- Circuit Breaker Pattern

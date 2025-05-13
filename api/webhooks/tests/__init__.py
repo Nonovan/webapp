@@ -27,7 +27,7 @@ import pytest
 from api.webhooks import EventType, DeliveryStatus
 from api.webhooks.testing import MockWebhookServer
 from api.webhooks.subscription import create_subscription
-from models.webhook import WebhookSubscription, WebhookDelivery
+from models.communication.webhook import WebhookSubscription, WebhookDelivery
 
 # Constants for use in tests
 TEST_WEBHOOK_URL = "https://example.com/webhook"

@@ -15,9 +15,13 @@ import hashlib
 import json
 import logging
 import uuid
-from datetime import datetime
-from typing import Dict, List, Optional, Any, Union
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any, Union, Tuple
 from flask import Blueprint, current_app, Flask
+from extensions import db, metrics
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.interval import IntervalTrigger
+from models.communication.webhook import WebhookSubscription
 
 # Initialize logger for this package
 logger = logging.getLogger(__name__)
@@ -304,6 +308,87 @@ def register_webhook_metrics(metrics):
         current_app.logger.warning(f"Failed to register webhook metrics: {e}")
 
 
+def initialize_circuit_breakers(app: Flask) -> None:
+    """
+    Initialize the circuit breakers for webhook delivery.
+
+    This function loads configuration values and sets up any necessary
+    background tasks for circuit breaker management.
+
+    Args:
+        app: Flask application instance
+    """
+    config = {
+        'FAILURE_THRESHOLD': app.config.get('WEBHOOK_CIRCUIT_THRESHOLD', 5),
+        'RESET_TIMEOUT': app.config.get('WEBHOOK_CIRCUIT_RESET', 300),
+        'SUCCESS_THRESHOLD': app.config.get('WEBHOOK_CIRCUIT_SUCCESS', 2),
+        'HALF_OPEN_TIMEOUT': app.config.get('WEBHOOK_CIRCUIT_HALFOPEN', 60),
+        'MAX_ATTEMPTS': app.config.get('WEBHOOK_MAX_ATTEMPTS', 3),
+        'BACKOFF_FACTOR': app.config.get('WEBHOOK_BACKOFF_FACTOR', 2),
+        'MAX_BACKOFF': app.config.get('WEBHOOK_MAX_BACKOFF', 300)
+    }
+
+    app.config['WEBHOOK_CIRCUIT_CONFIG'] = config
+    logger.info(f"Webhook circuit breakers initialized with: failure_threshold={config['FAILURE_THRESHOLD']}, "
+               f"reset_timeout={config['RESET_TIMEOUT']}, success_threshold={config['SUCCESS_THRESHOLD']}")
+
+
+def setup_circuit_maintenance(app: Flask) -> None:
+    """
+    Set up background task for circuit breaker maintenance.
+
+    This function starts a scheduled task that periodically checks for
+    subscriptions with open circuit breakers that need to transition to
+    half-open state.
+
+    Args:
+        app: Flask application instance
+    """
+    try:
+        scheduler = BackgroundScheduler()
+
+        # Add maintenance job that runs every minute
+        @scheduler.scheduled_job(
+            IntervalTrigger(minutes=1),
+            id='webhook_circuit_maintenance',
+            max_instances=1
+        )
+        def check_circuit_breakers():
+            """Check and update circuit breaker states that need transitions."""
+            with app.app_context():
+                try:
+                    # Find subscriptions with open circuits that should transition to half-open
+                    now = datetime.utcnow()
+                    open_circuits = WebhookSubscription.query.filter(
+                        WebhookSubscription.circuit_status == 'open',
+                        WebhookSubscription.next_attempt_at <= now
+                    ).all()
+
+                    updates = 0
+                    for subscription in open_circuits:
+                        subscription.circuit_status = 'half-open'
+                        subscription.half_open_successes = 0
+                        updates += 1
+
+                    if updates > 0:
+                        db.session.commit()
+                        logger.info(f"Transitioned {updates} circuit breakers from open to half-open")
+                        if hasattr(metrics, 'increment'):
+                            metrics.increment('webhook.circuit.half_open_transition', updates)
+
+                except Exception as e:
+                    logger.error(f"Error in circuit breaker maintenance task: {str(e)}")
+
+        # Start the scheduler if not already running
+        scheduler.start()
+        logger.info("Webhook circuit breaker maintenance scheduler started")
+
+    except ImportError:
+        logger.warning("APScheduler not available - circuit breaker maintenance task disabled")
+    except Exception as e:
+        logger.error(f"Failed to set up circuit breaker maintenance task: {str(e)}")
+
+
 def init_app(app: Flask) -> None:
     """
     Initialize the webhooks module with the Flask application.
@@ -355,20 +440,11 @@ def init_app(app: Flask) -> None:
         logger.warning(f"Could not register webhook metrics: {e}")
 
     # Initialize circuit breakers for webhook delivery targets
-    try:
-        from core.security.cs_general_sec import CircuitBreaker
+    initialize_circuit_breakers(app)
 
-        delivery_breaker = CircuitBreaker(
-            name="webhook.delivery",
-            failure_threshold=app.config.get('WEBHOOK_CIRCUIT_THRESHOLD', 5),
-            reset_timeout=app.config.get('WEBHOOK_CIRCUIT_RESET', 300),
-            half_open_after=app.config.get('WEBHOOK_CIRCUIT_HALFOPEN', 60)
-        )
-        delivery_breaker.initialize()
-
-        logger.debug("Webhook delivery circuit breaker initialized")
-    except ImportError:
-        logger.info("Circuit breaker not available for webhook delivery")
+    # Set up the background task for circuit maintenance
+    if app.config.get('WEBHOOK_ENABLE_CIRCUIT_MAINTENANCE', True):
+        setup_circuit_maintenance(app)
 
     # Set up background tasks for retrying failed deliveries if applicable
     if app.config.get('WEBHOOK_ENABLE_BACKGROUND_RETRY', True):
