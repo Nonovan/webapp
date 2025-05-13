@@ -19,6 +19,7 @@ This directory contains core utility scripts that are essential for the operatio
   - [Configuration Loading](#configuration-loading)
   - [Security Operations](#security-operations)
   - [Resource Monitoring](#resource-monitoring)
+  - [System Information](#system-information)
   - [Error Handling](#error-handling)
   - [Notifications](#notifications)
   - [Initialization](#initialization-usage)
@@ -60,33 +61,33 @@ The core scripts in this directory are designed to streamline operations, enhanc
     - Configuration override mechanism
 
 - **`error_handler.py`**: Provides standardized error handling.
-  - **Usage**: Import this module to implement consistent error handling.
+  - **Usage**: Import this module to handle errors consistently.
   - **Features**:
-    - Structured error reporting
+    - Centralized error handling
     - Error categorization
-    - Custom exception types
-    - Error tracking integration
-    - Error correlation
+    - Standardized logging
+    - Alert generation
+    - Error context preservation
 
-- **`logger.py`**: Provides a standardized logging interface.
-  - **Usage**: Import this module to implement consistent logging.
+- **`logger.py`**: Implements a robust logging system.
+  - **Usage**: Import this module for consistent logging.
   - **Features**:
-    - Multiple log levels (DEBUG, INFO, WARNING, ERROR)
-    - Configurable log destinations
-    - Log rotation and management
-    - Structured logging format
-    - Integration with monitoring systems
+    - Multiple log levels
+    - Contextual information
+    - Output formatting
+    - Log rotation
+    - Environment-aware verbosity
 
-- **`notification.py`**: Sends notifications through various channels.
-  - **Usage**: Import this module to send notifications.
+- **`notification.py`**: Handles sending notifications across multiple channels.
+  - **Usage**: Import this module to send system alerts and notifications.
   - **Features**:
-    - Multiple notification channels (email, SMS, chat)
-    - Templated notifications
-    - Notification priorities
+    - Multi-channel support (email, SMS, chat)
+    - Priority levels
+    - Template rendering
     - Rate limiting
-    - Delivery verification
+    - Delivery confirmation
 
-- **`__init__.py`**: Core initialization module that bootstraps components.
+- **`__init__.py`**: Centralizes initialization of core components.
   - **Usage**: Import to initialize core components or run directly to test initialization.
   - **Features**:
     - Unified environment setup
@@ -111,74 +112,130 @@ scripts/core/
 ├── security/               # Security-related functionality
 │   ├── crypto.py           # Cryptographic operations
 │   ├── integrity_check.py  # File integrity verification
-│   └── permissions.py      # Permission management
+│   ├── permissions.py      # Permission management
+│   └── __init__.py         # Security module initialization
 └── system/                 # System operation functionality
     ├── cloud_provider.py   # Cloud provider interactions
     ├── resource_monitor.py # System resource monitoring
-    └── system_info.py      # System information collection
+    ├── system_info.py      # System information collection
+    └── __init__.py         # System module initialization
 ```
 
 ## Security Module
 
-The `security/` directory contains specific security-related functionality:
+The `security/` directory contains comprehensive security-related functionality:
 
-- **`crypto.py`**: Provides cryptographic operations.
-  - **Usage**: Import this module for secure encryption and decryption.
+- **`crypto.py`**: Provides cryptographic operations framework.
+  - **Usage**: Import this module for secure encryption, hashing, and key management.
   - **Features**:
-    - Symmetric and asymmetric encryption
-    - Secure hash functions
-    - Key management
-    - Digital signatures
-    - Password hashing and verification
+    - AES-GCM encryption with authenticated encryption
+    - RSA asymmetric encryption for key exchange
+    - Secure key derivation functions (PBKDF2, Argon2)
+    - Cryptographically secure random number generation
+    - Password hashing with adjustable work factors
+    - Digital signature generation and verification
+    - Hash computation with multiple algorithms
+    - Key rotation management
+    - Secure data wiping
+    - Cryptographic parameter validation
 
 - **`integrity_check.py`**: Ensures file integrity through hash verification.
-  - **Usage**: Import this module to verify file integrity.
+  - **Usage**: Import this module to verify file integrity and detect unauthorized changes.
   - **Features**:
-    - Multiple hash algorithm support
-    - Automated verification
-    - Change detection
-    - Baseline generation and comparison
-    - Integrity alerts
+    - Multiple hash algorithm support (SHA-256, SHA-512, BLAKE2)
+    - Baseline generation for integrity verification
+    - Change detection with detailed reporting
+    - Recursive directory scanning
+    - File exclusion patterns
+    - Integrity status caching
+    - Verification scheduling
+    - Critical file prioritization
+    - Tamper evidence logging
+    - Integration with notification system
+    - Secure baseline storage
 
-- **`permissions.py`**: Manages file and resource permissions.
-  - **Usage**: Import this module to handle permission checks and changes.
+- **`permissions.py`**: Manages file and directory permissions management.
+  - **Usage**: Import this module to handle permission checks and enforcement.
   - **Features**:
-    - Permission validation
-    - Secure permission setting
-    - Permission audit functions
-    - Security baseline enforcement
-    - Compliance checking
+    - Permission validation against security baselines
+    - Recursive permission application
+    - Security-focused permission patterns
+    - Ownership verification
+    - SUID/SGID detection
+    - World-writable file detection
+    - Executable stack detection
+    - Compliance checking against standards
+    - Permission audit logging
+    - Platform-aware permission handling
+    - Security policy enforcement
+
+- **`__init__.py`**: Centralizes security component initialization.
+  - **Usage**: Import to initialize security modules with dependencies.
+  - **Features**:
+    - Security component dependency resolution
+    - Cryptography subsystem initialization
+    - File integrity monitoring setup
+    - Permission management configuration
+    - Security metrics collection
+    - Centralized security logging
+    - Component availability tracking
+    - Initialization status reporting
 
 ## System Module
 
 The `system/` directory contains functionality for system operations:
 
-- **`cloud_provider.py`**: Manages interactions with cloud providers.
-  - **Usage**: Import this module to interact with cloud services.
+- **`cloud_provider.py`**: Manages interactions with cloud service providers.
+  - **Usage**: Import this module to interact with cloud services across multiple platforms.
   - **Features**:
     - Multi-cloud provider support (AWS, Azure, GCP)
     - Cloud resource management
     - Provider-specific functionality
     - Authentication handling
     - Request retries with exponential backoff
+    - Error handling with circuit breakers
+    - Resource provisioning and management
+    - Cost optimization utilities
+    - Cross-provider abstraction layer
+    - Secure credential management
 
-- **`resource_monitor.py`**: Monitors system resource usage.
-  - **Usage**: Import this module to track resource utilization.
+- **`resource_monitor.py`**: Monitors system resource usage across the platform.
+  - **Usage**: Import this module to track resource utilization and set up alerts.
   - **Features**:
     - CPU, memory, disk, and network monitoring
     - Resource utilization alerts
     - Performance metrics collection
     - Threshold management
     - Historical tracking
+    - Time-series data collection
+    - Alert escalation policies
+    - Customizable monitoring intervals
+    - Resource trend analysis
+    - Integration with notification system
 
-- **`system_info.py`**: Collects system information.
-  - **Usage**: Import this module to gather system details.
+- **`system_info.py`**: Collects detailed system information for operations and diagnostics.
+  - **Usage**: Import this module to gather comprehensive system details.
   - **Features**:
     - Hardware information collection
     - Operating system details
     - Network configuration data
     - Service status monitoring
     - Environment identification
+    - Container and virtualization detection
+    - System capability assessment
+    - Dependency verification
+    - Configuration validation
+    - Performance baseline measurement
+
+- **`__init__.py`**: Centralizes system component initialization.
+  - **Usage**: Import to initialize system modules with dependencies.
+  - **Features**:
+    - System component dependency resolution
+    - Component availability tracking
+    - System prerequisite verification
+    - Cloud provider initialization
+    - Resource monitoring setup
+    - System information configuration
 
 ## Initialization
 
@@ -323,14 +380,21 @@ if not is_valid:
 
 ```python
 # Import security modules
-from scripts.core.security.crypto import encrypt_data, decrypt_data
-from scripts.core.security.integrity_check import verify_file_integrity
-from scripts.core.security.permissions import check_file_permissions
+from scripts.core.security.crypto import encrypt_data, decrypt_data, generate_key
+from scripts.core.security.integrity_check import verify_file_integrity, create_baseline
+from scripts.core.security.permissions import check_file_permissions, set_secure_permissions
+
+# Generate a secure encryption key
+encryption_key = generate_key()
 
 # Encrypt and decrypt sensitive data
 secret_key = os.environ.get("SECRET_KEY")
 encrypted_data = encrypt_data("sensitive information", secret_key)
 decrypted_data = decrypt_data(encrypted_data, secret_key)
+
+# Create integrity baseline
+create_baseline("/etc/config", "/var/baseline/checksums.json",
+                algorithms=["sha256"], exclude_patterns=["*.tmp"])
 
 # Verify file integrity
 integrity_ok = verify_file_integrity("/etc/config/app.conf",
@@ -342,7 +406,9 @@ if not integrity_ok:
 # Check file permissions
 if not check_file_permissions("/etc/config/app.conf", mode=0o640):
     log.warning("Configuration file has incorrect permissions")
-    # Fix permissions or alert
+    # Fix permissions
+    set_secure_permissions("/etc/config/app.conf", mode=0o640,
+                          owner="root", group="app")
 ```
 
 ### Resource Monitoring
@@ -371,11 +437,48 @@ monitor.record_metric("memory_usage", memory_usage)
 cloud_metrics = monitor.get_cloud_metrics("aws", "ec2", instance_id="i-12345")
 ```
 
+### System Information
+
+```python
+# Import system information module
+from scripts.core.system.system_info import SystemInfo
+
+# Create system info instance
+sys_info = SystemInfo()
+
+# Get basic system information
+os_info = sys_info.get_os_info()
+print(f"OS: {os_info['name']} {os_info['version']}")
+print(f"Kernel: {sys_info.get_kernel_version()}")
+print(f"CPU cores: {sys_info.get_cpu_count()}")
+
+# Check service status
+if sys_info.is_service_running("nginx"):
+    print("NGINX is running")
+else:
+    print("NGINX is not running")
+
+# Get network information
+network_info = sys_info.get_network_info()
+for interface, details in network_info.items():
+    print(f"Interface: {interface}, IP: {details['ip']}")
+
+# Check system capabilities
+if sys_info.has_capability("docker"):
+    print("Docker is available")
+    containers = sys_info.get_container_info()
+    print(f"Running containers: {len(containers)}")
+
+# Generate comprehensive report
+report = sys_info.generate_report(include_sensitive=False)
+sys_info.save_report(report, "/var/log/system_report.json")
+```
+
 ### Error Handling
 
 ```python
 # Import error handler
-from scripts.core.error_handler import ErrorHandler, ApplicationError
+from scripts.core.error_handler import ErrorHandler, ApplicationError, ErrorCategory
 
 # Create error handler with correlation ID
 handler = ErrorHandler(correlation_id="req-abc-123")
@@ -385,13 +488,16 @@ try:
     result = perform_operation()
 except ConnectionError as e:
     # Handle specific error type
-    handler.handle_error(e, "Failed to connect to service", retry=True)
+    handler.handle_error(e, "Failed to connect to service",
+                        category=ErrorCategory.NETWORK, retry=True)
 except ApplicationError as e:
     # Custom application error
-    handler.handle_error(e, "Application error occurred", alert=True)
+    handler.handle_error(e, "Application error occurred",
+                        category=ErrorCategory.APPLICATION, alert=True)
 except Exception as e:
     # Generic error
-    handler.handle_error(e, "Unexpected error", critical=True)
+    handler.handle_error(e, "Unexpected error",
+                        category=ErrorCategory.SYSTEM, critical=True)
 ```
 
 ### Notifications
@@ -443,6 +549,13 @@ if not components["logger"] or not components["config_loader"]:
 from scripts.core import load_configuration
 config = load_configuration()
 
+# Initialize security components
+from scripts.core.security import initialize_security_components
+security_success, security_errors = initialize_security_components(
+    security_level="high",
+    log_level="INFO"
+)
+
 # Run as command-line tool to check initialization status
 # python -m scripts.core --environment production --log-level DEBUG
 ```
@@ -456,7 +569,7 @@ config = load_configuration()
 - **Security modules**: Depend on `logger` and `error_handler`
 - **System modules**: Depend on `logger`, `error_handler`, and `config_loader`
 - **Notification**: Depends on `logger` and `config_loader`
-- **`init.py`**: Manages dependencies for all other modules
+- **`__init__.py`**: Manages dependencies for all other modules
 
 ## Related Documentation
 
@@ -469,11 +582,16 @@ config = load_configuration()
 - Notification System Guide
 - Resource Monitoring Guide
 - Cloud Integration Reference
-- Integrity Monitoring Guide
-- Core Initialization Guide
+- Cryptographic Standards
+- File Integrity Monitoring Guide
+- Permission Security Model
+- Security Architecture Overview
+- System Information Collection Guide
+- Component Initialization Guide
 
 ## Version History
 
-- **0.0.3 (2024-08-25)**: Added centralized component initialization with dependency resolution
+- **0.0.4 (2024-08-25)**: Added enhanced security module with file integrity monitoring and permissions management
+- **0.0.3 (2024-03-10)**: Added system module with resources monitoring and information collection
 - **0.0.2 (2024-01-05)**: Major refactor with modular design and enhanced security
 - **0.0.1 (2023-04-15)**: Initial release of core script utilities

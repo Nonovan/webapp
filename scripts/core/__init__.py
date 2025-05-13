@@ -50,19 +50,25 @@ logger = logging.getLogger(__name__)
 
 def setup_minimal_logging(level: str = DEFAULT_LOG_LEVEL) -> None:
     """
-    Set up minimal logging before proper logger is initialized.
+    Set up minimal logging configuration for bootstrapping.
 
     Args:
-        level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        level: Log level to use
     """
-    numeric_level = getattr(logging, level.upper(), None)
-    if not isinstance(numeric_level, int):
-        numeric_level = logging.INFO
+    numeric_level = getattr(logging, level.upper(), logging.INFO)
 
+    # Configure root logger with a simple formatter
     logging.basicConfig(
-        format='[%(asctime)s] %(levelname)s in %(name)s: %(message)s',
-        level=numeric_level
+        level=numeric_level,
+        format='[%(asctime)s] [%(levelname)s] %(name)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        stream=sys.stderr
     )
+
+    # Specifically configure this module's logger
+    global logger
+    logger = logging.getLogger(__name__)
+    logger.debug("Minimal logging initialized")
 
 
 def initialize_components() -> Tuple[bool, List[str]]:
@@ -139,7 +145,20 @@ def initialize_components() -> Tuple[bool, List[str]]:
     if LOGGER_AVAILABLE and ERROR_HANDLER_AVAILABLE:
         try:
             # Try to import core security modules
-            from scripts.core.security import crypto, integrity_check, permissions
+            from scripts.core.security import initialize_security_components
+
+            # Initialize security components with secure defaults
+            security_level = os.environ.get("SECURITY_LEVEL", "standard")
+            success, security_errors = initialize_security_components(
+                security_level=security_level,
+                skip_unavailable=True
+            )
+
+            if not success:
+                for error in security_errors:
+                    errors.append(f"Security initialization error: {error}")
+                    logger.warning(f"Security initialization error: {error}")
+
             SECURITY_MODULE_AVAILABLE = True
             logger.debug("Security module initialized")
         except ImportError as e:
@@ -150,7 +169,18 @@ def initialize_components() -> Tuple[bool, List[str]]:
     if LOGGER_AVAILABLE and ERROR_HANDLER_AVAILABLE:
         try:
             # Try to import system modules
-            from scripts.core.system import cloud_provider, resource_monitor, system_info
+            from scripts.core.system import initialize_system_components
+
+            # Initialize system components with appropriate defaults
+            success, system_errors = initialize_system_components(
+                skip_unavailable=True
+            )
+
+            if not success:
+                for error in system_errors:
+                    errors.append(f"System initialization error: {error}")
+                    logger.warning(f"System initialization error: {error}")
+
             SYSTEM_MODULE_AVAILABLE = True
             logger.debug("System module initialized")
         except ImportError as e:
@@ -170,10 +200,10 @@ def initialize_components() -> Tuple[bool, List[str]]:
 
 def get_component_status() -> Dict[str, bool]:
     """
-    Get initialization status of all core components.
+    Get the availability status of all core components.
 
     Returns:
-        Dictionary mapping component names to availability status
+        Dictionary with component names as keys and availability as bool values
     """
     return {
         "logger": LOGGER_AVAILABLE,
@@ -187,40 +217,27 @@ def get_component_status() -> Dict[str, bool]:
 
 
 def load_configuration(config_file: Optional[str] = None,
-                      environment: Optional[str] = None) -> Optional[Dict[str, Any]]:
+                      environment: Optional[str] = None) -> Optional[Any]:
     """
-    Load configuration with the specified parameters.
+    Load configuration from specified file or default location.
 
     Args:
         config_file: Path to configuration file
-        environment: Environment name
+        environment: Environment name for configuration overrides
 
     Returns:
-        Configuration dictionary or None if loading fails
+        Configuration object or None if loading failed
     """
     if not CONFIG_LOADER_AVAILABLE:
-        logger.error("Config loader module not available, cannot load configuration")
+        logger.warning("Cannot load configuration - config_loader module not available")
         return None
 
     try:
-        from scripts.core.config_loader import load_config
-
-        # Use environment from environment module if available and not explicitly specified
-        if environment is None and ENVIRONMENT_AVAILABLE:
-            from scripts.core.environment import get_current_environment
-            environment = get_current_environment()
-
-        # Default config file if not specified
-        if config_file is None:
-            config_file = os.environ.get(CONFIG_PATH_ENV_VAR, DEFAULT_CONFIG_FILE)
-
-        # Load configuration
-        config = load_config(config_file, environment)
-        logger.info(f"Configuration loaded from {config_file} for environment {environment or 'default'}")
-
-        return config.get_all()
+        from scripts.core.config_loader import ConfigLoader
+        config = ConfigLoader.load(config_file or DEFAULT_CONFIG_FILE, environment=environment)
+        return config
     except Exception as e:
-        logger.error(f"Failed to load configuration: {e}")
+        logger.error(f"Error loading configuration: {e}")
         return None
 
 
@@ -273,49 +290,44 @@ def setup_script_environment(config_file: Optional[str] = None,
 
 def setup_cli_parser() -> argparse.ArgumentParser:
     """
-    Set up a standard command-line argument parser for scripts.
+    Set up command-line argument parser for script.
 
     Returns:
-        Configured ArgumentParser instance
+        Configured argument parser
     """
     parser = argparse.ArgumentParser(
-        description="Core script initialization",
-        epilog="Initializes core components for the Cloud Infrastructure Platform scripts"
+        description="Core Initialization for Cloud Infrastructure Platform",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
     parser.add_argument(
-        "-c", "--config",
-        dest="config_file",
-        default=os.environ.get(CONFIG_PATH_ENV_VAR, DEFAULT_CONFIG_FILE),
-        help=f"Path to configuration file (default: {DEFAULT_CONFIG_FILE})"
-    )
-
-    parser.add_argument(
-        "-e", "--environment",
-        dest="environment",
+        "--environment", "-e",
         default=os.environ.get("ENVIRONMENT", DEFAULT_ENV),
-        help=f"Environment (development, staging, production) (default: {DEFAULT_ENV})"
+        help="Environment to use (development, testing, staging, production)"
     )
 
     parser.add_argument(
-        "-l", "--log-level",
-        dest="log_level",
+        "--config", "-c",
+        default=os.environ.get(CONFIG_PATH_ENV_VAR, DEFAULT_CONFIG_FILE),
+        help="Path to configuration file"
+    )
+
+    parser.add_argument(
+        "--log-level", "-l",
         default=os.environ.get("LOG_LEVEL", DEFAULT_LOG_LEVEL),
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        help=f"Logging level (default: {DEFAULT_LOG_LEVEL})"
+        help="Logging level"
     )
 
     parser.add_argument(
-        "-f", "--log-file",
-        dest="log_file",
-        default=os.environ.get("LOG_FILE"),
-        help="Path to log file (default: console only)"
+        "--log-file", "-f",
+        help="Log file path (if not specified, logs to stderr)"
     )
 
     parser.add_argument(
-        "-v", "--verbose",
+        "--status", "-s",
         action="store_true",
-        help="Enable verbose output (sets log level to DEBUG)"
+        help="Show status of core components"
     )
 
     return parser
@@ -323,40 +335,44 @@ def setup_cli_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     """
-    Main function when module is run directly.
+    Main entry point for command-line usage.
 
     Returns:
-        Exit code (0 for success, non-zero for failure)
+        Exit code (0 for success, 1 for failure)
     """
     parser = setup_cli_parser()
     args = parser.parse_args()
 
-    # Handle verbose flag (overrides log level)
-    if args.verbose:
-        args.log_level = "DEBUG"
+    # Set up minimal logging
+    setup_minimal_logging(args.log_level)
 
-    # Initialize environment
+    # Show status if requested
+    if args.status:
+        # Initialize first to get accurate status
+        success, errors = initialize_components()
+
+        status = get_component_status()
+        print("Core Component Status:")
+        for component, available in status.items():
+            status_str = "✅ Available" if available else "❌ Unavailable"
+            print(f"  {component}: {status_str}")
+
+        if errors:
+            print("\nInitialization Errors:")
+            for error in errors:
+                print(f"  - {error}")
+
+        return 0 if success else 1
+
+    # Otherwise, set up script environment
     success = setup_script_environment(
-        config_file=args.config_file,
+        config_file=args.config,
         environment=args.environment,
         log_level=args.log_level,
         log_file=args.log_file
     )
 
-    # Print component status
-    status = get_component_status()
-    print("\nCore Component Status:")
-    print("-" * 30)
-    for component, available in status.items():
-        status_str = "Available" if available else "Not Available"
-        print(f"{component:<15}: {status_str}")
-    print("-" * 30)
-
-    if success:
-        print("\nInitialization successful. Core components are ready to use.")
-    else:
-        print("\nInitialization completed with some errors. Limited functionality available.")
-
+    # Return appropriate exit code
     return 0 if success else 1
 
 
