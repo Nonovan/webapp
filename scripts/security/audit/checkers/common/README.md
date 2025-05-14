@@ -75,8 +75,7 @@ scripts/security/audit/checkers/common/
 ### Basic Check Implementation
 
 ```python
-from scripts.security.audit.checkers.common.check_result import CheckResult, Severity
-from scripts.security.audit.checkers.common.check_utils import get_file_permissions
+from scripts.security.audit.checkers.common import CheckResult, Severity, get_file_permissions
 
 def check_secure_directories():
     """Check permissions on security-sensitive directories."""
@@ -108,7 +107,7 @@ def check_secure_directories():
 ### Working with Check Results
 
 ```python
-from scripts.security.audit.checkers.common.check_result import CheckResult, Severity
+from scripts.security.audit.checkers.common import CheckResult, Severity
 
 # Create a check result
 result = CheckResult(
@@ -134,24 +133,29 @@ html_output = result.to_html()
 ### Creating Aggregate Results
 
 ```python
-from scripts.security.audit.checkers.common.check_result import CheckResultSet
+from scripts.security.audit.checkers.common import CheckResultSet, filter_results
 
-# Create a result set from multiple checks
+# Create a result set
 result_set = CheckResultSet()
 
-# Run multiple checks and add their results
+# Add results from multiple checks
 result_set.add_results(check_file_permissions())
 result_set.add_results(check_network_security())
 result_set.add_results(check_authentication())
 
-# Filter results by severity
-high_risk_findings = result_set.filter_by_severity(Severity.HIGH)
+# Filter by severity
+critical_findings = result_set.filter_by_severity(Severity.CRITICAL)
+high_and_critical = filter_results(result_set.results, Severity.HIGH)
 
-# Filter by compliance standard
-pci_findings = result_set.filter_by_compliance("PCI-DSS")
+# Generate a comprehensive report
+report = result_set.generate_report(
+    title="Security Assessment Report",
+    format="html"
+)
 
-# Generate a report
-report = result_set.generate_report("security-audit-results")
+# Compare against previous baseline
+comparison = result_set.compare_with_baseline(previous_results)
+new_findings = comparison["new"]
 ```
 
 ## Check Development

@@ -90,6 +90,8 @@ Key environment variables include:
 | `SECURITY_NOTIFICATION_CHANNELS` | `email` | Notification channels to use |
 | `SECURITY_MAX_NOTIFICATIONS` | `10` | Maximum notifications per hour |
 | `SECURITY_VALIDATION_STRICT` | `true` | Enable strict input validation |
+| `SECURITY_NOTIFICATION_RATE_LIMIT_PERIOD` | `3600` | Rate limit window in seconds |
+| `SECURITY_NOTIFICATION_TEMPLATE_DIR` | `/etc/cloud-platform/security/templates` | Notification template directory |
 
 ## Best Practices & Security
 
@@ -103,6 +105,8 @@ Key environment variables include:
 - Never modify these utility scripts directly; extend them instead
 - Keep backward compatibility when updating these utilities
 - Maintain secure default settings for all security functions
+- Log security-relevant events at appropriate levels for audit purposes
+- Set proper file permissions for any generated output files
 
 ## Common Features
 
@@ -116,6 +120,8 @@ Key environment variables include:
 - Script version and dependency tracking
 - Integration with platform-wide security components
 - Support for audit and compliance requirements
+- Fallback mechanisms when primary functions are unavailable
+- Self-diagnostics and runtime environment verification
 
 ## Usage Examples
 
@@ -146,17 +152,23 @@ log_info "Authentication attempt" "username=jsmith password=$(mask_sensitive 'ac
 source "$(dirname "$0")/../common/notification.sh"
 
 # Send a basic notification
-send_notification "Security scan completed" "INFO"
+send_notification "Security scan completed" "Scan completed successfully with 0 findings" "info"
 
 # Send an urgent notification to specific recipients
-send_urgent_notification "Critical vulnerability detected" "admin@example.com,security@example.com"
+send_urgent_notification "Critical vulnerability detected" "CVE-2023-1234 found in system component"
 
 # Send notification with template
 send_template_notification "security_breach" \
-  "system=authentication severity=high affected_users=250"
+  "system=authentication,severity=high,affected_users=250,timestamp=2023-08-15T14:30:00Z"
 
 # Send notification to specific channels
-send_multi_channel_notification "Security patch required" "email,sms" "CRITICAL"
+send_multi_channel_notification "Security patch required" "email,sms" "Critical patches must be applied by EOD" "critical"
+
+# Use notification batching for multiple related messages
+start_notification_batch
+add_to_notification_batch "Firewall Rule Updated" "Rule 24 modified to allow port 443"
+add_to_notification_batch "Service Restarted" "Firewall service restarted to apply changes"
+send_notification_batch "Security Configuration Changes" "medium"
 ```
 
 ### Validation
@@ -170,23 +182,33 @@ validate_argument "--target" "$TARGET" "required"
 validate_argument "--days" "$DAYS" "numeric" "min=1,max=365"
 
 # Validate file paths
-if ! validate_path "$config_file" "readable" "file"; then
+if ! validate_file "$config_file" "r"; then
   log_error "Config file not readable or not a regular file"
   exit 1
 fi
 
 # Validate IPs and domains
-if validate_ip "$target"; then
+if is_ip_address "$target"; then
   log_info "Target is a valid IP address"
-elif validate_domain "$target"; then
-  log_info "Target is a valid domain name"
+elif is_hostname "$target"; then
+  log_info "Target is a valid hostname"
 else
   log_error "Invalid target specified"
   exit 1
 fi
 
 # Protect against command injection
-user_input=$(sanitize_input "$user_input")
+user_input=$(sanitize_shell_input "$user_input")
+
+# Validate environment variables
+validate_env_var "DATABASE_URL" "required"
+validate_env_var "PORT" "numeric" "min=1024,max=65535"
+
+# Check if a path contains directory traversal attempts
+if ! has_dir_traversal "$user_path"; then
+  log_error "Path contains potential directory traversal sequences"
+  exit 1
+fi
 ```
 
 ## Related Documentation
