@@ -72,6 +72,7 @@ Checkers are organized by security domain (file permissions, network, system) wi
 ```plaintext
 scripts/security/audit/checkers/
 ├── README.md                      # This documentation
+├── __init__.py                    # Package initialization
 ├── common/                        # Common check utilities
 │   ├── README.md                  # Common utilities documentation
 │   ├── __init__.py                # Package initialization
@@ -183,6 +184,32 @@ for result in results:
     print("---")
 ```
 
+### Using the Package-Level API
+
+```python
+from scripts.security.audit.checkers import run_security_checks
+
+# Run checks for specific domains with a baseline
+results = run_security_checks(
+    domains=["file_permissions", "network"],
+    severity_threshold="MEDIUM",
+    baseline="production"
+)
+
+# Print summary of findings
+summary = results.get_severity_counts()
+print(f"Found {len(results)} issues:")
+for severity, count in summary.items():
+    if count > 0:
+        print(f"  {severity}: {count}")
+
+# Generate report
+report = results.generate_report(
+    title="Security Assessment",
+    format="html"
+)
+```
+
 ### Checking Network Security
 
 ```python
@@ -201,41 +228,6 @@ report = checker.generate_report(format='html')
 # Save report to file
 with open('open_ports_report.html', 'w') as f:
     f.write(report)
-```
-
-### Checking System Security
-
-```python
-from scripts.security.audit.checkers.system import password_policy_check
-
-# Create checker with custom configuration
-config = {
-    "complexity": {
-        "min_length": 14,
-        "require_special": True
-    },
-    "aging": {
-        "max_days": 60
-    }
-}
-
-# Initialize and run check
-checker = password_policy_check.PasswordPolicyChecker(config=config)
-results = checker.check()
-
-# Filter by severity
-high_severity = [r for r in results if r.severity.name in ('HIGH', 'CRITICAL')]
-
-# Create aggregated report with multiple checkers
-from scripts.security.audit.checkers.common import CheckResultSet
-result_set = CheckResultSet()
-result_set.add_results(results)
-
-# Generate compliance report
-compliance_report = result_set.generate_report(
-    title="Password Policy Compliance",
-    format="json"
-)
 ```
 
 ### Using Common Utilities
